@@ -98,11 +98,20 @@ if NEEDS_RESAMPLE:
     RESAMPLE_DOWN = NATIVE_RATE // _g
 
 # -- The File (User Profile) ─────────────────────────────────────
+# Bilingual filler sets — merged into profile on startup
+KNOWN_FILLERS = {
+    "en": ["um", "uh", "like", "you know", "I mean", "so", "well", "right",
+           "basically", "literally", "actually", "honestly"],
+    "ru": ["это", "ну", "вот", "типа", "как бы", "значит", "короче",
+           "ладно", "та", "э", "ээ", "слушай"],
+}
+
 DEFAULT_PROFILE = {
     "version": 1,
     "created": None,
     "trigger_words": [],
-    "filler_words": ["um", "uh", "like", "you know"],
+    "filler_words": ["um", "uh", "like", "you know", "это", "ну", "вот",
+                     "типа", "как бы", "значит", "короче"],
     "corrections": {},
     "vocabulary": [],
     "preferences": {"tone": "casual", "layer": 2},
@@ -126,6 +135,20 @@ def load_profile():
     p["preferences"] = dict(DEFAULT_PROFILE["preferences"])
     return p
 
+def migrate_fillers(prof):
+    """Seed known bilingual fillers into existing profiles."""
+    existing = {f.lower() for f in prof.get("filler_words", [])}
+    added = []
+    for lang_fillers in KNOWN_FILLERS.values():
+        for filler in lang_fillers:
+            if filler.lower() not in existing:
+                prof.setdefault("filler_words", []).append(filler)
+                existing.add(filler.lower())
+                added.append(filler)
+    if added:
+        save_profile(prof)
+    return added
+
 def save_profile(prof):
     PROFILE_DIR.mkdir(exist_ok=True)
     with open(PROFILE_PATH, 'w', encoding='utf-8') as f:
@@ -146,6 +169,9 @@ def log_session(prof, raw, output, tone, layer, falcon_ok):
     save_profile(prof)
 
 profile = load_profile()
+_new_fillers = migrate_fillers(profile)
+if _new_fillers:
+    print(f"Added {len(_new_fillers)} bilingual fillers: {', '.join(_new_fillers)}")
 
 # -- State ────────────────────────────────────────────────────────
 recording = []
@@ -182,17 +208,23 @@ def log(text, kind="info"):
 # -- LLM Calls ───────────────────────────────────────────────────
 def reconstruct(raw_text, tone, layer, prof):
     """Layer 2+: Rebuild raw transcription into clean output."""
+    # Detect if input contains Cyrillic (bilingual speaker)
+    has_cyrillic = any('\u0400' <= c <= '\u04ff' for c in raw_text)
+    lang_note = " Speaker is bilingual (English/Russian) and may mix languages." if has_cyrillic else ""
+
     parts = [
-        f"Rebuild this raw voice transcription into clean {tone} text.",
-        "Fix grammar. Strip filler words. Restructure for clarity.",
+        f"Rebuild this raw voice transcription into clean {tone} text.{lang_note}",
+        "Fix grammar. Strip filler words (including non-English fillers). Restructure for clarity.",
         "Preserve FULL meaning. Do not summarize or add information.",
         "Output ONLY the reconstructed text."
     ]
 
+    # Always pass filler list at Layer 2+ (bilingual fillers matter everywhere)
+    if prof.get("filler_words"):
+        parts.append(f"\nStrip these fillers: {', '.join(prof['filler_words'][:25])}")
+
     if layer >= 3 and prof:
         ctx = []
-        if prof.get("filler_words"):
-            ctx.append(f"Strip these fillers: {', '.join(prof['filler_words'])}")
         if prof.get("vocabulary"):
             ctx.append(f"Preferred terms: {', '.join(prof['vocabulary'][:20])}")
         if prof.get("corrections"):
@@ -273,8 +305,9 @@ def learn_from_sessions(prof):
                     "1. corrections: recurring words misheard by speech-to-text that map to "
                     "different intended words (e.g. \"Duncan\" → \"Dankeschön\"). Only include "
                     "clear, confident mappings.\n"
-                    "2. fillers: filler words/sounds the speaker uses (e.g. um, uh, like, you know, "
-                    "это). Only words that appear as filler, not meaningful content.\n"
+                    "2. fillers: filler words/sounds the speaker uses IN ANY LANGUAGE "
+                    "(e.g. English: um, uh, like, you know; Russian: это, ну, вот, типа, как бы). "
+                    "Speaker is bilingual. Only words that appear as filler, not meaningful content.\n"
                     "3. vocabulary: domain-specific or preferred terms the speaker consistently uses.\n"
                     "Return ONLY valid JSON: {\"corrections\": {}, \"fillers\": [], \"vocabulary\": []}\n"
                     "If nothing to extract, return empty collections. Be conservative — only "
