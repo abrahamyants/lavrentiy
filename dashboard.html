@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LAVRENTIY</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #060606;
+  --surface: #0e0e0e;
+  --card: #141414;
+  --card-hover: #1a1a1a;
+  --border: #1e1e1e;
+  --border-hover: #2a2a2a;
+  --text: #c8c8c8;
+  --text-dim: #666;
+  --text-muted: #3a3a3a;
+  --red: #b91c1c;
+  --red-bright: #ef4444;
+  --red-glow: rgba(239,68,68,0.4);
+  --green: #16a34a;
+  --green-bright: #22c55e;
+  --green-glow: rgba(34,197,94,0.4);
+  --yellow: #ca8a04;
+  --yellow-bright: #eab308;
+  --yellow-glow: rgba(234,179,8,0.4);
+  --font: 'Consolas', 'Monaco', 'Cascadia Code', 'Courier New', monospace;
+  --radius: 6px;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  line-height: 1.5;
+  font-size: 13px;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(0deg,
+    transparent 0px, transparent 3px,
+    rgba(0,0,0,0.04) 3px, rgba(0,0,0,0.04) 4px);
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.container {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 16px 40px;
+}
+
+/* ── Header ──────────────────────────────────────── */
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px 0 20px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+  transition: border-color 0.5s;
+}
+header.recording { border-bottom-color: var(--red); }
+
+.brand h1 {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 8px;
+  color: var(--red-bright);
+  margin-bottom: 2px;
+}
+.brand .tagline {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.traffic-light {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: all 0.3s ease;
+  border: 1px solid rgba(255,255,255,0.03);
+}
+.dot.on-green {
+  background: var(--green-bright);
+  box-shadow: 0 0 12px var(--green-glow), 0 0 24px var(--green-glow);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+.dot.on-yellow {
+  background: var(--yellow-bright);
+  box-shadow: 0 0 12px var(--yellow-glow);
+  animation: spin-glow 0.8s ease-in-out infinite;
+}
+.dot.on-red {
+  background: var(--red-bright);
+  box-shadow: 0 0 12px var(--red-glow);
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+@keyframes spin-glow {
+  0%, 100% { box-shadow: 0 0 12px var(--yellow-glow); }
+  50% { box-shadow: 0 0 24px var(--yellow-glow), 0 0 40px var(--yellow-glow); }
+}
+
+.state-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  min-width: 80px;
+  text-align: right;
+}
+.uptime {
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+}
+
+/* ── Section titles ──────────────────────────────── */
+.section-title {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+/* ── Tone selector ───────────────────────────────── */
+.tone-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+.tone-btn {
+  flex: 1;
+  padding: 10px 0;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  font-family: var(--font);
+  font-size: 11px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-transform: uppercase;
+}
+.tone-btn:hover {
+  background: var(--card-hover);
+  border-color: var(--border-hover);
+  color: var(--text);
+}
+.tone-btn.active {
+  background: var(--red);
+  border-color: var(--red);
+  color: #fff;
+}
+
+/* ── Layer selector ──────────────────────────────── */
+.layer-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 24px;
+}
+.layer-btn {
+  padding: 12px 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+}
+.layer-btn:hover {
+  background: var(--card-hover);
+  border-color: var(--border-hover);
+}
+.layer-btn.active {
+  border-color: var(--red);
+  background: rgba(185,28,28,0.08);
+}
+.layer-btn .layer-num {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-dim);
+  transition: color 0.2s;
+}
+.layer-btn.active .layer-num { color: var(--red-bright); }
+.layer-btn .layer-name {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.layer-btn .layer-desc {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* ── Stats ───────────────────────────────────────── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 24px;
+}
+.stat-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  text-align: center;
+}
+.stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+}
+.stat-label {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  margin-top: 2px;
+}
+
+/* ── Session feed ────────────────────────────────── */
+.feed {
+  margin-bottom: 24px;
+}
+.feed-scroll {
+  max-height: 360px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.feed-scroll::-webkit-scrollbar { width: 4px; }
+.feed-scroll::-webkit-scrollbar-track { background: transparent; }
+.feed-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.session-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 4px;
+  animation: slide-in 0.3s ease-out;
+}
+@keyframes slide-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.session-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.session-time {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+}
+.session-tags {
+  display: flex;
+  gap: 6px;
+}
+.session-tag {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.tag-layer { background: rgba(255,255,255,0.04); color: var(--text-dim); }
+.tag-tone { background: rgba(185,28,28,0.15); color: var(--red-bright); }
+.tag-falcon-ok { background: rgba(22,163,74,0.12); color: var(--green-bright); }
+.tag-falcon-fail { background: rgba(185,28,28,0.15); color: var(--red-bright); }
+
+.session-raw {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  word-break: break-word;
+}
+.session-raw::before {
+  content: 'RAW ';
+  color: var(--text-muted);
+  font-size: 9px;
+  letter-spacing: 1px;
+}
+.session-out {
+  font-size: 12px;
+  color: var(--text);
+  word-break: break-word;
+}
+.session-out::before {
+  content: 'OUT ';
+  color: var(--green);
+  font-size: 9px;
+  letter-spacing: 1px;
+  font-weight: 700;
+}
+.feed-empty {
+  text-align: center;
+  padding: 40px 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* ── Live Console ────────────────────────────────── */
+.console-scroll {
+  background: #050505;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  max-height: 220px;
+  overflow-y: auto;
+  margin-bottom: 24px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.console-scroll::-webkit-scrollbar { width: 4px; }
+.console-scroll::-webkit-scrollbar-track { background: transparent; }
+.console-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.log-line {
+  font-size: 11px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  animation: slide-in 0.2s ease-out;
+}
+.log-line .log-ts {
+  color: var(--text-muted);
+  margin-right: 8px;
+  font-size: 10px;
+}
+.log-line.kind-rec { color: var(--green-bright); }
+.log-line.kind-raw { color: var(--text-muted); }
+.log-line.kind-out { color: var(--text); }
+.log-line.kind-info { color: var(--yellow-bright); }
+.log-line.kind-error { color: var(--red-bright); }
+.console-empty {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: center;
+  padding: 20px 0;
+}
+
+/* ── Profile editor (The File) ───────────────────── */
+.profile-section {
+  margin-bottom: 4px;
+}
+.profile-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.2s;
+  user-select: none;
+}
+.profile-header:hover { background: var(--card-hover); }
+.profile-header .arrow {
+  color: var(--text-muted);
+  transition: transform 0.2s;
+  font-size: 10px;
+}
+.profile-header.open .arrow { transform: rotate(90deg); }
+.profile-header .ph-title {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+.profile-header .ph-count {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: 8px;
+}
+.profile-body {
+  display: none;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+.profile-body.open { display: block; }
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.tag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.tag .remove {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.tag .remove:hover { color: var(--red-bright); }
+
+.add-row {
+  display: flex;
+  gap: 6px;
+}
+.add-input {
+  flex: 1;
+  padding: 6px 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 11px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.add-input:focus { border-color: var(--red); }
+.add-input::placeholder { color: var(--text-muted); }
+.add-btn {
+  padding: 6px 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-family: var(--font);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.add-btn:hover { background: var(--red); border-color: var(--red); color: #fff; }
+
+/* Corrections have two inputs */
+.corrections-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.corrections-row .arrow-icon { color: var(--text-muted); font-size: 11px; }
+
+/* ── Footer ──────────────────────────────────────── */
+footer {
+  text-align: center;
+  padding: 24px 0;
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+}
+footer .disclaimer {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  font-style: italic;
+}
+footer .keys {
+  font-size: 9px;
+  color: var(--text-muted);
+  margin-top: 8px;
+  letter-spacing: 1px;
+}
+
+/* ── Disconnected overlay ────────────────────────── */
+.disconnected {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(6,6,6,0.92);
+  z-index: 1000;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  gap: 12px;
+}
+.disconnected.show { display: flex; }
+.disconnected .msg {
+  font-size: 14px;
+  color: var(--red-bright);
+  letter-spacing: 4px;
+  text-transform: uppercase;
+}
+.disconnected .sub {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+</style>
+</head>
+<body>
+
+<div class="disconnected" id="disconnected">
+  <div class="msg">CONNECTION LOST</div>
+  <div class="sub">Lavrentiy engine is not running</div>
+</div>
+
+<div class="container">
+
+  <header id="header">
+    <div class="brand">
+      <h1>LAVRENTIY</h1>
+      <div class="tagline">We've got a file on you</div>
+    </div>
+    <div class="status">
+      <div class="traffic-light">
+        <div class="dot" id="dot-green"></div>
+        <div class="dot" id="dot-yellow"></div>
+        <div class="dot" id="dot-red"></div>
+      </div>
+      <div class="state-label" id="state-label">idle</div>
+      <div class="uptime" id="uptime">00:00</div>
+    </div>
+  </header>
+
+  <!-- Tone -->
+  <div class="section-title">Tone</div>
+  <div class="tone-row">
+    <button class="tone-btn" data-tone="casual">Casual</button>
+    <button class="tone-btn" data-tone="professional">Pro</button>
+    <button class="tone-btn" data-tone="friend">Friend</button>
+    <button class="tone-btn" data-tone="formal">Formal</button>
+  </div>
+
+  <!-- Layer -->
+  <div class="section-title">Layer</div>
+  <div class="layer-grid">
+    <div class="layer-btn" data-layer="1">
+      <div class="layer-num">1</div>
+      <div class="layer-name">Transcribe</div>
+      <div class="layer-desc">Pure Whisper output (KJU mode)</div>
+    </div>
+    <div class="layer-btn" data-layer="2">
+      <div class="layer-num">2</div>
+      <div class="layer-name">Reconstruct</div>
+      <div class="layer-desc">LLM rebuilds with tone</div>
+    </div>
+    <div class="layer-btn" data-layer="3">
+      <div class="layer-num">3</div>
+      <div class="layer-name">Profile</div>
+      <div class="layer-desc">+ your vocabulary &amp; patterns</div>
+    </div>
+    <div class="layer-btn" data-layer="4">
+      <div class="layer-num">4</div>
+      <div class="layer-name">Stutter</div>
+      <div class="layer-desc">+ disfluency awareness</div>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="section-title">Stats</div>
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-value" id="s-words">0</div>
+      <div class="stat-label">Words</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="s-sessions">0</div>
+      <div class="stat-label">Sessions</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="s-wpm">0</div>
+      <div class="stat-label">WPM</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="s-api">0</div>
+      <div class="stat-label">API Calls</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="s-falcon">0</div>
+      <div class="stat-label">Falcon Rej.</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="s-cost">$0.00</div>
+      <div class="stat-label">Est. Cost</div>
+    </div>
+  </div>
+
+  <!-- Live Console -->
+  <div class="section-title">Console</div>
+  <div class="console-scroll" id="console">
+    <div class="console-empty">Waiting for input...</div>
+  </div>
+
+  <!-- Session Feed -->
+  <div class="feed">
+    <div class="section-title">Session Feed</div>
+    <div class="feed-scroll" id="feed"></div>
+  </div>
+
+  <!-- Profile: The File -->
+  <div class="section-title">The File</div>
+
+  <div class="profile-section" id="sec-trigger">
+    <div class="profile-header" onclick="toggleSection('trigger')">
+      <span><span class="ph-title">Trigger Words</span><span class="ph-count" id="cnt-trigger">(0)</span></span>
+      <span class="arrow">&#9654;</span>
+    </div>
+    <div class="profile-body" id="body-trigger">
+      <div class="tag-list" id="tags-trigger"></div>
+      <div class="add-row">
+        <input class="add-input" id="input-trigger" placeholder="Add trigger word..." onkeydown="if(event.key==='Enter')addTag('trigger')">
+        <button class="add-btn" onclick="addTag('trigger')">+</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="profile-section" id="sec-filler">
+    <div class="profile-header" onclick="toggleSection('filler')">
+      <span><span class="ph-title">Filler Words</span><span class="ph-count" id="cnt-filler">(0)</span></span>
+      <span class="arrow">&#9654;</span>
+    </div>
+    <div class="profile-body" id="body-filler">
+      <div class="tag-list" id="tags-filler"></div>
+      <div class="add-row">
+        <input class="add-input" id="input-filler" placeholder="Add filler word..." onkeydown="if(event.key==='Enter')addTag('filler')">
+        <button class="add-btn" onclick="addTag('filler')">+</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="profile-section" id="sec-vocab">
+    <div class="profile-header" onclick="toggleSection('vocab')">
+      <span><span class="ph-title">Vocabulary</span><span class="ph-count" id="cnt-vocab">(0)</span></span>
+      <span class="arrow">&#9654;</span>
+    </div>
+    <div class="profile-body" id="body-vocab">
+      <div class="tag-list" id="tags-vocab"></div>
+      <div class="add-row">
+        <input class="add-input" id="input-vocab" placeholder="Add preferred term..." onkeydown="if(event.key==='Enter')addTag('vocab')">
+        <button class="add-btn" onclick="addTag('vocab')">+</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="profile-section" id="sec-corrections">
+    <div class="profile-header" onclick="toggleSection('corrections')">
+      <span><span class="ph-title">Corrections</span><span class="ph-count" id="cnt-corrections">(0)</span></span>
+      <span class="arrow">&#9654;</span>
+    </div>
+    <div class="profile-body" id="body-corrections">
+      <div id="corrections-list"></div>
+      <div class="add-row" style="margin-top:8px">
+        <input class="add-input" id="input-corr-from" placeholder="Heard as..." style="flex:1" onkeydown="if(event.key==='Enter')document.getElementById('input-corr-to').focus()">
+        <span style="color:var(--text-muted);font-size:11px;padding:0 2px">&rarr;</span>
+        <input class="add-input" id="input-corr-to" placeholder="Should be..." style="flex:1" onkeydown="if(event.key==='Enter')addCorrection()">
+        <button class="add-btn" onclick="addCorrection()">+</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="disclaimer">"Lavrentiy does his best. Check your shit before you send it."</div>
+    <div class="keys">F9 talk &middot; F10 tone &middot; F11 layer &middot; F12 stats &middot; F3&times;3 quit</div>
+  </footer>
+
+</div>
+
+<script>
+const API = '';
+let state = {state:'idle', tone:'casual', layer:2, layer_name:'reconstruct',
+             stats:{words:0,sessions:0,chars:0,start_time:Date.now()/1000,api_calls:0,falcon_rejects:0}};
+let profile = {trigger_words:[],filler_words:[],vocabulary:[],corrections:{}};
+let sessions = [];
+let lastSessionCount = -1;
+let connected = true;
+let failCount = 0;
+let lastLogId = 0;
+let logLines = [];
+
+// ── Profile field mapping ───────────────────────
+const FIELD_MAP = {
+  trigger: 'trigger_words',
+  filler: 'filler_words',
+  vocab: 'vocabulary'
+};
+
+// ── Polling ─────────────────────────────────────
+async function pollState() {
+  try {
+    const r = await fetch(API + '/api/state');
+    const d = await r.json();
+    state = d;
+    failCount = 0;
+    if (!connected) { connected = true; document.getElementById('disconnected').classList.remove('show'); }
+    updateUI();
+    if (d.stats.sessions !== lastSessionCount) {
+      lastSessionCount = d.stats.sessions;
+      fetchSessions();
+    }
+    fetchLog();
+  } catch(e) {
+    failCount++;
+    if (failCount > 3) {
+      connected = false;
+      document.getElementById('disconnected').classList.add('show');
+    }
+  }
+  setTimeout(pollState, 500);
+}
+
+async function fetchSessions() {
+  try {
+    const r = await fetch(API + '/api/sessions');
+    sessions = await r.json();
+    renderSessions();
+  } catch(e) {}
+}
+
+async function fetchLog() {
+  try {
+    const r = await fetch(API + '/api/log');
+    const entries = await r.json();
+    const newEntries = entries.filter(e => e.id > lastLogId);
+    if (newEntries.length > 0) {
+      lastLogId = entries[entries.length - 1].id;
+      logLines = entries;
+      renderConsole();
+    }
+  } catch(e) {}
+}
+
+async function fetchProfile() {
+  try {
+    const r = await fetch(API + '/api/profile');
+    profile = await r.json();
+    renderProfile();
+  } catch(e) {}
+}
+
+// ── UI Updates ──────────────────────────────────
+function updateUI() {
+  const s = state.state;
+  const hdr = document.getElementById('header');
+  hdr.classList.toggle('recording', s === 'recording');
+
+  setDot('dot-green', s === 'recording');
+  setDot('dot-yellow', s === 'processing');
+  setDot('dot-red', s === 'error');
+
+  document.getElementById('state-label').textContent = s;
+
+  const elapsed = Math.floor(Date.now()/1000 - state.stats.start_time);
+  const mm = String(Math.floor(elapsed/60)).padStart(2,'0');
+  const ss = String(elapsed%60).padStart(2,'0');
+  document.getElementById('uptime').textContent = mm+':'+ss;
+
+  // Tone buttons
+  document.querySelectorAll('.tone-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.tone === state.tone);
+  });
+
+  // Layer buttons
+  document.querySelectorAll('.layer-btn').forEach(b => {
+    b.classList.toggle('active', parseInt(b.dataset.layer) === state.layer);
+  });
+
+  // Stats
+  const st = state.stats;
+  document.getElementById('s-words').textContent = st.words.toLocaleString();
+  document.getElementById('s-sessions').textContent = st.sessions;
+  const mins = (Date.now()/1000 - st.start_time) / 60;
+  document.getElementById('s-wpm').textContent = mins > 0 ? Math.round(st.words/mins) : 0;
+  document.getElementById('s-api').textContent = st.api_calls;
+  document.getElementById('s-falcon').textContent = st.falcon_rejects;
+  const cost = st.sessions * 0.0032;
+  document.getElementById('s-cost').textContent = '$' + cost.toFixed(cost < 0.01 ? 4 : 2);
+}
+
+function setDot(id, on) {
+  const el = document.getElementById(id);
+  const cls = 'on-' + id.split('-')[1];
+  el.classList.toggle(cls, on);
+}
+
+// ── Session Feed ────────────────────────────────
+function renderSessions() {
+  const feed = document.getElementById('feed');
+  if (!sessions.length) {
+    feed.innerHTML = '<div class="feed-empty">Start dictating. Sessions appear here.</div>';
+    return;
+  }
+  feed.innerHTML = sessions.map(s => {
+    const t = new Date(s.ts);
+    const time = t.toLocaleTimeString('en-US', {hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
+    const toneShort = {casual:'CAS',professional:'PRO',friend:'FRD',formal:'FRM'}[s.tone] || s.tone;
+    const falconCls = s.falcon ? 'tag-falcon-ok' : 'tag-falcon-fail';
+    const falconTxt = s.falcon ? 'OK' : 'REJ';
+    const showRaw = s.layer > 1 && s.raw !== s.out;
+    return `<div class="session-card">
+      <div class="session-header">
+        <span class="session-time">${time}</span>
+        <div class="session-tags">
+          <span class="session-tag tag-layer">L${s.layer}</span>
+          <span class="session-tag tag-tone">${toneShort}</span>
+          ${s.layer > 1 ? `<span class="session-tag ${falconCls}">${falconTxt}</span>` : ''}
+        </div>
+      </div>
+      ${showRaw ? `<div class="session-raw">${esc(s.raw)}</div>` : ''}
+      <div class="session-out">${esc(s.out)}</div>
+    </div>`;
+  }).join('');
+}
+
+function esc(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+// ── Console ─────────────────────────────────────
+function renderConsole() {
+  const el = document.getElementById('console');
+  const wasAtBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
+  el.innerHTML = logLines.map(e => {
+    const d = new Date(e.ts * 1000);
+    const ts = d.toLocaleTimeString('en-US', {hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
+    return `<div class="log-line kind-${e.kind}"><span class="log-ts">${ts}</span>${esc(e.text)}</div>`;
+  }).join('');
+  if (wasAtBottom) el.scrollTop = el.scrollHeight;
+}
+
+// ── Profile Editor ──────────────────────────────
+function renderProfile() {
+  for (const [key, field] of Object.entries(FIELD_MAP)) {
+    const items = profile[field] || [];
+    document.getElementById('cnt-'+key).textContent = `(${items.length})`;
+    document.getElementById('tags-'+key).innerHTML = items.map((w,i) =>
+      `<span class="tag">${esc(w)}<span class="remove" onclick="removeTag('${key}',${i})">&times;</span></span>`
+    ).join('');
+  }
+  // Corrections
+  const corr = profile.corrections || {};
+  const keys = Object.keys(corr);
+  document.getElementById('cnt-corrections').textContent = `(${keys.length})`;
+  document.getElementById('corrections-list').innerHTML = keys.map(k =>
+    `<div class="corrections-row">
+      <span class="tag">${esc(k)}</span>
+      <span class="arrow-icon">&rarr;</span>
+      <span class="tag">${esc(corr[k])}</span>
+      <span class="remove" style="cursor:pointer;color:var(--text-muted);margin-left:4px" onclick="removeCorrection('${esc(k)}')">&times;</span>
+    </div>`
+  ).join('');
+}
+
+function toggleSection(key) {
+  const hdr = document.querySelector(`#sec-${key} .profile-header`);
+  const body = document.getElementById('body-'+key);
+  hdr.classList.toggle('open');
+  body.classList.toggle('open');
+}
+
+async function addTag(key) {
+  const input = document.getElementById('input-'+key);
+  const val = input.value.trim();
+  if (!val) return;
+  const field = FIELD_MAP[key];
+  if (!profile[field]) profile[field] = [];
+  if (profile[field].includes(val)) { input.value=''; return; }
+  profile[field].push(val);
+  input.value = '';
+  renderProfile();
+  await saveProfile();
+}
+
+async function removeTag(key, idx) {
+  const field = FIELD_MAP[key];
+  profile[field].splice(idx, 1);
+  renderProfile();
+  await saveProfile();
+}
+
+async function addCorrection() {
+  const from = document.getElementById('input-corr-from');
+  const to = document.getElementById('input-corr-to');
+  const f = from.value.trim(), t = to.value.trim();
+  if (!f || !t) return;
+  if (!profile.corrections) profile.corrections = {};
+  profile.corrections[f] = t;
+  from.value = ''; to.value = '';
+  renderProfile();
+  await saveProfile();
+}
+
+async function removeCorrection(key) {
+  delete profile.corrections[key];
+  renderProfile();
+  await saveProfile();
+}
+
+async function saveProfile() {
+  try {
+    await fetch(API + '/api/profile', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        trigger_words: profile.trigger_words,
+        filler_words: profile.filler_words,
+        vocabulary: profile.vocabulary,
+        corrections: profile.corrections
+      })
+    });
+  } catch(e) {}
+}
+
+// ── Button handlers ─────────────────────────────
+document.querySelectorAll('.tone-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    try {
+      await fetch(API + '/api/tone', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({tone: btn.dataset.tone})
+      });
+    } catch(e) {}
+  });
+});
+
+document.querySelectorAll('.layer-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    try {
+      await fetch(API + '/api/layer', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({layer: parseInt(btn.dataset.layer)})
+      });
+    } catch(e) {}
+  });
+});
+
+// ── Init ────────────────────────────────────────
+async function init() {
+  await Promise.all([fetchProfile(), fetchSessions()]);
+  pollState();
+}
+init();
+</script>
+</body>
+</html>
