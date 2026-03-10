@@ -243,6 +243,83 @@ def falcon_validate(raw_text, clean_text, layer):
     )
     return "yes" in resp.choices[0].message.content.strip().lower()
 
+
+# -- Auto-Learn ──────────────────────────────────────────────────
+LEARN_EVERY = 3  # run learner every N sessions (Layer 2+)
+_learn_counter = 0
+
+def learn_from_sessions(prof):
+    """Analyze recent raw→output pairs and extract patterns."""
+    sessions = [s for s in prof.get("sessions", [])
+                if s.get("layer", 1) >= 2 and s.get("raw") != s.get("out")]
+    recent = sessions[-LEARN_EVERY:]
+    if not recent:
+        return
+
+    pairs = "\n".join(
+        f"Raw: {s['raw']}\nOut: {s['out']}" for s in recent
+    )
+
+    stats["api_calls"] += 1
+    try:
+        resp = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": (
+                    "Analyze these voice transcription pairs (raw speech → cleaned output). "
+                    "Extract patterns:\n"
+                    "1. corrections: recurring words misheard by speech-to-text that map to "
+                    "different intended words (e.g. \"Duncan\" → \"Dankeschön\"). Only include "
+                    "clear, confident mappings.\n"
+                    "2. fillers: filler words/sounds the speaker uses (e.g. um, uh, like, you know, "
+                    "это). Only words that appear as filler, not meaningful content.\n"
+                    "3. vocabulary: domain-specific or preferred terms the speaker consistently uses.\n"
+                    "Return ONLY valid JSON: {\"corrections\": {}, \"fillers\": [], \"vocabulary\": []}\n"
+                    "If nothing to extract, return empty collections. Be conservative — only "
+                    "include patterns you're confident about."
+                )},
+                {"role": "user", "content": pairs}
+            ],
+            max_tokens=300,
+            temperature=0
+        )
+        text = resp.choices[0].message.content.strip()
+        # Strip markdown fences if present
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        learnings = json.loads(text)
+    except (json.JSONDecodeError, Exception) as e:
+        log(f"Learn: parse failed ({e})", "error")
+        return
+
+    changed = False
+    existing_corr = prof.get("corrections", {})
+    for wrong, right in learnings.get("corrections", {}).items():
+        if wrong.lower() not in {k.lower() for k in existing_corr}:
+            prof.setdefault("corrections", {})[wrong] = right
+            log(f"Learned: \"{wrong}\" → \"{right}\"", "info")
+            changed = True
+
+    existing_fillers = {f.lower() for f in prof.get("filler_words", [])}
+    for filler in learnings.get("fillers", []):
+        if filler.lower() not in existing_fillers:
+            prof.setdefault("filler_words", []).append(filler.lower())
+            log(f"Learned filler: \"{filler}\"", "info")
+            changed = True
+
+    existing_vocab = {v.lower() for v in prof.get("vocabulary", [])}
+    for term in learnings.get("vocabulary", []):
+        if term.lower() not in existing_vocab:
+            prof.setdefault("vocabulary", []).append(term)
+            log(f"Learned vocab: \"{term}\"", "info")
+            changed = True
+
+    if changed:
+        save_profile(prof)
+    else:
+        log("Learn: no new patterns", "info")
+
+
 # -- Audio ────────────────────────────────────────────────────────
 def audio_callback(indata, frames, time_info, status):
     if is_recording:
@@ -360,6 +437,14 @@ def pipeline():
         log_session(profile, raw_text, output, current_tone, current_layer, falcon_ok)
         paste(output)
         state = 'idle'
+
+        # Step 5: Auto-learn (async, Layer 2+ only)
+        if current_layer >= 2:
+            global _learn_counter
+            _learn_counter += 1
+            if _learn_counter >= LEARN_EVERY:
+                _learn_counter = 0
+                threading.Thread(target=learn_from_sessions, args=(profile,), daemon=True).start()
 
     except Exception as e:
         log(f"Error: {e}", "error")
