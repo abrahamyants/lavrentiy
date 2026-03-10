@@ -370,6 +370,99 @@ header.recording { border-bottom-color: var(--red); }
   padding: 20px 0;
 }
 
+/* ── Learning section ───────────────────────────── */
+.learn-bar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.learn-stat {
+  flex: 1;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  text-align: center;
+}
+.learn-stat .lv { font-size: 16px; font-weight: 700; color: var(--text); }
+.learn-stat .ll { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+.learn-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.learn-progress .lp-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+.learn-progress .lp-track {
+  flex: 1;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.learn-progress .lp-fill {
+  height: 100%;
+  background: var(--red);
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+.learn-progress .lp-count {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+.learn-feed {
+  max-height: 160px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  margin-bottom: 24px;
+}
+.learn-feed::-webkit-scrollbar { width: 4px; }
+.learn-feed::-webkit-scrollbar-track { background: transparent; }
+.learn-feed::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.learn-event {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 3px;
+  animation: slide-in 0.3s ease-out;
+}
+.learn-event .le-type {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.le-type-correction { background: rgba(234,179,8,0.12); color: var(--yellow-bright); }
+.le-type-filler { background: rgba(185,28,28,0.15); color: var(--red-bright); }
+.le-type-vocab { background: rgba(22,163,74,0.12); color: var(--green-bright); }
+.learn-event .le-value { font-size: 11px; color: var(--text); flex: 1; }
+.learn-event .le-time { font-size: 9px; color: var(--text-muted); letter-spacing: 1px; }
+.learn-empty {
+  text-align: center;
+  padding: 20px 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
 /* ── Profile editor (The File) ───────────────────── */
 .profile-section {
   margin-bottom: 4px;
@@ -619,6 +712,31 @@ footer .keys {
     <div class="console-empty">Waiting for input...</div>
   </div>
 
+  <!-- Learning -->
+  <div class="section-title">Learning</div>
+  <div class="learn-bar">
+    <div class="learn-stat">
+      <div class="lv" id="l-corrections">0</div>
+      <div class="ll">Corrections</div>
+    </div>
+    <div class="learn-stat">
+      <div class="lv" id="l-fillers">0</div>
+      <div class="ll">Fillers</div>
+    </div>
+    <div class="learn-stat">
+      <div class="lv" id="l-vocab">0</div>
+      <div class="ll">Vocabulary</div>
+    </div>
+  </div>
+  <div class="learn-progress">
+    <span class="lp-label">Next cycle</span>
+    <div class="lp-track"><div class="lp-fill" id="lp-fill" style="width:0%"></div></div>
+    <span class="lp-count" id="lp-count">0/3</span>
+  </div>
+  <div class="learn-feed" id="learn-feed">
+    <div class="learn-empty">No patterns learned yet. Keep talking.</div>
+  </div>
+
   <!-- Session Feed -->
   <div class="feed">
     <div class="section-title">Session Feed</div>
@@ -704,6 +822,8 @@ let connected = true;
 let failCount = 0;
 let lastLogId = 0;
 let logLines = [];
+let learnData = {status:{}, events:[], totals:{corrections:0,fillers:0,vocabulary:0}};
+let lastLearnEventCount = 0;
 
 // ── Profile field mapping ───────────────────────
 const FIELD_MAP = {
@@ -726,6 +846,7 @@ async function pollState() {
       fetchSessions();
     }
     fetchLog();
+    fetchLearn();
   } catch(e) {
     failCount++;
     if (failCount > 3) {
@@ -762,6 +883,18 @@ async function fetchProfile() {
     const r = await fetch(API + '/api/profile');
     profile = await r.json();
     renderProfile();
+  } catch(e) {}
+}
+
+async function fetchLearn() {
+  try {
+    const r = await fetch(API + '/api/learn');
+    learnData = await r.json();
+    if (learnData.events.length !== lastLearnEventCount) {
+      lastLearnEventCount = learnData.events.length;
+      renderLearn();
+    }
+    updateLearnProgress();
   } catch(e) {}
 }
 
@@ -851,6 +984,41 @@ function renderConsole() {
     return `<div class="log-line kind-${e.kind}"><span class="log-ts">${ts}</span>${esc(e.text)}</div>`;
   }).join('');
   if (wasAtBottom) el.scrollTop = el.scrollHeight;
+}
+
+// ── Learning ────────────────────────────────────
+function renderLearn() {
+  const t = learnData.totals || {};
+  document.getElementById('l-corrections').textContent = t.corrections || 0;
+  document.getElementById('l-fillers').textContent = t.fillers || 0;
+  document.getElementById('l-vocab').textContent = t.vocabulary || 0;
+
+  const feed = document.getElementById('learn-feed');
+  const events = learnData.events || [];
+  if (!events.length) {
+    feed.innerHTML = '<div class="learn-empty">No patterns learned yet. Keep talking.</div>';
+    return;
+  }
+  feed.innerHTML = [...events].reverse().map(e => {
+    const d = new Date(e.ts);
+    const time = d.toLocaleTimeString('en-US', {hour12:false, hour:'2-digit', minute:'2-digit'});
+    const typeCls = 'le-type-' + e.type;
+    const typeLabel = {correction:'CORR', filler:'FILLER', vocab:'VOCAB'}[e.type] || e.type;
+    return `<div class="learn-event">
+      <span class="le-type ${typeCls}">${typeLabel}</span>
+      <span class="le-value">${esc(e.value)}</span>
+      <span class="le-time">${time}</span>
+    </div>`;
+  }).join('');
+}
+
+function updateLearnProgress() {
+  const s = learnData.status || {};
+  const nextIn = s.next_in != null ? s.next_in : 3;
+  const done = 3 - nextIn;
+  const pct = Math.round((done / 3) * 100);
+  document.getElementById('lp-fill').style.width = pct + '%';
+  document.getElementById('lp-count').textContent = done + '/3';
 }
 
 // ── Profile Editor ──────────────────────────────
@@ -963,7 +1131,7 @@ document.querySelectorAll('.layer-btn').forEach(btn => {
 
 // ── Init ────────────────────────────────────────
 async function init() {
-  await Promise.all([fetchProfile(), fetchSessions()]);
+  await Promise.all([fetchProfile(), fetchSessions(), fetchLearn()]);
   pollState();
 }
 init();

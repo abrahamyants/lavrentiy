@@ -247,6 +247,8 @@ def falcon_validate(raw_text, clean_text, layer):
 # -- Auto-Learn ──────────────────────────────────────────────────
 LEARN_EVERY = 3  # run learner every N sessions (Layer 2+)
 _learn_counter = 0
+learn_events = []  # [{ts, type, value}, ...]
+learn_status = {"last_run": None, "total_learned": 0, "next_in": LEARN_EVERY}
 
 def learn_from_sessions(prof):
     """Analyze recent raw→output pairs and extract patterns."""
@@ -293,10 +295,12 @@ def learn_from_sessions(prof):
         return
 
     changed = False
+    now = datetime.now().isoformat()
     existing_corr = prof.get("corrections", {})
     for wrong, right in learnings.get("corrections", {}).items():
         if wrong.lower() not in {k.lower() for k in existing_corr}:
             prof.setdefault("corrections", {})[wrong] = right
+            learn_events.append({"ts": now, "type": "correction", "value": f"{wrong} → {right}"})
             log(f"Learned: \"{wrong}\" → \"{right}\"", "info")
             changed = True
 
@@ -304,6 +308,7 @@ def learn_from_sessions(prof):
     for filler in learnings.get("fillers", []):
         if filler.lower() not in existing_fillers:
             prof.setdefault("filler_words", []).append(filler.lower())
+            learn_events.append({"ts": now, "type": "filler", "value": filler.lower()})
             log(f"Learned filler: \"{filler}\"", "info")
             changed = True
 
@@ -311,13 +316,19 @@ def learn_from_sessions(prof):
     for term in learnings.get("vocabulary", []):
         if term.lower() not in existing_vocab:
             prof.setdefault("vocabulary", []).append(term)
+            learn_events.append({"ts": now, "type": "vocab", "value": term})
             log(f"Learned vocab: \"{term}\"", "info")
             changed = True
 
+    learn_status["last_run"] = now
     if changed:
+        learn_status["total_learned"] += len(learn_events) - sum(1 for e in learn_events if e["ts"] != now)
         save_profile(prof)
     else:
         log("Learn: no new patterns", "info")
+
+    if len(learn_events) > 50:
+        learn_events[:] = learn_events[-50:]
 
 
 # -- Audio ────────────────────────────────────────────────────────
@@ -442,8 +453,10 @@ def pipeline():
         if current_layer >= 2:
             global _learn_counter
             _learn_counter += 1
+            learn_status["next_in"] = max(0, LEARN_EVERY - _learn_counter)
             if _learn_counter >= LEARN_EVERY:
                 _learn_counter = 0
+                learn_status["next_in"] = LEARN_EVERY
                 threading.Thread(target=learn_from_sessions, args=(profile,), daemon=True).start()
 
     except Exception as e:
@@ -529,6 +542,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json(list(reversed(profile.get('sessions', [])[-50:])))
         elif self.path == '/api/log':
             self._json(console_log)
+        elif self.path == '/api/learn':
+            self._json({
+                'status': learn_status,
+                'events': learn_events,
+                'totals': {
+                    'corrections': len(profile.get('corrections', {})),
+                    'fillers': len(profile.get('filler_words', [])),
+                    'vocabulary': len(profile.get('vocabulary', []))
+                }
+            })
         else:
             self.send_error(404)
 
