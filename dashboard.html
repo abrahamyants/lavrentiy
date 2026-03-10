@@ -454,6 +454,7 @@ header.recording { border-bottom-color: var(--red); }
 .le-type-correction { background: rgba(234,179,8,0.12); color: var(--yellow-bright); }
 .le-type-filler { background: rgba(185,28,28,0.15); color: var(--red-bright); }
 .le-type-vocab { background: rgba(22,163,74,0.12); color: var(--green-bright); }
+.le-type-trigger { background: rgba(168,85,247,0.15); color: #a855f7; }
 .learn-event .le-value { font-size: 11px; color: var(--text); flex: 1; }
 .learn-event .le-time { font-size: 9px; color: var(--text-muted); letter-spacing: 1px; }
 .learn-empty {
@@ -727,6 +728,10 @@ footer .keys {
       <div class="lv" id="l-vocab">0</div>
       <div class="ll">Vocabulary</div>
     </div>
+    <div class="learn-stat">
+      <div class="lv" id="l-triggers">0</div>
+      <div class="ll">Triggers</div>
+    </div>
   </div>
   <div class="learn-progress">
     <span class="lp-label">Next cycle</span>
@@ -992,6 +997,7 @@ function renderLearn() {
   document.getElementById('l-corrections').textContent = t.corrections || 0;
   document.getElementById('l-fillers').textContent = t.fillers || 0;
   document.getElementById('l-vocab').textContent = t.vocabulary || 0;
+  document.getElementById('l-triggers').textContent = t.triggers || 0;
 
   const feed = document.getElementById('learn-feed');
   const events = learnData.events || [];
@@ -1003,7 +1009,7 @@ function renderLearn() {
     const d = new Date(e.ts);
     const time = d.toLocaleTimeString('en-US', {hour12:false, hour:'2-digit', minute:'2-digit'});
     const typeCls = 'le-type-' + e.type;
-    const typeLabel = {correction:'CORR', filler:'FILLER', vocab:'VOCAB'}[e.type] || e.type;
+    const typeLabel = {correction:'CORR', filler:'FILLER', vocab:'VOCAB', trigger:'TRIGGER'}[e.type] || e.type;
     return `<div class="learn-event">
       <span class="le-type ${typeCls}">${typeLabel}</span>
       <span class="le-value">${esc(e.value)}</span>

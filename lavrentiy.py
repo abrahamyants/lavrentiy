@@ -10,6 +10,7 @@ F9=talk  F10=tone  F11=layer  F12=stats  F3x3=quit
 """
 
 import sys
+import re
 import openai
 import sounddevice as sd
 import soundfile as sf
@@ -364,6 +365,95 @@ def learn_from_sessions(prof):
         learn_events[:] = learn_events[-50:]
 
 
+# -- Trigger Word Detection ───────────────────────────────────────
+# Regex: catch "Co-Co-Coca-Cola", "I I I want", "th-th-the", "b-b-but"
+_REPEAT_WORD = re.compile(
+    r'\b(\w+(?:\s+|[-])){1,5}\1{0}\w*\b', re.IGNORECASE
+)
+# Hyphenated stutters: "co-co-coca", "b-b-but", "th-th-the"
+_HYPHEN_STUTTER = re.compile(
+    r'\b(\w{1,4})[-]\1[-]?(\w+)\b', re.IGNORECASE
+)
+# Repeated words: "I I I want", "the the the dog"
+_WORD_REPEAT = re.compile(
+    r'\b(\w+)(?:\s+\1){1,}\s+(\w+)', re.IGNORECASE
+)
+
+def detect_triggers_regex(raw_text):
+    """Fast, free trigger word detection from raw transcription patterns."""
+    triggers = set()
+
+    # "b-b-but" → "but", "co-co-coca" → "coca" (partial, LLM resolves full word)
+    for m in _HYPHEN_STUTTER.finditer(raw_text):
+        intended = m.group(1) + m.group(2)
+        triggers.add(intended.lower())
+
+    # "I I I want" → "I", "the the dog" → "the"
+    for m in _WORD_REPEAT.finditer(raw_text):
+        repeated_word = m.group(1)
+        if repeated_word.lower() not in {'um', 'uh', 'like', 'so', 'and', 'or', 'but',
+                                          'ну', 'это', 'вот', 'а', 'и'}:
+            triggers.add(repeated_word.lower())
+
+    return triggers
+
+
+def detect_triggers_llm(raw_text, output, prof):
+    """LLM-assisted trigger word detection. Async, Layer 4 only."""
+    stats["api_calls"] += 1
+    try:
+        resp = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": (
+                    "The speaker stutters. Analyze this raw voice transcription and its "
+                    "clean reconstruction. Identify TRIGGER WORDS — specific words the "
+                    "speaker stuttered on (repeated syllables, blocks, prolongations).\n"
+                    "Examples of stuttering patterns in raw text:\n"
+                    "- 'Co-Co-Coca-Cola' → trigger word: 'Coca-Cola'\n"
+                    "- 'I I I want' → trigger word: 'I'\n"
+                    "- 'th-th-the' → trigger word: 'the'\n"
+                    "- Long pause then word = block → that word is a trigger\n"
+                    "- Word avoidance (speaker says synonym instead) = possible trigger\n\n"
+                    "Return ONLY valid JSON: {\"trigger_words\": [\"word1\", \"word2\"]}\n"
+                    "If no stuttering detected, return {\"trigger_words\": []}\n"
+                    "Be conservative — only include words with clear evidence of disfluency."
+                )},
+                {"role": "user", "content": f"Raw: {raw_text}\nClean: {output}"}
+            ],
+            max_tokens=150,
+            temperature=0
+        )
+        text = resp.choices[0].message.content.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        result = json.loads(text)
+        return set(w.lower() for w in result.get("trigger_words", []))
+    except Exception as e:
+        log(f"Trigger detect failed: {e}", "error")
+        return set()
+
+
+def add_trigger_words(new_triggers, prof):
+    """Merge newly detected trigger words into profile."""
+    existing = {w.lower() for w in prof.get("trigger_words", [])}
+    added = []
+    for word in new_triggers:
+        if word.lower() not in existing and len(word) > 1:
+            prof.setdefault("trigger_words", []).append(word)
+            existing.add(word.lower())
+            learn_events.append({
+                "ts": datetime.now().isoformat(),
+                "type": "trigger",
+                "value": word
+            })
+            log(f"Trigger detected: \"{word}\"", "info")
+            added.append(word)
+    if added:
+        save_profile(prof)
+    return added
+
+
 # -- Audio ────────────────────────────────────────────────────────
 def audio_callback(indata, frames, time_info, status):
     if is_recording:
@@ -482,7 +572,20 @@ def pipeline():
         paste(output)
         state = 'idle'
 
-        # Step 5: Auto-learn (async, Layer 2+ only)
+        # Step 5: Trigger word detection (Layer 4)
+        if current_layer >= 4:
+            # Regex: instant, free — runs inline
+            regex_triggers = detect_triggers_regex(raw_text)
+            if regex_triggers:
+                add_trigger_words(regex_triggers, profile)
+            # LLM: async background — catches subtler patterns
+            threading.Thread(
+                target=lambda: add_trigger_words(
+                    detect_triggers_llm(raw_text, output, profile), profile
+                ), daemon=True
+            ).start()
+
+        # Step 6: Auto-learn (async, Layer 2+ only)
         if current_layer >= 2:
             global _learn_counter
             _learn_counter += 1
@@ -582,7 +685,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'totals': {
                     'corrections': len(profile.get('corrections', {})),
                     'fillers': len(profile.get('filler_words', [])),
-                    'vocabulary': len(profile.get('vocabulary', []))
+                    'vocabulary': len(profile.get('vocabulary', [])),
+                    'triggers': len(profile.get('trigger_words', []))
                 }
             })
         else:
