@@ -72,6 +72,14 @@ MAX_SESSIONS = 100
 DASHBOARD_PORT = 7878
 DASHBOARD_PATH = PROFILE_DIR / "dashboard.html"
 
+# -- Phase 2 config ──────────────────────────────────────────────
+MODE = "SAFE"                     # RAW | FAST | SAFE
+LEARN_PROMOTION_THRESHOLD = 2     # candidate recurrences before promotion
+MAX_PROFILE_ITEMS = 200           # cap per profile section
+HOLD_ON_HIGH_RISK = False         # True = skip paste when risk_flags present
+BACKUP_DIR = PROFILE_DIR / "backups"
+PROFILE_VERSION = 2
+
 TONES = ["casual", "professional", "friend", "formal"]
 TONE_SHORT = {"casual": "CAS", "professional": "PRO", "friend": "FRD", "formal": "FRM"}
 LAYERS = [1, 2, 3, 4]
@@ -108,13 +116,16 @@ KNOWN_FILLERS = {
 }
 
 DEFAULT_PROFILE = {
-    "version": 1,
+    "version": PROFILE_VERSION,
     "created": None,
     "trigger_words": [],
     "filler_words": ["um", "uh", "like", "you know", "это", "ну", "вот",
                      "типа", "как бы", "значит", "короче"],
     "corrections": {},
     "vocabulary": [],
+    "candidate_corrections": {},
+    "candidate_fillers": {},
+    "candidate_vocabulary": {},
     "preferences": {"tone": "casual", "layer": 2},
     "sessions": []
 }
@@ -152,24 +163,56 @@ def migrate_fillers(prof):
 
 def save_profile(prof):
     PROFILE_DIR.mkdir(exist_ok=True)
-    with open(PROFILE_PATH, 'w', encoding='utf-8') as f:
+    tmp_path = PROFILE_PATH.with_suffix('.tmp')
+    with open(tmp_path, 'w', encoding='utf-8') as f:
         json.dump(prof, f, indent=2, ensure_ascii=False)
+        f.flush()
+        os.fsync(f.fileno())
+    tmp_path.replace(PROFILE_PATH)
 
-def log_session(prof, raw, output, tone, layer, falcon_ok):
-    prof["sessions"].append({
+def _snapshot_profile(prof):
+    """Save timestamped backup. Keep last 5."""
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = BACKUP_DIR / f"profile_{ts}.json"
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(prof, f, indent=2, ensure_ascii=False)
+    for old in sorted(BACKUP_DIR.glob("profile_*.json"))[:-5]:
+        old.unlink()
+
+def migrate_profile(prof):
+    """Upgrade profile schema to current version."""
+    v = prof.get("version", 1)
+    if v < PROFILE_VERSION:
+        _snapshot_profile(prof)
+        prof.setdefault("candidate_corrections", {})
+        prof.setdefault("candidate_fillers", {})
+        prof.setdefault("candidate_vocabulary", {})
+        prof["version"] = PROFILE_VERSION
+        save_profile(prof)
+    return prof
+
+def log_session(prof, raw, output, tone, layer, decision=None, timings=None):
+    entry = {
         "ts": datetime.now().isoformat(),
         "raw": raw,
         "out": output,
         "tone": tone,
         "layer": layer,
         "words": len(output.split()),
-        "falcon": falcon_ok
-    })
+        "falcon": decision["falcon_ok"] if decision else True
+    }
+    if decision:
+        entry["decision"] = decision
+    if timings:
+        entry["timings"] = timings
+    prof["sessions"].append(entry)
     if len(prof["sessions"]) > MAX_SESSIONS:
         prof["sessions"] = prof["sessions"][-MAX_SESSIONS:]
     save_profile(prof)
 
 profile = load_profile()
+profile = migrate_profile(profile)
 _new_fillers = migrate_fillers(profile)
 if _new_fillers:
     print(f"Added {len(_new_fillers)} bilingual fillers: {', '.join(_new_fillers)}")
@@ -328,38 +371,72 @@ def learn_from_sessions(prof):
         log(f"Learn: parse failed ({e})", "error")
         return
 
-    added = 0
+    promoted = 0
     now = datetime.now().isoformat()
-    existing_corr = prof.get("corrections", {})
+
+    # Corrections → candidates → promote
+    existing_corr = {k.lower() for k in prof.get("corrections", {})}
+    cand_corr = prof.setdefault("candidate_corrections", {})
     for wrong, right in learnings.get("corrections", {}).items():
-        if wrong.lower() not in {k.lower() for k in existing_corr}:
-            prof.setdefault("corrections", {})[wrong] = right
+        key = wrong.lower()
+        if key in existing_corr:
+            continue
+        if key in cand_corr:
+            cand_corr[key]["count"] += 1
+        else:
+            cand_corr[key] = {"right": right, "count": 1}
+        if cand_corr[key]["count"] >= LEARN_PROMOTION_THRESHOLD:
+            if len(prof.get("corrections", {})) < MAX_PROFILE_ITEMS:
+                prof.setdefault("corrections", {})[wrong] = cand_corr[key]["right"]
+            del cand_corr[key]
             learn_events.append({"ts": now, "type": "correction", "value": f"{wrong} → {right}"})
-            log(f"Learned: \"{wrong}\" → \"{right}\"", "info")
-            added += 1
+            log(f"Promoted: \"{wrong}\" → \"{right}\"", "info")
+            promoted += 1
+        else:
+            learn_events.append({"ts": now, "type": "candidate", "value": f"{wrong} → {right} ({cand_corr[key]['count']}/{LEARN_PROMOTION_THRESHOLD})"})
 
+    # Fillers → candidates → promote
     existing_fillers = {f.lower() for f in prof.get("filler_words", [])}
+    cand_fill = prof.setdefault("candidate_fillers", {})
     for filler in learnings.get("fillers", []):
-        if filler.lower() not in existing_fillers:
-            prof.setdefault("filler_words", []).append(filler.lower())
-            learn_events.append({"ts": now, "type": "filler", "value": filler.lower()})
-            log(f"Learned filler: \"{filler}\"", "info")
-            added += 1
+        key = filler.lower()
+        if key in existing_fillers:
+            continue
+        cand_fill[key] = cand_fill.get(key, 0) + 1
+        if cand_fill[key] >= LEARN_PROMOTION_THRESHOLD:
+            if len(prof.get("filler_words", [])) < MAX_PROFILE_ITEMS:
+                prof.setdefault("filler_words", []).append(key)
+            del cand_fill[key]
+            learn_events.append({"ts": now, "type": "filler", "value": key})
+            log(f"Promoted filler: \"{filler}\"", "info")
+            promoted += 1
+        else:
+            learn_events.append({"ts": now, "type": "candidate", "value": f"filler: {key} ({cand_fill[key]}/{LEARN_PROMOTION_THRESHOLD})"})
 
+    # Vocabulary → candidates → promote
     existing_vocab = {v.lower() for v in prof.get("vocabulary", [])}
+    cand_vocab = prof.setdefault("candidate_vocabulary", {})
     for term in learnings.get("vocabulary", []):
-        if term.lower() not in existing_vocab:
-            prof.setdefault("vocabulary", []).append(term)
+        key = term.lower()
+        if key in existing_vocab:
+            continue
+        cand_vocab[key] = cand_vocab.get(key, 0) + 1
+        if cand_vocab[key] >= LEARN_PROMOTION_THRESHOLD:
+            if len(prof.get("vocabulary", [])) < MAX_PROFILE_ITEMS:
+                prof.setdefault("vocabulary", []).append(term)
+            del cand_vocab[key]
             learn_events.append({"ts": now, "type": "vocab", "value": term})
-            log(f"Learned vocab: \"{term}\"", "info")
-            added += 1
+            log(f"Promoted vocab: \"{term}\"", "info")
+            promoted += 1
+        else:
+            learn_events.append({"ts": now, "type": "candidate", "value": f"vocab: {term} ({cand_vocab[key]}/{LEARN_PROMOTION_THRESHOLD})"})
 
     learn_status["last_run"] = now
-    if added:
-        learn_status["total_learned"] += added
-        save_profile(prof)
+    if promoted:
+        learn_status["total_learned"] += promoted
     else:
-        log("Learn: no new patterns", "info")
+        log("Learn: no promotions this cycle", "info")
+    save_profile(prof)  # always save — candidate counts changed
 
     if len(learn_events) > 50:
         learn_events[:] = learn_events[-50:]
@@ -504,6 +581,25 @@ def set_state(s):
     global state
     state = s
 
+def make_decision(falcon_ok, layer, used_fallback):
+    """Build decision record for this pipeline run."""
+    risk_flags = []
+    if MODE == "RAW" or layer == 1:
+        decision = "paste_raw"
+    elif used_fallback:
+        decision = "paste_raw"
+    elif MODE == "FAST":
+        decision = "paste_clean"
+    else:  # SAFE
+        decision = "paste_clean" if falcon_ok else "paste_raw"
+    if HOLD_ON_HIGH_RISK and risk_flags:
+        decision = "hold"
+    return {
+        "mode": MODE, "falcon_ok": falcon_ok,
+        "risk_flags": risk_flags, "used_fallback": used_fallback,
+        "decision": decision
+    }
+
 # -- Pipeline ─────────────────────────────────────────────────────
 def pipeline():
     global state
@@ -524,65 +620,79 @@ def pipeline():
 
     try:
         # Step 1: Whisper
+        t0 = time.time()
         with open(tmp.name, "rb") as f:
             result = client.audio.transcriptions.create(
                 model="whisper-1", file=f, language=LANGUAGE
             )
         raw_text = result.text.strip()
+        t_asr = time.time()
         if not raw_text:
             state = 'idle'
             return
 
-        # Layer 1: pure transcription (KJU mode)
-        if current_layer == 1:
-            output = raw_text
-            falcon_ok = True
-            log(f"-> \"{output}\"  [{len(output.split())}w]", "out")
-        else:
-            # TurboTax trick: show raw first
+        used_fallback = False
+        clean_text = None
+        falcon_ok = True
+        t_recon = t_asr
+        t_val = t_asr
+
+        if current_layer > 1 and MODE != "RAW":
             log(f"Raw: \"{raw_text}\"", "raw")
 
             # Step 2: Reconstruct
             try:
-                output = reconstruct(raw_text, current_tone, current_layer, profile)
+                clean_text = reconstruct(raw_text, current_tone, current_layer, profile)
             except Exception as e:
                 log(f"Reconstruct failed ({e}) -- using raw", "error")
-                output = raw_text
-                falcon_ok = True
-                state = 'idle'
-                paste(output)
-                log_session(profile, raw_text, output, current_tone, current_layer, True)
-                return
+                used_fallback = True
+            t_recon = time.time()
 
-            # Step 3: Falcon
-            try:
-                falcon_ok = falcon_validate(raw_text, output, current_layer)
-            except Exception:
-                falcon_ok = True  # degrade gracefully
+            # Step 3: Falcon (SAFE mode only, skip if fallback)
+            if MODE == "SAFE" and clean_text and not used_fallback:
+                try:
+                    falcon_ok = falcon_validate(raw_text, clean_text, current_layer)
+                except Exception:
+                    falcon_ok = True
+                if not falcon_ok:
+                    stats["falcon_rejects"] += 1
+                    log("Falcon: REJECTED -- using raw", "error")
+            t_val = time.time()
 
-            if not falcon_ok:
-                stats["falcon_rejects"] += 1
-                log("Falcon: REJECTED -- using raw", "error")
-                output = raw_text
+        # Decision
+        decision = make_decision(falcon_ok, current_layer, used_fallback)
+        output = clean_text if (decision["decision"] == "paste_clean" and clean_text) else raw_text
+        timings = {
+            "asr_ms": round((t_asr - t0) * 1000),
+            "reconstruct_ms": round((t_recon - t_asr) * 1000),
+            "validate_ms": round((t_val - t_recon) * 1000),
+            "total_ms": round((t_val - t0) * 1000)
+        }
 
-            tone_tag = TONE_SHORT.get(current_tone, "???")
-            log(f"-> \"{output}\"  [{len(output.split())}w] ({tone_tag})", "out")
+        wc = len(output.split())
+        tone_tag = TONE_SHORT.get(current_tone, "???")
+        if current_layer > 1 and MODE != "RAW":
+            log(f"-> \"{output}\"  [{wc}w] ({tone_tag})", "out")
+        else:
+            log(f"-> \"{output}\"  [{wc}w]", "out")
+        log(f"[{decision['mode']}] {decision['decision']} | {timings['total_ms']}ms (asr:{timings['asr_ms']} recon:{timings['reconstruct_ms']} val:{timings['validate_ms']})", "info")
 
-        # Step 4: Paste
-        stats["words"] += len(output.split())
-        stats["chars"] += len(output)
-        stats["sessions"] += 1
-        log_session(profile, raw_text, output, current_tone, current_layer, falcon_ok)
-        paste(output)
+        # Paste or hold
+        if decision["decision"] == "hold":
+            log("HELD — high-risk output not pasted", "error")
+        else:
+            stats["words"] += wc
+            stats["chars"] += len(output)
+            stats["sessions"] += 1
+            paste(output)
+        log_session(profile, raw_text, output, current_tone, current_layer, decision, timings)
         state = 'idle'
 
         # Step 5: Trigger word detection (Layer 4)
         if current_layer >= 4:
-            # Regex: instant, free — runs inline
             regex_triggers = detect_triggers_regex(raw_text)
             if regex_triggers:
                 add_trigger_words(regex_triggers, profile)
-            # LLM: async background — catches subtler patterns
             threading.Thread(
                 target=lambda: add_trigger_words(
                     detect_triggers_llm(raw_text, output, profile), profile
@@ -674,6 +784,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'tone': current_tone,
                 'layer': current_layer,
                 'layer_name': LAYER_NAMES.get(current_layer, '?'),
+                'mode': MODE,
                 'stats': stats
             })
         elif self.path == '/api/profile':
@@ -690,7 +801,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     'corrections': len(profile.get('corrections', {})),
                     'fillers': len(profile.get('filler_words', [])),
                     'vocabulary': len(profile.get('vocabulary', [])),
-                    'triggers': len(profile.get('trigger_words', []))
+                    'triggers': len(profile.get('trigger_words', [])),
+                    'candidates': {
+                        'corrections': len(profile.get('candidate_corrections', {})),
+                        'fillers': len(profile.get('candidate_fillers', {})),
+                        'vocabulary': len(profile.get('candidate_vocabulary', {}))
+                    }
                 }
             })
         else:
