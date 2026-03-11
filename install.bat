@@ -11,6 +11,10 @@
 ::  the same folder as this script containing ONLY your
 ::  OpenAI API key (starts with sk-proj-...).
 :: ═══════════════════════════════════════════════════════
+
+:: Fix working directory when launched via "Run as administrator"
+cd /d "%~dp0"
+
 title LAVRENTIY Installer
 color 0C
 echo.
@@ -20,28 +24,28 @@ echo  ║       Voice Reconstruction Engine v1.0        ║
 echo  ╚═══════════════════════════════════════════════╝
 echo.
 
-:: ─── Check admin ───
+:: ─── Check admin (warn but don't block) ───
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-    echo  [!] This installer needs Administrator privileges.
-    echo      Right-click install.bat ^> "Run as administrator"
+    echo  [*] Note: Not running as admin. Python install may need admin.
+    echo      If Python install fails, re-run as administrator.
     echo.
-    pause
-    exit /b 1
 )
 
 :: ─── Read API Key from file ───
 echo  [1/5] Setting OpenAI API key...
-if exist "%~dp0api_key.txt" (
-    set /p API_KEY=<"%~dp0api_key.txt"
-) else (
-    echo  [!] api_key.txt not found!
-    echo      Create a file called "api_key.txt" next to this script
-    echo      containing your OpenAI API key (sk-proj-...).
-    echo.
-    set /p API_KEY="  Or paste your key here: "
-)
-if "%API_KEY%"=="" (
+set "API_KEY="
+if not exist "%~dp0api_key.txt" goto :no_key_file
+for /f "usebackq delims=" %%k in ("%~dp0api_key.txt") do set "API_KEY=%%k"
+goto :key_done
+:no_key_file
+echo  [!] api_key.txt not found!
+echo      Create a file called "api_key.txt" next to this script
+echo      containing your OpenAI API key (sk-proj-...).
+echo.
+set /p API_KEY="  Or paste your key here: "
+:key_done
+if not defined API_KEY (
     echo  [!] No API key provided. Cannot continue.
     pause
     exit /b 1
@@ -54,18 +58,19 @@ echo.
 :: ─── Check Python ───
 echo  [2/5] Checking Python...
 python --version >nul 2>&1
-if %errorlevel% neq 0 (
-    echo  [!] Python not found. Installing Python 3.12...
-    echo      Downloading from python.org...
-    powershell -Command "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.12.2/python-3.12.2-amd64.exe' -OutFile '%TEMP%\python-installer.exe'"
-    echo      Running installer (this takes a minute)...
-    "%TEMP%\python-installer.exe" /quiet InstallAllUsers=1 PrependPath=1 Include_pip=1
-    echo  [OK] Python installed. You may need to restart this script.
-    echo.
-    set "PATH=%PATH%;C:\Program Files\Python312;C:\Program Files\Python312\Scripts"
-) else (
-    for /f "tokens=*" %%v in ('python --version 2^>^&1') do echo  [OK] %%v found.
-)
+if %errorlevel% neq 0 goto :install_python
+python --version 2>&1
+echo  [OK] Python found.
+goto :python_done
+:install_python
+echo  [!] Python not found. Installing Python 3.12...
+echo      Downloading from python.org...
+powershell -Command "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.12.2/python-3.12.2-amd64.exe' -OutFile '%TEMP%\python-installer.exe'"
+echo      Running installer (this takes a minute)...
+"%TEMP%\python-installer.exe" /quiet InstallAllUsers=1 PrependPath=1 Include_pip=1
+echo  [OK] Python installed.
+set "PATH=%PATH%;C:\Program Files\Python312;C:\Program Files\Python312\Scripts"
+:python_done
 echo.
 
 :: ─── Install dependencies ───
@@ -79,24 +84,25 @@ echo.
 :: ─── Set install directory ───
 echo  [4/5] Setting up Lavrentiy...
 set "INSTALL_DIR=%USERPROFILE%\Lavrentiy"
+if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 
-if exist "%~dp0lavrentiy.py" (
-    echo  [*] Copying from current directory...
-    if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
-    copy /Y "%~dp0lavrentiy.py" "%INSTALL_DIR%\" >nul
-    copy /Y "%~dp0dashboard.html" "%INSTALL_DIR%\" >nul
-    copy /Y "%~dp0lavrentiy.bat" "%INSTALL_DIR%\" >nul
-) else (
-    echo  [*] Cloning from GitHub...
-    git clone https://github.com/gugosf114/lavrentiy.git "%INSTALL_DIR%" 2>nul
-    if %errorlevel% neq 0 (
-        echo  [!] Git not found. Downloading files directly...
-        if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
-        powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/gugosf114/lavrentiy/main/lavrentiy.py' -OutFile '%INSTALL_DIR%\lavrentiy.py'"
-        powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/gugosf114/lavrentiy/main/dashboard.html' -OutFile '%INSTALL_DIR%\dashboard.html'"
-        powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/gugosf114/lavrentiy/main/lavrentiy.bat' -OutFile '%INSTALL_DIR%\lavrentiy.bat'"
-    )
-)
+if exist "%~dp0lavrentiy.py" goto :copy_local
+goto :clone_remote
+:copy_local
+echo  [*] Copying from current directory...
+copy /Y "%~dp0lavrentiy.py" "%INSTALL_DIR%\" >nul
+copy /Y "%~dp0dashboard.html" "%INSTALL_DIR%\" >nul
+copy /Y "%~dp0lavrentiy.bat" "%INSTALL_DIR%\" >nul
+goto :files_done
+:clone_remote
+echo  [*] Cloning from GitHub...
+git clone https://github.com/gugosf114/lavrentiy.git "%INSTALL_DIR%" 2>nul
+if not %errorlevel% neq 0 goto :files_done
+echo  [!] Git not found. Downloading files directly...
+powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/gugosf114/lavrentiy/main/lavrentiy.py' -OutFile '%INSTALL_DIR%\lavrentiy.py'"
+powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/gugosf114/lavrentiy/main/dashboard.html' -OutFile '%INSTALL_DIR%\dashboard.html'"
+powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/gugosf114/lavrentiy/main/lavrentiy.bat' -OutFile '%INSTALL_DIR%\lavrentiy.bat'"
+:files_done
 echo  [OK] Files installed to %INSTALL_DIR%
 echo.
 
