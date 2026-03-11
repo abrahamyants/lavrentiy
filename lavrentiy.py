@@ -79,12 +79,42 @@ LEARN_PROMOTION_THRESHOLD = 2     # candidate recurrences before promotion
 MAX_PROFILE_ITEMS = 200           # cap per profile section
 HOLD_ON_HIGH_RISK = False         # True = skip paste when risk_flags present
 BACKUP_DIR = PROFILE_DIR / "backups"
-PROFILE_VERSION = 2
+PROFILE_VERSION = 3
 
 # -- Live preview config ─────────────────────────────────────────
 LIVE_PREVIEW_ENABLED = False      # True = stream interim transcripts
 PREVIEW_PROVIDER = "none"         # none | deepgram | assemblyai | google
 PREVIEW_LANGUAGE = "en"
+
+# -- Stutter insights ────────────────────────────────────────────
+STUTTER_TIPS = {
+    "trigger_cluster": {
+        "title": "Recurring trigger words",
+        "body": "You are repeatedly blocking on a small set of words. Practice those words in low-pressure contexts first, then use them in short phrases.",
+        "source": "Stuttering Foundation style guidance",
+    },
+    "high_filler_load": {
+        "title": "Heavy filler use",
+        "body": "Your speech is relying on filler words as a release valve. Try a deliberate silent pause instead of inserting a filler.",
+        "source": "Stuttering Foundation style guidance",
+    },
+    "correction_pattern": {
+        "title": "Repeated misrecognitions",
+        "body": "The same words are being misheard repeatedly. Add them to your preferred vocabulary and practice a slower first syllable on those terms.",
+        "source": "Stuttering Foundation style guidance",
+    },
+    "fast_growth_triggers": {
+        "title": "New trigger words emerging",
+        "body": "New trigger words are appearing quickly. That usually means the speaking context changed. Watch for stress, time pressure, or unfamiliar vocabulary.",
+        "source": "Stuttering Foundation style guidance",
+    },
+    "stable_profile": {
+        "title": "Stable pattern week",
+        "body": "Your recent sessions look stable. Keep using the same speaking rhythm and vocabulary patterns that are working.",
+        "source": "Stuttering Foundation style guidance",
+    },
+}
+MAX_INSIGHTS = 3
 
 TONES = ["casual", "professional", "friend", "formal"]
 TONE_SHORT = {"casual": "CAS", "professional": "PRO", "friend": "FRD", "formal": "FRM"}
@@ -186,6 +216,75 @@ def _snapshot_profile(prof):
     for old in sorted(BACKUP_DIR.glob("profile_*.json"))[:-5]:
         old.unlink()
 
+def _norm_str(s, max_len=100):
+    """Strip whitespace, cap length."""
+    if not isinstance(s, str):
+        return ""
+    return s.strip()[:max_len]
+
+def _dedupe_list(items, max_items=MAX_PROFILE_ITEMS, max_len=100):
+    """Dedupe case-insensitively, strip, drop empties, cap count."""
+    seen = set()
+    result = []
+    for item in items:
+        if not isinstance(item, str):
+            continue
+        clean = item.strip()[:max_len]
+        if not clean:
+            continue
+        key = clean.lower()
+        if key not in seen:
+            seen.add(key)
+            result.append(clean)
+        if len(result) >= max_items:
+            break
+    return result
+
+def _norm_corrections(corr, max_items=MAX_PROFILE_ITEMS, max_len=100):
+    """Normalize corrections: strip, dedupe by lowercase key, drop empties."""
+    result = {}
+    seen = set()
+    for k, v in corr.items():
+        nk = _norm_str(k, max_len)
+        nv = _norm_str(v, max_len)
+        if not nk or not nv:
+            continue
+        lk = nk.lower()
+        if lk in seen:
+            continue
+        seen.add(lk)
+        result[nk] = nv
+        if len(result) >= max_items:
+            break
+    return result
+
+def _migrate_candidate_corrections(cand):
+    """Convert v2 candidate_corrections {right, count} to v3 {votes, total}."""
+    migrated = {}
+    for key, entry in cand.items():
+        if isinstance(entry, dict) and "right" in entry and "votes" not in entry:
+            count = entry.get("count", 1)
+            migrated[key] = {"votes": {entry["right"]: count}, "total": count}
+        else:
+            migrated[key] = entry
+    return migrated
+
+def normalize_profile(prof):
+    """Normalize all profile data in-place. Returns True if anything changed."""
+    changed = False
+    for key in ('trigger_words', 'filler_words', 'vocabulary'):
+        if key in prof:
+            cleaned = _dedupe_list(prof[key])
+            if cleaned != prof[key]:
+                prof[key] = cleaned
+                changed = True
+    if 'corrections' in prof:
+        cleaned = _norm_corrections(prof['corrections'])
+        if cleaned != prof['corrections']:
+            prof['corrections'] = cleaned
+            changed = True
+    return changed
+
 def migrate_profile(prof):
     """Upgrade profile schema to current version."""
     v = prof.get("version", 1)
@@ -194,6 +293,11 @@ def migrate_profile(prof):
         prof.setdefault("candidate_corrections", {})
         prof.setdefault("candidate_fillers", {})
         prof.setdefault("candidate_vocabulary", {})
+        # v2 → v3: convert candidate_corrections to vote-based format
+        if prof.get("candidate_corrections"):
+            prof["candidate_corrections"] = _migrate_candidate_corrections(
+                prof["candidate_corrections"])
+        normalize_profile(prof)
         prof["version"] = PROFILE_VERSION
         save_profile(prof)
     return prof
@@ -219,6 +323,8 @@ def log_session(prof, raw, output, tone, layer, decision=None, timings=None):
 
 profile = load_profile()
 profile = migrate_profile(profile)
+if normalize_profile(profile):
+    save_profile(profile)
 _new_fillers = migrate_fillers(profile)
 if _new_fillers:
     print(f"Added {len(_new_fillers)} bilingual fillers: {', '.join(_new_fillers)}")
@@ -418,31 +524,45 @@ def learn_from_sessions(prof):
     promoted = 0
     now = datetime.now().isoformat()
 
-    # Corrections → candidates → promote
+    # Corrections → candidates → promote (vote-based)
     existing_corr = {k.lower() for k in prof.get("corrections", {})}
     cand_corr = prof.setdefault("candidate_corrections", {})
     for wrong, right in learnings.get("corrections", {}).items():
+        wrong = _norm_str(wrong)
+        right = _norm_str(right)
+        if not wrong or not right:
+            continue
         key = wrong.lower()
         if key in existing_corr:
             continue
-        if key in cand_corr:
-            cand_corr[key]["count"] += 1
+        if key not in cand_corr:
+            cand_corr[key] = {"votes": {}, "total": 0}
+        entry = cand_corr[key]
+        entry["votes"][right] = entry["votes"].get(right, 0) + 1
+        entry["total"] += 1
+        if entry["total"] >= LEARN_PROMOTION_THRESHOLD:
+            ranked = sorted(entry["votes"].items(), key=lambda x: x[1], reverse=True)
+            if len(ranked) >= 2 and ranked[0][1] == ranked[1][1]:
+                learn_events.append({"ts": now, "type": "candidate", "value": f"{wrong}: tie ({entry['total']} votes), held"})
+                log(f"Candidate tie: \"{wrong}\" — not promoted", "info")
+            else:
+                winner = ranked[0][0]
+                if len(prof.get("corrections", {})) < MAX_PROFILE_ITEMS:
+                    prof.setdefault("corrections", {})[wrong] = winner
+                del cand_corr[key]
+                learn_events.append({"ts": now, "type": "correction", "value": f"{wrong} → {winner}"})
+                log(f"Promoted: \"{wrong}\" → \"{winner}\"", "info")
+                promoted += 1
         else:
-            cand_corr[key] = {"right": right, "count": 1}
-        if cand_corr[key]["count"] >= LEARN_PROMOTION_THRESHOLD:
-            if len(prof.get("corrections", {})) < MAX_PROFILE_ITEMS:
-                prof.setdefault("corrections", {})[wrong] = cand_corr[key]["right"]
-            del cand_corr[key]
-            learn_events.append({"ts": now, "type": "correction", "value": f"{wrong} → {right}"})
-            log(f"Promoted: \"{wrong}\" → \"{right}\"", "info")
-            promoted += 1
-        else:
-            learn_events.append({"ts": now, "type": "candidate", "value": f"{wrong} → {right} ({cand_corr[key]['count']}/{LEARN_PROMOTION_THRESHOLD})"})
+            learn_events.append({"ts": now, "type": "candidate", "value": f"{wrong} → {right} ({entry['total']}/{LEARN_PROMOTION_THRESHOLD})"})
 
     # Fillers → candidates → promote
     existing_fillers = {f.lower() for f in prof.get("filler_words", [])}
     cand_fill = prof.setdefault("candidate_fillers", {})
     for filler in learnings.get("fillers", []):
+        filler = _norm_str(filler)
+        if not filler:
+            continue
         key = filler.lower()
         if key in existing_fillers:
             continue
@@ -461,6 +581,9 @@ def learn_from_sessions(prof):
     existing_vocab = {v.lower() for v in prof.get("vocabulary", [])}
     cand_vocab = prof.setdefault("candidate_vocabulary", {})
     for term in learnings.get("vocabulary", []):
+        term = _norm_str(term)
+        if not term:
+            continue
         key = term.lower()
         if key in existing_vocab:
             continue
@@ -573,6 +696,77 @@ def add_trigger_words(new_triggers, prof):
     if added:
         save_profile(prof)
     return added
+
+
+# -- Stutter Insights ─────────────────────────────────────────────
+def _sample(items, limit=5):
+    """Return up to `limit` items — most recent for lists, first keys for dicts."""
+    if isinstance(items, dict):
+        return list(items.keys())[:limit]
+    if isinstance(items, list):
+        return items[-limit:]
+    return []
+
+def build_stutter_insights(prof):
+    """Deterministic Layer 4 insights from profile state. No API calls."""
+    trigger_words = prof.get("trigger_words", [])
+    filler_words = prof.get("filler_words", [])
+    corrections = prof.get("corrections", {})
+    sessions = prof.get("sessions", [])
+
+    insights = []
+
+    # 1. Trigger cluster: 3+ trigger words accumulated
+    if len(trigger_words) >= 3:
+        tip = STUTTER_TIPS["trigger_cluster"]
+        insights.append({
+            "id": "trigger_cluster", "severity": "high",
+            "title": tip["title"], "body": tip["body"], "source": tip["source"],
+            "evidence": {"triggers": _sample(trigger_words, 5), "count": len(trigger_words)},
+        })
+
+    # 2. Heavy filler use: significantly more than the built-in baseline
+    baseline = len(set(
+        f.lower() for lang_fillers in KNOWN_FILLERS.values() for f in lang_fillers
+    ) | {f.lower() for f in DEFAULT_PROFILE["filler_words"]})
+    learned_fillers = max(0, len(filler_words) - baseline)
+    if learned_fillers >= 5:
+        tip = STUTTER_TIPS["high_filler_load"]
+        insights.append({
+            "id": "high_filler_load", "severity": "medium",
+            "title": tip["title"], "body": tip["body"], "source": tip["source"],
+            "evidence": {"total": len(filler_words), "learned": learned_fillers, "recent": _sample(filler_words, 6)},
+        })
+
+    # 3. Correction pattern: 5+ active corrections accumulated
+    if len(corrections) >= 5:
+        tip = STUTTER_TIPS["correction_pattern"]
+        insights.append({
+            "id": "correction_pattern", "severity": "medium",
+            "title": tip["title"], "body": tip["body"], "source": tip["source"],
+            "evidence": {"count": len(corrections), "sample": list(corrections.items())[:5]},
+        })
+
+    # 4. Fast growth: 3+ trigger detections in current engine run
+    recent_triggers = sum(1 for e in learn_events if e.get("type") == "trigger")
+    if recent_triggers >= 3:
+        tip = STUTTER_TIPS["fast_growth_triggers"]
+        insights.append({
+            "id": "fast_growth_triggers", "severity": "medium",
+            "title": tip["title"], "body": tip["body"], "source": tip["source"],
+            "evidence": {"recent_detections": recent_triggers},
+        })
+
+    # 5. Stable: no concerns, only if enough session data
+    if not insights and len(sessions) >= 10:
+        tip = STUTTER_TIPS["stable_profile"]
+        insights.append({
+            "id": "stable_profile", "severity": "low",
+            "title": tip["title"], "body": tip["body"], "source": tip["source"],
+            "evidence": {"sessions": len(sessions), "triggers": len(trigger_words), "corrections": len(corrections)},
+        })
+
+    return insights[:MAX_INSIGHTS]
 
 
 # -- Audio ────────────────────────────────────────────────────────
@@ -891,7 +1085,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         'fillers': len(profile.get('candidate_fillers', {})),
                         'vocabulary': len(profile.get('candidate_vocabulary', {}))
                     }
-                }
+                },
+                'insights': build_stutter_insights(profile) if current_layer >= 4 else [],
+                'insights_enabled': current_layer >= 4
             })
         elif self.path == '/api/preview':
             with preview_lock:
@@ -924,17 +1120,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json({'mode': current_mode})
         elif self.path == '/api/profile':
             if body and isinstance(body, dict):
-                _MAX_ITEMS, _MAX_LEN = 200, 100
                 for key in ('trigger_words', 'filler_words', 'vocabulary'):
                     if key in body and isinstance(body[key], list):
-                        profile[key] = [str(v)[:_MAX_LEN] for v in body[key][:_MAX_ITEMS]
-                                        if isinstance(v, str)]
+                        profile[key] = _dedupe_list(
+                            [str(v) for v in body[key] if isinstance(v, str)])
                 if 'corrections' in body and isinstance(body['corrections'], dict):
-                    profile['corrections'] = {
-                        str(k)[:_MAX_LEN]: str(v)[:_MAX_LEN]
-                        for k, v in list(body['corrections'].items())[:_MAX_ITEMS]
+                    profile['corrections'] = _norm_corrections({
+                        str(k): str(v) for k, v in body['corrections'].items()
                         if isinstance(k, str) and isinstance(v, str)
-                    }
+                    })
                 save_profile(profile)
             self._json({'ok': True})
         else:

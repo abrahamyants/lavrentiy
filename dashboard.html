@@ -554,6 +554,39 @@ body::before {
 .learn-event .le-time { font-family: var(--mono); font-size: 9px; color: var(--text-muted); letter-spacing: 2px; }
 .learn-empty { text-align: center; padding: 60px 0; color: var(--text-muted); }
 
+/* ─── INSIGHTS ────────────────────────────────── */
+.insights-wrap { padding: 16px 24px; }
+.insight-card {
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 22px;
+  margin-bottom: 10px;
+  box-shadow: var(--shadow-raised);
+  animation: cardslide 0.35s cubic-bezier(0.4,0,0.2,1);
+  transition: all 0.25s;
+}
+.insight-card:hover { border-color: var(--border-hi); transform: translateY(-2px); box-shadow: var(--shadow-elevated); }
+.insight-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.insight-title { font-weight: 700; color: var(--text-bright); font-size: 13px; }
+.insight-severity {
+  font-family: var(--mono); font-size: 8px; letter-spacing: 2px;
+  text-transform: uppercase; padding: 4px 10px; border-radius: 6px;
+  font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.sev-high { background: rgba(220,38,38,0.1); color: var(--red-bright); border: 1px solid rgba(220,38,38,0.15); }
+.sev-medium { background: rgba(234,179,8,0.1); color: var(--yellow); border: 1px solid rgba(234,179,8,0.15); }
+.sev-low { background: rgba(34,197,94,0.08); color: var(--green); border: 1px solid rgba(34,197,94,0.12); }
+.insight-body { color: var(--text); line-height: 1.65; margin-bottom: 10px; font-size: 12px; }
+.insight-source { font-family: var(--mono); font-size: 9px; color: var(--text-muted); letter-spacing: 1px; }
+.insight-evidence {
+  margin-top: 10px; padding: 10px 14px;
+  background: var(--bg); border-radius: 8px;
+  font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+  white-space: pre-wrap; line-height: 1.6;
+  box-shadow: inset 0 2px 6px rgba(0,0,0,0.3);
+}
+
 /* ─── PROFILE ──────────────────────────────────── */
 .profile-wrap { padding: 16px 24px; }
 .profile-section { margin-bottom: 8px; }
@@ -763,6 +796,7 @@ body::before {
         <button class="tab-btn active" data-tab="console">Console</button>
         <button class="tab-btn" data-tab="sessions">Sessions</button>
         <button class="tab-btn" data-tab="learning">Learning</button>
+        <button class="tab-btn" data-tab="insights">Insights</button>
         <button class="tab-btn" data-tab="profile">The File</button>
       </div>
 
@@ -780,6 +814,12 @@ body::before {
 
       <div class="tab-panel" id="tab-learning">
         <div class="learning-wrap" id="learn-feed"><div class="learn-empty">No patterns learned yet. Keep talking.</div></div>
+      </div>
+
+      <div class="tab-panel" id="tab-insights">
+        <div class="insights-wrap" id="insights">
+          <div class="learn-empty">Switch to Layer 4 to view stuttering insights.</div>
+        </div>
       </div>
 
       <div class="tab-panel" id="tab-profile">
@@ -844,7 +884,7 @@ async function fetchPreview(){try{const r=await fetch(API+'/api/preview');const 
 async function fetchSessions(){try{const r=await fetch(API+'/api/sessions');sessions=await r.json();renderSessions();}catch(e){}}
 async function fetchLog(){try{const r=await fetch(API+'/api/log');const entries=await r.json();const n=entries.filter(e=>e.id>lastLogId);if(n.length>0){lastLogId=entries[entries.length-1].id;logLines=entries;renderConsole();}}catch(e){}}
 async function fetchProfile(){try{const r=await fetch(API+'/api/profile');profile=await r.json();renderProfile();}catch(e){}}
-async function fetchLearn(){try{const r=await fetch(API+'/api/learn');learnData=await r.json();if(learnData.events.length!==lastLearnEventCount){lastLearnEventCount=learnData.events.length;renderLearn();}updateLearnProgress();}catch(e){}}
+async function fetchLearn(){try{const r=await fetch(API+'/api/learn');learnData=await r.json();if(learnData.events.length!==lastLearnEventCount){lastLearnEventCount=learnData.events.length;renderLearn();}updateLearnProgress();renderInsights();}catch(e){}}
 
 function updateUI(){
   const s=state.state;
@@ -903,6 +943,17 @@ function renderLearn(){
   }).join('');
 }
 function updateLearnProgress(){const s=learnData.status||{};const n=s.next_in!=null?s.next_in:3;const d=3-n;document.getElementById('lp-fill').style.width=Math.round((d/3)*100)+'%';document.getElementById('lp-count').textContent=d+'/3';}
+
+function renderInsights(){
+  const el=document.getElementById('insights');if(!el)return;
+  if(!learnData.insights_enabled){el.innerHTML='<div class="learn-empty">Switch to Layer 4 to view stuttering insights.</div>';return;}
+  const items=learnData.insights||[];
+  if(!items.length){el.innerHTML='<div class="learn-empty">Not enough data yet. Keep using Layer 4.</div>';return;}
+  el.innerHTML=items.map(item=>{
+    const ev=item.evidence?esc(JSON.stringify(item.evidence,null,2)):'';
+    return `<div class="insight-card"><div class="insight-head"><div class="insight-title">${esc(item.title)}</div><div class="insight-severity sev-${item.severity||'low'}">${esc(item.severity||'low')}</div></div><div class="insight-body">${esc(item.body)}</div><div class="insight-source">${esc(item.source||'')}</div>${ev?`<div class="insight-evidence">${ev}</div>`:''}</div>`;
+  }).join('');
+}
 
 function renderProfile(){
   for(const[key,field]of Object.entries(FIELD_MAP)){
