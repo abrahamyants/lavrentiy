@@ -100,8 +100,16 @@ if exist "%~dp0lavrentiy.py" (
 echo  [OK] Files installed to %INSTALL_DIR%
 echo.
 
+:: ─── Set up profile directory + dashboard ───
+echo  [5/6] Setting up profile directory...
+set "PROFILE_DIR=%USERPROFILE%\.lavrentiy"
+if not exist "%PROFILE_DIR%" mkdir "%PROFILE_DIR%"
+copy /Y "%INSTALL_DIR%\dashboard.html" "%PROFILE_DIR%\" >nul
+echo  [OK] Dashboard copied to %PROFILE_DIR%
+echo.
+
 :: ─── Create Desktop shortcut ───
-echo  [5/5] Creating desktop shortcut...
+echo  [6/6] Creating desktop shortcut...
 powershell -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%USERPROFILE%\Desktop\Lavrentiy.lnk'); $s.TargetPath = '%INSTALL_DIR%\lavrentiy.bat'; $s.WorkingDirectory = '%INSTALL_DIR%'; $s.Description = 'Lavrentiy Voice Engine'; $s.Save()"
 echo  [OK] "Lavrentiy" shortcut on Desktop.
 echo.
