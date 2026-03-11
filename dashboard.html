@@ -616,6 +616,59 @@ body::before {
   box-shadow: inset 0 2px 6px rgba(0,0,0,0.3);
 }
 
+/* ─── TIPS ────────────────────────────────────── */
+.tips-wrap { padding: 16px 24px; }
+.tip-category { margin-bottom: 8px; }
+.tip-cat-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 20px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer; transition: all 0.25s; user-select: none;
+  box-shadow: var(--shadow-raised);
+}
+.tip-cat-header:hover { background: var(--raised-hi); border-color: var(--border-hi); transform: translateY(-1px); box-shadow: var(--shadow-elevated); }
+.tip-cat-header .tc-title { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 3px; font-weight: 600; }
+.tip-cat-header:hover .tc-title { color: var(--text); }
+.tip-cat-header .tc-count { font-family: var(--mono); font-size: 10px; color: var(--text-muted); margin-left: 10px; }
+.tip-cat-header .arrow { color: var(--text-muted); transition: all 0.3s; font-size: 10px; }
+.tip-cat-header.open .arrow { transform: rotate(90deg); color: var(--red-bright); }
+.tip-cat-body {
+  display: none; padding: 12px 16px;
+  background: var(--surface); border: 1px solid var(--border); border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  box-shadow: inset 0 2px 8px rgba(0,0,0,0.2);
+}
+.tip-cat-body.open { display: block; animation: expandin 0.3s ease-out; }
+.tip-item {
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 8px;
+  box-shadow: var(--shadow-raised);
+  transition: all 0.25s;
+}
+.tip-item:last-child { margin-bottom: 0; }
+.tip-item:hover { border-color: var(--border-hi); transform: translateY(-1px); box-shadow: var(--shadow-elevated); }
+.tip-item .ti-name { font-weight: 700; color: var(--text-bright); font-size: 12px; margin-bottom: 6px; }
+.tip-item .ti-desc { color: var(--text); font-size: 11px; line-height: 1.65; margin-bottom: 6px; }
+.tip-item .ti-example { font-family: var(--mono); font-size: 10px; color: var(--text-dim); line-height: 1.6; padding: 8px 12px; background: var(--bg); border-radius: 6px; box-shadow: inset 0 2px 6px rgba(0,0,0,0.3); }
+.tip-item .ti-source { font-family: var(--mono); font-size: 9px; color: var(--text-muted); letter-spacing: 1px; margin-top: 6px; }
+.tab-panel.active .tip-cat-header { background: #4a2020; border-color: rgba(255,200,200,0.1); }
+.tab-panel.active .tip-cat-header:hover { background: #552828; }
+.tab-panel.active .tip-cat-header .tc-title { color: #b09898; }
+.tab-panel.active .tip-cat-header:hover .tc-title { color: #e8d8d8; }
+.tab-panel.active .tip-cat-header .tc-count { color: #a08888; }
+.tab-panel.active .tip-cat-header .arrow { color: #a08888; }
+.tab-panel.active .tip-cat-body { background: #3a1818; border-color: rgba(255,200,200,0.1); }
+.tab-panel.active .tip-item { background: #4a2020; border-color: rgba(255,200,200,0.1); }
+.tab-panel.active .tip-item .ti-name { color: #f0e0e0; }
+.tab-panel.active .tip-item .ti-desc { color: #d8c8c8; }
+.tab-panel.active .tip-item .ti-example { background: #3a1818; color: #b09898; }
+.tab-panel.active .tip-item .ti-source { color: #a08888; }
+
 /* ─── PROFILE ──────────────────────────────────── */
 .profile-wrap { padding: 16px 24px; }
 .profile-section { margin-bottom: 8px; }
@@ -826,6 +879,7 @@ body::before {
         <button class="tab-btn" data-tab="sessions">Sessions</button>
         <button class="tab-btn" data-tab="learning">Learning</button>
         <button class="tab-btn" data-tab="insights">Insights</button>
+        <button class="tab-btn" data-tab="tips">Tips</button>
         <button class="tab-btn" data-tab="profile">The File</button>
       </div>
 
@@ -849,6 +903,10 @@ body::before {
         <div class="insights-wrap" id="insights">
           <div class="learn-empty">Switch to Layer 4 to view stuttering insights.</div>
         </div>
+      </div>
+
+      <div class="tab-panel" id="tab-tips">
+        <div class="tips-wrap" id="tips-content"></div>
       </div>
 
       <div class="tab-panel" id="tab-profile">
@@ -1000,6 +1058,100 @@ async function removeTag(key,idx){profile[FIELD_MAP[key]].splice(idx,1);renderPr
 async function addCorrection(){const from=document.getElementById('input-corr-from');const to=document.getElementById('input-corr-to');const f=from.value.trim(),t=to.value.trim();if(!f||!t)return;if(!profile.corrections)profile.corrections={};profile.corrections[f]=t;from.value='';to.value='';renderProfile();await saveProfile();}
 async function removeCorrection(key){delete profile.corrections[key];renderProfile();await saveProfile();}
 async function saveProfile(){try{await fetch(API+'/api/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({trigger_words:profile.trigger_words,filler_words:profile.filler_words,vocabulary:profile.vocabulary,corrections:profile.corrections})});}catch(e){}}
+
+// ─── STUTTERING FOUNDATION TIPS DATA ─────────────────
+const TIPS_DATA = [
+  { title: "Trigger Patterns", items: [
+    { name: "Plosive / Stop Consonants", desc: "Sounds requiring the lips or tongue to block air (p, b, t, d, k, g) frequently cause hard, tense contacts and silent blocks.", example: "Pressing the lips together so tightly on the 'p' in \"Peter\" that no air can escape." },
+    { name: "Stop Plosives & Affricates", desc: "Prolongations and complete physical blockage of breath frequently occur on voiced and voiceless stop plosives (/p/, /b/, /t/, /d/, /k/, /g/) and affricates (/t\u0283/, /d\u0292/).", example: "Prolonging the /b/ in \"B\u2014\u2014OBBY\" before a complete block stops airflow entirely.", source: "stromsta_book.pdf" },
+    { name: "Consonant-Vowel Transitions", desc: "The core behavior of stuttering often involves \"intraphonemic disruption,\" where a speaker initiates a vowel but abruptly terminates it because the transition to the next sound isn't coarticulated.", example: "Repeating the \"I\" (/a\u026A/) but getting stuck on the /a/ without transitioning to /\u026A/.", source: "stromsta_book.pdf" },
+    { name: "Consonant Clusters (CCV/CCVC)", desc: "Failing to coarticulate initial consonant blends causes the speaker to interject a schwa (/\u0259/).", example: "When trying to say \"blue\" [blu], failing to blend /b/ and /l/ results in the repeated, stuttered syllable \"b\u0259\".", source: "stromsta_book.pdf" },
+    { name: "Initial Word / Syllable Position", desc: "The starting sound of a word or phrase is the most common roadblock.", example: "Stuttering heavily on the 'm' in \"mother\", but saying the rest of the word flawlessly once the first sound is bypassed." },
+    { name: "Clause Boundaries & Initial Words", desc: "Stuttering occurs most commonly on the beginning sounds of the first words in a sentence, or immediately following clause boundaries.", example: "", source: "teacher_book_2010.pdf" },
+    { name: "Intraphonemic Disruptions", desc: "A failure to coarticulate (blend) neighboring speech sounds smoothly, causing a break within the expected duration of a phoneme.", example: "Chopping the pronoun \"I\" (/ai/) into two disconnected sounds, or failing to transition from /k/ to /u/ in \"cookie\"." },
+    { name: "Schwa Vowel Substitution", desc: "Replacing the natural vowel of a repeated syllable with a weak, neutral \"uh\" (schwa).", example: "Saying \"guh-guh-guh-goat\" instead of cleanly repeating \"go-go-go-goat\"." }
+  ]},
+  { title: "Situational Modifiers", items: [
+    { name: "Social & Authority Pressure", desc: "Speaking to authority figures, ordering in restaurants, or being forced to say one's own name drastically increases severity.", example: "Having the worst block of the day simply trying to state one's own name to an employer." },
+    { name: "Authority & Audience Size", desc: "Speaking to authority figures or presenting to groups often increases severity due to pressure.", example: "A user stuttering severely when talking to their boss, but speaking easily to peers.", source: "Book0016.pdf, teacher_book_2010.pdf" },
+    { name: "Telephone Use", desc: "The lack of visual cues and perceived urgency makes the telephone a primary trigger for severe stuttering.", example: "Hanging up the phone out of panic before saying a single word." },
+    { name: "Time Pressure & Rushing", desc: "Feeling rushed, being interrupted, or experiencing a \"signal reaction\" (treating speech like an emergency) locks up the vocal tract.", example: "A listener finishing the stutterer's sentence, implicitly signaling them to hurry up.", source: "0031.pdf, Book0016.pdf, PedBook.pdf, teacher_book_2010.pdf" },
+    { name: "Low-Stress / Solo Contexts", desc: "Stuttering is vastly reduced or absent when the user feels entirely at ease, alone, or is speaking to a non-judgmental listener.", example: "Talking out loud to a pet, a baby, or playing alone in a room.", source: "0031.pdf" },
+    { name: "Altered Auditory / Vocal Tasks", desc: "Modifying how the voice is used or heard eliminates most blocks.", example: "Singing a song, using choral reading, or speaking with Delayed Auditory Feedback (DAF).", source: "0031.pdf, Book0016.pdf, PedBook.pdf" },
+    { name: "Fluency Enhancers", desc: "Certain situations completely or nearly eliminate stuttering.", example: "Speaking flawlessly while whispering, singing, reading in unison with others, or talking alone to a pet." }
+  ]},
+  { title: "Avoidance Behaviors", items: [
+    { name: "Word Substitution (Synonyms)", desc: "Rapidly swapping a feared word for an easier one, which can subtly or completely change the intended meaning.", example: "Wanting to say \"mother\" but swapping it to \"folks\" to avoid a block on the 'm'." },
+    { name: "Word Substitution / Circumlocution", desc: "Scanning ahead, anticipating a stutter, and swapping out the specific target word for a less accurate synonym to avoid blocking. Reading aloud produces more stuttering than conversation because the speaker cannot substitute words on a page.", example: "", source: "Book0016.pdf, PedBook.pdf" },
+    { name: "Circumlocution", desc: "Talking around a topic or entirely rephrasing a sentence to sneak up on a difficult word.", example: "Instead of saying \"mother,\" saying \"You know how mothers are, I better ask her first.\"" },
+    { name: "Postponements & Starters", desc: "Using stalling tactics or filler words to delay the onset of a feared word.", example: "Clearing the throat, or inserting \"um\", \"well\", \"you know\", or \"I mean\" just before the difficult word." },
+    { name: "Starters / Fillers", desc: "Using extra, unnecessary sounds to \"jump-start\" the vocal cords before a feared word.", example: "\"Well it's well it's I-I-I-I need a crayon\" or inserting \"um,\" \"uh,\" or \"er\" right before a block.", source: "PedBook.pdf, teacher_book_2010.pdf" },
+    { name: "Sentence Abandonment", desc: "Giving up on speaking altogether when a severe block is anticipated.", example: "Pretending to be deaf when the phone rings, pretending not to know an answer, or walking away.", source: "PedBook.pdf" },
+    { name: "Covert Interruption", desc: "Interrupting another speaker on purpose because it is easier to initiate speech while someone else is talking (calling less initial attention to the speaker's own onset).", example: "", source: "teacher_book_2010.pdf" },
+    { name: "Mazes (Cluttering)", desc: "Rambling, run-on verbiage that adds no useful information, often used when speech breaks down.", example: "\"I think of uh - it's something you say as it comes out of the - you can't remember - that sort of thing, y'know?\"", source: "ost speech.docx" }
+  ]},
+  { title: "Disfluency Types", items: [
+    { name: "Blocks (Tonic / Fixations)", desc: "Complete, silent stoppages of airflow and sound, often accompanied by locked articulators.", example: "The mouth opens or lips press tightly, but a sudden rigid tension snaps the airway shut, preventing any sound.", source: "Book0016.pdf, teacher_book_2010.pdf" },
+    { name: "Part-Word Repetitions", desc: "Rapid bouncing or repeating of initial sounds or syllables.", example: "\"Ca-ca-ca-ca-can I have that?\" or \"p-p-p-party\".", source: "PedBook.pdf, book0034.pdf, teacher_book_2010.pdf" },
+    { name: "Prolongations", desc: "Involuntary, tense stretching of a voiced or voiceless sound.", example: "\"Sssssscience is interesting\" or \"Eeeeeeeeeven though...\"", source: "teacher_book_2010.pdf" },
+    { name: "Whole-Word / Phrase Repetitions", desc: "Repeating entire words or phrases; generally considered normal developmental disfluency rather than clinical stuttering.", example: "\"I want... I want... I want to go.\"", source: "PedBook.pdf, teacher_book_2010.pdf" },
+    { name: "Tremors", desc: "Small muscles around the mouth and jaw vibrating or quivering during a fixation.", example: "The lips shaking rapidly while stuck in a rigid position on a 'b' sound." },
+    { name: "Secondary / Accessory Behaviors", desc: "Non-verbal physical struggles resulting from trying to force words out.", example: "Eyelid blinking, tapping a foot, moving the head, or severe facial tension.", source: "0031.pdf, PedBook.pdf, teacher_book_2010.pdf" }
+  ]},
+  { title: "Therapeutic Techniques", items: [
+    { name: "Voluntary (Pseudo) Stuttering", desc: "Stuttering deliberately on non-feared words to reduce shame, drain anticipatory fear, and desensitize the speaker. Go out in public and intentionally insert easy stutters while maintaining inner calmness and observing listener reactions.", example: "Walking up to a clerk and intentionally bouncing lightly on \"Puh-puh-pardon me\".", source: "Book0016.pdf" },
+    { name: "Prolonged Speech (Fluency Shaping)", desc: "Stretching out vowels and consonants to speak in slow-motion without pausing. Used to establish a highly fluent baseline.", example: "Begin at 40 syllables per minute, ensuring continuous voice and airflow, and gradually increase rate in 5-syllable increments.", source: "Book0016.pdf" },
+    { name: "Post-Block Correction (Cancellation)", desc: "Pausing completely immediately after a stuttered word, mentally analyzing the tension, and repeating the word with an easier, modified stutter.", example: "Struggling through \"apple,\" stopping completely to relax the throat, then saying \"apple\" smoothly." },
+    { name: "Pull-Outs & Preparatory Sets", desc: "Catching a block as it happens (pull-out) or anticipating it (prep set) and deliberately reducing physical tension to slide through the word smoothly. Identify trigger postures, freeze the stutter, and voluntarily release the tension.", example: "Getting locked on 'k', holding the tension deliberately, then smoothly releasing into the vowel.", source: "Book0016.pdf" },
+    { name: "Light Contacts / Easy Onset", desc: "Initiating sounds gently with minimal muscle tension and a continuous, slow flow of air.", example: "Touching the lips together very lightly to say 'p' without letting air pressure build up behind them." },
+    { name: "Coarticulation Practice", desc: "Blending sounds together. Practiced primarily when not stuttering to build muscle memory. Mentally prepare for the second sound of a word, then produce the first sound as a strong, deliberate physical movement into and through that second sound.", example: "", source: "stromsta_book.pdf" }
+  ]},
+  { title: "Persistent vs. Developmental", items: [
+    { name: "Persistent (High Risk)", desc: "Traits indicating childhood stuttering is likely to persist into adulthood.", example: "A male child who begins stuttering after age 3.5, has a family history of adult stuttering, and continues to stutter for over 12 months." },
+    { name: "Age at Onset", desc: "Children who begin stuttering before age 3\u00BD (especially before 3) have a very high chance of outgrowing it naturally. Onset after age 3\u00BD is a major risk factor for persistence.", example: "", source: "PedBook.pdf" },
+    { name: "Time Since Onset", desc: "Stuttering that persists for 6\u201312 months with no improvement, or beyond 3 years overall, is highly likely to become a chronic, lifelong issue.", example: "", source: "PedBook.pdf, teacher_book_2010.pdf" },
+    { name: "Gender Ratio Changes", desc: "The ratio of stuttering is roughly 1:1 or 2:1 (boys to girls) at onset. However, girls are far more likely to recover; by 5th grade, chronic stuttering affects 3 to 4 times as many males as females.", example: "", source: "PedBook.pdf, teacher_book_2010.pdf" },
+    { name: "Family History & Genetics", desc: "60% of children who stutter have a family history. The risk of persistent stuttering increases significantly if the family member still stutters in adulthood.", example: "", source: "PedBook.pdf" },
+    { name: "Developmental (Recovery Likely)", desc: "Traits indicating the stutter is likely a temporary developmental phase.", example: "A female child whose stuttering begins before age 3, with no family history, and resolves within 6 months." },
+    { name: "Comorbid Speech / Language Factors", desc: "Children with concurrent speech sound errors (trouble being understood) or advanced/delayed language skills are at a higher risk of persistent stuttering.", example: "" }
+  ]},
+  { title: "Cognitive / Emotional Patterns", items: [
+    { name: "The Iceberg Model", desc: "The visible, audible stutter is just the tip; the massive, invisible portion underneath consists of shame, fear, guilt, and anxiety.", example: "A speaker presenting as fluent by substituting words, but experiencing intense internal panic and shame." },
+    { name: "Covert Hiding (The Iceberg)", desc: "A speaker may have very few audible blocks because they expend immense internal energy disguising the stutter (circumlocution, avoiding social interactions). This invisible suffering often requires as much clinical attention as audible stuttering.", example: "", source: "Book0016.pdf" },
+    { name: "Scanning Ahead", desc: "Mentally reading ahead in one's own upcoming sentence to spot trigger words. An unnatural pause before a word is often anticipatory dread.", example: "Visualizing speech like \"billboards on a highway,\" spotting a feared 'm' word five words ahead, and immediately panicking.", source: "Book0016.pdf, stromsta_book.pdf" },
+    { name: "The Vicious Cycle of Tension", desc: "The anxiety over making a mistake or being judged creates \"internal bodily changes\" (nervousness, tension) which physically lock the vocal mechanism, directly exacerbating the block.", example: "", source: "0031.pdf, stromsta_book.pdf" },
+    { name: "Approach-Avoidance Conflict", desc: "The paralyzing psychological tug-of-war between the desire to communicate and the intense urge to hold back out of fear.", example: "Wanting to order a specific meal but physically freezing up because the urge to avoid the stutter overtakes the desire to speak." },
+    { name: "Shame and Helplessness", desc: "During a block, the person feels a complete loss of control (\"like your throat is locked\") and deep shame afterward.", example: "Some children even cry, \"Why can't I talk?\"", source: "0031.pdf, Book0016.pdf, PedBook.pdf" }
+  ]},
+  { title: "Hard Statistics", items: [
+    { name: "Global Prevalence", desc: "Approximately 1% of the general population stutters \u2014 over 3 million Americans and roughly 80 million people worldwide.", example: "" },
+    { name: "Prevalence & Incidence", desc: "Roughly 5% of all children go through a stuttering phase lasting six months or more. About 75% of those recover, leaving ~1% of the global population with chronic stuttering.", example: "", source: "PedBook.pdf, teacher_book_2010.pdf" },
+    { name: "Gender Ratio", desc: "Stuttering affects 3 to 4 times as many males as females.", example: "", source: "PedBook.pdf, teacher_book_2010.pdf" },
+    { name: "Childhood Incidence & Recovery", desc: "About 5% of all children go through a period of stuttering lasting 6+ months. Of those, 75\u201380% recover naturally (within 12\u201324 months), leaving ~1% with a long-term problem.", example: "" },
+    { name: "Treatment Gap (Policy/Access)", desc: "Because special education eligibility in public schools is typically based on the \"severity\" of the problem impacting academics, many children with \"mild\" or highly covert stuttering are deemed ineligible for free school assistance, forcing them into expensive private care.", example: "", source: "SpecialEducation2018.pdf" },
+    { name: "Tech/AI Training Deficit", desc: "Stuttering speech patterns currently make up just 5% of total voice recordings in major atypical speech databases used to train AI (e.g., Google's Project Euphonia), leading to massive performance gaps for standard voice-to-text systems.", example: "", source: "Share.docx" },
+    { name: "Proportion of Stuttered Speech", desc: "Stutterers actually stutter in only 5\u201325% of their speech; 75\u201395% of spontaneous speech falls within normal fluency ranges.", example: "" },
+    { name: "Speech Motor Timing", desc: "The average rate of normal human speech is about 12.5 sounds per second.", example: "" }
+  ]}
+];
+
+function renderTips(){
+  const el=document.getElementById('tips-content');
+  el.innerHTML=TIPS_DATA.map((cat,ci)=>{
+    const items=cat.items.map(item=>{
+      const ex=item.example?`<div class="ti-example">${esc(item.example)}</div>`:'';
+      const src=item.source?`<div class="ti-source">${esc(item.source)}</div>`:'';
+      return `<div class="tip-item"><div class="ti-name">${esc(item.name)}</div><div class="ti-desc">${esc(item.desc)}</div>${ex}${src}</div>`;
+    }).join('');
+    return `<div class="tip-category"><div class="tip-cat-header" onclick="toggleTipCat(${ci})"><span><span class="tc-title">${esc(cat.title)}</span><span class="tc-count">(${cat.items.length})</span></span><span class="arrow">&#9654;</span></div><div class="tip-cat-body" id="tip-body-${ci}">${items}</div></div>`;
+  }).join('');
+}
+function toggleTipCat(idx){
+  const h=document.querySelectorAll('.tip-cat-header')[idx];
+  h.classList.toggle('open');
+  document.getElementById('tip-body-'+idx).classList.toggle('open');
+}
+renderTips();
 
 document.querySelectorAll('.tone-btn:not(.mode-btn)').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/tone',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tone:btn.dataset.tone})});}catch(e){}});});
 document.querySelectorAll('.layer-opt').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/layer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layer:parseInt(btn.dataset.layer)})});}catch(e){}});});

@@ -90,32 +90,78 @@ PREVIEW_LANGUAGE = "en"
 # -- Stutter insights ────────────────────────────────────────────
 STUTTER_TIPS = {
     "trigger_cluster": {
-        "title": "Recurring trigger words",
-        "body": "You are repeatedly blocking on a small set of words. Practice those words in low-pressure contexts first, then use them in short phrases.",
-        "source": "Stuttering Foundation style guidance",
+        "title": "Recurring trigger words detected",
+        "body": (
+            "You are repeatedly blocking on a small set of words. "
+            "Technique — Preparatory Set: before approaching a known trigger word, "
+            "pause briefly, relax your articulators, and mentally rehearse a smooth, "
+            "light contact on the first sound. "
+            "Technique — Voluntary Stuttering: practice easy, deliberate bounces on "
+            "these trigger words in low-pressure settings to drain anticipatory fear. "
+            "Most triggers start with stop plosives (/p/, /b/, /t/, /d/, /k/, /g/) or "
+            "consonant clusters — focus coarticulation practice on blending through "
+            "the first two sounds of each trigger word."
+        ),
+        "source": "Stuttering Foundation — Book0016.pdf, stromsta_book.pdf",
     },
     "high_filler_load": {
-        "title": "Heavy filler use",
-        "body": "Your speech is relying on filler words as a release valve. Try a deliberate silent pause instead of inserting a filler.",
-        "source": "Stuttering Foundation style guidance",
+        "title": "Heavy filler use — postponement pattern",
+        "body": (
+            "Your speech is using filler words (um, uh, well, you know) as starters — "
+            "delay tactics to jump-start vocal cords before a feared word. This is a "
+            "covert avoidance behavior. "
+            "Technique — Easy Onset: instead of inserting a filler, initiate the feared "
+            "sound gently with minimal muscle tension and continuous airflow. Touch the "
+            "articulators together very lightly without letting pressure build. "
+            "Practice replacing each filler with a brief, deliberate silent pause — "
+            "silence is more fluent than a filler chain."
+        ),
+        "source": "Stuttering Foundation — PedBook.pdf, teacher_book_2010.pdf",
     },
     "correction_pattern": {
-        "title": "Repeated misrecognitions",
-        "body": "The same words are being misheard repeatedly. Add them to your preferred vocabulary and practice a slower first syllable on those terms.",
-        "source": "Stuttering Foundation style guidance",
+        "title": "Repeated misrecognitions — coarticulation targets",
+        "body": (
+            "The same words are being misheard repeatedly by speech-to-text. "
+            "This often indicates these words have disfluency residue (prolongations, "
+            "schwa insertions, or incomplete consonant-vowel transitions) that confuses "
+            "the ASR model. "
+            "Technique — Coarticulation Practice: for each misrecognized word, mentally "
+            "prepare for the second sound, then produce the first sound as a strong, "
+            "deliberate physical movement into and through that second sound. "
+            "Add these words to your preferred vocabulary so the engine learns them."
+        ),
+        "source": "Stuttering Foundation — stromsta_book.pdf",
     },
     "fast_growth_triggers": {
-        "title": "New trigger words emerging",
-        "body": "New trigger words are appearing quickly. That usually means the speaking context changed. Watch for stress, time pressure, or unfamiliar vocabulary.",
-        "source": "Stuttering Foundation style guidance",
+        "title": "New triggers emerging — context shift detected",
+        "body": (
+            "New trigger words are appearing quickly. This typically signals a change in "
+            "speaking context — increased time pressure, authority figures, unfamiliar "
+            "vocabulary, or telephone use. The vicious cycle: anxiety about blocking "
+            "creates physical tension that locks the vocal mechanism, causing more blocks. "
+            "Technique — Pull-Out: when you feel a block starting mid-word, don't force "
+            "through it. Hold the tension deliberately, slow it down to gain voluntary "
+            "control, then ease out smoothly into the vowel. "
+            "Watch for approach-avoidance conflict: the urge to avoid speaking can "
+            "overtake the desire to communicate."
+        ),
+        "source": "Stuttering Foundation — Book0016.pdf, 0031.pdf",
     },
     "stable_profile": {
-        "title": "Stable pattern week",
-        "body": "Your recent sessions look stable. Keep using the same speaking rhythm and vocabulary patterns that are working.",
-        "source": "Stuttering Foundation style guidance",
+        "title": "Stable fluency pattern",
+        "body": (
+            "Your recent sessions show stable patterns with no emerging concerns. "
+            "Keep using the speaking rhythm that works. Remember: stutterers actually "
+            "stutter in only 5-25% of speech — 75-95% falls within normal fluency. "
+            "Fluency enhancers to maintain: low-stress contexts, continuous airflow, "
+            "and light articulatory contacts. If you feel a block approaching, use a "
+            "Preparatory Set — pause, relax, and pre-form a gentle posture for the "
+            "first sound."
+        ),
+        "source": "Stuttering Foundation — PedBook.pdf, Book0016.pdf",
     },
 }
-MAX_INSIGHTS = 3
+MAX_INSIGHTS = 5
 
 TONES = ["casual", "professional", "friend", "formal"]
 TONE_SHORT = {"casual": "CAS", "professional": "PRO", "friend": "FRD", "formal": "FRM"}
@@ -513,23 +559,36 @@ def reconstruct(raw_text, tone, layer, prof):
             "\nThe speaker stutters. Raw transcription is evidence, not truth. "
             "Reconstruct intended meaning, not literal word sequence."
             "\n\nOvert disfluencies — strip and reconstruct:"
-            "\n- Part-word repetitions: 'b-b-b-buy' → 'buy'"
-            "\n- Whole-word repetitions: 'I I I want' → 'I want'"
-            "\n- Prolongations: 'mmmmaybe' → 'maybe'"
-            "\n- Schwa substitution: 'guh-guh-goat' → 'goat'"
-            "\n- Blocks: silence or frozen onset before a word"
+            "\n- Part-word repetitions: 'b-b-b-buy' → 'buy', 'Ca-ca-ca-can' → 'Can'"
+            "\n- Whole-word repetitions: 'I I I want' → 'I want', 'I want... I want to go' → 'I want to go'"
+            "\n- Prolongations: 'mmmmaybe' → 'maybe', 'Sssssscience' → 'Science'"
+            "\n- Schwa substitution: 'guh-guh-goat' → 'goat' (neutral /ə/ replaces natural vowel in repeats)"
+            "\n- Consonant cluster breaks: failed blends inject schwa, e.g. 'bə-bə-blue' → 'blue'"
+            "\n- Blocks: silence or frozen onset before a word (locked articulators, no sound)"
+            "\n- Tremors: lip/jaw quivering during a fixation"
+            "\n- Secondary behaviors: eye blinks, foot taps, head movements during blocks"
             "\n- False starts and restarts"
             "\n\nCovert stuttering — recognize as avoidance, not content:"
-            "\n- Filler clusters before a content word = delay tactic, not hesitation"
+            "\n- Filler clusters before a content word = delay tactic (starters), not hesitation"
             "\n- Synonym substitution = avoiding a feared word"
             "\n- Circumlocution = talking around a feared word"
-            "\n- Sentence abandonment = dropping thought before feared word"
-            "\n- Pause before a word = anticipatory fear, not thinking"
+            "\n- Sentence abandonment = dropping thought before feared word ('Oh, never mind')"
+            "\n- Covert interruption = jumping in while someone talks to mask onset difficulty"
+            "\n- Mazes/cluttering = rambling run-on filler adding no information"
+            "\n  e.g. 'I think of uh - it's something you say as it comes out of - that sort of thing'"
+            "\n- Pause before a word = anticipatory fear (scanning ahead), not thinking"
+            "\n\nPhonetic triggers (common block locations):"
+            "\n- Stop plosives: /p/, /b/, /t/, /d/, /k/, /g/"
+            "\n- Affricates: /tʃ/, /dʒ/"
+            "\n- Initial position of words and clauses"
+            "\n- Consonant-vowel transitions (speaker starts vowel but can't coarticulate to next sound)"
             "\n\nExamples:"
             "\n- 'Can you give me the, uh, the paper for the thing you sign "
             "at the front desk' → 'Can you give me the form you sign at the front desk'"
             "\n- 'My... my... my mother, uh, my parents are coming' → 'My parents are coming'"
             "\n- 'I need the b-... the document from yesterday' → 'I need the document from yesterday'"
+            "\n- 'I think of uh it's something the - you can't - that sort of thing' "
+            "→ reconstruct the intended meaning from context"
             "\n\nDo not mistake disfluency for emphasis. "
             "Do not invent meaning beyond what was intended. "
             "When uncertain, prefer conservative cleanup over aggressive rewriting."
@@ -555,8 +614,13 @@ def falcon_validate(raw_text, clean_text, layer):
     prompt = "Does the reconstruction preserve the same meaning? Answer ONLY 'yes' or 'no'."
     if layer >= 4:
         prompt = (
-            "Speaker stutters. Repeated syllables are disfluencies, not emphasis. "
-            "Does the reconstruction preserve intended meaning? Answer ONLY 'yes' or 'no'."
+            "Speaker stutters. Repeated syllables, prolongations, and blocks are "
+            "disfluencies, not emphasis. Filler clusters before content words are "
+            "postponement tactics, not meaningful hesitation. Synonym substitutions "
+            "and circumlocutions are avoidance behaviors — the reconstruction should "
+            "recover the intended word. Rambling run-on filler (mazes) should be "
+            "stripped. Does the reconstruction preserve intended meaning? "
+            "Answer ONLY 'yes' or 'no'."
         )
 
     stats["api_calls"] += 1
@@ -754,13 +818,21 @@ def detect_triggers_llm(raw_text, output, prof):
                 {"role": "system", "content": (
                     "The speaker stutters. Analyze this raw voice transcription and its "
                     "clean reconstruction. Identify TRIGGER WORDS — specific words the "
-                    "speaker stuttered on (repeated syllables, blocks, prolongations).\n"
-                    "Examples of stuttering patterns in raw text:\n"
-                    "- 'Co-Co-Coca-Cola' → trigger word: 'Coca-Cola'\n"
-                    "- 'I I I want' → trigger word: 'I'\n"
-                    "- 'th-th-the' → trigger word: 'the'\n"
-                    "- Long pause then word = block → that word is a trigger\n"
-                    "- Word avoidance (speaker says synonym instead) = possible trigger\n\n"
+                    "speaker stuttered on (repeated syllables, blocks, prolongations).\n\n"
+                    "Disfluency patterns to detect:\n"
+                    "- Part-word repetitions: 'Co-Co-Coca-Cola' → trigger: 'Coca-Cola'\n"
+                    "- Whole-word repetitions: 'I I I want' → trigger: 'I'\n"
+                    "- Prolongations: 'Sssssscience' → trigger: 'Science'\n"
+                    "- Schwa insertion in clusters: 'buh-buh-blue' → trigger: 'blue'\n"
+                    "- Blocks: long pause/silence then a word = that word is a trigger\n"
+                    "- Word avoidance: speaker uses a synonym or circumlocution = "
+                    "the avoided word (if recoverable) is the trigger\n"
+                    "- Sentence abandonment: dropping a thought = the next word was likely a trigger\n\n"
+                    "Phonetic risk factors (words more likely to be triggers):\n"
+                    "- Words starting with stop plosives: /p/, /b/, /t/, /d/, /k/, /g/\n"
+                    "- Words starting with affricates: /tʃ/ (ch), /dʒ/ (j)\n"
+                    "- First word of a sentence or clause boundary\n"
+                    "- Consonant clusters at word onset (bl-, cr-, str-, etc.)\n\n"
                     "Return ONLY valid JSON: {\"trigger_words\": [\"word1\", \"word2\"]}\n"
                     "If no stuttering detected, return {\"trigger_words\": []}\n"
                     "Be conservative — only include words with clear evidence of disfluency."
