@@ -73,7 +73,8 @@ DASHBOARD_PORT = 7878
 DASHBOARD_PATH = PROFILE_DIR / "dashboard.html"
 
 # -- Phase 2 config ──────────────────────────────────────────────
-MODE = "SAFE"                     # RAW | FAST | SAFE
+MODE = "SAFE"                     # RAW | FAST | SAFE (default)
+MODES = ["RAW", "FAST", "SAFE"]
 LEARN_PROMOTION_THRESHOLD = 2     # candidate recurrences before promotion
 MAX_PROFILE_ITEMS = 200           # cap per profile section
 HOLD_ON_HIGH_RISK = False         # True = skip paste when risk_flags present
@@ -226,6 +227,7 @@ state = 'idle'
 
 current_tone = profile["preferences"].get("tone", "casual")
 current_layer = profile["preferences"].get("layer", 2)
+current_mode = profile["preferences"].get("mode", MODE)
 tap_times = []
 target_hwnd = None
 last_paste_time = 0
@@ -584,18 +586,18 @@ def set_state(s):
 def make_decision(falcon_ok, layer, used_fallback):
     """Build decision record for this pipeline run."""
     risk_flags = []
-    if MODE == "RAW" or layer == 1:
+    if current_mode == "RAW" or layer == 1:
         decision = "paste_raw"
     elif used_fallback:
         decision = "paste_raw"
-    elif MODE == "FAST":
+    elif current_mode == "FAST":
         decision = "paste_clean"
     else:  # SAFE
         decision = "paste_clean" if falcon_ok else "paste_raw"
     if HOLD_ON_HIGH_RISK and risk_flags:
         decision = "hold"
     return {
-        "mode": MODE, "falcon_ok": falcon_ok,
+        "mode": current_mode, "falcon_ok": falcon_ok,
         "risk_flags": risk_flags, "used_fallback": used_fallback,
         "decision": decision
     }
@@ -637,7 +639,7 @@ def pipeline():
         t_recon = t_asr
         t_val = t_asr
 
-        if current_layer > 1 and MODE != "RAW":
+        if current_layer > 1 and current_mode != "RAW":
             log(f"Raw: \"{raw_text}\"", "raw")
 
             # Step 2: Reconstruct
@@ -649,7 +651,7 @@ def pipeline():
             t_recon = time.time()
 
             # Step 3: Falcon (SAFE mode only, skip if fallback)
-            if MODE == "SAFE" and clean_text and not used_fallback:
+            if current_mode == "SAFE" and clean_text and not used_fallback:
                 try:
                     falcon_ok = falcon_validate(raw_text, clean_text, current_layer)
                 except Exception:
@@ -671,7 +673,7 @@ def pipeline():
 
         wc = len(output.split())
         tone_tag = TONE_SHORT.get(current_tone, "???")
-        if current_layer > 1 and MODE != "RAW":
+        if current_layer > 1 and current_mode != "RAW":
             log(f"-> \"{output}\"  [{wc}w] ({tone_tag})", "out")
         else:
             log(f"-> \"{output}\"  [{wc}w]", "out")
@@ -746,7 +748,7 @@ def paste(text):
     finally:
         is_pasting = False
 
-# -- Tone/Layer setters (for dashboard) ───────────────────────────
+# -- Tone/Layer/Mode setters (for dashboard) ──────────────────────
 def set_tone(tone):
     global current_tone
     if tone in TONES:
@@ -762,6 +764,14 @@ def set_layer(layer):
         profile["preferences"]["layer"] = current_layer
         save_profile(profile)
         log(f"Layer: {current_layer} ({LAYER_NAMES[current_layer]})", "info")
+
+def set_mode(mode):
+    global current_mode
+    if mode in MODES:
+        current_mode = mode
+        profile["preferences"]["mode"] = current_mode
+        save_profile(profile)
+        log(f"Mode: {current_mode}", "info")
 
 # -- Dashboard HTTP server ────────────────────────────────────────
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -784,7 +794,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'tone': current_tone,
                 'layer': current_layer,
                 'layer_name': LAYER_NAMES.get(current_layer, '?'),
-                'mode': MODE,
+                'mode': current_mode,
                 'stats': stats
             })
         elif self.path == '/api/profile':
@@ -825,6 +835,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 except (ValueError, TypeError):
                     pass
             self._json({'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?')})
+        elif self.path == '/api/mode':
+            if body and isinstance(body.get('mode'), str):
+                set_mode(body['mode'].upper())
+            self._json({'mode': current_mode})
         elif self.path == '/api/profile':
             if body and isinstance(body, dict):
                 _MAX_ITEMS, _MAX_LEN = 200, 100

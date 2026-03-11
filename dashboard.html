@@ -722,6 +722,15 @@ body::before {
       </div>
     </div>
 
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Mode</div>
+      <div class="tone-stack">
+        <button class="tone-btn mode-btn" data-mode="RAW">RAW</button>
+        <button class="tone-btn mode-btn" data-mode="FAST">FAST</button>
+        <button class="tone-btn mode-btn" data-mode="SAFE">SAFE</button>
+      </div>
+    </div>
+
     <div class="sidebar-footer">
       <div class="keys"><kbd>F9</kbd> talk<br><kbd>F10</kbd> tone<br><kbd>F11</kbd> layer<br><kbd>F12</kbd> stats<br><kbd>F3</kbd>&times;3 quit</div>
     </div>
@@ -837,8 +846,9 @@ function updateUI(){
   document.getElementById('state-label').textContent=s;
   const elapsed=Math.floor(Date.now()/1000-state.stats.start_time);
   document.getElementById('uptime').textContent=String(Math.floor(elapsed/60)).padStart(2,'0')+':'+String(elapsed%60).padStart(2,'0');
-  document.querySelectorAll('.tone-btn').forEach(b=>b.classList.toggle('active',b.dataset.tone===state.tone));
+  document.querySelectorAll('.tone-btn:not(.mode-btn)').forEach(b=>b.classList.toggle('active',b.dataset.tone===state.tone));
   document.querySelectorAll('.layer-opt').forEach(b=>b.classList.toggle('active',parseInt(b.dataset.layer)===state.layer));
+  document.querySelectorAll('.mode-btn').forEach(b=>b.classList.toggle('active',b.dataset.mode===state.mode));
   const st=state.stats;
   document.getElementById('s-words').textContent=st.words.toLocaleString();
   document.getElementById('s-sessions').textContent=st.sessions;
@@ -904,8 +914,9 @@ async function addCorrection(){const from=document.getElementById('input-corr-fr
 async function removeCorrection(key){delete profile.corrections[key];renderProfile();await saveProfile();}
 async function saveProfile(){try{await fetch(API+'/api/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({trigger_words:profile.trigger_words,filler_words:profile.filler_words,vocabulary:profile.vocabulary,corrections:profile.corrections})});}catch(e){}}
 
-document.querySelectorAll('.tone-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/tone',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tone:btn.dataset.tone})});}catch(e){}});});
+document.querySelectorAll('.tone-btn:not(.mode-btn)').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/tone',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tone:btn.dataset.tone})});}catch(e){}});});
 document.querySelectorAll('.layer-opt').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/layer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layer:parseInt(btn.dataset.layer)})});}catch(e){}});});
+document.querySelectorAll('.mode-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:btn.dataset.mode})});}catch(e){}});});
 
 async function init(){await Promise.all([fetchProfile(),fetchSessions(),fetchLearn()]);pollState();}
 init();
