@@ -1,52 +1,25 @@
 @echo off
-:: ═══════════════════════════════════════════════════════
-::  LAVRENTIY — One-Click Installer
-::  "We've got a file on you"
-::
-::  Run this as Administrator on any Windows 10/11 machine.
-::  It installs Python (if missing), dependencies, sets the
-::  API key, and creates a desktop shortcut.
-::
-::  BEFORE RUNNING: Create a file called "api_key.txt" in
-::  the same folder as this script containing ONLY your
-::  OpenAI API key (starts with sk-proj-...).
-:: ═══════════════════════════════════════════════════════
-
-:: Fix working directory when launched via "Run as administrator"
+setlocal EnableExtensions
 cd /d "%~dp0"
 
 title LAVRENTIY Installer
 color 0C
-echo.
-echo  ╔═══════════════════════════════════════════════╗
-echo  ║         L A V R E N T I Y   S E T U P        ║
-echo  ║       Voice Reconstruction Engine v1.0        ║
-echo  ╚═══════════════════════════════════════════════╝
-echo.
 
-:: ─── Check admin (warn but don't block) ───
-net session >nul 2>&1
-if %errorlevel% neq 0 (
-    echo  [*] Note: Not running as admin. Python install may need admin.
-    echo      If Python install fails, re-run as administrator.
-    echo.
-)
+set "INSTALL_DIR=%USERPROFILE%\Lavrentiy"
+set "PROFILE_DIR=%USERPROFILE%\.lavrentiy"
+set "TEMP_PY=%TEMP%\python-installer.exe"
 
-:: ─── Read API Key from file ───
-echo  [1/5] Setting OpenAI API key...
+echo.
+echo  [1/6] Setting OpenAI API key...
 set "API_KEY="
-if not exist "%~dp0api_key.txt" goto :no_key_file
-for /f "usebackq delims=" %%k in ("%~dp0api_key.txt") do set "API_KEY=%%k"
-goto :key_done
-:no_key_file
-echo  [!] api_key.txt not found!
-echo      Create a file called "api_key.txt" next to this script
-echo      containing your OpenAI API key (sk-proj-...).
-echo.
-set /p API_KEY="  Or paste your key here: "
-:key_done
+if exist "%~dp0api_key.txt" (
+    for /f "usebackq delims=" %%k in ("%~dp0api_key.txt") do set "API_KEY=%%k"
+) else (
+    echo  [!] api_key.txt not found next to installer.
+    set /p API_KEY="  Paste OpenAI key now: "
+)
 if not defined API_KEY (
-    echo  [!] No API key provided. Cannot continue.
+    echo  [!] No API key provided.
     pause
     exit /b 1
 )
@@ -55,117 +28,135 @@ set "OPENAI_API_KEY=%API_KEY%"
 echo  [OK] API key set.
 echo.
 
-:: ─── Check Python ───
-echo  [2/5] Checking Python...
-set "PYTHON_EXE="
-:: Try PATH first
-where python >nul 2>&1
-if %errorlevel% equ 0 (
-    for /f "tokens=*" %%p in ('where python 2^>nul') do (
-        if not defined PYTHON_EXE set "PYTHON_EXE=%%p"
-    )
-)
-:: Search common install locations if not in PATH
+echo  [2/6] Resolving Python...
+call :resolve_python
 if not defined PYTHON_EXE (
-    for %%d in (
-        "%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
-        "%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
-        "%LOCALAPPDATA%\Programs\Python\Python314\python.exe"
-        "C:\Program Files\Python312\python.exe"
-        "C:\Program Files\Python313\python.exe"
-        "C:\Program Files\Python314\python.exe"
-        "%LOCALAPPDATA%\Python\pythoncore-3.12-64\python.exe"
-        "%LOCALAPPDATA%\Python\pythoncore-3.13-64\python.exe"
-        "%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe"
-    ) do (
-        if exist %%d if not defined PYTHON_EXE set "PYTHON_EXE=%%~d"
-    )
-)
-if defined PYTHON_EXE goto :python_found
-:: Not found anywhere — install it
-echo  [!] Python not found. Installing Python 3.12...
-echo      Downloading from python.org...
-powershell -Command "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.12.2/python-3.12.2-amd64.exe' -OutFile '%TEMP%\python-installer.exe'"
-echo      Running installer (this takes a minute)...
-"%TEMP%\python-installer.exe" /quiet InstallAllUsers=1 PrependPath=1 Include_pip=1
-echo  [OK] Python installed. Locating...
-:: Find what was just installed
-for %%d in (
-    "%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
-    "C:\Program Files\Python312\python.exe"
-) do (
-    if exist %%d if not defined PYTHON_EXE set "PYTHON_EXE=%%~d"
+    echo  [*] Python not found. Installing Python 3.12 silently...
+    call :install_python
+    call :resolve_python
 )
 if not defined PYTHON_EXE (
-    echo  [!] FATAL: Python installed but cannot be found.
-    echo      Close this window, open a NEW command prompt, and run install.bat again.
+    echo  [!] FATAL: Python installed but not found.
+    echo      Check C:\Users\%USERNAME%\AppData\Local\Programs\Python or Program Files.
     pause
     exit /b 1
 )
-:python_found
 for %%F in ("%PYTHON_EXE%") do set "PYTHON_DIR=%%~dpF"
 set "PYTHONW_EXE=%PYTHON_DIR%pythonw.exe"
-echo  [OK] Found: %PYTHON_EXE%
+if not exist "%PYTHONW_EXE%" set "PYTHONW_EXE=%PYTHON_EXE%"
+echo  [OK] Python: %PYTHON_EXE%
+echo  [OK] Pythonw: %PYTHONW_EXE%
 echo.
 
-:: ─── Install dependencies ───
-echo  [3/5] Installing Python packages...
-"%PYTHON_EXE%" -m pip install --upgrade pip >nul 2>&1
-"%PYTHON_EXE%" -m pip install openai sounddevice soundfile keyboard pyperclip pyautogui numpy scipy
-echo.
-echo  [OK] All packages installed.
+echo  [3/6] Installing Python packages...
+"%PYTHON_EXE%" -m pip --disable-pip-version-check install --upgrade pip
+if errorlevel 1 (
+    echo  [!] pip upgrade failed.
+    pause
+    exit /b 1
+)
+"%PYTHON_EXE%" -m pip --disable-pip-version-check install openai sounddevice soundfile keyboard pyperclip pyautogui numpy scipy
+if errorlevel 1 (
+    echo  [!] Package installation failed.
+    pause
+    exit /b 1
+)
+echo  [OK] Packages installed.
 echo.
 
-:: ─── Set install directory ───
-echo  [4/5] Setting up Lavrentiy...
-set "INSTALL_DIR=%USERPROFILE%\Lavrentiy"
+echo  [4/6] Installing app files...
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
-
-if exist "%~dp0lavrentiy.py" goto :copy_local
-goto :clone_remote
-:copy_local
-echo  [*] Copying from current directory...
-copy /Y "%~dp0lavrentiy.py" "%INSTALL_DIR%\" >nul
-copy /Y "%~dp0dashboard.html" "%INSTALL_DIR%\" >nul
-:: Write a launcher that uses the exact Python path we found
-echo @echo off > "%INSTALL_DIR%\lavrentiy.bat"
-echo start "" "%PYTHONW_EXE%" "%%~dp0lavrentiy.py" >> "%INSTALL_DIR%\lavrentiy.bat"
-goto :files_done
-:clone_remote
-echo  [*] Downloading files from GitHub...
-powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/gugosf114/lavrentiy/main/lavrentiy.py' -OutFile '%INSTALL_DIR%\lavrentiy.py'"
-powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/gugosf114/lavrentiy/main/dashboard.html' -OutFile '%INSTALL_DIR%\dashboard.html'"
-:: Write a launcher that uses the exact Python path we found
-echo @echo off > "%INSTALL_DIR%\lavrentiy.bat"
-echo start "" "%PYTHONW_EXE%" "%%~dp0lavrentiy.py" >> "%INSTALL_DIR%\lavrentiy.bat"
-:files_done
+if exist "%~dp0lavrentiy.py" (
+    copy /Y "%~dp0lavrentiy.py" "%INSTALL_DIR%\" >nul
+    copy /Y "%~dp0dashboard.html" "%INSTALL_DIR%\" >nul
+) else (
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/gugosf114/lavrentiy/main/lavrentiy.py' -OutFile '%INSTALL_DIR%\lavrentiy.py'"
+    if errorlevel 1 goto :download_fail
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/gugosf114/lavrentiy/main/dashboard.html' -OutFile '%INSTALL_DIR%\dashboard.html'"
+    if errorlevel 1 goto :download_fail
+)
+if not exist "%INSTALL_DIR%\lavrentiy.py" (
+    echo  [!] lavrentiy.py missing after install.
+    pause
+    exit /b 1
+)
+> "%INSTALL_DIR%\lavrentiy.bat" echo @echo off
+>> "%INSTALL_DIR%\lavrentiy.bat" echo cd /d "%INSTALL_DIR%"
+>> "%INSTALL_DIR%\lavrentiy.bat" echo start "" "%PYTHONW_EXE%" "%INSTALL_DIR%\lavrentiy.py"
+if not exist "%INSTALL_DIR%\lavrentiy.bat" (
+    echo  [!] Failed to create launcher.
+    pause
+    exit /b 1
+)
+if not exist "%PROFILE_DIR%" mkdir "%PROFILE_DIR%"
+copy /Y "%INSTALL_DIR%\dashboard.html" "%PROFILE_DIR%\" >nul
 echo  [OK] Files installed to %INSTALL_DIR%
 echo.
 
-:: ─── Set up profile directory + dashboard ───
-echo  [5/6] Setting up profile directory...
-set "PROFILE_DIR=%USERPROFILE%\.lavrentiy"
-if not exist "%PROFILE_DIR%" mkdir "%PROFILE_DIR%"
-copy /Y "%INSTALL_DIR%\dashboard.html" "%PROFILE_DIR%\" >nul
-echo  [OK] Dashboard copied to %PROFILE_DIR%
+echo  [5/6] Creating desktop shortcut...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$ErrorActionPreference='Stop';" ^
+  "$target='%INSTALL_DIR%\lavrentiy.bat';" ^
+  "$work='%INSTALL_DIR%';" ^
+  "$name='Lavrentiy.lnk';" ^
+  "$paths=@([Environment]::GetFolderPath('Desktop'),[Environment]::GetFolderPath('CommonDesktopDirectory'));" ^
+  "$ok=$false;" ^
+  "foreach($d in $paths){ if([string]::IsNullOrWhiteSpace($d)){continue}; if(!(Test-Path $d)){continue}; $lnk=Join-Path $d $name; $ws=New-Object -ComObject WScript.Shell; $s=$ws.CreateShortcut($lnk); $s.TargetPath=$target; $s.WorkingDirectory=$work; $s.Description='Lavrentiy Voice Engine'; $s.IconLocation=$target; $s.Save(); if(Test-Path $lnk){$ok=$true; break} };" ^
+  "if(-not $ok){ throw 'Shortcut creation failed' }"
+if errorlevel 1 (
+    echo  [!] Shortcut creation failed.
+    echo      Launcher is still available at: %INSTALL_DIR%\lavrentiy.bat
+    pause
+    exit /b 1
+)
+echo  [OK] Shortcut created.
 echo.
 
-:: ─── Create Desktop shortcut ───
-echo  [6/6] Creating desktop shortcut...
-powershell -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%USERPROFILE%\Desktop\Lavrentiy.lnk'); $s.TargetPath = '%INSTALL_DIR%\lavrentiy.bat'; $s.WorkingDirectory = '%INSTALL_DIR%'; $s.Description = 'Lavrentiy Voice Engine'; $s.Save()"
-echo  [OK] "Lavrentiy" shortcut on Desktop.
+echo  [6/6] Verifying launcher...
+if not exist "%PYTHONW_EXE%" (
+    echo  [!] pythonw not found at expected path.
+    pause
+    exit /b 1
+)
+if not exist "%INSTALL_DIR%\lavrentiy.py" (
+    echo  [!] App script missing.
+    pause
+    exit /b 1
+)
 echo.
-
-:: ─── Done ───
-echo  ═══════════════════════════════════════════════
-echo   DONE! Double-click "Lavrentiy" on the Desktop.
-echo   Dashboard opens at http://localhost:7878
-echo.
-echo   Hotkeys:
-echo     F9 (hold) = Record
-echo     F10       = Cycle tone
-echo     F11       = Cycle layer
-echo     F3 x3     = Quit
-echo  ═══════════════════════════════════════════════
+echo  ==========================================
+echo  DONE.
+echo  Double-click Desktop shortcut: Lavrentiy
+echo  ==========================================
 echo.
 pause
+exit /b 0
+
+:download_fail
+echo  [!] Failed to download required files.
+pause
+exit /b 1
+
+:install_python
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.12.2/python-3.12.2-amd64.exe' -OutFile '%TEMP_PY%'"
+if errorlevel 1 (
+    echo  [!] Could not download Python installer.
+    exit /b 1
+)
+start /wait "" "%TEMP_PY%" /quiet InstallAllUsers=1 Include_pip=1 PrependPath=0
+if errorlevel 1 (
+    echo  [*] All-users install failed, trying per-user install...
+    start /wait "" "%TEMP_PY%" /quiet InstallAllUsers=0 Include_pip=1 PrependPath=0
+)
+exit /b 0
+
+:resolve_python
+set "PYTHON_EXE="
+for /f "usebackq delims=" %%P in (`py -3 -c "import sys; print(sys.executable)" 2^>nul`) do (
+    if exist "%%P" if not defined PYTHON_EXE set "PYTHON_EXE=%%P"
+)
+if defined PYTHON_EXE exit /b 0
+for /f "usebackq delims=" %%P in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; $c=@(); $roots=@('HKLM:\SOFTWARE\Python\PythonCore','HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore','HKCU:\SOFTWARE\Python\PythonCore'); foreach($r in $roots){ if(Test-Path $r){ Get-ChildItem $r | ForEach-Object { $i=(Get-ItemProperty -Path ($_.PSPath + '\InstallPath')).'(default)'; if($i){ $c += (Join-Path $i 'python.exe') } } } }; $patterns=@('$env:LocalAppData\Programs\Python\Python*\python.exe','$env:LocalAppData\Python\pythoncore-*\python.exe','C:\Program Files\Python*\python.exe','C:\Program Files (x86)\Python*\python.exe','C:\Python*\python.exe'); foreach($p in $patterns){ $c += Get-ChildItem -Path $ExecutionContext.InvokeCommand.ExpandString($p) -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName }; $c = $c | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique; $best = $c | Sort-Object { try { [version](Get-Item $_).VersionInfo.ProductVersion } catch { [version]'0.0' } } -Descending | Select-Object -First 1; if($best){ $best }"`) do (
+    if exist "%%P" if not defined PYTHON_EXE set "PYTHON_EXE=%%P"
+)
+exit /b 0
