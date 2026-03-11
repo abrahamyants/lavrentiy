@@ -846,6 +846,18 @@ body::before {
       </div>
     </div>
 
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">DAF</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <button class="tone-btn" id="daf-toggle" onclick="toggleDAF()" style="flex:1">OFF</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="range" id="daf-slider" min="30" max="300" value="100" step="10"
+          style="flex:1;accent-color:var(--red)" oninput="setDAFDelay(this.value)">
+        <span id="daf-delay" style="font-family:var(--mono);font-size:10px;color:var(--text-muted);min-width:40px">100ms</span>
+      </div>
+    </div>
+
     <div class="sidebar-footer">
       <div class="keys"><kbd>F9</kbd> talk<br><kbd>F10</kbd> tone<br><kbd>F11</kbd> layer<br><kbd>F12</kbd> stats<br><kbd>F3</kbd>&times;3 quit</div>
     </div>
@@ -1153,11 +1165,35 @@ function toggleTipCat(idx){
 }
 renderTips();
 
+// ─── DAF controls ─────────────────────────────
+let dafActive=false;
+async function toggleDAF(){
+  try{
+    const r=await fetch(API+'/api/daf',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({active:!dafActive,delay_ms:parseInt(document.getElementById('daf-slider').value)})});
+    const d=await r.json();dafActive=d.active;updateDAFUI(d);
+  }catch(e){}
+}
+async function setDAFDelay(val){
+  document.getElementById('daf-delay').textContent=val+'ms';
+  if(!dafActive)return;
+  try{await fetch(API+'/api/daf',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({delay_ms:parseInt(val)})});}catch(e){}
+}
+function updateDAFUI(d){
+  const btn=document.getElementById('daf-toggle');
+  btn.textContent=d.active?'ON':'OFF';
+  btn.classList.toggle('active',d.active);
+  document.getElementById('daf-slider').value=d.delay_ms;
+  document.getElementById('daf-delay').textContent=d.delay_ms+'ms';
+}
+async function fetchDAF(){try{const r=await fetch(API+'/api/daf');const d=await r.json();dafActive=d.active;updateDAFUI(d);}catch(e){}}
+
 document.querySelectorAll('.tone-btn:not(.mode-btn)').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/tone',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tone:btn.dataset.tone})});}catch(e){}});});
 document.querySelectorAll('.layer-opt').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/layer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layer:parseInt(btn.dataset.layer)})});}catch(e){}});});
 document.querySelectorAll('.mode-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:btn.dataset.mode})});}catch(e){}});});
 
-async function init(){await Promise.all([fetchProfile(),fetchSessions(),fetchLearn()]);pollState();}
+async function init(){await Promise.all([fetchProfile(),fetchSessions(),fetchLearn(),fetchDAF()]);pollState();}
 init();
 </script>
 </body>

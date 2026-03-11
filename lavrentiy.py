@@ -87,6 +87,11 @@ LIVE_PREVIEW_ENABLED = False      # True = stream interim transcripts
 PREVIEW_PROVIDER = "none"         # none | deepgram | assemblyai | google
 PREVIEW_LANGUAGE = "en"
 
+# -- DAF (Delayed Auditory Feedback) ─────────────────────────────
+DAF_DEFAULT_DELAY_MS = 100        # default delay in milliseconds
+DAF_MIN_DELAY_MS = 30
+DAF_MAX_DELAY_MS = 300
+
 # -- Stutter insights ────────────────────────────────────────────
 STUTTER_TIPS = {
     "trigger_cluster": {
@@ -943,6 +948,71 @@ def build_stutter_insights(prof):
     return insights[:MAX_INSIGHTS]
 
 
+# -- DAF (Delayed Auditory Feedback) ──────────────────────────────
+_daf_active = False
+_daf_delay_ms = DAF_DEFAULT_DELAY_MS
+_daf_stream = None
+_daf_lock = threading.Lock()
+
+def _daf_callback(indata, outdata, frames, time_info, status):
+    """Stream mic → headphones with a ring-buffer delay."""
+    buf = _daf_buf
+    blen = len(buf)
+    wp = _daf_wp[0]
+    delay_samples = _daf_delay_samples[0]
+    rp = (wp - delay_samples) % blen
+    for i in range(frames):
+        buf[wp % blen] = indata[i, 0]
+        outdata[i, 0] = buf[rp % blen]
+        wp += 1
+        rp += 1
+    _daf_wp[0] = wp % blen
+
+def daf_start(delay_ms=None):
+    global _daf_active, _daf_stream, _daf_buf, _daf_wp, _daf_delay_samples
+    with _daf_lock:
+        if _daf_active:
+            return
+        if delay_ms is not None:
+            global _daf_delay_ms
+            _daf_delay_ms = max(DAF_MIN_DELAY_MS, min(DAF_MAX_DELAY_MS, delay_ms))
+        rate = NATIVE_RATE
+        delay_samples = int(rate * _daf_delay_ms / 1000)
+        buf_size = max(delay_samples * 4, rate)  # ring buffer
+        _daf_buf = numpy.zeros(buf_size, dtype=numpy.float32)
+        _daf_wp = [0]
+        _daf_delay_samples = [delay_samples]
+        _daf_stream = sd.Stream(
+            samplerate=rate, channels=1, dtype='float32',
+            device=(DEVICE, sd.default.device[1]),
+            callback=_daf_callback, blocksize=256
+        )
+        _daf_stream.start()
+        _daf_active = True
+        log(f"DAF started ({_daf_delay_ms}ms delay)", "info")
+
+def daf_stop():
+    global _daf_active, _daf_stream
+    with _daf_lock:
+        if not _daf_active:
+            return
+        if _daf_stream:
+            _daf_stream.stop()
+            _daf_stream.close()
+            _daf_stream = None
+        _daf_active = False
+        log("DAF stopped", "info")
+
+def daf_set_delay(delay_ms):
+    global _daf_delay_ms
+    delay_ms = max(DAF_MIN_DELAY_MS, min(DAF_MAX_DELAY_MS, delay_ms))
+    _daf_delay_ms = delay_ms
+    if _daf_active:
+        rate = NATIVE_RATE
+        _daf_delay_samples[0] = int(rate * delay_ms / 1000)
+        log(f"DAF delay: {delay_ms}ms", "info")
+
+
 # -- Audio ────────────────────────────────────────────────────────
 def audio_callback(indata, frames, time_info, status):
     if is_recording:
@@ -1272,6 +1342,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     'final_text': preview_state['final_text'],
                     'updated_at': preview_state['updated_at']
                 })
+        elif self.path == '/api/daf':
+            self._json({
+                'active': _daf_active,
+                'delay_ms': _daf_delay_ms,
+                'min': DAF_MIN_DELAY_MS,
+                'max': DAF_MAX_DELAY_MS
+            })
         else:
             self.send_error(404)
 
@@ -1305,6 +1382,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     })
                 save_profile(profile)
             self._json({'ok': True})
+        elif self.path == '/api/daf':
+            if body and isinstance(body, dict):
+                if 'active' in body:
+                    if body['active']:
+                        daf_start(body.get('delay_ms'))
+                    else:
+                        daf_stop()
+                elif 'delay_ms' in body:
+                    try:
+                        daf_set_delay(int(body['delay_ms']))
+                    except (ValueError, TypeError):
+                        pass
+            self._json({
+                'active': _daf_active,
+                'delay_ms': _daf_delay_ms
+            })
         else:
             self.send_error(404)
 
