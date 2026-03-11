@@ -57,26 +57,61 @@ echo.
 
 :: ─── Check Python ───
 echo  [2/5] Checking Python...
-python --version >nul 2>&1
-if %errorlevel% neq 0 goto :install_python
-python --version 2>&1
-echo  [OK] Python found.
-goto :python_done
-:install_python
+set "PYTHON_EXE="
+:: Try PATH first
+where python >nul 2>&1
+if %errorlevel% equ 0 (
+    for /f "tokens=*" %%p in ('where python 2^>nul') do (
+        if not defined PYTHON_EXE set "PYTHON_EXE=%%p"
+    )
+)
+:: Search common install locations if not in PATH
+if not defined PYTHON_EXE (
+    for %%d in (
+        "%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+        "%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
+        "%LOCALAPPDATA%\Programs\Python\Python314\python.exe"
+        "C:\Program Files\Python312\python.exe"
+        "C:\Program Files\Python313\python.exe"
+        "C:\Program Files\Python314\python.exe"
+        "%LOCALAPPDATA%\Python\pythoncore-3.12-64\python.exe"
+        "%LOCALAPPDATA%\Python\pythoncore-3.13-64\python.exe"
+        "%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe"
+    ) do (
+        if exist %%d if not defined PYTHON_EXE set "PYTHON_EXE=%%~d"
+    )
+)
+if defined PYTHON_EXE goto :python_found
+:: Not found anywhere — install it
 echo  [!] Python not found. Installing Python 3.12...
 echo      Downloading from python.org...
 powershell -Command "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.12.2/python-3.12.2-amd64.exe' -OutFile '%TEMP%\python-installer.exe'"
 echo      Running installer (this takes a minute)...
 "%TEMP%\python-installer.exe" /quiet InstallAllUsers=1 PrependPath=1 Include_pip=1
-echo  [OK] Python installed.
-set "PATH=%PATH%;C:\Program Files\Python312;C:\Program Files\Python312\Scripts"
-:python_done
+echo  [OK] Python installed. Locating...
+:: Find what was just installed
+for %%d in (
+    "%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+    "C:\Program Files\Python312\python.exe"
+) do (
+    if exist %%d if not defined PYTHON_EXE set "PYTHON_EXE=%%~d"
+)
+if not defined PYTHON_EXE (
+    echo  [!] FATAL: Python installed but cannot be found.
+    echo      Close this window, open a NEW command prompt, and run install.bat again.
+    pause
+    exit /b 1
+)
+:python_found
+for %%F in ("%PYTHON_EXE%") do set "PYTHON_DIR=%%~dpF"
+set "PYTHONW_EXE=%PYTHON_DIR%pythonw.exe"
+echo  [OK] Found: %PYTHON_EXE%
 echo.
 
 :: ─── Install dependencies ───
 echo  [3/5] Installing Python packages...
-python -m pip install --upgrade pip >nul 2>&1
-python -m pip install openai sounddevice soundfile keyboard pyperclip pyautogui numpy scipy
+"%PYTHON_EXE%" -m pip install --upgrade pip >nul 2>&1
+"%PYTHON_EXE%" -m pip install openai sounddevice soundfile keyboard pyperclip pyautogui numpy scipy
 echo.
 echo  [OK] All packages installed.
 echo.
@@ -92,16 +127,17 @@ goto :clone_remote
 echo  [*] Copying from current directory...
 copy /Y "%~dp0lavrentiy.py" "%INSTALL_DIR%\" >nul
 copy /Y "%~dp0dashboard.html" "%INSTALL_DIR%\" >nul
-copy /Y "%~dp0lavrentiy.bat" "%INSTALL_DIR%\" >nul
+:: Write a launcher that uses the exact Python path we found
+echo @echo off > "%INSTALL_DIR%\lavrentiy.bat"
+echo start "" "%PYTHONW_EXE%" "%%~dp0lavrentiy.py" >> "%INSTALL_DIR%\lavrentiy.bat"
 goto :files_done
 :clone_remote
-echo  [*] Cloning from GitHub...
-git clone https://github.com/gugosf114/lavrentiy.git "%INSTALL_DIR%" 2>nul
-if not %errorlevel% neq 0 goto :files_done
-echo  [!] Git not found. Downloading files directly...
+echo  [*] Downloading files from GitHub...
 powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/gugosf114/lavrentiy/main/lavrentiy.py' -OutFile '%INSTALL_DIR%\lavrentiy.py'"
 powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/gugosf114/lavrentiy/main/dashboard.html' -OutFile '%INSTALL_DIR%\dashboard.html'"
-powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/gugosf114/lavrentiy/main/lavrentiy.bat' -OutFile '%INSTALL_DIR%\lavrentiy.bat'"
+:: Write a launcher that uses the exact Python path we found
+echo @echo off > "%INSTALL_DIR%\lavrentiy.bat"
+echo start "" "%PYTHONW_EXE%" "%%~dp0lavrentiy.py" >> "%INSTALL_DIR%\lavrentiy.bat"
 :files_done
 echo  [OK] Files installed to %INSTALL_DIR%
 echo.
