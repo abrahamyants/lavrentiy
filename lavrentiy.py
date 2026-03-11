@@ -23,6 +23,7 @@ import numpy
 import os
 import time
 import json
+import sqlite3
 import ctypes
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from scipy.signal import resample_poly
@@ -68,8 +69,8 @@ LAYER_KEY = "f11"
 MODEL = "gpt-4o-mini"
 PROFILE_DIR = Path.home() / ".lavrentiy"
 PROFILE_PATH = PROFILE_DIR / "profile.json"
-MAX_SESSIONS = 100
 DASHBOARD_PORT = 7878
+DB_PATH = PROFILE_DIR / "history.db"
 DASHBOARD_PATH = PROFILE_DIR / "dashboard.html"
 
 # -- Phase 2 config ──────────────────────────────────────────────
@@ -162,20 +163,20 @@ DEFAULT_PROFILE = {
     "candidate_corrections": {},
     "candidate_fillers": {},
     "candidate_vocabulary": {},
-    "preferences": {"tone": "casual", "layer": 2},
-    "sessions": []
+    "preferences": {"tone": "casual", "layer": 2}
 }
 
 def load_profile():
     if PROFILE_PATH.exists():
         try:
             with open(PROFILE_PATH, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                data = json.load(f)
+            data.pop("sessions", None)  # sessions live in SQLite now
+            return data
         except (json.JSONDecodeError, IOError):
             pass
     p = dict(DEFAULT_PROFILE)
     p["created"] = datetime.now().isoformat()
-    p["sessions"] = []
     p["corrections"] = {}
     p["trigger_words"] = list(DEFAULT_PROFILE["trigger_words"])
     p["filler_words"] = list(DEFAULT_PROFILE["filler_words"])
@@ -303,23 +304,18 @@ def migrate_profile(prof):
     return prof
 
 def log_session(prof, raw, output, tone, layer, decision=None, timings=None):
-    entry = {
-        "ts": datetime.now().isoformat(),
-        "raw": raw,
-        "out": output,
-        "tone": tone,
-        "layer": layer,
-        "words": len(output.split()),
-        "falcon": decision["falcon_ok"] if decision else True
-    }
-    if decision:
-        entry["decision"] = decision
-    if timings:
-        entry["timings"] = timings
-    prof["sessions"].append(entry)
-    if len(prof["sessions"]) > MAX_SESSIONS:
-        prof["sessions"] = prof["sessions"][-MAX_SESSIONS:]
-    save_profile(prof)
+    ts = datetime.now().isoformat()
+    falcon = decision["falcon_ok"] if decision else True
+    words = len(output.split())
+    with _db_lock:
+        _db.execute(
+            "INSERT INTO sessions (ts, raw, out, tone, layer, words, falcon, decision, timings) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (ts, raw, output, tone, layer, words, int(falcon),
+             json.dumps(decision) if decision else None,
+             json.dumps(timings) if timings else None)
+        )
+        _db.commit()
 
 profile = load_profile()
 profile = migrate_profile(profile)
@@ -328,6 +324,91 @@ if normalize_profile(profile):
 _new_fillers = migrate_fillers(profile)
 if _new_fillers:
     print(f"Added {len(_new_fillers)} bilingual fillers: {', '.join(_new_fillers)}")
+
+# -- SQLite session history ───────────────────────────────────────
+PROFILE_DIR.mkdir(exist_ok=True)
+_db = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+_db.execute("PRAGMA journal_mode=WAL")
+_db.execute("PRAGMA synchronous=NORMAL")
+_db.execute("""
+    CREATE TABLE IF NOT EXISTS sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TEXT NOT NULL,
+        raw TEXT NOT NULL,
+        out TEXT NOT NULL,
+        tone TEXT NOT NULL,
+        layer INTEGER NOT NULL,
+        words INTEGER NOT NULL,
+        falcon INTEGER NOT NULL DEFAULT 1,
+        decision TEXT,
+        timings TEXT
+    )
+""")
+_db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_ts ON sessions(ts)")
+_db.commit()
+_db_lock = threading.Lock()
+
+# One-time migration: move sessions from profile.json into SQLite
+_migrated_path = PROFILE_DIR / ".sessions_migrated"
+if not _migrated_path.exists():
+    _old_sessions = []
+    if PROFILE_PATH.exists():
+        try:
+            with open(PROFILE_PATH, 'r', encoding='utf-8') as _f:
+                _old_data = json.load(_f)
+            _old_sessions = _old_data.get("sessions", [])
+        except (json.JSONDecodeError, IOError):
+            pass
+    if _old_sessions:
+        with _db_lock:
+            _db.executemany(
+                "INSERT INTO sessions (ts, raw, out, tone, layer, words, falcon, decision, timings) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(s.get("ts", ""), s.get("raw", ""), s.get("out", ""),
+                  s.get("tone", "casual"), s.get("layer", 1),
+                  s.get("words", 0), int(s.get("falcon", True)),
+                  json.dumps(s["decision"]) if "decision" in s else None,
+                  json.dumps(s["timings"]) if "timings" in s else None)
+                 for s in _old_sessions]
+            )
+            _db.commit()
+        print(f"Migrated {len(_old_sessions)} sessions to SQLite")
+        # Strip sessions from profile.json
+        if PROFILE_PATH.exists():
+            try:
+                with open(PROFILE_PATH, 'r', encoding='utf-8') as _f:
+                    _pdata = json.load(_f)
+                if "sessions" in _pdata:
+                    del _pdata["sessions"]
+                    with open(PROFILE_PATH, 'w', encoding='utf-8') as _f:
+                        json.dump(_pdata, _f, indent=2, ensure_ascii=False)
+            except (json.JSONDecodeError, IOError):
+                pass
+    _migrated_path.touch()
+
+def db_get_sessions(limit=50, offset=0):
+    """Fetch recent sessions from SQLite, newest first."""
+    with _db_lock:
+        rows = _db.execute(
+            "SELECT ts, raw, out, tone, layer, words, falcon, decision, timings "
+            "FROM sessions ORDER BY id DESC LIMIT ? OFFSET ?",
+            (limit, offset)
+        ).fetchall()
+    result = []
+    for ts, raw, out, tone, layer, words, falcon, decision, timings in rows:
+        entry = {"ts": ts, "raw": raw, "out": out, "tone": tone,
+                 "layer": layer, "words": words, "falcon": bool(falcon)}
+        if decision:
+            entry["decision"] = json.loads(decision)
+        if timings:
+            entry["timings"] = json.loads(timings)
+        result.append(entry)
+    return result
+
+def db_session_count():
+    """Total number of sessions stored."""
+    with _db_lock:
+        return _db.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
 
 # -- State ────────────────────────────────────────────────────────
 recording = []
@@ -499,9 +580,9 @@ learn_status = {"last_run": None, "total_learned": 0, "next_in": LEARN_EVERY}
 
 def learn_from_sessions(prof):
     """Analyze recent raw→output pairs and extract patterns."""
-    sessions = [s for s in prof.get("sessions", [])
-                if s.get("layer", 1) >= 2 and s.get("raw") != s.get("out")]
-    recent = sessions[-LEARN_EVERY:]
+    recent = db_get_sessions(limit=LEARN_EVERY * 3)  # fetch recent, filter below
+    recent = [s for s in recent if s.get("layer", 1) >= 2 and s.get("raw") != s.get("out")]
+    recent = recent[:LEARN_EVERY]  # already newest-first from db_get_sessions
     if not recent:
         return
 
@@ -733,7 +814,7 @@ def build_stutter_insights(prof):
     trigger_words = prof.get("trigger_words", [])
     filler_words = prof.get("filler_words", [])
     corrections = prof.get("corrections", {})
-    sessions = prof.get("sessions", [])
+    session_count = db_session_count()
 
     insights = []
 
@@ -779,12 +860,12 @@ def build_stutter_insights(prof):
         })
 
     # 5. Stable: no concerns, only if enough session data
-    if not insights and len(sessions) >= 10:
+    if not insights and session_count >= 10:
         tip = STUTTER_TIPS["stable_profile"]
         insights.append({
             "id": "stable_profile", "severity": "low",
             "title": tip["title"], "body": tip["body"], "source": tip["source"],
-            "evidence": {"sessions": len(sessions), "triggers": len(trigger_words), "corrections": len(corrections)},
+            "evidence": {"sessions": session_count, "triggers": len(trigger_words), "corrections": len(corrections)},
         })
 
     return insights[:MAX_INSIGHTS]
@@ -1089,7 +1170,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif self.path == '/api/profile':
             self._json(profile)
         elif self.path == '/api/sessions':
-            self._json(list(reversed(profile.get('sessions', [])[-50:])))
+            self._json(db_get_sessions(limit=50))
         elif self.path == '/api/log':
             self._json(console_log)
         elif self.path == '/api/learn':
