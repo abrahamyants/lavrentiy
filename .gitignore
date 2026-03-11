@@ -2,3 +2,4 @@ docs/
 profile.json
 __pycache__/
 *.pyc
+api_key.txt
