@@ -388,20 +388,37 @@ body::before {
   background: linear-gradient(180deg, #b0b0b5 0%, var(--raised) 100%);
 }
 .tone-btn.active {
-  background: linear-gradient(180deg, #a82020 0%, #b91c1c 40%, #9a1818 100%);
-  color: #f0d0d0;
+  background: linear-gradient(180deg, #8a1a1a 0%, #7a1515 40%, #6a1212 100%);
+  color: #ffd8d8;
   font-weight: 600;
-  border-color: rgba(0,0,0,0.3);
-  border-bottom: 2px solid #701010;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,200,200,0.15), 0 0 12px rgba(185,28,28,0.15);
+  border-color: rgba(0,0,0,0.4);
+  border-top: 2px solid rgba(0,0,0,0.35);
+  border-bottom: 1px solid rgba(0,0,0,0.2);
+  box-shadow: inset 0 3px 8px rgba(0,0,0,0.4), inset 0 1px 2px rgba(0,0,0,0.3), 0 0 18px rgba(185,28,28,0.2);
+  transform: translateY(1px);
 }
+/* left-edge channel indicator strip */
+.tone-btn.active::after {
+  content: '';
+  position: absolute; left: 0; top: 4px; bottom: 4px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: linear-gradient(180deg, #ff8a8a, #ff5555, #ff8a8a);
+  box-shadow: 0 0 8px rgba(255,85,85,0.6), 0 0 20px rgba(255,85,85,0.25);
+}
+/* LED indicator dot */
 .tone-btn.active::before {
   content: '';
-  position: absolute; right: 10px; top: 50%; margin-top: -2px;
-  width: 4px; height: 4px;
+  position: absolute; right: 10px; top: 50%; margin-top: -3px;
+  width: 6px; height: 6px;
   border-radius: 50%;
-  background: #ff6b6b;
-  box-shadow: 0 0 6px rgba(255,107,107,0.6), inset 0 -1px 1px rgba(0,0,0,0.3);
+  background: radial-gradient(circle at 35% 35%, #ff9999, #ff5555 50%, #cc3333);
+  box-shadow: 0 0 4px rgba(255,85,85,0.8), 0 0 12px rgba(255,85,85,0.4), 0 0 24px rgba(255,85,85,0.15), inset 0 -1px 1px rgba(0,0,0,0.3);
+  animation: led-pulse 2.5s ease-in-out infinite;
+}
+@keyframes led-pulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(255,85,85,0.8), 0 0 12px rgba(255,85,85,0.4), 0 0 24px rgba(255,85,85,0.15), inset 0 -1px 1px rgba(0,0,0,0.3); }
+  50% { box-shadow: 0 0 6px rgba(255,85,85,1), 0 0 16px rgba(255,85,85,0.6), 0 0 32px rgba(255,85,85,0.25), inset 0 -1px 1px rgba(0,0,0,0.3); }
 }
 
 .layer-opt {
@@ -424,18 +441,31 @@ body::before {
   box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
 }
 .layer-opt.active {
-  background: linear-gradient(180deg, #a82020 0%, #b91c1c 40%, #9a1818 100%);
-  border-color: rgba(0,0,0,0.3);
-  border-bottom: 2px solid #701010;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,200,200,0.15), 0 0 12px rgba(185,28,28,0.12);
+  background: linear-gradient(180deg, #8a1a1a 0%, #7a1515 40%, #6a1212 100%);
+  border-color: rgba(0,0,0,0.4);
+  border-top: 2px solid rgba(0,0,0,0.35);
+  border-bottom: 1px solid rgba(0,0,0,0.2);
+  box-shadow: inset 0 3px 8px rgba(0,0,0,0.4), inset 0 1px 2px rgba(0,0,0,0.3), 0 0 18px rgba(185,28,28,0.2);
+  transform: translateY(1px);
 }
+/* left-edge channel indicator strip */
+.layer-opt.active::after {
+  content: '';
+  position: absolute; left: 0; top: 4px; bottom: 4px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: linear-gradient(180deg, #ff8a8a, #ff5555, #ff8a8a);
+  box-shadow: 0 0 8px rgba(255,85,85,0.6), 0 0 20px rgba(255,85,85,0.25);
+}
+/* LED indicator dot */
 .layer-opt.active::before {
   content: '';
-  position: absolute; right: 10px; top: 50%; margin-top: -2px;
-  width: 4px; height: 4px;
+  position: absolute; right: 10px; top: 50%; margin-top: -3px;
+  width: 6px; height: 6px;
   border-radius: 50%;
-  background: #ff6b6b;
-  box-shadow: 0 0 6px rgba(255,107,107,0.6), inset 0 -1px 1px rgba(0,0,0,0.3);
+  background: radial-gradient(circle at 35% 35%, #ff9999, #ff5555 50%, #cc3333);
+  box-shadow: 0 0 4px rgba(255,85,85,0.8), 0 0 12px rgba(255,85,85,0.4), 0 0 24px rgba(255,85,85,0.15), inset 0 -1px 1px rgba(0,0,0,0.3);
+  animation: led-pulse 2.5s ease-in-out infinite;
 }
 .layer-opt .l-num {
   font-size: 18px; font-weight: 700; color: var(--text-muted);
