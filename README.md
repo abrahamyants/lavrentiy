@@ -4,17 +4,20 @@
 
 Lavrentiy captures your voice, transcribes it via Whisper, reconstructs it through GPT-4o-mini, validates meaning with a secondary LLM pass (Falcon), and pastes the cleaned output directly into whatever app you were typing in. It learns your speech patterns over time — corrections, filler words, vocabulary, and stutter triggers — building a persistent profile that improves accuracy with every session.
 
+Built for people who stutter. The Layer 4 pipeline uses a clinically-informed reconstruction prompt grounded in research from the Stuttering Foundation, covering overt disfluencies (part-word repetitions, prolongations, blocks, schwa substitution, consonant cluster breaks, tremors) and covert stuttering patterns (postponement fillers, synonym substitution, circumlocution, sentence abandonment, mazes/cluttering). Includes DAF (Delayed Auditory Feedback) for real-time fluency training.
+
 ## Architecture
 
-Single Python process, ~68 KB total. No frameworks, no Electron, no build step.
+Single Python process, no frameworks, no Electron, no build step.
 
 ```
 Mic → Whisper → Reconstruction → Falcon Validation → Clipboard → Paste
 ```
 
-- **Engine** (`lavrentiy.py`): Hotkey listener, audio capture, LLM pipeline, embedded HTTP server
+- **Engine** (`lavrentiy.py`): Hotkey listener, audio capture, LLM pipeline, DAF streaming, embedded HTTP server
 - **Dashboard** (`dashboard.html`): Browser-based control panel served on `localhost:7878`
-- **Profile** (`~/.lavrentiy/profile.json`): Persistent learned patterns and session history
+- **Profile** (`~/.lavrentiy/profile.json`): Persistent learned patterns and preferences
+- **History** (`~/.lavrentiy/history.db`): SQLite session database (WAL mode, unlimited history)
 
 ## Layers
 
@@ -23,7 +26,7 @@ Mic → Whisper → Reconstruction → Falcon Validation → Clipboard → Paste
 | 1 | Transcribe | Pure Whisper output, no LLM processing |
 | 2 | Reconstruct | LLM cleans grammar, strips fillers, restructures |
 | 3 | Profile | + your learned vocabulary, corrections, preferred terms |
-| 4 | Stutter | + disfluency detection, trigger word tracking, insights |
+| 4 | Stutter | + disfluency detection, trigger word tracking, clinical insights |
 
 ## Modes
 
@@ -74,6 +77,10 @@ pythonw lavrentiy.py
 
 Dashboard opens at [http://localhost:7878](http://localhost:7878)
 
+## DAF (Delayed Auditory Feedback)
+
+Plays your mic audio back through headphones with a configurable delay (30–300ms, default 100ms). The delayed echo creates a choral reading effect that reduces stuttering blocks for many speakers. Toggle on/off and adjust the delay slider in the dashboard sidebar. Uses the same mic device as the recording pipeline. No extra dependencies — built on `sounddevice` streaming.
+
 ## Auto-Learning
 
 Every 3 sessions (Layer 2+), Lavrentiy analyzes your raw → output pairs and extracts:
@@ -85,7 +92,32 @@ Every 3 sessions (Layer 2+), Lavrentiy analyzes your raw → output pairs and ex
 
 New patterns land in **candidate buckets** first and must recur before promotion to the active profile. Corrections use a vote-based system — conflicting suggestions compete, and ties block promotion. This prevents single-occurrence hallucinations from poisoning the profile.
 
-Profile data is normalized on ingestion and at startup: whitespace-trimmed, case-insensitively deduped, bounded by size caps.
+## Layer 4: Clinical Stuttering Support
+
+The Layer 4 reconstruction prompt is informed by clinical research from the Stuttering Foundation:
+
+**Overt disfluencies** (strip and reconstruct):
+- Part-word repetitions, whole-word repetitions, prolongations
+- Schwa vowel substitution in repeated syllables
+- Consonant cluster breaks (failed blends inject schwa)
+- Blocks (silent fixations), tremors, secondary behaviors
+
+**Covert stuttering** (recognize as avoidance, not content):
+- Postponement fillers / starters
+- Word substitution and circumlocution
+- Sentence abandonment, covert interruption
+- Mazes / cluttering (rambling run-on filler)
+
+**Phonetic trigger awareness**:
+- Stop plosives (/p/, /b/, /t/, /d/, /k/, /g/) and affricates (/tʃ/, /dʒ/)
+- Consonant-vowel transitions and consonant clusters
+- Initial word/clause boundary positions
+
+**Clinical insights** (Insights tab, Layer 4):
+Each insight prescribes specific therapeutic techniques — Preparatory Sets, Voluntary Stuttering, Pull-Outs, Easy Onset, Coarticulation Practice — sourced from Stuttering Foundation publications.
+
+**Tips reference** (Tips tab):
+56 clinical entries across 8 categories with source document citations: Trigger Patterns, Situational Modifiers, Avoidance Behaviors, Disfluency Types, Therapeutic Techniques, Persistent vs. Developmental Markers, Cognitive/Emotional Patterns, and Hard Statistics.
 
 ## Risk Flags
 
@@ -99,43 +131,31 @@ Every pipeline run computes deterministic risk flags (no extra API calls):
 | `large_length_delta` | Clean/raw length ratio beyond threshold |
 | `contains_unfinished_fragment` | Dangling connector or broken punctuation |
 
-Flags are stored in the session decision object and shown as badges in the dashboard.
-
-## Stutter Insights
-
-At Layer 4, the dashboard's **Insights** tab surfaces deterministic observations from profile state — no extra API calls, no medical claims:
-
-| Insight | Severity | Signal |
-|---------|----------|--------|
-| Recurring trigger words | High | 3+ trigger words accumulated |
-| Heavy filler use | Medium | 5+ fillers above built-in baseline |
-| Repeated misrecognitions | Medium | 5+ active corrections |
-| New trigger words emerging | Medium | 3+ trigger detections in current session |
-| Stable pattern week | Low | 10+ sessions, no concerns |
-
 ## Bilingual Support
 
 Built for English/Russian bilingual speakers. Filler detection covers both languages. Cyrillic text in input triggers bilingual-aware reconstruction prompts.
 
 ## Dashboard
 
-The dashboard is a single HTML file served by the engine's embedded HTTP server. It provides:
+Single HTML file served by the engine's embedded HTTP server:
 
 - Real-time state indicator (recording / processing / idle)
 - Tone, layer, and mode controls
+- DAF toggle and delay slider
 - Session stats and estimated API cost
 - Live console log
+- Session history (SQLite-backed, unlimited)
 - Learning event feed with progress tracking
-- Stutter insights (Layer 4)
+- Clinical stutter insights with therapeutic techniques (Layer 4)
+- Stuttering Foundation tips reference (56 entries, 8 categories)
 - Profile editor (triggers, fillers, vocabulary, corrections)
 
-When the engine is not running, the dashboard shows a "CONNECTION LOST" overlay.
+## Data Safety
 
-## Profile Safety
-
-- **Atomic saves**: temp-write → fsync → rename (no partial writes)
-- **Pre-migration backups**: timestamped snapshots in `~/.lavrentiy/backups/` before schema upgrades
-- **Schema versioning**: current version 3 (vote-based candidate corrections, normalized data)
+- **Atomic profile saves**: temp-write → fsync → rename (no partial writes)
+- **SQLite WAL mode**: concurrent reads during writes, no corruption
+- **Pre-migration backups**: timestamped snapshots in `~/.lavrentiy/backups/`
+- **Schema versioning**: profile version 3 (vote-based candidate corrections)
 
 ## Project Structure
 
@@ -145,7 +165,8 @@ lavrentiy.py        # Engine + HTTP server (single process)
 dashboard.html      # Browser UI (served by engine)
 ```
 
-Runtime data stored at `~/.lavrentiy/`:
-- `profile.json` — learned patterns, preferences, session history
+Runtime data at `~/.lavrentiy/`:
+- `profile.json` — learned patterns and preferences
+- `history.db` — SQLite session database
 - `dashboard.html` — served copy of the dashboard
 - `backups/` — pre-migration profile snapshots
