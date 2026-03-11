@@ -328,7 +328,7 @@ def learn_from_sessions(prof):
         log(f"Learn: parse failed ({e})", "error")
         return
 
-    changed = False
+    added = 0
     now = datetime.now().isoformat()
     existing_corr = prof.get("corrections", {})
     for wrong, right in learnings.get("corrections", {}).items():
@@ -336,7 +336,7 @@ def learn_from_sessions(prof):
             prof.setdefault("corrections", {})[wrong] = right
             learn_events.append({"ts": now, "type": "correction", "value": f"{wrong} → {right}"})
             log(f"Learned: \"{wrong}\" → \"{right}\"", "info")
-            changed = True
+            added += 1
 
     existing_fillers = {f.lower() for f in prof.get("filler_words", [])}
     for filler in learnings.get("fillers", []):
@@ -344,7 +344,7 @@ def learn_from_sessions(prof):
             prof.setdefault("filler_words", []).append(filler.lower())
             learn_events.append({"ts": now, "type": "filler", "value": filler.lower()})
             log(f"Learned filler: \"{filler}\"", "info")
-            changed = True
+            added += 1
 
     existing_vocab = {v.lower() for v in prof.get("vocabulary", [])}
     for term in learnings.get("vocabulary", []):
@@ -352,11 +352,11 @@ def learn_from_sessions(prof):
             prof.setdefault("vocabulary", []).append(term)
             learn_events.append({"ts": now, "type": "vocab", "value": term})
             log(f"Learned vocab: \"{term}\"", "info")
-            changed = True
+            added += 1
 
     learn_status["last_run"] = now
-    if changed:
-        learn_status["total_learned"] += len(learn_events) - sum(1 for e in learn_events if e["ts"] != now)
+    if added:
+        learn_status["total_learned"] += added
         save_profile(prof)
     else:
         log("Learn: no new patterns", "info")
@@ -457,7 +457,8 @@ def add_trigger_words(new_triggers, prof):
 # -- Audio ────────────────────────────────────────────────────────
 def audio_callback(indata, frames, time_info, status):
     if is_recording:
-        recording.append(indata.copy())
+        with lock:
+            recording.append(indata.copy())
 
 def start_recording():
     global is_recording, recording, stream, target_hwnd, state
@@ -506,11 +507,14 @@ def set_state(s):
 # -- Pipeline ─────────────────────────────────────────────────────
 def pipeline():
     global state
-    if not recording:
-        state = 'idle'
-        return
+    with lock:
+        if not recording:
+            state = 'idle'
+            return
+        frames = list(recording)
+        recording.clear()
 
-    audio_data = numpy.concatenate(recording, axis=0).flatten()
+    audio_data = numpy.concatenate(frames, axis=0).flatten()
     if NEEDS_RESAMPLE:
         audio_data = resample_poly(audio_data, RESAMPLE_UP, RESAMPLE_DOWN)
 
@@ -695,18 +699,29 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         body = self._read_body()
         if self.path == '/api/tone':
-            if body and 'tone' in body:
+            if body and isinstance(body.get('tone'), str):
                 set_tone(body['tone'])
             self._json({'tone': current_tone})
         elif self.path == '/api/layer':
             if body and 'layer' in body:
-                set_layer(int(body['layer']))
+                try:
+                    set_layer(int(body['layer']))
+                except (ValueError, TypeError):
+                    pass
             self._json({'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?')})
         elif self.path == '/api/profile':
-            if body:
-                for key in ('trigger_words', 'filler_words', 'vocabulary', 'corrections'):
-                    if key in body:
-                        profile[key] = body[key]
+            if body and isinstance(body, dict):
+                _MAX_ITEMS, _MAX_LEN = 200, 100
+                for key in ('trigger_words', 'filler_words', 'vocabulary'):
+                    if key in body and isinstance(body[key], list):
+                        profile[key] = [str(v)[:_MAX_LEN] for v in body[key][:_MAX_ITEMS]
+                                        if isinstance(v, str)]
+                if 'corrections' in body and isinstance(body['corrections'], dict):
+                    profile['corrections'] = {
+                        str(k)[:_MAX_LEN]: str(v)[:_MAX_LEN]
+                        for k, v in list(body['corrections'].items())[:_MAX_ITEMS]
+                        if isinstance(k, str) and isinstance(v, str)
+                    }
                 save_profile(profile)
             self._json({'ok': True})
         else:
@@ -714,7 +729,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _read_body(self):
         length = int(self.headers.get('Content-Length', 0))
-        if length == 0:
+        if length == 0 or length > 1_000_000:
             return None
         try:
             return json.loads(self.rfile.read(length))
