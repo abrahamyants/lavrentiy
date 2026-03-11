@@ -25,6 +25,8 @@ if not defined PYTHONW_EXE (
 
 if defined PYTHONW_EXE (
     start "" "%PYTHONW_EXE%" "%SCRIPT%"
+    timeout /t 3 /nobreak >nul
+    start "" "http://localhost:7878"
     exit /b 0
 )
 
