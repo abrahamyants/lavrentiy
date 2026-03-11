@@ -68,16 +68,23 @@ echo  [OK] Pythonw: %PYTHONW_EXE%
 echo.
 
 :: ─── [3/6] Install packages ───
-echo  [3/6] Installing Python packages...
+echo  [3/6] Installing Python packages (this may take 1-2 minutes)...
 "%PYTHON_EXE%" -m ensurepip --upgrade >nul 2>&1
 "%PYTHON_EXE%" -m pip --disable-pip-version-check install --upgrade pip >nul 2>&1
-"%PYTHON_EXE%" -m pip --disable-pip-version-check install openai sounddevice soundfile keyboard pyperclip pyautogui numpy scipy
+echo       openai...
+"%PYTHON_EXE%" -m pip --disable-pip-version-check -q install openai
+echo       sounddevice + soundfile...
+"%PYTHON_EXE%" -m pip --disable-pip-version-check -q install sounddevice soundfile
+echo       keyboard + pyperclip + pyautogui...
+"%PYTHON_EXE%" -m pip --disable-pip-version-check -q install keyboard pyperclip pyautogui
+echo       numpy + scipy (large — please wait)...
+"%PYTHON_EXE%" -m pip --disable-pip-version-check -q install numpy scipy
 if errorlevel 1 (
     echo  [!] Package installation failed.
     pause
     exit /b 1
 )
-echo  [OK] Packages installed.
+echo  [OK] All packages installed.
 echo.
 
 :: ─── [4/6] Install app files ───
@@ -206,7 +213,7 @@ for /f "usebackq delims=" %%P in (`py -3 -c "import sys; print(sys.executable)" 
 if defined PYTHON_EXE exit /b 0
 
 :: Probe 2: Native registry query (handles fresh installs, no PATH needed)
-:: Check ExecutablePath first (exact), then (Default) with/without trailing \
+:: Check ExecutablePath first (exact), then (Default) via findstr (not /ve — flaky on managed installs)
 for %%V in (3.12 3.13 3.14) do (
     for %%H in (
         "HKLM\SOFTWARE\Python\PythonCore\%%V\InstallPath"
@@ -219,7 +226,7 @@ for %%V in (3.12 3.13 3.14) do (
             )
         )
         if not defined PYTHON_EXE (
-            for /f "tokens=2*" %%a in ('reg query %%H /ve 2^>nul') do (
+            for /f "tokens=2*" %%a in ('reg query %%H 2^>nul ^| findstr /c:"(Default)"') do (
                 if exist "%%bpython.exe" (
                     set "PYTHON_EXE=%%bpython.exe"
                 ) else if exist "%%b\python.exe" (
