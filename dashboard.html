@@ -336,6 +336,11 @@ body::before {
   padding: 14px 20px;
   border-bottom: 1px solid var(--border);
   position: relative;
+  /* subtle perforated metal texture */
+  background:
+    radial-gradient(circle at center, rgba(0,0,0,0.04) 0.8px, transparent 0.8px),
+    transparent;
+  background-size: 4px 4px;
 }
 .sidebar-section::after {
   content: '';
@@ -457,14 +462,14 @@ body::before {
   background: linear-gradient(180deg, #ff8a8a, #ff5555, #ff8a8a);
   box-shadow: 0 0 8px rgba(255,85,85,0.6), 0 0 20px rgba(255,85,85,0.25);
 }
-/* LED indicator dot — acid green */
+/* LED indicator dot — acid green, oversized for visibility */
 .layer-opt.active::before {
   content: '';
-  position: absolute; right: 10px; top: 50%; margin-top: -4px;
-  width: 8px; height: 8px;
+  position: absolute; right: 10px; top: 50%; margin-top: -5px;
+  width: 10px; height: 10px;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #c0ff00, #8aff00 40%, #55dd00 80%);
-  box-shadow: 0 0 5px rgba(138,255,0,0.9), 0 0 14px rgba(138,255,0,0.5), 0 0 28px rgba(138,255,0,0.2), inset 0 -1px 1px rgba(0,0,0,0.25);
+  background: radial-gradient(circle at 35% 35%, #e0ff40, #8aff00 40%, #55dd00 80%);
+  box-shadow: 0 0 6px rgba(138,255,0,1), 0 0 16px rgba(138,255,0,0.7), 0 0 32px rgba(138,255,0,0.3), inset 0 -1px 1px rgba(0,0,0,0.25);
   animation: led-pulse 2.5s ease-in-out infinite;
 }
 .layer-opt .l-num {
@@ -484,19 +489,19 @@ body::before {
   margin-top: auto; padding: 16px 20px; border-top: 1px solid var(--border);
 }
 .sidebar-footer .keys {
-  font-family: var(--mono); font-size: 11px; color: var(--text-muted);
-  letter-spacing: 1px; line-height: 2.4;
+  font-family: var(--mono); font-size: 13px; color: var(--text-muted);
+  letter-spacing: 1px; line-height: 2.6;
 }
 .sidebar-footer kbd {
-  display: inline-block; padding: 3px 8px;
+  display: inline-block; padding: 5px 10px;
   background: linear-gradient(180deg, var(--raised-hi) 0%, var(--raised) 100%);
   border: 1px solid rgba(0,0,0,0.15);
   border-bottom: 2px solid rgba(0,0,0,0.4);
-  border-radius: 4px;
-  font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--text-dim);
+  border-radius: 5px;
+  font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--text-dim);
   box-shadow: 0 1px 2px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.05);
-  margin-right: 5px;
-  min-width: 28px; text-align: center;
+  margin-right: 6px;
+  min-width: 34px; text-align: center;
 }
 
 /* ═══════════════════════════════════════════════════
@@ -585,9 +590,9 @@ body::before {
 .stat-cell:active { transform: translateY(1px); }
 .stat-cell .sv {
   font-size: 26px; font-weight: 800;
-  color: #e8e0d8;
+  color: #f0dcc8;
   line-height: 1; transition: all 0.2s;
-  text-shadow: 0 0 8px rgba(232,224,216,0.3), 0 2px 4px rgba(0,0,0,0.5);
+  text-shadow: 0 0 10px rgba(240,180,120,0.35), 0 0 24px rgba(240,180,120,0.15), 0 2px 4px rgba(0,0,0,0.5);
   font-variant-numeric: tabular-nums;
 }
 .stat-cell .sl {
@@ -624,7 +629,7 @@ body::before {
     0 1px 0 rgba(255,255,255,0.06);
 }
 .learn-cell:last-of-type { border-right: none; }
-.learn-cell .lv { font-size: 16px; font-weight: 700; color: #e8e0d8; text-shadow: 0 0 6px rgba(232,224,216,0.2); }
+.learn-cell .lv { font-size: 16px; font-weight: 700; color: #f0dcc8; text-shadow: 0 0 8px rgba(240,180,120,0.25), 0 0 20px rgba(240,180,120,0.1); }
 .learn-cell .ll {
   font-family: var(--mono); font-size: 8px; color: #706860;
   text-transform: uppercase; letter-spacing: 2px; margin-top: 4px;
@@ -684,7 +689,7 @@ body::before {
   padding: 14px 28px;
   background: none; border: none;
   border-bottom: 2px solid transparent;
-  font-family: var(--mono); font-size: 13px; font-weight: 500;
+  font-family: var(--mono); font-size: 15px; font-weight: 600;
   letter-spacing: 3px; text-transform: uppercase;
   color: var(--text-muted); cursor: pointer;
   transition: all 0.15s;
@@ -1049,6 +1054,11 @@ body::before {
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
   position: relative;
 }
+/* engraved brand mark */
+.bottom-bar .disclaimer {
+  position: relative;
+  padding: 0 40px;
+}
 /* decorative hex screws */
 .bottom-bar::before,
 .bottom-bar::after {
@@ -1187,6 +1197,66 @@ body::before {
   letter-spacing: 1px;
 }
 
+/* ═══ HOTKEY EDITOR ═══ */
+.hotkey-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 0;
+}
+.hotkey-row .hk-key {
+  display: inline-block; padding: 4px 8px; min-width: 38px; text-align: center;
+  background: linear-gradient(180deg, #222228, #1a1a1e);
+  border: 1px solid rgba(0,0,0,0.4);
+  border-radius: 4px;
+  font-family: var(--mono); font-size: 12px; font-weight: 700;
+  color: #e8e0d8;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.5), 0 1px 0 rgba(255,255,255,0.06);
+  text-shadow: 0 0 6px rgba(232,224,216,0.3);
+}
+.hotkey-row .hk-key.listening {
+  background: linear-gradient(180deg, #4a1a1a, #3a1212);
+  border-color: var(--red);
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.5), 0 0 8px rgba(185,28,28,0.3);
+  animation: led-pulse 1s ease-in-out infinite;
+}
+.hotkey-row .hk-label {
+  flex: 1; font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+  letter-spacing: 1px;
+}
+.hk-edit-btn {
+  width: 24px; height: 24px;
+  background: var(--raised);
+  border: 1px solid rgba(0,0,0,0.12);
+  border-bottom: 2px solid rgba(0,0,0,0.25);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer; transition: all 0.15s;
+  font-size: 12px; line-height: 1;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+}
+.hk-edit-btn:hover {
+  background: var(--red); color: #fff; border-color: var(--red);
+  box-shadow: 0 0 8px rgba(185,28,28,0.3);
+}
+.hk-save-btn {
+  margin-top: 10px; width: 100%;
+  padding: 8px;
+  background: linear-gradient(180deg, var(--raised-hi), var(--raised));
+  border: 1px solid rgba(0,0,0,0.15);
+  border-bottom: 2px solid rgba(0,0,0,0.3);
+  border-radius: 6px;
+  font-family: var(--mono); font-size: 10px; font-weight: 600;
+  color: var(--text-dim); letter-spacing: 2px; text-transform: uppercase;
+  cursor: pointer; transition: all 0.15s;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.08);
+}
+.hk-save-btn:hover {
+  background: linear-gradient(180deg, var(--red-bright), var(--red));
+  color: #fff; border-color: var(--red);
+  box-shadow: var(--shadow-red);
+}
+.hk-save-btn:active { transform: translateY(1px); box-shadow: none; }
+.hotkey-arrow.open { transform: rotate(90deg); color: var(--red-bright); }
+
 /* ═══ RESPONSIVE ═══ */
 @media (max-width: 700px) {
   .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
@@ -1269,8 +1339,25 @@ body::before {
       </div>
     </div>
 
+    <div class="sidebar-section hotkey-section">
+      <div class="sidebar-section-title" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleHotkeyEditor()">
+        Hotkeys <span class="arrow hotkey-arrow" style="font-size:9px;transition:transform 0.3s">&#9654;</span>
+      </div>
+      <div id="hotkey-editor" style="display:none">
+        <div class="hotkey-row"><kbd class="hk-key" id="hk-record">F9</kbd><span class="hk-label">Record</span><button class="hk-edit-btn" onclick="startRebind('record')" title="Click to rebind">⚙</button></div>
+        <div class="hotkey-row"><kbd class="hk-key" id="hk-tone">F10</kbd><span class="hk-label">Cycle Tone</span><button class="hk-edit-btn" onclick="startRebind('tone')" title="Click to rebind">⚙</button></div>
+        <div class="hotkey-row"><kbd class="hk-key" id="hk-layer">F11</kbd><span class="hk-label">Cycle Layer</span><button class="hk-edit-btn" onclick="startRebind('layer')" title="Click to rebind">⚙</button></div>
+        <div class="hotkey-row"><kbd class="hk-key" id="hk-stats">F12</kbd><span class="hk-label">Print Stats</span><button class="hk-edit-btn" onclick="startRebind('stats')" title="Click to rebind">⚙</button></div>
+        <div class="hotkey-row"><kbd class="hk-key" id="hk-quit">F3</kbd><span class="hk-label">Quit (×3)</span><button class="hk-edit-btn" onclick="startRebind('quit')" title="Click to rebind">⚙</button></div>
+        <div id="rebind-prompt" style="display:none;margin-top:8px;padding:8px 10px;background:rgba(185,28,28,0.1);border:1px solid rgba(185,28,28,0.2);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--red-bright);letter-spacing:1px;text-align:center">
+          Press any key...
+        </div>
+        <button class="hk-save-btn" onclick="saveHotkeys()">Save to Engine</button>
+      </div>
+    </div>
+
     <div class="sidebar-footer">
-      <div class="keys"><kbd>F9</kbd> talk<br><kbd>F10</kbd> tone<br><kbd>F11</kbd> layer<br><kbd>F12</kbd> stats<br><kbd>F3</kbd>&times;3 quit</div>
+      <div class="keys" id="hotkey-footer"><kbd>F9</kbd> talk<br><kbd>F10</kbd> tone<br><kbd>F11</kbd> layer<br><kbd>F12</kbd> stats<br><kbd>F3</kbd>&times;3 quit</div>
     </div>
   </div>
 
@@ -1639,7 +1726,50 @@ document.querySelectorAll('.tone-btn:not(.mode-btn)').forEach(btn=>{btn.addEvent
 document.querySelectorAll('.layer-opt').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/layer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layer:parseInt(btn.dataset.layer)})});}catch(e){}});});
 document.querySelectorAll('.mode-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:btn.dataset.mode})});}catch(e){}});});
 
-async function init(){await Promise.all([fetchProfile(),fetchSessions(),fetchLearn(),fetchDAF()]);pollState();}
+// ─── HOTKEY CUSTOMIZATION ──────────────────────
+let hotkeys={record:'F9',tone:'F10',layer:'F11',stats:'F12',quit:'F3'};
+let rebindTarget=null;
+function toggleHotkeyEditor(){
+  const ed=document.getElementById('hotkey-editor');
+  const arr=document.querySelector('.hotkey-arrow');
+  const open=ed.style.display==='none';
+  ed.style.display=open?'block':'none';
+  arr.classList.toggle('open',open);
+}
+function startRebind(action){
+  rebindTarget=action;
+  document.querySelectorAll('.hk-key').forEach(k=>k.classList.remove('listening'));
+  document.getElementById('hk-'+action).classList.add('listening');
+  document.getElementById('rebind-prompt').style.display='block';
+}
+document.addEventListener('keydown',function(e){
+  if(!rebindTarget)return;
+  e.preventDefault();e.stopPropagation();
+  const key=e.key==='Escape'?null:e.key;
+  if(key){
+    hotkeys[rebindTarget]=key;
+    document.getElementById('hk-'+rebindTarget).textContent=key;
+    updateHotkeyFooter();
+  }
+  document.querySelectorAll('.hk-key').forEach(k=>k.classList.remove('listening'));
+  document.getElementById('rebind-prompt').style.display='none';
+  rebindTarget=null;
+});
+function updateHotkeyFooter(){
+  const el=document.getElementById('hotkey-footer');
+  el.innerHTML=`<kbd>${esc(hotkeys.record)}</kbd> talk<br><kbd>${esc(hotkeys.tone)}</kbd> tone<br><kbd>${esc(hotkeys.layer)}</kbd> layer<br><kbd>${esc(hotkeys.stats)}</kbd> stats<br><kbd>${esc(hotkeys.quit)}</kbd>&times;3 quit`;
+}
+async function saveHotkeys(){
+  try{
+    const r=await fetch(API+'/api/hotkeys',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(hotkeys)});
+    if(r.ok){const btn=document.querySelector('.hk-save-btn');btn.textContent='SAVED ✓';setTimeout(()=>{btn.textContent='Save to Engine';},2000);}
+  }catch(e){const btn=document.querySelector('.hk-save-btn');btn.textContent='ENGINE OFFLINE';setTimeout(()=>{btn.textContent='Save to Engine';},2000);}
+}
+async function fetchHotkeys(){
+  try{const r=await fetch(API+'/api/hotkeys');if(r.ok){const d=await r.json();Object.assign(hotkeys,d);for(const[k,v]of Object.entries(hotkeys)){const el=document.getElementById('hk-'+k);if(el)el.textContent=v;}updateHotkeyFooter();}}catch(e){}
+}
+
+async function init(){await Promise.all([fetchProfile(),fetchSessions(),fetchLearn(),fetchDAF(),fetchHotkeys()]);pollState();}
 init();
 </script>
 </body>

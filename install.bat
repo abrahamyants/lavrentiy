@@ -69,11 +69,13 @@ if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 if exist "%~dp0lavrentiy.py" (
     copy /Y "%~dp0lavrentiy.py" "%INSTALL_DIR%\" >nul
     copy /Y "%~dp0dashboard.html" "%INSTALL_DIR%\" >nul
+    if exist "%~dp0lavrentiy.ico" copy /Y "%~dp0lavrentiy.ico" "%INSTALL_DIR%\" >nul
 ) else (
     powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/gugosf114/lavrentiy/main/lavrentiy.py' -OutFile '%INSTALL_DIR%\lavrentiy.py'"
     if errorlevel 1 goto :download_fail
     powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/gugosf114/lavrentiy/main/dashboard.html' -OutFile '%INSTALL_DIR%\dashboard.html'"
     if errorlevel 1 goto :download_fail
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/gugosf114/lavrentiy/main/lavrentiy.ico' -OutFile '%INSTALL_DIR%\lavrentiy.ico'"
 )
 if not exist "%INSTALL_DIR%\lavrentiy.py" (
     echo  [!] lavrentiy.py missing after install.
@@ -101,7 +103,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$name='Lavrentiy.lnk';" ^
   "$paths=@([Environment]::GetFolderPath('Desktop'),[Environment]::GetFolderPath('CommonDesktopDirectory'));" ^
   "$ok=$false;" ^
-  "foreach($d in $paths){ if([string]::IsNullOrWhiteSpace($d)){continue}; if(!(Test-Path $d)){continue}; $lnk=Join-Path $d $name; $ws=New-Object -ComObject WScript.Shell; $s=$ws.CreateShortcut($lnk); $s.TargetPath=$target; $s.WorkingDirectory=$work; $s.Description='Lavrentiy Voice Engine'; $s.IconLocation=$target; $s.Save(); if(Test-Path $lnk){$ok=$true; break} };" ^
+  "$ico='%INSTALL_DIR%\lavrentiy.ico';" ^
+  "foreach($d in $paths){ if([string]::IsNullOrWhiteSpace($d)){continue}; if(!(Test-Path $d)){continue}; $lnk=Join-Path $d $name; $ws=New-Object -ComObject WScript.Shell; $s=$ws.CreateShortcut($lnk); $s.TargetPath=$target; $s.WorkingDirectory=$work; $s.Description='Lavrentiy Voice Engine'; if(Test-Path $ico){$s.IconLocation=$ico+',0'}else{$s.IconLocation=$target}; $s.Save(); if(Test-Path $lnk){$ok=$true; break} };" ^
   "if(-not $ok){ throw 'Shortcut creation failed' }"
 if errorlevel 1 (
     echo  [!] Shortcut creation failed.
