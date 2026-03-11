@@ -81,6 +81,11 @@ HOLD_ON_HIGH_RISK = False         # True = skip paste when risk_flags present
 BACKUP_DIR = PROFILE_DIR / "backups"
 PROFILE_VERSION = 2
 
+# -- Live preview config ─────────────────────────────────────────
+LIVE_PREVIEW_ENABLED = False      # True = stream interim transcripts
+PREVIEW_PROVIDER = "none"         # none | deepgram | assemblyai | google
+PREVIEW_LANGUAGE = "en"
+
 TONES = ["casual", "professional", "friend", "formal"]
 TONE_SHORT = {"casual": "CAS", "professional": "PRO", "friend": "FRD", "formal": "FRM"}
 LAYERS = [1, 2, 3, 4]
@@ -238,6 +243,43 @@ stats = {
     "start_time": time.time(),
     "api_calls": 0, "falcon_rejects": 0
 }
+
+# -- Live preview state ───────────────────────────────────────────
+preview_lock = threading.Lock()
+preview_state = {
+    "active": False,
+    "text": "",
+    "final_text": "",
+    "updated_at": 0
+}
+_preview_worker = None
+
+def update_preview_text(text, is_final=False):
+    with preview_lock:
+        preview_state["text"] = text
+        if is_final:
+            preview_state["final_text"] = text
+        preview_state["updated_at"] = time.time()
+
+def start_preview_stream():
+    global _preview_worker
+    if not LIVE_PREVIEW_ENABLED or PREVIEW_PROVIDER == "none":
+        return
+    with preview_lock:
+        preview_state["active"] = True
+        preview_state["text"] = ""
+        preview_state["final_text"] = ""
+        preview_state["updated_at"] = time.time()
+    # Stub: real providers would start a websocket/streaming worker here
+    log("Preview: stream started (stub)", "info")
+
+def stop_preview_stream():
+    global _preview_worker
+    with preview_lock:
+        preview_state["active"] = False
+    if _preview_worker and _preview_worker.is_alive():
+        _preview_worker = None
+    # Stub: real providers would close websocket here
 
 # -- Live console log ─────────────────────────────────────────────
 console_log = []
@@ -550,6 +592,10 @@ def start_recording():
     target_hwnd = user32.GetForegroundWindow()
     log("Recording...", "rec")
     try:
+        start_preview_stream()
+    except Exception as e:
+        log(f"Preview start failed: {e}", "error")
+    try:
         stream = sd.InputStream(samplerate=NATIVE_RATE, channels=1,
                                 device=DEVICE, callback=audio_callback)
         stream.start()
@@ -576,6 +622,10 @@ def stop_recording():
     if s:
         s.stop()
         s.close()
+    try:
+        stop_preview_stream()
+    except Exception as e:
+        log(f"Preview stop failed: {e}", "error")
     log("Processing...", "info")
     threading.Thread(target=pipeline, daemon=True).start()
 
@@ -843,6 +893,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     }
                 }
             })
+        elif self.path == '/api/preview':
+            with preview_lock:
+                self._json({
+                    'enabled': LIVE_PREVIEW_ENABLED,
+                    'active': preview_state['active'],
+                    'text': preview_state['text'],
+                    'final_text': preview_state['final_text'],
+                    'updated_at': preview_state['updated_at']
+                })
         else:
             self.send_error(404)
 

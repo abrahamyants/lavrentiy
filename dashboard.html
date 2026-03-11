@@ -767,6 +767,10 @@ body::before {
       </div>
 
       <div class="tab-panel active" id="tab-console">
+        <div id="preview-bar" style="display:none;padding:12px 24px;border-bottom:1px solid var(--border);background:rgba(220,38,38,0.03)">
+          <span style="font-family:var(--mono);font-size:8px;letter-spacing:3px;color:var(--red-bright);text-transform:uppercase;margin-right:10px">PREVIEW</span>
+          <span id="preview-text" style="font-family:var(--mono);font-size:12px;color:var(--text-dim)"></span>
+        </div>
         <div class="console-wrap" id="console"><div class="console-empty">Waiting for input...</div></div>
       </div>
 
@@ -811,7 +815,7 @@ let profile={trigger_words:[],filler_words:[],vocabulary:[],corrections:{}};
 let sessions=[];let lastSessionCount=-1;let connected=true;let failCount=0;
 let lastLogId=0;let logLines=[];
 let learnData={status:{},events:[],totals:{corrections:0,fillers:0,vocabulary:0}};
-let lastLearnEventCount=0;let lastLogFetch=0;let lastLearnFetch=0;
+let lastLearnEventCount=0;let lastLogFetch=0;let lastLearnFetch=0;let lastPreviewFetch=0;
 const FIELD_MAP={trigger:'trigger_words',filler:'filler_words',vocab:'vocabulary'};
 
 document.querySelectorAll('.tab-btn').forEach(btn=>{
@@ -832,9 +836,11 @@ async function pollState(){
     if(d.stats.sessions!==lastSessionCount){lastSessionCount=d.stats.sessions;fetchSessions();}
     if(now-lastLogFetch>=1000){lastLogFetch=now;fetchLog();}
     if(now-lastLearnFetch>=3000){lastLearnFetch=now;fetchLearn();}
+    if(state.state==='recording'&&now-lastPreviewFetch>=400){lastPreviewFetch=now;fetchPreview();}else if(state.state!=='recording'){document.getElementById('preview-bar').style.display='none';}
   }catch(e){failCount++;if(failCount>3){connected=false;document.getElementById('disconnected').classList.add('show');}}
   setTimeout(pollState,750);
 }
+async function fetchPreview(){try{const r=await fetch(API+'/api/preview');const d=await r.json();const bar=document.getElementById('preview-bar');if(d.enabled&&d.active&&d.text){bar.style.display='block';document.getElementById('preview-text').textContent=d.text;}else{bar.style.display='none';}}catch(e){}}
 async function fetchSessions(){try{const r=await fetch(API+'/api/sessions');sessions=await r.json();renderSessions();}catch(e){}}
 async function fetchLog(){try{const r=await fetch(API+'/api/log');const entries=await r.json();const n=entries.filter(e=>e.id>lastLogId);if(n.length>0){lastLogId=entries[entries.length-1].id;logLines=entries;renderConsole();}}catch(e){}}
 async function fetchProfile(){try{const r=await fetch(API+'/api/profile');profile=await r.json();renderProfile();}catch(e){}}
