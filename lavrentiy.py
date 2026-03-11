@@ -583,9 +583,31 @@ def set_state(s):
     global state
     state = s
 
-def make_decision(falcon_ok, layer, used_fallback):
+_DANGLING = re.compile(r'(?:,|\band\s*$|\bor\s*$|\bbut\s*$|\.{2}(?!\.)|\bthe\s*$)', re.IGNORECASE)
+
+def compute_risk_flags(raw_text, clean_text, falcon_ok, used_fallback, layer):
+    """Deterministic risk flags — no LLM calls."""
+    flags = []
+    if not falcon_ok:
+        flags.append("validator_reject")
+    if used_fallback:
+        flags.append("reconstruct_fallback")
+    if clean_text and layer > 1:
+        cw = len(clean_text.split())
+        if cw < 2:
+            flags.append("very_short_output")
+        rw = len(raw_text.split())
+        if rw > 0 and cw > 0:
+            ratio = rw / cw
+            inv = cw / rw
+            if ratio > 3.0 or inv > 2.0:
+                flags.append("large_length_delta")
+        if _DANGLING.search(clean_text.rstrip()):
+            flags.append("contains_unfinished_fragment")
+    return flags
+
+def make_decision(falcon_ok, layer, used_fallback, risk_flags):
     """Build decision record for this pipeline run."""
-    risk_flags = []
     if current_mode == "RAW" or layer == 1:
         decision = "paste_raw"
     elif used_fallback:
@@ -662,7 +684,8 @@ def pipeline():
             t_val = time.time()
 
         # Decision
-        decision = make_decision(falcon_ok, current_layer, used_fallback)
+        risk_flags = compute_risk_flags(raw_text, clean_text, falcon_ok, used_fallback, current_layer)
+        decision = make_decision(falcon_ok, current_layer, used_fallback, risk_flags)
         output = clean_text if (decision["decision"] == "paste_clean" and clean_text) else raw_text
         timings = {
             "asr_ms": round((t_asr - t0) * 1000),
@@ -677,7 +700,8 @@ def pipeline():
             log(f"-> \"{output}\"  [{wc}w] ({tone_tag})", "out")
         else:
             log(f"-> \"{output}\"  [{wc}w]", "out")
-        log(f"[{decision['mode']}] {decision['decision']} | {timings['total_ms']}ms (asr:{timings['asr_ms']} recon:{timings['reconstruct_ms']} val:{timings['validate_ms']})", "info")
+        flags_tag = f" flags:[{','.join(decision['risk_flags'])}]" if decision['risk_flags'] else ""
+        log(f"[{decision['mode']}] {decision['decision']} | {timings['total_ms']}ms (asr:{timings['asr_ms']} recon:{timings['reconstruct_ms']} val:{timings['validate_ms']}){flags_tag}", "info")
 
         # Paste or hold
         if decision["decision"] == "hold":

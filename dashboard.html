@@ -870,7 +870,8 @@ function renderSessions(){
     const sr=s.layer>1&&s.raw!==s.out;
     const tm=s.timings?`<span class="session-tag tag-layer">${s.timings.total_ms}ms</span>`:'';
     const dm=s.decision?`<span class="session-tag tag-layer">${s.decision.mode}</span>`:'';
-    return `<div class="session-card"><div class="session-header"><span class="session-time">${time}</span><div class="session-tags">${dm}<span class="session-tag tag-layer">L${s.layer}</span><span class="session-tag tag-tone">${ts}</span>${s.layer>1?`<span class="session-tag ${fc}">${ft}</span>`:''}${tm}</div></div>${sr?`<div class="session-raw">${esc(s.raw)}</div>`:''}<div class="session-out">${esc(s.out)}</div></div>`;
+    const rf=s.decision&&s.decision.risk_flags&&s.decision.risk_flags.length?`<span class="session-tag tag-falcon-fail" title="${esc(s.decision.risk_flags.join(', '))}">${s.decision.risk_flags.length} flag${s.decision.risk_flags.length>1?'s':''}</span>`:'';
+    return `<div class="session-card"><div class="session-header"><span class="session-time">${time}</span><div class="session-tags">${dm}<span class="session-tag tag-layer">L${s.layer}</span><span class="session-tag tag-tone">${ts}</span>${s.layer>1?`<span class="session-tag ${fc}">${ft}</span>`:''}${tm}${rf}</div></div>${sr?`<div class="session-raw">${esc(s.raw)}</div>`:''}<div class="session-out">${esc(s.out)}</div></div>`;
   }).join('');
 }
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
