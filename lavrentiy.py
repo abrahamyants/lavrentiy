@@ -429,11 +429,32 @@ def reconstruct(raw_text, tone, layer, prof):
 
     if layer >= 4:
         parts.append(
-            "\nSpeaker stutters. Repeated syllables/words and blocks "
-            "are disfluencies, NOT emphasis. Strip and reconstruct."
+            "\nThe speaker stutters. Raw transcription is evidence, not truth. "
+            "Reconstruct intended meaning, not literal word sequence."
+            "\n\nOvert disfluencies — strip and reconstruct:"
+            "\n- Part-word repetitions: 'b-b-b-buy' → 'buy'"
+            "\n- Whole-word repetitions: 'I I I want' → 'I want'"
+            "\n- Prolongations: 'mmmmaybe' → 'maybe'"
+            "\n- Schwa substitution: 'guh-guh-goat' → 'goat'"
+            "\n- Blocks: silence or frozen onset before a word"
+            "\n- False starts and restarts"
+            "\n\nCovert stuttering — recognize as avoidance, not content:"
+            "\n- Filler clusters before a content word = delay tactic, not hesitation"
+            "\n- Synonym substitution = avoiding a feared word"
+            "\n- Circumlocution = talking around a feared word"
+            "\n- Sentence abandonment = dropping thought before feared word"
+            "\n- Pause before a word = anticipatory fear, not thinking"
+            "\n\nExamples:"
+            "\n- 'Can you give me the, uh, the paper for the thing you sign "
+            "at the front desk' → 'Can you give me the form you sign at the front desk'"
+            "\n- 'My... my... my mother, uh, my parents are coming' → 'My parents are coming'"
+            "\n- 'I need the b-... the document from yesterday' → 'I need the document from yesterday'"
+            "\n\nDo not mistake disfluency for emphasis. "
+            "Do not invent meaning beyond what was intended. "
+            "When uncertain, prefer conservative cleanup over aggressive rewriting."
         )
         if prof.get("trigger_words"):
-            parts.append(f"Trigger words: {', '.join(prof['trigger_words'])}")
+            parts.append(f"\nKnown trigger words: {', '.join(prof['trigger_words'])}")
 
     stats["api_calls"] += 1
     resp = client.chat.completions.create(
