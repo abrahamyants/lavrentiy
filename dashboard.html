@@ -1267,6 +1267,163 @@ body::before {
   .sidebar-section { padding: 8px 12px; }
   .tone-stack, .layer-stack { flex-direction: row; flex-wrap: wrap; }
 }
+/* ═══ COMPACT MODE ═══════════════════════════════════ */
+.compact-toggle {
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border-hi);
+  border-radius: 4px;
+  background: var(--raised);
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  font-family: var(--mono);
+  line-height: 1;
+  padding: 0;
+  z-index: 20;
+}
+.compact-toggle:hover {
+  background: var(--elevated);
+  color: var(--text-bright);
+  border-color: rgba(0,0,0,0.25);
+}
+
+/* Toggle in sidebar brand — upper left */
+.sidebar-brand .compact-toggle {
+  position: absolute;
+  top: 28px;
+  left: 16px;
+}
+
+/* ─── Compact bar — shown only in compact mode ───── */
+.compact-bar {
+  display: none;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(255,255,255,0.0) 0px,
+      rgba(255,255,255,0.04) 1px,
+      rgba(0,0,0,0.02) 2px,
+      transparent 3px,
+      transparent 6px
+    ),
+    linear-gradient(180deg, #ccccd0 0%, #c4c4c8 50%, #bcbcc0 100%);
+  border-bottom: 1px solid rgba(0,0,0,0.2);
+  min-height: 44px;
+  grid-column: 1 / -1;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.1);
+}
+
+.app.compact {
+  grid-template-columns: 1fr;
+  grid-template-rows: auto;
+  height: auto;
+  min-height: 0;
+}
+.app.compact .compact-bar { display: flex; }
+.app.compact .sidebar { display: none; }
+.app.compact .main { display: none; }
+
+.compact-brand {
+  font-family: var(--font);
+  font-weight: 900;
+  font-size: 13px;
+  letter-spacing: 6px;
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 40%, #ff6b6b 80%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  filter: drop-shadow(0 1px 4px rgba(255,68,68,0.2));
+  flex-shrink: 0;
+}
+
+.compact-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.compact-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green-glow), inset 0 -1px 1px rgba(0,0,0,0.3);
+  transition: all 0.5s;
+}
+.app.compact.st-recording .compact-dot {
+  background: var(--red-hot);
+  box-shadow: 0 0 8px var(--red-glow), 0 0 20px rgba(239,68,68,0.3), inset 0 -1px 1px rgba(0,0,0,0.3);
+  animation: led-pulse 1s ease-in-out infinite;
+}
+.app.compact.st-processing .compact-dot {
+  background: var(--yellow);
+  box-shadow: 0 0 6px var(--yellow-glow), inset 0 -1px 1px rgba(0,0,0,0.3);
+}
+
+.compact-state {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.compact-time {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.compact-sep {
+  color: var(--border-hi);
+  font-size: 14px;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.compact-preview {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  opacity: 0.7;
+}
+
+.compact-tags {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.compact-tag {
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--raised-hi);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 1px 2px rgba(0,0,0,0.08);
+}
+
 </style>
 </head>
 <body>
@@ -1278,8 +1435,27 @@ body::before {
 
 <div class="app" id="app">
 
+  <!-- ═══ COMPACT BAR — visible only in compact mode ═══ -->
+  <div class="compact-bar" id="compact-bar">
+    <button class="compact-toggle" onclick="toggleCompact()" title="Expand">⊞</button>
+    <div class="compact-brand">LAVRENTIY</div>
+    <div class="compact-status">
+      <div class="compact-dot" id="compact-dot"></div>
+      <div class="compact-state" id="compact-state">idle</div>
+    </div>
+    <div class="compact-time" id="compact-time">00:00</div>
+    <div class="compact-sep">│</div>
+    <div class="compact-preview" id="compact-preview"></div>
+    <div class="compact-tags">
+      <span class="compact-tag" id="compact-layer">L2</span>
+      <span class="compact-tag" id="compact-tone">CAS</span>
+      <span class="compact-tag" id="compact-mode">RAW</span>
+    </div>
+  </div>
+
   <div class="sidebar">
     <div class="sidebar-brand">
+      <button class="compact-toggle" onclick="toggleCompact()" title="Compact mode">⊟</button>
       <h1>LAVRENTIY</h1>
       <div class="tagline">We've got a file on you</div>
     </div>
@@ -1485,7 +1661,7 @@ async function fetchLearn(){try{const r=await fetch(API+'/api/learn');learnData=
 
 function updateUI(){
   const s=state.state;
-  document.getElementById('app').className='app st-'+s;
+  document.getElementById('app').className='app st-'+s+(isCompact?' compact':'');
   document.getElementById('state-label').textContent=s;
   const elapsed=Math.floor(Date.now()/1000-state.stats.start_time);
   document.getElementById('uptime').textContent=String(Math.floor(elapsed/60)).padStart(2,'0')+':'+String(elapsed%60).padStart(2,'0');
@@ -1501,6 +1677,7 @@ function updateUI(){
   document.getElementById('s-falcon').textContent=st.falcon_rejects;
   const cost=st.sessions*0.0032;
   document.getElementById('s-cost').textContent='$'+cost.toFixed(cost<0.01?4:2);
+  updateCompactBar();
 }
 
 function renderSessions(){
@@ -1769,7 +1946,50 @@ async function fetchHotkeys(){
   try{const r=await fetch(API+'/api/hotkeys');if(r.ok){const d=await r.json();Object.assign(hotkeys,d);for(const[k,v]of Object.entries(hotkeys)){const el=document.getElementById('hk-'+k);if(el)el.textContent=v;}updateHotkeyFooter();}}catch(e){}
 }
 
-async function init(){await Promise.all([fetchProfile(),fetchSessions(),fetchLearn(),fetchDAF(),fetchHotkeys()]);pollState();}
+// ─── COMPACT MODE ──────────────────────────────
+let isCompact = localStorage.getItem('lavrentiy-compact') === 'true';
+let lastOutput = '';
+
+function toggleCompact() {
+  isCompact = !isCompact;
+  localStorage.setItem('lavrentiy-compact', isCompact);
+  applyCompact();
+}
+
+function applyCompact() {
+  const app = document.getElementById('app');
+  if (isCompact) {
+    app.classList.add('compact');
+    // Try to resize window smaller (works in --app mode)
+    try { window.resizeTo(680, 100); } catch(e) {}
+  } else {
+    app.classList.remove('compact');
+    try { window.resizeTo(1140, 820); } catch(e) {}
+  }
+}
+
+function updateCompactBar() {
+  if (!isCompact) return;
+  const toneMap = {casual:'CAS',professional:'PRO',friend:'FRD',formal:'FRM'};
+  document.getElementById('compact-state').textContent = state.state;
+  const elapsed = Math.floor(Date.now()/1000 - state.stats.start_time);
+  document.getElementById('compact-time').textContent =
+    String(Math.floor(elapsed/60)).padStart(2,'0') + ':' + String(elapsed%60).padStart(2,'0');
+  document.getElementById('compact-layer').textContent = 'L' + state.layer;
+  document.getElementById('compact-tone').textContent = toneMap[state.tone] || state.tone;
+  document.getElementById('compact-mode').textContent = state.mode || 'RAW';
+  // Show last console output
+  if (logLines.length > 0) {
+    const last = logLines[logLines.length - 1];
+    if (last && last.text) document.getElementById('compact-preview').textContent = last.text;
+  }
+}
+
+async function init(){
+  applyCompact();
+  await Promise.all([fetchProfile(),fetchSessions(),fetchLearn(),fetchDAF(),fetchHotkeys()]);
+  pollState();
+}
 init();
 </script>
 </body>
