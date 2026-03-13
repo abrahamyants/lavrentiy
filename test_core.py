@@ -11,14 +11,14 @@ tree = ast.parse(source)
 lines = source.split('\n')
 
 # Build namespace with needed constants
-ns = {'re': re, 'json': json, 'difflib': difflib, 'time': time}
+from pathlib import Path
+ns = {'re': re, 'json': json, 'difflib': difflib, 'time': time, 'Path': Path}
 
-# Execute constants block (line 65 LANGUAGE through line 451 per-language weights)
-# Need: LANGUAGE, MODES, TONES, LAYERS, LAYER_NAMES, SITUATIONS, SITUATION_SEVERITY,
-# HIGH_RISK_ONSETS, HIGH_RISK_ONSETS_RU, HIGH_RISK_ONSETS_ALL, FUNCTION_WORDS,
-# _HIGH_FREQ_WORDS, _personal_onset_weights, _personal_dominant_onsets,
-# _personal_onset_weights_by_lang
-const_block = '\n'.join(lines[275:452])
+# Dynamically find constants block: from LANGUAGE= through _personal_onset_weights_by_lang
+# This avoids hardcoded line numbers breaking when code is added above.
+start_idx = next(i for i, l in enumerate(lines) if l.startswith('LANGUAGE = '))
+end_idx = next(i for i, l in enumerate(lines) if '_personal_onset_weights_by_lang' in l and '=' in l)
+const_block = '\n'.join(lines[start_idx:end_idx + 1])
 exec(const_block, ns)
 
 # Set defaults for globals that may not be in the constant block
@@ -73,10 +73,14 @@ extract = ns.get('_extract_onset')
 if extract:
     check('vowel-initial returns None', extract('apple') is None)
     check('empty returns None', extract('') is None)
-    # BUG: "computer" starts with /k/ phonetically but 'c' is not in HIGH_RISK_ONSETS
-    # (only 'k', 'ch', 'cl', 'cr' etc). String matching misses c=/k/ mapping.
+    # FIXED: 'c' added to HIGH_RISK_ONSETS — maps to /k/ (cat, come) or /s/ (city).
+    # _extract_onset("computer") now returns 'c'.
     r = extract('computer')
-    check(f'"computer" -> None (known bug: c not mapped to /k/) (got {r})', r is None)
+    check(f'"computer" -> "c" (got {r})', r == 'c')
+    r4 = extract('call')
+    check(f'"call" -> "c" (got {r4})', r4 == 'c')
+    r5 = extract('city')
+    check(f'"city" -> "c" (got {r5})', r5 == 'c')
     r2 = extract('break')
     check(f'"break" -> onset (got {r2})', r2 is not None)
     r3 = extract('strong')

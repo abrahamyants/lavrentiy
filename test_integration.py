@@ -12,12 +12,15 @@ tree = ast.parse(source)
 lines = source.split('\n')
 
 # Build namespace
+from pathlib import Path
 ns = {'re': re, 'json': json, 'time': time, 'os': os, 'sqlite3': sqlite3,
       'datetime': __import__('datetime'), 'difflib': __import__('difflib'),
-      'pathlib': __import__('pathlib')}
+      'pathlib': __import__('pathlib'), 'Path': Path}
 
-# Load constants (lines 276-451)
-exec('\n'.join(lines[275:452]), ns)
+# Dynamically find constants block (avoid hardcoded line numbers)
+start_idx = next(i for i, l in enumerate(lines) if l.startswith('LANGUAGE = '))
+end_idx = next(i for i, l in enumerate(lines) if '_personal_onset_weights_by_lang' in l and '=' in l)
+exec('\n'.join(lines[start_idx:end_idx + 1]), ns)
 
 # Load disfluency-related constants and stubs
 ns['_onset_anomalies'] = []
@@ -31,8 +34,13 @@ ns['HOLD_ON_HIGH_RISK'] = False
 ns['_DANGLING'] = re.compile(r'(?:,|\band\s*$|\bor\s*$|\bbut\s*$|\.{2}(?!\.)|\bthe\s*$)', re.IGNORECASE)
 ns['KNOWN_FILLERS'] = {"en": {"um", "uh", "er", "ah"}, "ru": {"э", "ээ", "ну"}}
 
-# Load _STRIP_FILLERS
-exec('\n'.join(lines[2067:2071]), ns)
+# Load _STRIP_FILLERS dynamically
+filler_idx = next(i for i, l in enumerate(lines) if '_STRIP_FILLERS' in l and '=' in l and 'if' not in l)
+# Read until closing brace
+filler_end = filler_idx + 1
+while filler_end < len(lines) and '}' not in lines[filler_end]:
+    filler_end += 1
+exec('\n'.join(lines[filler_idx:filler_end + 1]), ns)
 
 # Load target functions
 target_funcs = [
