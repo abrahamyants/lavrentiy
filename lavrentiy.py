@@ -455,6 +455,80 @@ def learn_onset_weights(trigger_words):
         log(f"Onset weights: dominant /{top['onset']}/ ({top['pct']}% of {total} triggers)", "info")
 
 
+# -- Onset frequency anomaly detection (covert avoidance signal) ──
+# English content-word onset distribution (approximate, from SUBTLEX-US).
+# Maps onset → expected % of content words starting with that onset.
+# If a user's actual speech shows significantly fewer of an onset,
+# they may be covertly avoiding it.
+_ENGLISH_ONSET_BASELINE = {
+    'b': 0.06, 'c': 0.05, 'ch': 0.02, 'cl': 0.01, 'cr': 0.01,
+    'd': 0.05, 'f': 0.04, 'g': 0.03, 'gr': 0.01, 'h': 0.04,
+    'j': 0.02, 'k': 0.03, 'l': 0.04, 'm': 0.04, 'n': 0.03,
+    'p': 0.06, 'pl': 0.01, 'pr': 0.02, 'r': 0.04, 's': 0.07,
+    'sh': 0.02, 'sp': 0.01, 'st': 0.03, 'str': 0.01, 'sw': 0.01,
+    't': 0.06, 'th': 0.03, 'tr': 0.02, 'w': 0.04,
+}
+_onset_anomalies = []  # list of {onset, expected_pct, actual_pct, deficit_ratio}
+
+
+def detect_onset_anomalies(sessions, min_sessions=30, min_content_words=200):
+    """Detect onsets statistically underrepresented in user's actual speech.
+    Compares user's content-word onset distribution against English baseline.
+    Returns list of anomalous onsets (possible covert avoidance signals)."""
+    global _onset_anomalies
+    if len(sessions) < min_sessions:
+        _onset_anomalies = []
+        return []
+
+    # Count all content-word onsets across sessions
+    onset_counts = {}
+    total_content = 0
+    for s in sessions:
+        raw = s.get("raw", "")
+        if not raw:
+            continue
+        words = re.findall(r'\b\w+\b', raw.lower())
+        for w in words:
+            if w in FUNCTION_WORDS or len(w) < 2:
+                continue
+            total_content += 1
+            # Extract onset (longest match)
+            for length in (3, 2, 1):
+                prefix = w[:length]
+                if prefix in _ENGLISH_ONSET_BASELINE:
+                    onset_counts[prefix] = onset_counts.get(prefix, 0) + 1
+                    break
+
+    if total_content < min_content_words:
+        _onset_anomalies = []
+        return []
+
+    # Compare against baseline — flag onsets where user produces <40% of expected
+    anomalies = []
+    for onset, expected_pct in _ENGLISH_ONSET_BASELINE.items():
+        if onset not in HIGH_RISK_ONSETS:
+            continue  # only flag risky onsets
+        actual_count = onset_counts.get(onset, 0)
+        actual_pct = actual_count / total_content
+        if expected_pct > 0.01:
+            deficit_ratio = actual_pct / expected_pct
+            if deficit_ratio < 0.40:  # user produces <40% of expected
+                anomalies.append({
+                    "onset": onset,
+                    "expected_pct": round(expected_pct * 100, 1),
+                    "actual_pct": round(actual_pct * 100, 1),
+                    "deficit_ratio": round(deficit_ratio, 2),
+                })
+
+    anomalies.sort(key=lambda x: x["deficit_ratio"])
+    _onset_anomalies = anomalies[:5]  # top 5 most avoided
+    if _onset_anomalies:
+        top = _onset_anomalies[0]
+        log(f"Onset anomaly: /{top['onset']}/ at {top['actual_pct']}% vs expected {top['expected_pct']}% "
+            f"(deficit {top['deficit_ratio']}x) — possible covert avoidance", "info")
+    return _onset_anomalies
+
+
 def predict_phonetic_risk(word, sentence_position=None, sentence_length=None):
     """Predict block risk using 5 linguistic features (Brown's 4 + frequency):
       1. Consonant-initial (onset matching, personalized weights)
