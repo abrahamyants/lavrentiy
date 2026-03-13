@@ -4,14 +4,16 @@
 
 Lavrentiy captures your voice, transcribes it via Whisper, reconstructs it through GPT-4o-mini, validates meaning with a secondary LLM pass (Falcon), and pastes the cleaned output directly into whatever app you were typing in. It learns your speech patterns over time — corrections, filler words, vocabulary, and stutter triggers — building a persistent profile that improves accuracy with every session.
 
-Built for people who stutter. The Layer 4 pipeline uses a clinically-informed reconstruction prompt grounded in research from the Stuttering Foundation, covering overt disfluencies (part-word repetitions, prolongations, blocks, schwa substitution, consonant cluster breaks, tremors) and covert stuttering patterns (postponement fillers, synonym substitution, circumlocution, sentence abandonment, mazes/cluttering). Includes DAF (Delayed Auditory Feedback) for real-time fluency training.
+Built for people who stutter. The Layer 4 pipeline uses a clinically-informed reconstruction prompt grounded in stuttering research, covering overt disfluencies (part-word repetitions, prolongations, blocks, schwa substitution, consonant cluster breaks, tremors) and covert stuttering patterns (postponement fillers, synonym substitution, circumlocution, sentence abandonment, mazes/cluttering). Includes DAF (Delayed Auditory Feedback), covert avoidance detection, and a 5-feature phonetic risk model based on Brown's linguistic predictors of stuttering.
 
 ## Architecture
 
 Single Python process, no frameworks, no Electron, no build step.
 
 ```
-Mic → Whisper (stutter-aware prompt) → Disfluency Filter → Reconstruction → Falcon Validation → Clipboard → Paste
+Mic → Whisper (stutter-aware prompt) → Disfluency Filter → Reconstruction (personalized phoneme context) → Falcon Validation → Clipboard → Paste
+                                                                ↓
+                                                    Covert Avoidance Detection ← Script Prep (intended text)
 ```
 
 - **Engine** (`lavrentiy.py`): Hotkey listener, audio capture, LLM pipeline, DAF streaming, calibration, augmentation, embedded HTTP server
@@ -29,7 +31,7 @@ Mic → Whisper (stutter-aware prompt) → Disfluency Filter → Reconstruction 
 | 1 | Transcribe | Whisper output + disfluency post-filter (strips repetitions, fillers) |
 | 2 | Reconstruct | LLM cleans grammar, strips fillers, restructures |
 | 3 | Profile | + your learned vocabulary, corrections, preferred terms |
-| 4 | Stutter | + disfluency detection, trigger word tracking, clinical insights, personalized onset weighting |
+| 4 | Stutter | + disfluency detection, trigger word tracking, clinical insights, personalized onset weighting, per-user phoneme context in prompt, covert avoidance reversal |
 
 ## Modes
 
@@ -110,9 +112,71 @@ Zero-cost rule-based cleanup applied after Whisper, before GPT reconstruction:
 
 At L1, this IS the output (no GPT call). At L2+, it pre-cleans input for GPT reconstruction. Post-filtering combined with decoder tuning yields significant WER reduction on disfluent speech (informed by Stutter-TTS and Mujtaba's "Inclusive ASR for Disfluent Speech" findings).
 
-### Personalized Phonetic Onset Weighting
+### Phonetic Risk Model (5 Features)
 
-Analyzes trigger words to learn which phonetic onsets (e.g., /k/, /cr/, /p/) the user blocks on. Weights are personalized beyond population priors — dominant onsets get boosted (up to 0.9), unseen onsets get demoted (to 0.3). Feeds into `predict_phonetic_risk()` for Script Prep and clinical insights.
+Predicts per-word stuttering risk using five linguistic features validated by FluencyBank research (Brown's predictors, confirmed in spontaneous speech):
+
+| Feature | Source | Effect |
+|---------|--------|--------|
+| **Consonant onset** | Personalized onset weights learned from trigger history | /k/, /cr/, /p/ etc. scored per user, not population average |
+| **Content vs function word** | `FUNCTION_WORDS` set | Function words get 0.1 floor; content words get 0.25+ base |
+| **Sentence position** | Word index / sentence length | First 30% of sentence gets up to +0.15 boost (clause-boundary effect) |
+| **Word length** | Character count | ≥7 chars: +0.10, ≥5 chars: +0.05 |
+| **Word frequency** | `_HIGH_FREQ_WORDS` lookup (~1500 words, EN+RU) | Low-frequency words get +0.10 (rarer = harder to plan/produce) |
+
+The same word scores differently depending on where it appears: "because" at sentence start (high risk) vs "...mostly because..." (lower risk). Feeds into Script Prep, exposure difficulty, trigger prediction, and the L4 reconstruction prompt.
+
+### Personalized Onset Weighting
+
+Analyzes trigger words to learn which phonetic onsets (e.g., /k/, /cr/, /p/) the user blocks on. Weights are personalized beyond population priors — dominant onsets get boosted (up to 0.9), unseen onsets get demoted (to 0.3). At Layer 4, the user's hardest phonemes are injected directly into the GPT reconstruction prompt: "Whisper output near these onsets is unreliable — trust semantic context over literal transcription."
+
+## Covert Stuttering Detection
+
+Tracks word-level avoidance patterns invisible to every other speech system. When a user pastes text into Script Prep ("I need to check the door") and then says something different ("I need to check the entrance"), Lavrentiy detects the substitution and checks whether the avoided word was phonetically risky.
+
+**How it works:**
+
+1. Script Prep buffers the intended text (5-minute expiry)
+2. After transcription, `detect_covert_avoidance()` compares intended vs actual content words
+3. Missing high-risk words (risk ≥ 0.5) with different-onset replacements at similar sentence positions are flagged as avoidance
+4. Patterns stored in `covert_profile.avoidance_pairs[situation][word]` with avoided/used counts and common substitutes
+5. At Layer 4, known avoidance pairs are injected into the reconstruction prompt — GPT is told to reconstruct with the intended word, not the avoidance substitute
+
+**Example profile entry:**
+```json
+"covert_profile": {
+  "avoidance_pairs": {
+    "presentation": {
+      "door": {
+        "avoided_count": 12,
+        "used_count": 3,
+        "common_substitutes": ["entry", "front", "place"],
+        "dominant_onset": "d"
+      }
+    }
+  }
+}
+```
+
+No other production speech app detects covert stuttering.
+
+## Exposure Difficulty Scoring
+
+Each utterance gets a 0.0–1.0 difficulty score based on:
+- **Phonetic risk** (5-feature Brown model, weighted 0.35)
+- **Situational pressure** (situation severity, weighted 0.25)
+- **Disfluency density** (events per word, weighted 0.20)
+- **Trigger word usage** (did you use known triggers?, weighted 0.20)
+
+Bands: low (<0.2), moderate (0.2–0.4), high (0.4–0.6), very_high (>0.6). Logged per session. Enables therapy-aware tracking: "you used high-risk word X in 4/5 attempts this week."
+
+## Editorial Distance Tracking
+
+Normalized edit distance between raw transcription and final output, logged per session. As this number shrinks over time, the user is objectively producing more fluent speech — a concrete, data-backed sign of improvement.
+
+## Redo Detection (Anti-Compulsion)
+
+Tracks consecutive re-recordings of similar content within a time window. After 3+ redos, Lavrentiy prompts: "consider accepting this version and moving on." Prevents the re-recording loop.
 
 ## Calibration Mode
 
@@ -151,10 +215,12 @@ Synthetic disfluent speech generation (based on Mujtaba24 Interspeech methodolog
 
 Pre-speech word substitution (based on Ghai & Mueller, ASSETS '21). Paste upcoming text into the Prep tab — Lavrentiy flags high-risk words and suggests phonetically safer synonyms.
 
-- **Personalized risk scoring**: Uses your learned onset weights (from `learn_onset_weights()`) — not generic population priors. Words starting with onsets you personally block on score higher than textbook-risky onsets you handle fine.
+- **5-feature Brown risk scoring**: Every word scored with sentence context — onset, content/function, position, length, frequency. The same word scores differently at sentence start vs end.
+- **Personalized onset weights**: Uses your learned onset weights — not generic population priors. Words starting with onsets you personally block on score higher.
 - **Trigger word boosting**: Known trigger words from your profile score 1.0 (max risk). Words sharing onset patterns with triggers get a +0.2 boost.
 - **LLM synonym generation**: Flagged words (risk ≥ 0.6) get 2–3 alternative words/phrases that preserve meaning but use easier onsets (vowels, continuants like /l/, /m/, /n/, /r/, /w/, /h/).
 - **Swap-in-place**: Click any suggested alternative to replace the word directly in your script text.
+- **Covert avoidance bridge**: Script Prep text is buffered as "intended content" for comparison against actual speech (see Covert Stuttering Detection).
 - **Ctrl+Enter** shortcut to run analysis.
 
 ## DAF (Delayed Auditory Feedback)
@@ -202,6 +268,8 @@ The Layer 4 reconstruction prompt is informed by clinical research from the Stut
 - Consonant-vowel transitions and consonant clusters
 - Initial word/clause boundary positions
 - Personalized dominant onset patterns (learned from user's trigger history)
+- Per-user hardest phonemes injected into L4 prompt with explicit guidance: "Whisper output near these onsets is unreliable"
+- Known covert avoidance pairs injected into L4 prompt: if user avoids "door" → "entrance", GPT reconstructs with the intended word
 
 **Clinical insights** (Insights tab, Layer 4):
 Each insight prescribes specific therapeutic techniques — Preparatory Sets, Voluntary Stuttering, Pull-Outs, Easy Onset, Coarticulation Practice — sourced from Stuttering Foundation publications.
@@ -276,7 +344,7 @@ Single HTML file served by the engine's embedded HTTP server:
 - **Atomic profile saves**: temp-write → fsync → rename (no partial writes)
 - **SQLite WAL mode**: concurrent reads during writes, no corruption
 - **Pre-migration backups**: timestamped snapshots in `~/.lavrentiy/backups/`
-- **Schema versioning**: profile version 3 (vote-based candidate corrections)
+- **Schema versioning**: profile version 3 (vote-based candidate corrections, covert avoidance pairs)
 - **All data local**: everything stored in `~/.lavrentiy/`, nothing server-side except OpenAI API calls
 - **Archive budget**: auto-pause at 2GB to prevent disk fill
 

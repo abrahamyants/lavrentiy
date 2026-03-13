@@ -312,6 +312,78 @@ FUNCTION_WORDS = {
     'on', 'at', 'by', 'with', 'from', 'into', 'not', 'no', 'up',
 }
 
+# -- Word frequency tiers (5th Brown feature) ────────────────────
+# Low-frequency words are more likely to be stuttered (FluencyBank 2023).
+# Tier 1: ~1500 high-frequency content words — LOW stutter risk boost
+# Everything else: low-frequency — HIGHER stutter risk boost
+# Function words already handled separately (0.1 floor).
+# Based on SUBTLEX-US top content words by frequency rank.
+_HIGH_FREQ_WORDS = frozenset({
+    # Actions / common verbs
+    'get', 'go', 'come', 'make', 'take', 'give', 'find', 'tell', 'ask', 'try',
+    'use', 'work', 'call', 'need', 'want', 'seem', 'feel', 'leave', 'put', 'keep',
+    'let', 'begin', 'show', 'hear', 'play', 'run', 'move', 'live', 'believe',
+    'bring', 'happen', 'write', 'sit', 'stand', 'lose', 'pay', 'meet', 'include',
+    'continue', 'set', 'learn', 'change', 'lead', 'understand', 'watch', 'follow',
+    'stop', 'create', 'speak', 'read', 'allow', 'add', 'spend', 'grow', 'open',
+    'walk', 'win', 'offer', 'remember', 'love', 'consider', 'appear', 'buy',
+    'wait', 'serve', 'die', 'send', 'expect', 'build', 'stay', 'fall', 'cut',
+    'reach', 'kill', 'remain', 'suggest', 'raise', 'pass', 'sell', 'require',
+    'report', 'decide', 'pull', 'develop', 'thank', 'carry', 'break', 'receive',
+    'agree', 'support', 'hold', 'produce', 'eat', 'cover', 'catch', 'draw',
+    'choose', 'cause', 'point', 'listen', 'realize', 'place', 'pick', 'drop',
+    'plan', 'notice', 'enjoy', 'matter', 'push', 'close', 'sing', 'drive',
+    'start', 'help', 'turn', 'look', 'think', 'know', 'see', 'say', 'mean',
+    'talk', 'fight', 'hang', 'sleep', 'wish', 'wear', 'fill', 'hit', 'act',
+    # People / roles
+    'man', 'woman', 'child', 'children', 'kid', 'girl', 'boy', 'baby', 'mother',
+    'father', 'mom', 'dad', 'son', 'daughter', 'brother', 'sister', 'friend',
+    'wife', 'husband', 'family', 'people', 'person', 'group', 'team', 'student',
+    'teacher', 'doctor', 'guy', 'sir', 'lady', 'human', 'member', 'president',
+    'king', 'god', 'police', 'officer', 'captain', 'soldier', 'judge', 'leader',
+    'boss', 'worker', 'player', 'writer', 'baby', 'neighbor', 'master', 'couple',
+    # Things / objects
+    'time', 'year', 'day', 'way', 'thing', 'world', 'life', 'hand', 'part',
+    'place', 'case', 'week', 'company', 'system', 'program', 'question', 'work',
+    'government', 'number', 'night', 'point', 'home', 'water', 'room', 'area',
+    'money', 'story', 'fact', 'month', 'lot', 'right', 'study', 'book', 'eye',
+    'job', 'word', 'business', 'issue', 'side', 'kind', 'head', 'house', 'service',
+    'game', 'power', 'car', 'city', 'door', 'name', 'food', 'face', 'air',
+    'body', 'table', 'line', 'end', 'heart', 'war', 'idea', 'phone', 'dog',
+    'school', 'state', 'country', 'problem', 'history', 'church', 'morning',
+    'reason', 'class', 'street', 'road', 'law', 'land', 'music', 'paper',
+    'picture', 'fire', 'window', 'bed', 'movie', 'party', 'market', 'color',
+    'office', 'hour', 'minute', 'second', 'letter', 'court', 'floor', 'wall',
+    'news', 'bit', 'light', 'piece', 'car', 'age', 'blood', 'type', 'town',
+    'rock', 'order', 'step', 'stone', 'ground', 'form', 'tree', 'gun', 'sound',
+    'horse', 'star', 'field', 'hair', 'arm', 'foot', 'ball', 'song', 'boat',
+    'river', 'seat', 'box', 'page', 'fish', 'hat', 'level', 'space', 'goal',
+    # Descriptors
+    'good', 'new', 'first', 'last', 'long', 'great', 'little', 'own', 'other',
+    'old', 'right', 'big', 'high', 'different', 'small', 'large', 'next', 'early',
+    'young', 'important', 'few', 'public', 'bad', 'same', 'able', 'sure', 'real',
+    'full', 'special', 'easy', 'clear', 'recent', 'strong', 'free', 'hard',
+    'best', 'better', 'short', 'nice', 'cool', 'hot', 'cold', 'fast', 'slow',
+    'dark', 'white', 'black', 'red', 'blue', 'green', 'dead', 'wrong', 'true',
+    'whole', 'open', 'close', 'fine', 'happy', 'ready', 'serious', 'left',
+    'pretty', 'beautiful', 'simple', 'poor', 'crazy', 'single', 'late', 'deep',
+    'heavy', 'safe', 'common', 'possible', 'final', 'main', 'likely', 'half',
+    # Time / abstract
+    'today', 'tonight', 'tomorrow', 'yesterday', 'always', 'never', 'sometimes',
+    'often', 'usually', 'already', 'still', 'enough', 'here', 'there', 'now',
+    'again', 'away', 'almost', 'together', 'back', 'even', 'just', 'really',
+    'maybe', 'quite', 'ever', 'probably', 'sure', 'actually', 'likely',
+    # Russian high-frequency content words (bilingual speaker)
+    'хорошо', 'время', 'дело', 'день', 'дом', 'жизнь', 'работа', 'человек',
+    'люди', 'рука', 'год', 'место', 'мир', 'вода', 'город', 'земля', 'сторона',
+    'деньги', 'голова', 'ребенок', 'слово', 'друг', 'дверь', 'глаз', 'лицо',
+    'большой', 'маленький', 'новый', 'старый', 'хороший', 'плохой', 'другой',
+    'первый', 'последний', 'нужно', 'можно', 'нельзя', 'надо', 'пойти',
+    'сделать', 'сказать', 'знать', 'думать', 'видеть', 'хотеть', 'давать',
+    'стоять', 'идти', 'говорить', 'смотреть', 'найти', 'понять', 'взять',
+})
+
+
 # -- Personalized onset weights (learned from user's trigger history) ──
 # Rebuilt whenever trigger_words changes. Maps onset -> 0.0-1.0 weight.
 # Empty = no personal data yet, fall back to population priors.
@@ -383,16 +455,26 @@ def learn_onset_weights(trigger_words):
         log(f"Onset weights: dominant /{top['onset']}/ ({top['pct']}% of {total} triggers)", "info")
 
 
-def predict_phonetic_risk(word):
-    """Predict block risk for a word based on phonetic onset + word type.
-    Returns 0.0-1.0 risk score. Uses personalized onset weights when
-    available (learned from user's trigger history), falls back to
-    population priors when no personal data exists."""
+def predict_phonetic_risk(word, sentence_position=None, sentence_length=None):
+    """Predict block risk using 5 linguistic features (Brown's 4 + frequency):
+      1. Consonant-initial (onset matching, personalized weights)
+      2. Content word vs function word
+      3. Position early in sentence (higher risk)
+      4. Longer word (higher risk)
+      5. Word frequency (low-frequency = higher risk, FluencyBank 2023)
+
+    Uses personalized onset weights when available (learned from user's
+    trigger history), falls back to population priors otherwise.
+
+    Optional sentence_position/sentence_length enable features 3-4.
+    Without them, falls back to features 1-2-5 only (backward compatible).
+    Returns 0.0-1.0 risk score."""
     w = word.lower().strip()
     if not w or w in FUNCTION_WORDS:
-        return 0.1  # function words rarely trigger
-    score = 0.3  # base risk for content words
-    # Check onset against high-risk patterns (longest match first)
+        return 0.1  # function words rarely trigger (Brown feature 2)
+    score = 0.25  # base risk for content words (Brown feature 2)
+
+    # Brown feature 1: consonant-initial words — onset matching
     matched_onset = None
     for length in (3, 2, 1):
         onset = w[:length]
@@ -401,27 +483,66 @@ def predict_phonetic_risk(word):
             break
     if matched_onset:
         if _personal_onset_weights:
-            # Personalized: user's onset gets learned weight, unseen gets 0.3
             score += _personal_onset_weights.get(matched_onset, 0.3)
         else:
-            # No personal data yet — population prior: all onsets equal
             score += 0.4
-    # Unvoiced consonants are harder than voiced
+    # Unvoiced plosives/fricatives are harder than voiced
     if w[0] in 'ptksf':
-        score += 0.1
+        score += 0.05
+
+    # Brown feature 3: position in sentence (earlier = higher risk)
+    if sentence_position is not None and sentence_length is not None and sentence_length > 0:
+        # First 30% of sentence gets max boost, decays linearly
+        relative_pos = sentence_position / max(sentence_length, 1)
+        position_boost = max(0.15 * (1.0 - relative_pos * 2.5), 0.0)
+        score += position_boost
+
+    # Brown feature 4: word length (longer = higher risk)
+    if len(w) >= 7:
+        score += 0.10
+    elif len(w) >= 5:
+        score += 0.05
+
+    # Feature 5: word frequency (FluencyBank 2023 — low frequency = higher risk)
+    # High-frequency content words are easier; rare/technical words are harder
+    if w not in _HIGH_FREQ_WORDS:
+        score += 0.10  # low-frequency word boost
+
     return min(score, 1.0)
+
+def compute_brown_scores(text):
+    """Score every word in text using all 4 Brown features with sentence context.
+    Returns list of (word, risk_score) for all content words."""
+    words = re.findall(r'\b\w+\b', text)
+    n = len(words)
+    scores = []
+    for i, word in enumerate(words):
+        risk = predict_phonetic_risk(word, sentence_position=i, sentence_length=n)
+        scores.append((word, round(risk, 2)))
+    return scores
+
+
+def brown_peak_risk(text):
+    """Return the single highest Brown risk score in a text.
+    Useful for deciding endpointer patience / filter aggressiveness."""
+    scores = compute_brown_scores(text)
+    if not scores:
+        return 0.0
+    return max(s[1] for s in scores)
+
 
 def predict_triggers_in_text(text, existing_triggers):
     """Score all content words in text, return predicted triggers above threshold.
-    Combines phonetic prior with user's known trigger history."""
-    words = set(text.lower().split())
+    Uses full Brown's 4-feature scoring with sentence context."""
+    words = re.findall(r'\b\w+\b', text)
     known = {t.lower() for t in existing_triggers}
     predicted = []
-    for word in words:
-        clean = re.sub(r'[^\w]', '', word)
+    n = len(words)
+    for i, word in enumerate(words):
+        clean = word.lower()
         if not clean or len(clean) < 2:
             continue
-        risk = predict_phonetic_risk(clean)
+        risk = predict_phonetic_risk(clean, sentence_position=i, sentence_length=n)
         # Boost if the word shares an onset with a known trigger
         for trigger in known:
             if trigger[:2] == clean[:2] and clean != trigger:
@@ -1360,6 +1481,35 @@ def reconstruct(raw_text, tone, layer, prof, situation=None):
             parts.append("\nUser context:\n" + "\n".join(ctx))
 
     if layer >= 4:
+        # Inject per-user phoneme difficulty map from learned onset weights
+        # Approximates per-phoneme model adaptation at the cleanup layer
+        if _personal_onset_weights:
+            ranked = sorted(_personal_onset_weights.items(), key=lambda x: -x[1])
+            hard_onsets = [f"/{o}/ ({round(w*100)}%)" for o, w in ranked[:6] if w >= 0.4]
+            if hard_onsets:
+                parts.append(
+                    f"\n⚠ THIS SPEAKER'S HARDEST PHONEMES: {', '.join(hard_onsets)}"
+                    "\nWhisper output near these onsets is unreliable — expect hallucinations, "
+                    "syllable drops, or phantom word insertions. Trust semantic context over "
+                    "literal transcription when words starting with these sounds look garbled."
+                )
+        # Inject covert avoidance patterns if known
+        covert = prof.get("covert_profile", {}).get("avoidance_pairs", {})
+        if covert:
+            covert_note = []
+            for sit, words in list(covert.items())[:3]:
+                for word, data in list(words.items())[:3]:
+                    subs = data.get("common_substitutes", [])[:2]
+                    if subs:
+                        covert_note.append(f"'{word}' → {subs} (avoidance of /{data.get('dominant_onset', '?')}/)")
+            if covert_note:
+                parts.append(
+                    "\n⚠ KNOWN COVERT AVOIDANCE: speaker sometimes swaps these words: "
+                    + "; ".join(covert_note)
+                    + "\nIf you see a synonym where the original word would fit better, "
+                    "the original IS what they meant. Reconstruct with the intended word."
+                )
+
         parts.append(
             "\nThe speaker stutters. Raw transcription is evidence, not truth. "
             "Reconstruct intended meaning, not literal word sequence."
@@ -1590,7 +1740,7 @@ def count_disfluencies(raw_text):
     # Word repetitions: "I I I want"
     n = len(re.findall(r'\b(\w+)(?:\s+\1)+\b', raw_text, re.IGNORECASE))
     if n: counts["word_rep"] = n
-    # Phrase repetitions: "I want I want to go"
+    # Phrase repetitions (stutter): "I want I want to go" (2-word, repeated once)
     n = len(re.findall(r'\b(\w+\s+\w+(?:\s+\w+)?)\s+\1\b', raw_text, re.IGNORECASE))
     if n: counts["phrase_rep"] = n
     # Fillers
@@ -1600,8 +1750,34 @@ def count_disfluencies(raw_text):
     # Prolongations (stretched sounds transcribed by Whisper)
     n = len(re.findall(r'\b(\w)\1{3,}\w*\b', raw_text, re.IGNORECASE))
     if n: counts["prolongation"] = n
+    # Compulsive loops: phrase repeated 3+ times (distinct from stutter phrase_rep at 2x)
+    loop_matches = detect_ocd_loops(raw_text)
+    if loop_matches:
+        counts["loop_compulsion"] = len(loop_matches)
     counts["total"] = sum(counts.values())
     return counts
+
+
+def detect_ocd_loops(text):
+    """Detect compulsive phrase loops (3+ repetitions of a 2-4 word phrase).
+    Returns list of {phrase, count} dicts for profile tracking."""
+    if not text:
+        return []
+    loops = []
+    # Match 2-4 word phrases repeated 3+ times (with optional comma/space between)
+    # "I need to, I need to, I need to" or "I must I must I must"
+    pattern = re.compile(
+        r'\b((?:\w+[\s,]+){1,3}\w+)[,\s]+(?:\1[,\s]+){2,}',
+        re.IGNORECASE
+    )
+    for m in pattern.finditer(text):
+        phrase = re.sub(r'[,\s]+$', '', m.group(1)).strip()
+        # Count how many times the phrase appears in the full match
+        full = m.group(0)
+        count = len(re.findall(re.escape(phrase), full, re.IGNORECASE))
+        if count >= 3 and len(phrase.split()) >= 2:
+            loops.append({"phrase": phrase.lower(), "count": count})
+    return loops
 
 
 # -- Exposure difficulty scoring ───────────────────────────────
@@ -1619,8 +1795,10 @@ def compute_exposure_difficulty(raw_text, situation, disf_counts, prof):
     if not words:
         return {"score": 0.0, "components": {}}
 
-    # Component 1: Phonetic risk (avg risk of content words)
-    risks = [predict_phonetic_risk(w) for w in words if w not in FUNCTION_WORDS and len(w) > 1]
+    # Component 1: Brown's 4-feature risk (onset + content/function + position + length)
+    n = len(words)
+    risks = [predict_phonetic_risk(w, sentence_position=i, sentence_length=n)
+             for i, w in enumerate(words) if w not in FUNCTION_WORDS and len(w) > 1]
     avg_risk = sum(risks) / len(risks) if risks else 0.2
     high_risk_count = sum(1 for r in risks if r >= 0.6)
 
@@ -1707,11 +1885,12 @@ def prep_text(text, prof):
 
     triggers = prof.get("trigger_words", [])
     trigger_set = {t.lower() for t in triggers}
-    # Score every word
+    # Score every word using Brown's 4-feature model (onset + content/function + position + length)
     words = re.findall(r'\b\w+\b', text)
+    n = len(words)
     scored = []
-    for w in words:
-        risk = predict_phonetic_risk(w)
+    for i, w in enumerate(words):
+        risk = predict_phonetic_risk(w, sentence_position=i, sentence_length=n)
         # Exact match on known triggers = max risk
         if w.lower() in trigger_set:
             risk = 1.0
@@ -1771,7 +1950,127 @@ def prep_text(text, prof):
     for item in flagged:
         item["alternatives"] = suggestions.get(item["word"], [])
 
+    # Store prep text for covert avoidance comparison with actual speech
+    set_last_prep(text)
+
     return {"words": scored, "flagged": flagged}
+
+
+# -- Covert Stuttering Detection (semantic drift tracking) ─────
+# Tracks word substitutions between Script Prep intended text and actual speech.
+# When a user consistently replaces high-risk words with "safer" synonyms,
+# that's covert avoidance — invisible to every other system.
+# Buffer: last Script Prep text (cleared after use or after 5 min timeout)
+_last_prep_text = None
+_last_prep_ts = 0.0
+_PREP_EXPIRY_SEC = 300  # 5 minutes — prep text older than this is stale
+
+
+def set_last_prep(text):
+    """Store the most recent Script Prep input for covert avoidance comparison."""
+    global _last_prep_text, _last_prep_ts
+    _last_prep_text = text.strip() if text else None
+    _last_prep_ts = time.time()
+
+
+def detect_covert_avoidance(actual_text, prof):
+    """Compare actual speech against last Script Prep text to detect covert avoidance.
+    Returns list of avoidance pairs: [{intended: word, said: word, onset: str}]
+    Returns empty list if no prep text is available or it's expired."""
+    global _last_prep_text
+    if not _last_prep_text or not actual_text:
+        return []
+    # Check expiry
+    if time.time() - _last_prep_ts > _PREP_EXPIRY_SEC:
+        _last_prep_text = None
+        return []
+
+    prep_words = [w.lower() for w in re.findall(r'\b\w+\b', _last_prep_text)]
+    actual_words = [w.lower() for w in re.findall(r'\b\w+\b', actual_text)]
+    if not prep_words or not actual_words:
+        return []
+
+    # Build content-word sets (skip function words — they swap freely)
+    prep_content = [w for w in prep_words if w not in FUNCTION_WORDS and len(w) > 2]
+    actual_content = set(actual_words)
+
+    # Find words that are in prep but NOT in actual speech
+    missing = [w for w in prep_content if w not in actual_content]
+    if not missing:
+        _last_prep_text = None  # consumed
+        return []
+
+    # For each missing word, check if something semantically close appeared instead
+    # Heuristic: a word at roughly the same position in the sentence that shares context
+    avoidance_pairs = []
+    for missed_word in missing:
+        risk = predict_phonetic_risk(missed_word)
+        if risk < 0.5:
+            continue  # low-risk word missing → probably natural rephrasing, not avoidance
+        onset = _extract_onset(missed_word)
+        # Check if a word at a similar position in actual speech could be a substitute
+        # (not same onset, similar sentence role)
+        try:
+            prep_idx = prep_words.index(missed_word)
+        except ValueError:
+            continue
+        # Look at +/-2 positions in actual text
+        window_start = max(0, prep_idx - 2)
+        window_end = min(len(actual_words), prep_idx + 3)
+        for j in range(window_start, window_end):
+            candidate = actual_words[j]
+            if candidate in FUNCTION_WORDS or candidate == missed_word:
+                continue
+            cand_onset = _extract_onset(candidate)
+            # Avoidance signal: high-risk word replaced by word with DIFFERENT onset
+            if onset and cand_onset != onset and candidate not in prep_content:
+                avoidance_pairs.append({
+                    "intended": missed_word,
+                    "said": candidate,
+                    "onset_avoided": onset,
+                    "risk_score": round(risk, 2)
+                })
+                break  # one substitute per missing word
+
+    _last_prep_text = None  # consumed after comparison
+    return avoidance_pairs
+
+
+def update_covert_profile(prof, avoidance_pairs, situation):
+    """Store detected covert avoidance patterns in the user's profile."""
+    if not avoidance_pairs:
+        return
+    covert = prof.setdefault("covert_profile", {"avoidance_pairs": {}})
+    pairs = covert.setdefault("avoidance_pairs", {})
+    sit = situation or "default"
+    sit_data = pairs.setdefault(sit, {})
+    now = datetime.now().isoformat()
+
+    for pair in avoidance_pairs:
+        word = pair["intended"]
+        entry = sit_data.setdefault(word, {
+            "avoided_count": 0,
+            "used_count": 0,
+            "common_substitutes": [],
+            "dominant_onset": pair["onset_avoided"],
+            "last_seen": now
+        })
+        entry["avoided_count"] += 1
+        entry["last_seen"] = now
+        # Track substitute words (keep top 5)
+        subs = entry.setdefault("common_substitutes", [])
+        if pair["said"] not in subs:
+            subs.append(pair["said"])
+        if len(subs) > 5:
+            entry["common_substitutes"] = subs[-5:]
+
+    # Also count uses when prep word IS used (called separately in pipeline)
+    # Cap at 30 tracked words per situation
+    if len(sit_data) > 30:
+        sorted_items = sorted(sit_data.items(), key=lambda x: x[1]["avoided_count"], reverse=True)
+        covert["avoidance_pairs"][sit] = dict(sorted_items[:30])
+
+    save_profile(prof)
 
 
 # -- Auto-Learn ──────────────────────────────────────────────────
@@ -1946,7 +2245,10 @@ def detect_triggers_regex(raw_text):
     return triggers
 
 
-DISFLUENCY_TYPES = {"block", "sound_rep", "word_rep", "prolongation", "interjection", "avoidance"}
+DISFLUENCY_TYPES = {
+    "block", "sound_rep", "word_rep", "prolongation", "interjection",
+    "avoidance", "loop_compulsion",
+}
 
 
 def detect_triggers_llm(raw_text, output, prof):
@@ -2443,6 +2745,12 @@ def pipeline():
         redo_n = check_redo(output)
         if redo_n >= REDO_NUDGE_THRESHOLD:
             log(f"Redo x{redo_n} — consider accepting this version and moving on", "info")
+        # Covert avoidance detection (Script Prep vs actual speech)
+        covert_pairs = detect_covert_avoidance(raw_text, profile)
+        if covert_pairs:
+            update_covert_profile(profile, covert_pairs, current_situation)
+            for cp in covert_pairs:
+                log(f"Covert avoidance: \"{cp['intended']}\" → \"{cp['said']}\" (avoided /{cp['onset_avoided']}/)", "info")
         log_session(profile, raw_text, output, current_tone, current_layer, decision, timings,
                     disf_counts=disf_counts, exposure=exposure, edit_dist=edit_dist)
         state = 'idle'
@@ -2600,6 +2908,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 },
                 'trigger_types': profile.get('trigger_types', {}),
                 'severity': compute_severity_score(),
+                'covert_profile': profile.get('covert_profile', {}),
             })
         elif self.path == '/api/wer':
             # Compute WER stats from recent sessions (raw vs corrected)
