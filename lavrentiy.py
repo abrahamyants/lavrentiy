@@ -4063,6 +4063,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/':
             self._serve_file(DASHBOARD_PATH, 'text/html')
+        elif self.path == '/mobile':
+            mobile_path = Path(__file__).parent / 'mobile.html'
+            self._serve_file(mobile_path, 'text/html')
+        elif self.path == '/manifest.json':
+            manifest_path = Path(__file__).parent / 'manifest.json'
+            self._serve_file(manifest_path, 'application/json')
+        elif self.path == '/sw.js':
+            sw_path = Path(__file__).parent / 'sw.js'
+            self._serve_file(sw_path, 'application/javascript')
         elif self.path == '/api/state':
             self._json({
                 'state': state,
@@ -4535,6 +4544,72 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'stats': 'F12',
                 'quit': 'F3',
             })
+        elif self.path == '/api/transcribe':
+            # Mobile PWA endpoint: accept base64 WAV, run pipeline, return text
+            if not body or not isinstance(body.get('audio_b64'), str):
+                self._json({"error": "Send {\"audio_b64\": \"...\"}"})
+                return
+            import base64
+            try:
+                audio_bytes = base64.b64decode(body['audio_b64'])
+                tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                tmp.write(audio_bytes)
+                tmp.close()
+                audio_data, sr = sf.read(tmp.name)
+                os.unlink(tmp.name)
+                # Resample if needed
+                if sr != TARGET_RATE:
+                    from scipy.signal import resample_poly
+                    import math
+                    gcd = math.gcd(TARGET_RATE, sr)
+                    audio_data = resample_poly(audio_data, TARGET_RATE // gcd, sr // gcd)
+                # Flatten to mono if stereo
+                if len(audio_data.shape) > 1:
+                    audio_data = audio_data.mean(axis=1)
+                # Write resampled WAV
+                tmp2 = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                sf.write(tmp2.name, audio_data, TARGET_RATE)
+                tmp2.close()
+                # Run Whisper
+                t0 = time.time()
+                whisper_result = whisper_transcribe(tmp2.name)
+                raw_text = whisper_result["text"].strip()
+                t_asr = time.time()
+                os.unlink(tmp2.name)
+                if not raw_text:
+                    self._json({"error": "No speech detected", "raw": "", "clean": ""})
+                    return
+                # Disfluency filter
+                filtered = strip_disfluencies(raw_text)
+                # Reconstruct (if layer >= 2)
+                clean_text = filtered
+                t_recon = t_asr
+                if current_layer >= 2:
+                    try:
+                        clean_text = reconstruct(
+                            filtered, current_tone, current_layer, profile,
+                            low_confidence=whisper_result.get("low_confidence"),
+                            disagreements=whisper_result.get("disagreements"))
+                    except Exception as e:
+                        log(f"Mobile reconstruct failed: {e}", "error")
+                        clean_text = filtered
+                    t_recon = time.time()
+                total_ms = round((t_recon - t0) * 1000)
+                stats["sessions"] += 1
+                stats["words"] += len(clean_text.split())
+                stats["api_calls"] += 1
+                log(f"Mobile transcribe: {len(raw_text)}c -> {len(clean_text)}c ({total_ms}ms)", "info")
+                self._json({
+                    "raw": raw_text,
+                    "filtered": filtered,
+                    "clean": clean_text,
+                    "layer": current_layer,
+                    "tone": current_tone,
+                    "total_ms": total_ms,
+                })
+            except Exception as e:
+                log(f"Mobile transcribe failed: {e}", "error")
+                self._json({"error": str(e)})
         elif self.path == '/api/augment':
             if _augment_state["running"]:
                 self._json({"error": "augmentation already running", "status": augment_status()})
@@ -4547,7 +4622,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def _read_body(self):
         length = int(self.headers.get('Content-Length', 0))
-        if length == 0 or length > 1_000_000:
+        # 10MB limit for audio uploads (transcribe, calibration)
+        if length == 0 or length > 10_000_000:
             return None
         try:
             return json.loads(self.rfile.read(length))
@@ -4577,7 +4653,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 def run_dashboard():
     try:
-        server = HTTPServer(('127.0.0.1', DASHBOARD_PORT), DashboardHandler)
+        server = HTTPServer(('0.0.0.0', DASHBOARD_PORT), DashboardHandler)
         server.serve_forever()
     except OSError as e:
         print(f"  Dashboard server failed: {e}")
