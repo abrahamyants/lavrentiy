@@ -3824,12 +3824,41 @@ def set_mode(mode):
         save_profile(profile)
         log(f"Mode: {current_mode}", "info")
 
+# Situation pre-warm presets: auto-configure DAF, layer, and prep text
+SITUATION_PRESETS = {
+    "phone": {"daf_ms": 100, "layer": 4,
+              "prep": "Hello this is speaking. Can you repeat that? I'm calling about"},
+    "interview": {"daf_ms": 80, "layer": 4,
+                  "prep": "Thank you for having me. Great question. To summarize"},
+    "presentation": {"daf_ms": 0, "layer": 4,
+                     "prep": "Next slide. As you can see. In conclusion. Thank you"},
+    "reading": {"daf_ms": 0, "layer": 3, "prep": ""},
+}
+
 def set_situation(situation):
-    global current_situation
+    global current_situation, current_layer
     if situation in SITUATIONS:
         current_situation = situation
         severity = SITUATION_SEVERITY[situation]
-        log(f"Situation: {situation} (severity: {severity}x)", "info")
+        preset = SITUATION_PRESETS.get(situation, {})
+        actions = []
+        # Auto-DAF
+        if preset.get("daf_ms"):
+            daf_start(preset["daf_ms"])
+            actions.append(f"DAF:{preset['daf_ms']}ms")
+        elif situation == "default" and _daf_active:
+            daf_stop()
+            actions.append("DAF:OFF")
+        # Auto-layer
+        if preset.get("layer") and preset["layer"] != current_layer:
+            set_layer(preset["layer"])
+            actions.append(f"L{preset['layer']}")
+        # Auto-prep text
+        if preset.get("prep"):
+            set_last_prep(preset["prep"])
+            actions.append("prep-loaded")
+        action_str = f" → {', '.join(actions)}" if actions else ""
+        log(f"Situation: {situation} (severity: {severity}x){action_str}", "info")
 
 # -- Dashboard HTTP server ────────────────────────────────────────
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -4039,12 +4068,94 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     f'{count} sessions archived — sufficient for LoRA fine-tuning'
                 )
             })
+        elif self.path == '/api/report':
+            # Weekly clinical report — GPT summarizes recent session data
+            sessions = db_get_sessions(limit=100)
+            if not sessions:
+                self._json({"report": "No sessions recorded yet.", "data": {}})
+            else:
+                # Extract report data
+                edit_dists = [s["editorial_distance"] for s in sessions if s.get("editorial_distance") is not None]
+                sit_breakdown = {}
+                lang_breakdown = {"en": 0, "ru": 0}
+                total_words = 0
+                total_redos = 0
+                onset_triggers = {}
+                for s in sessions:
+                    sit = s.get("situation", "default")
+                    sit_breakdown[sit] = sit_breakdown.get(sit, 0) + 1
+                    total_words += s.get("words", 0)
+                    lang_breakdown[s.get("lang", "en")] = lang_breakdown.get(s.get("lang", "en"), 0) + 1
+                    sm = s.get("speech_metrics")
+                    if sm:
+                        total_redos += 1 if sm.get("severity_modifier", 0) > 0.2 else 0
+                triggers = profile.get("trigger_words", [])
+                for t in triggers[:20]:
+                    onset = _extract_onset(t)
+                    if onset:
+                        onset_triggers[onset] = onset_triggers.get(onset, 0) + 1
+                # Compute pause data from sessions with speech_metrics
+                pause_data = [s["speech_metrics"]["pause_ratio"] for s in sessions
+                              if s.get("speech_metrics") and s["speech_metrics"].get("pause_ratio") is not None]
+                report_data = {
+                    "total_sessions": len(sessions),
+                    "total_words": total_words,
+                    "avg_edit_dist": round(sum(edit_dists) / len(edit_dists), 3) if edit_dists else None,
+                    "edit_dist_trend": {
+                        "first_half": round(sum(edit_dists[len(edit_dists)//2:]) / max(len(edit_dists)//2, 1), 3) if edit_dists else None,
+                        "second_half": round(sum(edit_dists[:len(edit_dists)//2]) / max(len(edit_dists)//2, 1), 3) if edit_dists else None,
+                    },
+                    "situation_breakdown": sit_breakdown,
+                    "language_breakdown": lang_breakdown,
+                    "avg_pause_ratio": round(sum(pause_data) / len(pause_data), 3) if pause_data else None,
+                    "top_onset_triggers": dict(sorted(onset_triggers.items(), key=lambda x: -x[1])[:5]),
+                    "trigger_count": len(triggers),
+                    "corrections_count": len(profile.get("corrections", {})),
+                    "covert_avoidance_events": sum(
+                        d.get("total_events", 0) for d in profile.get("covert_profile", {}).values()
+                    ),
+                }
+                stats["api_calls"] += 1
+                try:
+                    resp = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[{"role": "system", "content": (
+                            "You are a speech-language pathology assistant generating a clinical weekly "
+                            "progress report for a person who stutters. Be direct, use data. Use emoji "
+                            "sparingly (✅ ❌ 🎯 📞). Format as a concise summary with bullet points. "
+                            "Highlight improvements, flag concerns, suggest focus areas."
+                        )}, {"role": "user", "content": (
+                            f"Generate a weekly clinical stutter progress report from this data:\n"
+                            f"{json.dumps(report_data, indent=2)}"
+                        )}],
+                        max_tokens=600, temperature=0.3
+                    )
+                    self._json({
+                        "report": resp.choices[0].message.content.strip(),
+                        "data": report_data
+                    })
+                except Exception as e:
+                    log(f"Report generation failed: {e}", "error")
+                    self._json({"report": f"Report generation failed: {e}", "data": report_data})
         elif self.path == '/api/preview':
             with preview_lock:
+                text = preview_state['text']
+                # Score each word for phonetic risk (live trigger warning)
+                scored_words = []
+                if text:
+                    words = text.split()
+                    n = len(words)
+                    trigger_set = {t.lower() for t in profile.get('trigger_words', [])}
+                    for i, w in enumerate(words):
+                        risk = predict_phonetic_risk(w, sentence_position=i, sentence_length=n)
+                        if w.lower() in trigger_set:
+                            risk = 1.0
+                        scored_words.append({"word": w, "risk": round(risk, 2)})
                 self._json({
                     'enabled': LIVE_PREVIEW_ENABLED,
                     'active': preview_state['active'],
-                    'text': preview_state['text'],
+                    'text': text,
+                    'scored_words': scored_words,
                     'final_text': preview_state['final_text'],
                     'updated_at': preview_state['updated_at']
                 })
@@ -4089,10 +4200,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif self.path == '/api/situation':
             if body and isinstance(body.get('situation'), str):
                 set_situation(body['situation'].lower())
+            preset = SITUATION_PRESETS.get(current_situation, {})
             self._json({
                 'situation': current_situation,
                 'severity': SITUATION_SEVERITY.get(current_situation, 1.0),
-                'situations': SITUATIONS
+                'situations': SITUATIONS,
+                'preset_applied': {
+                    'daf_ms': preset.get('daf_ms', 0),
+                    'layer': preset.get('layer'),
+                    'prep_loaded': bool(preset.get('prep')),
+                } if preset else None,
             })
         elif self.path == '/api/profile':
             if body and isinstance(body, dict):

@@ -1081,6 +1081,19 @@ body::before {
 .cal-wer-title { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 1px; color: var(--text); margin-bottom: 8px; }
 .cal-wer-body { font-family: var(--mono); font-size: 11px; color: var(--text-muted); line-height: 1.8; }
 
+/* Live trigger warning — risk-colored preview words */
+.trigger-risk {
+  color: var(--yellow); font-weight: 600;
+  text-decoration: underline wavy rgba(234,179,8,0.4);
+}
+.trigger-risk-high {
+  color: var(--red-bright); font-weight: 700;
+  background: linear-gradient(90deg, rgba(255,68,68,0.15), rgba(255,100,100,0.1));
+  padding: 0 3px; border-radius: 2px;
+  animation: trigger-pulse 0.8s ease-in-out infinite;
+}
+@keyframes trigger-pulse { 50% { opacity: 0.7; background: rgba(255,68,68,0.25); } }
+
 /* Augmentation section */
 .aug-section { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border); }
 .aug-title { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 2px; color: var(--text); margin-bottom: 6px; }
@@ -1658,10 +1671,10 @@ body::before {
       <div class="tone-stack">
         <button class="tone-btn sit-btn" data-situation="default">Default</button>
         <button class="tone-btn sit-btn" data-situation="casual">Casual</button>
-        <button class="tone-btn sit-btn" data-situation="phone">Phone</button>
-        <button class="tone-btn sit-btn" data-situation="presentation">Presentation</button>
-        <button class="tone-btn sit-btn" data-situation="interview">Interview</button>
-        <button class="tone-btn sit-btn" data-situation="reading">Reading</button>
+        <button class="tone-btn sit-btn" data-situation="phone" title="Auto: DAF 100ms + L4 + Prep">Phone 🔥</button>
+        <button class="tone-btn sit-btn" data-situation="presentation" title="Auto: L4 + Prep">Present ⚡</button>
+        <button class="tone-btn sit-btn" data-situation="interview" title="Auto: DAF 80ms + L4 + Prep">Interview ⚡</button>
+        <button class="tone-btn sit-btn" data-situation="reading" title="Auto: L3">Reading</button>
       </div>
     </div>
 
@@ -1820,6 +1833,10 @@ body::before {
 
       <div class="tab-panel" id="tab-learning">
         <div class="learning-wrap" id="learn-feed"><div class="learn-empty">No patterns learned yet. Keep talking.</div></div>
+        <div style="padding:16px 24px;border-top:1px solid var(--border)">
+          <button class="aug-btn" id="report-btn" onclick="generateReport()" style="margin-bottom:12px">📊 WEEKLY REPORT</button>
+          <div id="report-output" style="display:none;font-family:var(--mono);font-size:11px;color:var(--text-muted);line-height:1.8;white-space:pre-wrap;padding:12px 16px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius)"></div>
+        </div>
       </div>
 
       <div class="tab-panel" id="tab-insights">
@@ -2013,7 +2030,7 @@ async function pollState(){
   }catch(e){failCount++;if(failCount>3){connected=false;document.getElementById('disconnected').classList.add('show');}}
   setTimeout(pollState,750);
 }
-async function fetchPreview(){try{const r=await fetch(API+'/api/preview');const d=await r.json();const bar=document.getElementById('preview-bar');if(d.enabled&&d.active&&d.text){bar.style.display='block';document.getElementById('preview-text').textContent=d.text;}else{bar.style.display='none';}}catch(e){}}
+async function fetchPreview(){try{const r=await fetch(API+'/api/preview');const d=await r.json();const bar=document.getElementById('preview-bar');if(d.enabled&&d.active&&d.text){bar.style.display='block';const sw=d.scored_words||[];if(sw.length){document.getElementById('preview-text').innerHTML=sw.map(w=>{if(w.risk>=0.8)return`<span class="trigger-risk-high">${esc(w.word)}</span>`;if(w.risk>=0.6)return`<span class="trigger-risk">${esc(w.word)}</span>`;return esc(w.word);}).join(' ');}else{document.getElementById('preview-text').textContent=d.text;}}else{bar.style.display='none';}}catch(e){}}
 async function fetchSessions(){try{const r=await fetch(API+'/api/sessions');sessions=await r.json();renderSessions();}catch(e){}}
 async function fetchLog(){try{const r=await fetch(API+'/api/log');const entries=await r.json();const n=entries.filter(e=>e.id>lastLogId);if(n.length>0){lastLogId=entries[entries.length-1].id;logLines=entries;renderConsole();}}catch(e){}}
 async function fetchProfile(){try{const r=await fetch(API+'/api/profile');profile=await r.json();renderProfile();}catch(e){}}
@@ -2597,6 +2614,18 @@ async function toggleMultiTemp(){
     const tog=document.getElementById('multitemp-toggle');
     if(tog)tog.classList.toggle('on',d.multi_temp);
   }catch(e){}
+}
+async function generateReport(){
+  const btn=document.getElementById('report-btn');
+  const out=document.getElementById('report-output');
+  btn.disabled=true;btn.textContent='📊 GENERATING...';
+  out.style.display='block';out.textContent='Analyzing session data...';
+  try{
+    const r=await fetch(API+'/api/report');
+    const d=await r.json();
+    out.textContent=d.report||'No report generated.';
+  }catch(e){out.textContent='Report failed: '+e.message;}
+  finally{btn.disabled=false;btn.textContent='📊 WEEKLY REPORT';}
 }
 async function updateNST(val){
   const v=parseFloat(val);
