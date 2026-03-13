@@ -112,8 +112,8 @@ The Whisper integration goes beyond a simple API call. Four parameter-level opti
 **1. Script Prep Decoder Seeding**
 When Script Prep text is available (user typed what they intend to say), it's passed as Whisper's `prompt` parameter — the decoder conditioning token. Whisper's beam search treats this as "previously transcribed text," giving it the answer key before transcription starts. This dramatically reduces hallucination on blocked or disfluent segments. Falls back to a fluency-biasing prompt when no Script Prep exists.
 
-**2. Block Preservation (`no_speech_threshold=0.2`)**
-Whisper's default 0.6 threshold drops "silent" segments. For stutterers, a block (strained silence with laryngeal tension) scores high on this threshold and gets silently deleted. Lowering to 0.2 preserves blocks as segments, which the disfluency filter correctly identifies rather than losing them.
+**2. Block Detection (via `no_speech_prob`)**
+Verbose JSON returns per-segment `no_speech_prob` — how close Whisper came to classifying a segment as silence. The OpenAI API applies its own internal threshold server-side (~0.6), but segments that survive with high `no_speech_prob` are flagged as "block suspects" — Whisper hallucinated filler text into what was really strained silence (a block). These are flagged in the L4 prompt: "discard these words entirely or replace with the word the speaker was trying to say."
 
 **3. Confidence Targeting (`avg_logprob`)**
 Verbose JSON mode returns per-segment `avg_logprob` confidence scores. Low-confidence segments near Brown high-risk positions (consonant-initial content words early in sentence) are flagged and injected into the L4 reconstruction prompt as "Whisper is uncertain here — reconstruct aggressively."

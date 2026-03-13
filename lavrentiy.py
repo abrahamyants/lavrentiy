@@ -70,8 +70,10 @@ LAYER_KEY = "f11"
 MODEL = "gpt-4o-mini"
 MODEL_L4 = "gpt-4o"                  # L4 stutter reconstruction uses stronger model
 WHISPER_TEMP = 0.0                   # Whisper decoder temperature (0.0=deterministic, 1.0=creative)
-WHISPER_NO_SPEECH_THRESHOLD = 0.2    # Lower than default 0.6 — preserves blocks (strained silence)
-WHISPER_MULTI_TEMP = True            # Multi-temperature voting: 3 decoding passes, disagreements flagged
+WHISPER_NO_SPEECH_THRESHOLD = 0.15   # Post-hoc filter: segments with no_speech_prob > this are flagged as block suspects
+                                     # OpenAI API doesn't expose no_speech_threshold — we filter client-side
+                                     # using verbose_json no_speech_prob. Lower = preserve more blocks.
+WHISPER_MULTI_TEMP = False           # Multi-temperature voting: OFF by default (3x cost, avg_logprob catches same artifacts)
 WHISPER_MULTI_TEMPS = [0.0, 0.2, 0.4]  # Temperature schedule for voting passes
 PROFILE_DIR = Path.home() / ".lavrentiy"
 PROFILE_PATH = PROFILE_DIR / "profile.json"
@@ -86,7 +88,7 @@ LEARN_PROMOTION_THRESHOLD = 2     # candidate recurrences before promotion
 MAX_PROFILE_ITEMS = 200           # cap per profile section
 HOLD_ON_HIGH_RISK = False         # True = skip paste when risk_flags present
 BACKUP_DIR = PROFILE_DIR / "backups"
-PROFILE_VERSION = 3
+PROFILE_VERSION = 4
 
 # -- Live preview config ─────────────────────────────────────────
 LIVE_PREVIEW_ENABLED = False      # True = stream interim transcripts
@@ -303,6 +305,45 @@ HIGH_RISK_ONSETS = {
     'pl', 'pr', 'sc', 'sk', 'sl', 'sm', 'sn', 'sp', 'st',
     'str', 'sw', 'tr', 'tw', 'thr', 'shr', 'scr', 'spl', 'spr',
 }
+
+# Russian high-risk onsets (#13: per-language trigger profiles)
+# Palatalized consonants + clusters that cause blocks in Russian speech.
+# Russian stuttering has different phonetic triggers than English:
+# - Palatalized stops /т'/, /д'/, /к'/ are harder than their hard counterparts
+# - Clusters like /стр/, /пр/, /кр/ mirror English cluster difficulty
+# - Russian-specific: /щ/ (long palatalized fricative), /ц/ (affricate)
+HIGH_RISK_ONSETS_RU = {
+    # Hard stop consonants
+    'п', 'т', 'к', 'б', 'д', 'г',
+    # Palatalized stops (soft — written with ь or before е/и/ё/ю/я)
+    'пь', 'ть', 'кь', 'бь', 'дь', 'гь',
+    # Affricates
+    'ц', 'ч',
+    # Fricatives (high effort)
+    'щ', 'ш', 'ж',
+    # Clusters (same difficulty pattern as English)
+    'пр', 'тр', 'кр', 'бр', 'др', 'гр',
+    'пл', 'кл', 'бл', 'гл', 'сл', 'сн',
+    'ст', 'стр', 'скр', 'спр', 'скл',
+    'вс', 'вз', 'зд', 'зн',
+}
+
+# Combined lookup for any-language onset extraction
+HIGH_RISK_ONSETS_ALL = HIGH_RISK_ONSETS | HIGH_RISK_ONSETS_RU
+
+
+def detect_word_language(word):
+    """Detect language of a single word by character analysis.
+    Returns 'ru' for Cyrillic, 'en' for Latin, 'unknown' for other."""
+    if not word:
+        return 'unknown'
+    cyrillic = sum(1 for c in word if '\u0400' <= c <= '\u04ff')
+    latin = sum(1 for c in word if 'a' <= c.lower() <= 'z')
+    if cyrillic > latin:
+        return 'ru'
+    elif latin > 0:
+        return 'en'
+    return 'unknown'
 # Function words rarely trigger blocks — content words do
 FUNCTION_WORDS = {
     'a', 'an', 'the', 'is', 'am', 'are', 'was', 'were', 'be', 'been',
@@ -394,13 +435,21 @@ _personal_onset_weights = {}
 _personal_dominant_onsets = []  # top 3 onsets for insight display
 
 def _extract_onset(word):
-    """Extract the matching HIGH_RISK_ONSET from a word (longest match first)."""
+    """Extract the matching high-risk onset from a word (longest match first).
+    Handles both English and Russian onsets (#13)."""
     w = word.lower().strip()
+    if not w:
+        return None
+    # Use combined onset set for any-language matching
     for length in (3, 2, 1):
-        onset = w[:length]
-        if onset in HIGH_RISK_ONSETS:
-            return onset
+        if length <= len(w):
+            onset = w[:length]
+            if onset in HIGH_RISK_ONSETS_ALL:
+                return onset
     return None
+
+_personal_onset_weights_by_lang = {"en": {}, "ru": {}}  # #13: per-language weights
+
 
 def learn_onset_weights(trigger_words):
     """Analyze user's trigger words to learn which onsets they personally
@@ -411,6 +460,9 @@ def learn_onset_weights(trigger_words):
     proportional to their frequency. Onsets with zero personal evidence
     stay at the population floor.
 
+    Also builds per-language breakdown (#13) — Russian palatalized consonants
+    and English clusters are separate phonetic spaces.
+
     Example: triggers = [computer, conference, critical, create, class, break]
       onset counts: k=3, cr=1, cl=1, br=1  (total=6)
       k  -> freq 0.50 -> weight 0.65 (floor 0.4 + boost 0.25)
@@ -418,21 +470,28 @@ def learn_onset_weights(trigger_words):
       Unseen onsets -> weight 0.3 (below population prior = deprioritized)
 
     Inspired by Ghai & Mueller (ASSETS '21) — phonetic pattern learning."""
-    global _personal_onset_weights, _personal_dominant_onsets
+    global _personal_onset_weights, _personal_dominant_onsets, _personal_onset_weights_by_lang
     if not trigger_words:
         _personal_onset_weights = {}
         _personal_dominant_onsets = []
+        _personal_onset_weights_by_lang = {"en": {}, "ru": {}}
         return
 
     onset_counts = {}
+    onset_counts_by_lang = {"en": {}, "ru": {}}
     for word in trigger_words:
         onset = _extract_onset(word)
         if onset:
             onset_counts[onset] = onset_counts.get(onset, 0) + 1
+            # Per-language bucketing (#13)
+            lang = detect_word_language(word)
+            if lang in onset_counts_by_lang:
+                onset_counts_by_lang[lang][onset] = onset_counts_by_lang[lang].get(onset, 0) + 1
 
     if not onset_counts:
         _personal_onset_weights = {}
         _personal_dominant_onsets = []
+        _personal_onset_weights_by_lang = {"en": {}, "ru": {}}
         return
 
     total = sum(onset_counts.values())
@@ -446,6 +505,19 @@ def learn_onset_weights(trigger_words):
         weights[onset] = min(0.4 + personal_boost, 0.9)
 
     _personal_onset_weights = weights
+
+    # Per-language weights (#13)
+    for lang, lang_counts in onset_counts_by_lang.items():
+        lang_total = sum(lang_counts.values())
+        if lang_total == 0:
+            _personal_onset_weights_by_lang[lang] = {}
+            continue
+        lang_weights = {}
+        for onset, count in lang_counts.items():
+            frequency = count / lang_total
+            personal_boost = frequency * 0.5
+            lang_weights[onset] = min(0.4 + personal_boost, 0.9)
+        _personal_onset_weights_by_lang[lang] = lang_weights
 
     # Track dominant onsets for insights (top 3 by count)
     ranked = sorted(onset_counts.items(), key=lambda x: -x[1])
@@ -552,14 +624,14 @@ def predict_phonetic_risk(word, sentence_position=None, sentence_length=None):
     score = 0.25  # base risk for content words (Brown feature 2)
 
     # Brown feature 1: consonant-initial words — onset matching
-    matched_onset = None
-    for length in (3, 2, 1):
-        onset = w[:length]
-        if onset in HIGH_RISK_ONSETS:
-            matched_onset = onset
-            break
+    # #13: use language-specific weights when available
+    matched_onset = _extract_onset(w)
     if matched_onset:
-        if _personal_onset_weights:
+        lang = detect_word_language(w)
+        lang_weights = _personal_onset_weights_by_lang.get(lang, {})
+        if lang_weights:
+            score += lang_weights.get(matched_onset, 0.3)
+        elif _personal_onset_weights:
             score += _personal_onset_weights.get(matched_onset, 0.3)
         else:
             score += 0.4
@@ -811,6 +883,18 @@ def migrate_profile(prof):
         if prof.get("candidate_corrections"):
             prof["candidate_corrections"] = _migrate_candidate_corrections(
                 prof["candidate_corrections"])
+        # v3 → v4: per-language trigger profiles (#13)
+        if v < 4 and "trigger_words_by_lang" not in prof:
+            triggers = prof.get("trigger_words", [])
+            by_lang = {"en": [], "ru": []}
+            for word in triggers:
+                lang = detect_word_language(word)
+                if lang in by_lang:
+                    by_lang[lang].append(word)
+                else:
+                    by_lang["en"].append(word)  # default to English
+            prof["trigger_words_by_lang"] = by_lang
+            log(f"Profile v4: split {len(triggers)} triggers → en:{len(by_lang['en'])} ru:{len(by_lang['ru'])}", "info")
         normalize_profile(prof)
         prof["version"] = PROFILE_VERSION
         save_profile(prof)
@@ -1522,15 +1606,17 @@ def log(text, kind="info"):
 
 # -- LLM Calls ───────────────────────────────────────────────────
 def reconstruct(raw_text, tone, layer, prof, situation=None,
-                whisper_low_conf=None, whisper_disagreements=None):
+                whisper_low_conf=None, whisper_disagreements=None,
+                speech_severity_mod=0.0):
     """Layer 2+: Rebuild raw transcription into clean output."""
     # Detect if input contains Cyrillic (bilingual speaker)
     has_cyrillic = any('\u0400' <= c <= '\u04ff' for c in raw_text)
     lang_note = " Speaker is bilingual (English/Russian) and may mix languages." if has_cyrillic else ""
 
     # Situational aggressiveness — higher stress = more aggressive cleanup
+    # speech_severity_mod: dynamic boost from real-time pause/rate analysis (#11)
     sit = situation or current_situation
-    severity = SITUATION_SEVERITY.get(sit, 1.0)
+    severity = SITUATION_SEVERITY.get(sit, 1.0) + speech_severity_mod
     aggression_note = ""
     if severity >= 1.4:
         aggression_note = (
@@ -1599,16 +1685,31 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
         # avg_logprob targeting: where Whisper is uncertain near Brown risk = disfluency artifact
         if whisper_low_conf:
             lc_notes = []
+            block_notes = []
             for seg in whisper_low_conf[:5]:
-                lc_notes.append(
-                    f"  \"{seg['text']}\" (logprob={seg['avg_logprob']}, brown_risk={seg['brown_risk']})"
+                if seg.get("block_suspect"):
+                    block_notes.append(f"  \"{seg['text']}\" (no_speech_prob={seg['no_speech_prob']})")
+                else:
+                    lc_notes.append(
+                        f"  \"{seg['text']}\" (logprob={seg['avg_logprob']}, brown_risk={seg['brown_risk']})"
+                    )
+            if lc_notes:
+                parts.append(
+                    "\n⚠ WHISPER UNCERTAINTY — these segments have low decoder confidence "
+                    "AND high stuttering risk. They are almost certainly transcription artifacts:\n"
+                    + "\n".join(lc_notes)
+                    + "\nReconstruct aggressively. Trust semantic context, not the literal words."
                 )
-            parts.append(
-                "\n⚠ WHISPER UNCERTAINTY — these segments have low decoder confidence "
-                "AND high stuttering risk. They are almost certainly transcription artifacts:\n"
-                + "\n".join(lc_notes)
-                + "\nReconstruct aggressively. Trust semantic context, not the literal words."
-            )
+            if block_notes:
+                parts.append(
+                    "\n⚠ BLOCK SUSPECTS — Whisper nearly classified these as silence "
+                    "(high no_speech_prob). For this speaker, silence before/during a word "
+                    "is a BLOCK, not absence of speech. The text here is likely hallucinated "
+                    "filler that Whisper invented to fill the gap:\n"
+                    + "\n".join(block_notes)
+                    + "\nDiscard these words entirely or replace with the word the speaker "
+                    "was trying to say (use semantic context from surrounding words)."
+                )
         # Multi-temperature voting: disagreements between decoding passes = garbled regions
         if whisper_disagreements:
             dis_notes = []
@@ -2185,9 +2286,110 @@ def update_covert_profile(prof, avoidance_pairs, situation):
     save_profile(prof)
 
 
+# -- Substitution Fingerprinting (#10) ────────────────────────────
+# Cross-session aggregate of covert avoidance patterns.
+# Computes: avoidance_index (single number), onset heat map,
+# situation-specific avoidance rates, and drift detection.
+
+def compute_substitution_fingerprint(prof):
+    """Build a cross-session substitution fingerprint from accumulated covert_profile.
+
+    Returns:
+      avoidance_index: float 0-1 (0=no avoidance, 1=heavy systematic avoidance)
+      onset_heat: dict {onset: avoidance_count} — which sounds get avoided most
+      situation_breakdown: dict {situation: {total_avoided, top_word, onset}}
+      drift: list of recently emerging avoidance patterns (last 7 days)
+      top_substitutions: list of [{word, substitutes, onset, count}] top 10
+    """
+    covert = prof.get("covert_profile", {})
+    pairs = covert.get("avoidance_pairs", {})
+    if not pairs:
+        return {"avoidance_index": 0.0, "onset_heat": {}, "situation_breakdown": {},
+                "drift": [], "top_substitutions": []}
+
+    # Flatten all avoidance data across situations
+    onset_heat = {}
+    all_words = {}  # word → {total_avoided, substitutes, onset, situations}
+    situation_breakdown = {}
+    now = datetime.now()
+
+    for situation, words in pairs.items():
+        sit_total = 0
+        sit_top = None
+        sit_max = 0
+
+        for word, data in words.items():
+            count = data.get("avoided_count", 0)
+            onset = data.get("dominant_onset", "")
+            subs = data.get("common_substitutes", [])
+            last_seen = data.get("last_seen", "")
+
+            # Onset heat map
+            if onset:
+                onset_heat[onset] = onset_heat.get(onset, 0) + count
+
+            # Per-word aggregate
+            if word not in all_words:
+                all_words[word] = {"total_avoided": 0, "substitutes": set(),
+                                   "onset": onset, "situations": set(), "last_seen": ""}
+            all_words[word]["total_avoided"] += count
+            all_words[word]["substitutes"].update(subs)
+            all_words[word]["situations"].add(situation)
+            if last_seen > all_words[word]["last_seen"]:
+                all_words[word]["last_seen"] = last_seen
+
+            sit_total += count
+            if count > sit_max:
+                sit_max = count
+                sit_top = word
+
+        situation_breakdown[situation] = {
+            "total_avoided": sit_total,
+            "top_word": sit_top,
+            "top_onset": all_words[sit_top]["onset"] if sit_top and sit_top in all_words else "",
+        }
+
+    # Top substitutions (sorted by total avoidance count)
+    top_subs = sorted(all_words.items(), key=lambda x: x[1]["total_avoided"], reverse=True)[:10]
+    top_substitutions = [
+        {"word": w, "substitutes": list(d["substitutes"]), "onset": d["onset"],
+         "count": d["total_avoided"], "situations": list(d["situations"])}
+        for w, d in top_subs
+    ]
+
+    # Drift: words seen in last 7 days that weren't seen before
+    from datetime import timedelta as _td
+    seven_days_ago = (now - _td(days=7)).isoformat()
+    drift = [
+        {"word": w, "onset": d["onset"], "count": d["total_avoided"]}
+        for w, d in all_words.items()
+        if d["last_seen"] >= seven_days_ago and d["total_avoided"] <= 3
+    ]
+
+    # Avoidance index: normalize total avoided count against session count
+    total_avoided = sum(d["total_avoided"] for d in all_words.values())
+    session_count = max(stats.get("sessions", 1), 1)
+    # Avoidance per session, capped at 1.0
+    # Baseline: 0-0.5 avoidances/session = low, 0.5-1.5 = moderate, >1.5 = heavy
+    avoidance_rate = total_avoided / session_count
+    avoidance_index = min(1.0, avoidance_rate / 2.0)  # scale: 2+ avoided/session = 1.0
+
+    return {
+        "avoidance_index": round(avoidance_index, 3),
+        "onset_heat": dict(sorted(onset_heat.items(), key=lambda x: -x[1])),
+        "situation_breakdown": situation_breakdown,
+        "drift": drift[:10],
+        "top_substitutions": top_substitutions,
+    }
+
+
 # -- Auto-Learn ──────────────────────────────────────────────────
 LEARN_EVERY = 3  # run learner every N sessions (Layer 2+)
+DECAY_EVERY = 30             # run decay sweep every N sessions
+DECAY_STALE_SESSIONS = 100   # corrections unused for this many sessions → demote to candidate
+DECAY_DEAD_SESSIONS = 200    # candidates not re-seen for this many sessions → prune entirely
 _learn_counter = 0
+_decay_counter = 0
 learn_events = []  # [{ts, type, value}, ...]
 learn_status = {"last_run": None, "total_learned": 0, "next_in": LEARN_EVERY}
 
@@ -2324,6 +2526,148 @@ def learn_from_sessions(prof):
         learn_events[:] = learn_events[-50:]
 
 
+# -- Profile Decay (evidence-based staleness pruning) ─────────────
+# The reviewer's valid criticism: promoted corrections live forever.
+# If you learn "Duncan" → "Dankeschön" at Job A, then move to Job B where
+# Duncan is a real name, the stale correction corrupts every output.
+#
+# Fix: track last_relevant_session for each correction/filler/vocab.
+# "Relevant" = the trigger word appeared in raw text (the mapping was
+# available to fire). Decay sweep runs every DECAY_EVERY sessions:
+#   - Corrections not relevant for DECAY_STALE_SESSIONS → demoted to candidate
+#   - Candidates not re-earned for DECAY_DEAD_SESSIONS → pruned
+#   - Same logic for fillers and vocabulary
+
+def track_profile_relevance(prof, raw_text):
+    """Stamp corrections/fillers/vocab that were relevant to this session.
+    Called every session. Updates last_relevant_session counters.
+
+    'Relevant' means the trigger word (correction key, filler, or vocab term)
+    appeared in the raw transcription — i.e., the profile entry could have
+    fired during reconstruction."""
+    session_n = db_session_count()
+    raw_lower = raw_text.lower()
+    raw_words = set(re.findall(r'\b\w+\b', raw_lower))
+
+    relevance = prof.setdefault("_relevance", {
+        "corrections": {},  # key → last_relevant_session
+        "fillers": {},
+        "vocabulary": {},
+    })
+
+    # Corrections: key is the "wrong" word — if it appears in raw, the mapping was relevant
+    for key in prof.get("corrections", {}):
+        if key.lower() in raw_words:
+            relevance["corrections"][key.lower()] = session_n
+
+    # Fillers: if the filler appeared in raw text, it was relevant
+    for filler in prof.get("filler_words", []):
+        if filler.lower() in raw_words:
+            relevance["fillers"][filler.lower()] = session_n
+
+    # Vocabulary: if the term appeared in raw or output, it was relevant
+    for term in prof.get("vocabulary", []):
+        if term.lower() in raw_words:
+            relevance["vocabulary"][term.lower()] = session_n
+
+
+def decay_stale_profile_entries(prof):
+    """Sweep profile for stale entries. Demote corrections → candidates,
+    prune dead candidates. Run every DECAY_EVERY sessions.
+
+    Returns count of demoted + pruned entries."""
+    session_n = db_session_count()
+    relevance = prof.get("_relevance", {})
+    now = datetime.now().isoformat()
+    demoted = 0
+    pruned = 0
+
+    # --- Corrections: demote stale entries back to candidates ---
+    corrections = prof.get("corrections", {})
+    corr_relevance = relevance.get("corrections", {})
+    stale_keys = []
+    for key in list(corrections.keys()):
+        last_relevant = corr_relevance.get(key.lower(), 0)
+        if last_relevant == 0:
+            # Never tracked (pre-decay era) — start tracking from now, don't demote yet
+            corr_relevance[key.lower()] = session_n
+            continue
+        if session_n - last_relevant > DECAY_STALE_SESSIONS:
+            stale_keys.append(key)
+
+    cand_corr = prof.setdefault("candidate_corrections", {})
+    for key in stale_keys:
+        value = corrections.pop(key)
+        # Demote: put back as candidate with 1 vote (has to re-earn promotion)
+        cand_corr[key.lower()] = {
+            "votes": {value: 1},
+            "total": 1,
+            "demoted_at": session_n,
+        }
+        learn_events.append({"ts": now, "type": "decay", "value": f"demoted: {key} → {value} (stale {DECAY_STALE_SESSIONS}+ sessions)"})
+        log(f"Decay: demoted correction \"{key}\" → \"{value}\" (unused {DECAY_STALE_SESSIONS}+ sessions)", "info")
+        demoted += 1
+
+    # --- Candidates: prune entries that were demoted and never re-earned ---
+    for key in list(cand_corr.keys()):
+        entry = cand_corr[key]
+        demoted_at = entry.get("demoted_at", 0)
+        if demoted_at > 0 and session_n - demoted_at > DECAY_DEAD_SESSIONS:
+            del cand_corr[key]
+            learn_events.append({"ts": now, "type": "decay", "value": f"pruned candidate: {key}"})
+            log(f"Decay: pruned dead candidate \"{key}\"", "info")
+            pruned += 1
+
+    # --- Fillers: demote stale fillers ---
+    fillers = prof.get("filler_words", [])
+    filler_relevance = relevance.get("fillers", {})
+    # Protect bilingual base fillers from decay (they're structural, not learned)
+    protected = set()
+    for lang_fillers in KNOWN_FILLERS.values():
+        protected.update(f.lower() for f in lang_fillers)
+
+    stale_fillers = []
+    for filler in fillers:
+        if filler.lower() in protected:
+            continue  # never decay base fillers
+        last_relevant = filler_relevance.get(filler.lower(), 0)
+        if last_relevant == 0:
+            filler_relevance[filler.lower()] = session_n
+            continue
+        if session_n - last_relevant > DECAY_STALE_SESSIONS:
+            stale_fillers.append(filler)
+
+    for filler in stale_fillers:
+        fillers.remove(filler)
+        learn_events.append({"ts": now, "type": "decay", "value": f"demoted filler: {filler}"})
+        log(f"Decay: removed stale filler \"{filler}\" (unused {DECAY_STALE_SESSIONS}+ sessions)", "info")
+        demoted += 1
+
+    # --- Vocabulary: demote stale terms ---
+    vocab = prof.get("vocabulary", [])
+    vocab_relevance = relevance.get("vocabulary", {})
+    stale_vocab = []
+    for term in vocab:
+        last_relevant = vocab_relevance.get(term.lower(), 0)
+        if last_relevant == 0:
+            vocab_relevance[term.lower()] = session_n
+            continue
+        if session_n - last_relevant > DECAY_STALE_SESSIONS:
+            stale_vocab.append(term)
+
+    for term in stale_vocab:
+        vocab.remove(term)
+        learn_events.append({"ts": now, "type": "decay", "value": f"demoted vocab: {term}"})
+        log(f"Decay: removed stale vocab \"{term}\" (unused {DECAY_STALE_SESSIONS}+ sessions)", "info")
+        demoted += 1
+
+    if demoted or pruned:
+        save_profile(prof)
+        log(f"Decay sweep: {demoted} demoted, {pruned} pruned (session #{session_n})", "info")
+
+    return demoted + pruned
+
+
 # -- Trigger Word Detection ───────────────────────────────────────
 # Regex: catch "Co-Co-Coca-Cola", "I I I want", "th-th-the", "b-b-but"
 _REPEAT_WORD = re.compile(
@@ -2434,6 +2778,11 @@ def add_trigger_words(new_triggers, prof):
         if word.lower() not in existing and len(word) > 1:
             prof.setdefault("trigger_words", []).append(word)
             existing.add(word.lower())
+            # Per-language trigger bucket (#13)
+            lang = detect_word_language(word)
+            if lang in ("en", "ru"):
+                by_lang = prof.setdefault("trigger_words_by_lang", {"en": [], "ru": []})
+                by_lang.setdefault(lang, []).append(word)
             # Store disfluency type
             trigger_types[word.lower()] = dtype
             learn_events.append({
@@ -2631,7 +2980,19 @@ def start_recording():
         is_recording = True
         state = 'recording'
     target_hwnd = user32.GetForegroundWindow()
-    log("Recording...", "rec")
+
+    # Brown Peak Risk: if Script Prep text is loaded, predict block difficulty
+    # and warn the user to hold F9 longer on high-risk scripts
+    if _last_prep_text and (time.time() - _last_prep_ts < _PREP_EXPIRY_SEC):
+        peak = brown_peak_risk(_last_prep_text)
+        if peak >= 0.7:
+            log(f"Recording... ⚠ HIGH RISK ({peak:.0%}) — hold F9 through blocks", "rec")
+        elif peak >= 0.5:
+            log(f"Recording... moderate risk ({peak:.0%})", "rec")
+        else:
+            log("Recording...", "rec")
+    else:
+        log("Recording...", "rec")
     try:
         start_preview_stream()
     except Exception as e:
@@ -2804,7 +3165,13 @@ def _extract_low_confidence_segments(verbose_result, risk_threshold=-0.7):
     Segments near Brown high-risk positions (early sentence, consonant-initial
     content words) are flagged for targeted L4 reconstruction.
 
-    Returns list of {text, avg_logprob, no_speech_prob, position, risk_score}
+    Also detects potential blocks: segments with high no_speech_prob that Whisper
+    nearly classified as silence. The API drops these internally at its own
+    threshold (~0.6), but segments that survive with no_speech_prob > our
+    WHISPER_NO_SPEECH_THRESHOLD are flagged as possible block artifacts —
+    Whisper hallucinated filler into what was really strained silence.
+
+    Returns list of {text, avg_logprob, no_speech_prob, position, brown_risk, block_suspect}
     """
     segments = verbose_result.get("segments", [])
     if not segments:
@@ -2834,15 +3201,23 @@ def _extract_low_confidence_segments(verbose_result, risk_threshold=-0.7):
 
         words_so_far += len(seg_words)
 
-        # Flag if: low confidence AND near high-risk position
-        if avg_lp < risk_threshold or (avg_lp < -0.4 and brown_risk >= 0.5):
+        # Block suspect: high no_speech_prob means Whisper nearly classified this as
+        # silence. For stutterers, that "silence" is a block — strained, effortful,
+        # with possible laryngeal tension. Whisper hallucinated text into the gap.
+        block_suspect = no_speech > WHISPER_NO_SPEECH_THRESHOLD
+
+        # Flag if: low confidence AND near high-risk position, OR block suspect
+        if avg_lp < risk_threshold or (avg_lp < -0.4 and brown_risk >= 0.5) or block_suspect:
             flagged.append({
                 "text": seg_text,
                 "avg_logprob": round(avg_lp, 3),
                 "no_speech_prob": round(no_speech, 3),
                 "position": words_so_far,
                 "brown_risk": round(brown_risk, 2),
+                "block_suspect": block_suspect,
             })
+            if block_suspect:
+                log(f"Block suspect: \"{seg_text}\" (no_speech_prob={no_speech:.2f}) — likely hallucinated over a block", "info")
 
     return flagged
 
@@ -2956,6 +3331,222 @@ def whisper_transcribe(filepath):
     }
 
 
+# -- Shadow Utterance (#12) ────────────────────────────────────
+# "What you probably meant to say" — ground truth for avoidance measurement.
+# For prepped text: Script Prep IS the shadow (zero cost).
+# For unprepped text: one LLM call to infer intended speech from partial context.
+# The diff between shadow and actual transcript = avoidance drift score.
+# L4 only (extra API cost).
+
+_shadow_history = []  # list of {ts, shadow, actual, drift_score, source}
+_MAX_SHADOW_HISTORY = 50
+
+
+def generate_shadow_utterance(raw_text, prof):
+    """Generate the 'shadow utterance' — what the speaker probably intended to say.
+
+    If Script Prep text is available, use it directly (the user already told us
+    what they planned to say). Otherwise, infer from context + trigger history.
+
+    Returns: {shadow: str, source: 'prep'|'inferred', drift_score: float}
+    """
+    # Check if Script Prep text is available (hasn't been consumed yet by covert detection)
+    if _last_prep_text and (time.time() - _last_prep_ts < _PREP_EXPIRY_SEC):
+        shadow = _last_prep_text
+        source = "prep"
+    else:
+        # Infer shadow utterance via LLM (one extra call, L4 cost)
+        triggers = prof.get("trigger_words", [])[:15]
+        covert = prof.get("covert_profile", {}).get("avoidance_pairs", {})
+        # Collect known avoidance substitutions
+        known_swaps = {}
+        for sit_data in covert.values():
+            for word, data in sit_data.items():
+                for sub in data.get("common_substitutes", []):
+                    known_swaps[sub] = word  # substitute → original intended
+
+        stats["api_calls"] += 1
+        try:
+            resp = client.chat.completions.create(
+                model=MODEL,
+                messages=[
+                    {"role": "system", "content": (
+                        "You are analyzing speech from a person who stutters. "
+                        "They may have substituted words to avoid ones they find difficult to say. "
+                        "Given their raw speech, reconstruct what they ORIGINALLY INTENDED to say "
+                        "before avoidance kicked in.\n\n"
+                        "Known trigger words (words they struggle with): " +
+                        ", ".join(triggers[:10]) + "\n"
+                        "Known substitution patterns: " +
+                        "; ".join(f'"{sub}" was used instead of "{orig}"'
+                                 for sub, orig in list(known_swaps.items())[:8]) +
+                        "\n\nReturn ONLY the intended utterance. No explanation."
+                    )},
+                    {"role": "user", "content": raw_text}
+                ],
+                max_tokens=200,
+                temperature=0
+            )
+            shadow = resp.choices[0].message.content.strip()
+            source = "inferred"
+        except Exception as e:
+            log(f"Shadow utterance failed: {e}", "error")
+            return {"shadow": raw_text, "source": "fallback", "drift_score": 0.0}
+
+    # Compute avoidance drift: word-level diff between shadow and actual
+    shadow_words = set(re.findall(r'\b\w+\b', shadow.lower()))
+    actual_words = set(re.findall(r'\b\w+\b', raw_text.lower()))
+    # Words in shadow but not in actual = probably avoided
+    avoided = shadow_words - actual_words - FUNCTION_WORDS
+    # Words in actual but not in shadow = substitutes used
+    substituted = actual_words - shadow_words - FUNCTION_WORDS
+    # Drift = fraction of content words that changed
+    content_total = len(shadow_words - FUNCTION_WORDS)
+    drift_score = len(avoided) / max(content_total, 1)
+
+    entry = {
+        "ts": datetime.now().isoformat(),
+        "shadow": shadow,
+        "actual": raw_text,
+        "drift_score": round(drift_score, 3),
+        "avoided_words": list(avoided)[:10],
+        "substitute_words": list(substituted)[:10],
+        "source": source,
+    }
+    _shadow_history.append(entry)
+    if len(_shadow_history) > _MAX_SHADOW_HISTORY:
+        _shadow_history.pop(0)
+
+    if drift_score > 0.15:
+        log(f"Shadow drift: {drift_score:.0%} — {len(avoided)} words avoided [{source}]", "info")
+
+    return entry
+
+
+def compute_avoidance_trend():
+    """Compute rolling avoidance drift trend from shadow history.
+    Returns: avg drift over last 10 recordings, trend direction."""
+    if not _shadow_history:
+        return {"avg_drift": 0.0, "trend": "stable", "n": 0}
+    recent = _shadow_history[-10:]
+    drifts = [e["drift_score"] for e in recent]
+    avg = sum(drifts) / len(drifts)
+    # Trend: compare first half vs second half
+    if len(drifts) >= 4:
+        first_half = sum(drifts[:len(drifts)//2]) / (len(drifts)//2)
+        second_half = sum(drifts[len(drifts)//2:]) / (len(drifts) - len(drifts)//2)
+        if second_half > first_half + 0.05:
+            trend = "increasing"
+        elif second_half < first_half - 0.05:
+            trend = "decreasing"
+        else:
+            trend = "stable"
+    else:
+        trend = "insufficient_data"
+    return {"avg_drift": round(avg, 3), "trend": trend, "n": len(drifts)}
+
+
+# -- Speech Rate & Pause Analysis (#11) ────────────────────────
+# Pure numpy signal processing: RMS energy thresholding for speech/silence
+# segmentation. No ML, no API calls. ~20 lines of signal processing.
+# Outputs: pause_ratio, speaking_rate_sps (syllables/sec), dynamic severity modifier
+
+_SPEECH_RMS_THRESHOLD = 0.015     # RMS below this = silence (tuned for 16kHz whisper-quality audio)
+_FRAME_SIZE_SAMPLES = 320         # 20ms frames at 16kHz (standard VAD frame size)
+_MIN_PAUSE_FRAMES = 5             # 100ms minimum silence to count as a "pause" (not just consonant gap)
+_last_speech_metrics = {}         # cached for dashboard
+
+
+def analyze_speech_rate(audio_data, sample_rate=16000):
+    """Compute speech rate and pause ratio from raw audio.
+
+    Uses RMS energy thresholding to segment speech vs silence.
+    Syllable estimate = voiced segment transitions (onset counting).
+    Pause = consecutive silent frames >= _MIN_PAUSE_FRAMES (100ms).
+
+    Returns dict:
+      pause_ratio: float (0.0 = no pauses, 1.0 = all silence)
+      speaking_rate_sps: float (syllables per second of speech)
+      n_pauses: int (count of distinct pauses)
+      total_duration_s: float
+      speech_duration_s: float
+      severity_modifier: float (0.0-0.6 additive boost for reconstruction)
+    """
+    global _last_speech_metrics
+    total_samples = len(audio_data)
+    if total_samples < _FRAME_SIZE_SAMPLES * 3:
+        return {"pause_ratio": 0.0, "speaking_rate_sps": 0.0, "n_pauses": 0,
+                "total_duration_s": total_samples / sample_rate,
+                "speech_duration_s": 0.0, "severity_modifier": 0.0}
+
+    # Frame-level RMS energy
+    n_frames = total_samples // _FRAME_SIZE_SAMPLES
+    frames = audio_data[:n_frames * _FRAME_SIZE_SAMPLES].reshape(n_frames, _FRAME_SIZE_SAMPLES)
+    rms = numpy.sqrt(numpy.mean(frames ** 2, axis=1))
+
+    # Classify frames: speech (1) or silence (0)
+    is_speech = (rms >= _SPEECH_RMS_THRESHOLD).astype(int)
+
+    speech_frames = int(numpy.sum(is_speech))
+    silence_frames = n_frames - speech_frames
+    frame_duration = _FRAME_SIZE_SAMPLES / sample_rate
+
+    # Count distinct pauses (consecutive silent frames >= threshold)
+    n_pauses = 0
+    silent_run = 0
+    for val in is_speech:
+        if val == 0:
+            silent_run += 1
+        else:
+            if silent_run >= _MIN_PAUSE_FRAMES:
+                n_pauses += 1
+            silent_run = 0
+    if silent_run >= _MIN_PAUSE_FRAMES:
+        n_pauses += 1
+
+    # Count syllable-like onsets (silence→speech transitions)
+    # Each onset ≈ one syllable nucleus (vowel onset)
+    transitions = numpy.diff(is_speech)
+    syllable_onsets = int(numpy.sum(transitions == 1))  # 0→1 transitions
+    syllable_onsets = max(syllable_onsets, 1)  # at least one syllable if we have speech
+
+    total_duration = total_samples / sample_rate
+    speech_duration = speech_frames * frame_duration
+    pause_duration = silence_frames * frame_duration
+
+    pause_ratio = pause_duration / total_duration if total_duration > 0 else 0.0
+    speaking_rate = syllable_onsets / speech_duration if speech_duration > 0.1 else 0.0
+
+    # Dynamic severity modifier:
+    # High pause ratio = speaker is blocking → bump reconstruction aggressiveness
+    # Normal conversational pause_ratio ≈ 0.25-0.35
+    # Stuttered speech pause_ratio ≈ 0.40-0.70
+    # Severe blocking pause_ratio > 0.70
+    if pause_ratio > 0.60:
+        severity_mod = 0.6    # heavy blocking — max boost
+    elif pause_ratio > 0.45:
+        severity_mod = 0.4    # significant pausing
+    elif pause_ratio > 0.35:
+        severity_mod = 0.2    # mild pausing above normal
+    else:
+        severity_mod = 0.0    # normal range
+
+    # Also: abnormally slow speaking rate (< 2 syl/sec vs normal ~4-5)
+    if speaking_rate > 0 and speaking_rate < 2.0:
+        severity_mod = max(severity_mod, 0.3)
+
+    metrics = {
+        "pause_ratio": round(pause_ratio, 3),
+        "speaking_rate_sps": round(speaking_rate, 2),
+        "n_pauses": n_pauses,
+        "total_duration_s": round(total_duration, 2),
+        "speech_duration_s": round(speech_duration, 2),
+        "severity_modifier": round(severity_mod, 2),
+    }
+    _last_speech_metrics = metrics
+    return metrics
+
+
 # -- Pipeline ─────────────────────────────────────────────────────
 def pipeline():
     global state
@@ -2969,6 +3560,11 @@ def pipeline():
     audio_data = numpy.concatenate(frames, axis=0).flatten()
     if NEEDS_RESAMPLE:
         audio_data = resample_poly(audio_data, RESAMPLE_UP, RESAMPLE_DOWN)
+
+    # Step 0: Speech rate & pause analysis (pure numpy, zero cost)
+    speech_metrics = analyze_speech_rate(audio_data, TARGET_RATE)
+    if speech_metrics["severity_modifier"] > 0:
+        log(f"Speech: pause_ratio={speech_metrics['pause_ratio']:.0%} rate={speech_metrics['speaking_rate_sps']:.1f}syl/s → severity +{speech_metrics['severity_modifier']}", "info")
 
     tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
     sf.write(tmp.name, audio_data, TARGET_RATE)
@@ -3018,7 +3614,8 @@ def pipeline():
                 clean_text = reconstruct(
                     filtered_text, current_tone, current_layer, profile, current_situation,
                     whisper_low_conf=whisper_low_conf,
-                    whisper_disagreements=whisper_disagreements
+                    whisper_disagreements=whisper_disagreements,
+                    speech_severity_mod=speech_metrics["severity_modifier"]
                 )
             except Exception as e:
                 log(f"Reconstruct failed ({e}) -- using raw", "error")
@@ -3075,6 +3672,12 @@ def pipeline():
         redo_n = check_redo(output)
         if redo_n >= REDO_NUDGE_THRESHOLD:
             log(f"Redo x{redo_n} — consider accepting this version and moving on", "info")
+        # Shadow utterance (#12): generate "what you meant to say" (L4 only)
+        # Must run BEFORE covert avoidance, which consumes _last_prep_text
+        shadow_result = None
+        if current_layer >= 4:
+            shadow_result = generate_shadow_utterance(raw_text, profile)
+
         # Covert avoidance detection (Script Prep vs actual speech)
         covert_pairs = detect_covert_avoidance(raw_text, profile)
         if covert_pairs:
@@ -3097,9 +3700,14 @@ def pipeline():
             ).start()
 
         # Step 6: Auto-learn (async, Layer 2+ only)
+        # Also: track profile relevance (zero cost) and run decay sweep periodically
         if current_layer >= 2:
-            global _learn_counter
+            # Track which profile entries were relevant to this session
+            track_profile_relevance(profile, raw_text)
+
+            global _learn_counter, _decay_counter
             _learn_counter += 1
+            _decay_counter += 1
             learn_status["next_in"] = max(0, LEARN_EVERY - _learn_counter)
             if _learn_counter >= LEARN_EVERY:
                 _learn_counter = 0
@@ -3108,6 +3716,11 @@ def pipeline():
                 # Onset anomaly detection (covert avoidance signal, zero API cost)
                 all_sessions = db_get_sessions(limit=200)
                 detect_onset_anomalies(all_sessions)
+
+            # Decay sweep: prune stale corrections/fillers/vocab
+            if _decay_counter >= DECAY_EVERY:
+                _decay_counter = 0
+                threading.Thread(target=decay_stale_profile_entries, args=(profile,), daemon=True).start()
 
         # Step 7: Archive audio for future Whisper fine-tuning
         # Runs synchronously — must complete before finally{} deletes tmp
@@ -3212,6 +3825,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'whisper_temp': WHISPER_TEMP,
                 'whisper_no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD,
                 'whisper_multi_temp': WHISPER_MULTI_TEMP,
+                'speech_metrics': _last_speech_metrics,
             })
         elif self.path == '/api/profile':
             self._json(profile)
@@ -3238,6 +3852,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'insights_enabled': current_layer >= 4,
                 'onset_weights': {
                     'personal': _personal_onset_weights,
+                    'by_lang': _personal_onset_weights_by_lang,
                     'dominant': _personal_dominant_onsets,
                     'has_data': bool(_personal_onset_weights),
                 },
@@ -3245,6 +3860,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'severity': compute_severity_score(),
                 'covert_profile': profile.get('covert_profile', {}),
                 'onset_anomalies': _onset_anomalies,
+                'substitution_fingerprint': compute_substitution_fingerprint(profile),
+                'shadow_utterance': {
+                    'history': _shadow_history[-5:],  # last 5 for display
+                    'trend': compute_avoidance_trend(),
+                },
+                'decay': {
+                    'stale_threshold': DECAY_STALE_SESSIONS,
+                    'dead_threshold': DECAY_DEAD_SESSIONS,
+                    'sweep_every': DECAY_EVERY,
+                    'next_sweep_in': max(0, DECAY_EVERY - _decay_counter),
+                    'relevance_tracked': bool(profile.get('_relevance')),
+                },
             })
         elif self.path == '/api/wer':
             # Compute WER stats from recent sessions (raw vs corrected)

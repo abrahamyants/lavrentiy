@@ -867,6 +867,7 @@ body::before {
 .le-type-vocab { background: rgba(34,197,94,0.08); color: var(--green); border: 1px solid rgba(34,197,94,0.12); }
 .le-type-trigger { background: rgba(167,139,250,0.1); color: var(--purple); border: 1px solid rgba(167,139,250,0.15); }
 .le-type-candidate { background: rgba(255,255,255,0.04); color: var(--text-dim); border: 1px solid var(--border); }
+.le-type-decay { background: rgba(251,146,60,0.1); color: #fb923c; border: 1px solid rgba(251,146,60,0.15); }
 .learn-event .le-value { font-size: 12px; color: var(--text); flex: 1; }
 .learn-event .le-time { font-family: var(--mono); font-size: 9px; color: var(--text-muted); letter-spacing: 2px; }
 .learn-empty { text-align: center; padding: 60px 0; color: var(--text-muted); }
@@ -1677,6 +1678,42 @@ body::before {
       </div>
     </div>
 
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Whisper</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-family:var(--mono);font-size:9px;letter-spacing:1px;color:var(--text-dim)">MULTI-TEMP</span>
+          <div class="hw-toggle" id="multitemp-toggle" onclick="toggleMultiTemp()" title="Multi-temperature voting (3x cost)"></div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-family:var(--mono);font-size:9px;letter-spacing:1px;color:var(--text-dim)">PREP SEED</span>
+          <span id="whisper-seed-status" style="font-family:var(--mono);font-size:9px;letter-spacing:1px;color:var(--text-muted)">—</span>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-family:var(--mono);font-size:9px;letter-spacing:1px;color:var(--text-dim)">BLOCKS</span>
+          <span id="whisper-blocks" style="font-family:var(--mono);font-size:9px;letter-spacing:1px;color:var(--text-muted)">0</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Speech</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-family:var(--mono);font-size:9px;letter-spacing:1px;color:var(--text-dim)">PAUSE</span>
+          <span id="speech-pause" style="font-family:var(--mono);font-size:9px;letter-spacing:1px;color:var(--text-muted)">—</span>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-family:var(--mono);font-size:9px;letter-spacing:1px;color:var(--text-dim)">RATE</span>
+          <span id="speech-rate" style="font-family:var(--mono);font-size:9px;letter-spacing:1px;color:var(--text-muted)">—</span>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-family:var(--mono);font-size:9px;letter-spacing:1px;color:var(--text-dim)">SEVERITY+</span>
+          <span id="speech-sev-mod" style="font-family:var(--mono);font-size:9px;letter-spacing:1px;color:var(--text-muted)">0</span>
+        </div>
+      </div>
+    </div>
+
     <div class="sidebar-section hotkey-section">
       <div class="sidebar-section-title" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleHotkeyEditor()">
         Hotkeys <span class="arrow hotkey-arrow" style="font-size:9px;transition:transform 0.3s">&#9654;</span>
@@ -1719,6 +1756,11 @@ body::before {
         <div class="lp-track"><div class="lp-fill" id="lp-fill" style="width:0%"></div></div>
         <span class="lp-count" id="lp-count">0/3</span>
       </div>
+      <div class="learn-progress-cell">
+        <span class="lp-label">Decay</span>
+        <div class="lp-track"><div class="lp-fill" id="decay-fill" style="width:0%;background:var(--yellow)"></div></div>
+        <span class="lp-count" id="decay-count">—</span>
+      </div>
     </div>
 
     <div class="content-area">
@@ -1753,6 +1795,30 @@ body::before {
         <div class="insights-wrap" id="insights">
           <div class="learn-empty">Switch to Layer 4 to view stuttering insights.</div>
         </div>
+        <div id="phoneme-map" style="display:none;padding:16px 24px;border-top:1px solid var(--border)">
+          <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">PHONEME DIFFICULTY MAP</div>
+          <div id="phoneme-bars" style="display:flex;flex-wrap:wrap;gap:4px;align-items:flex-end"></div>
+        </div>
+        <div id="covert-section" style="display:none;padding:16px 24px;border-top:1px solid var(--border)">
+          <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">COVERT AVOIDANCE PATTERNS</div>
+          <div id="covert-pairs" style="font-family:var(--mono);font-size:11px;line-height:2"></div>
+        </div>
+        <div id="anomaly-section" style="display:none;padding:16px 24px;border-top:1px solid var(--border)">
+          <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">ONSET ANOMALIES <span style="color:var(--text-muted);font-size:8px">(onsets you avoid)</span></div>
+          <div id="anomaly-list" style="font-family:var(--mono);font-size:11px;line-height:2"></div>
+        </div>
+        <div id="lang-onset-section" style="display:none;padding:16px 24px;border-top:1px solid var(--border)">
+          <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">PER-LANGUAGE ONSET WEIGHTS</div>
+          <div id="lang-onset-content" style="display:flex;gap:24px;flex-wrap:wrap"></div>
+        </div>
+        <div id="fingerprint-section" style="display:none;padding:16px 24px;border-top:1px solid var(--border)">
+          <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">SUBSTITUTION FINGERPRINT</div>
+          <div id="fingerprint-content" style="font-family:var(--mono);font-size:11px;line-height:2"></div>
+        </div>
+        <div id="shadow-section" style="display:none;padding:16px 24px;border-top:1px solid var(--border)">
+          <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">AVOIDANCE DRIFT</div>
+          <div id="shadow-content" style="font-family:var(--mono);font-size:11px;line-height:2"></div>
+        </div>
       </div>
 
       <div class="tab-panel" id="tab-prep">
@@ -1766,6 +1832,7 @@ body::before {
             <span><span class="prep-legend-dot dot-risky"></span>RISKY</span>
             <span><span class="prep-legend-dot dot-trigger"></span>KNOWN TRIGGER</span>
           </div>
+          <div id="prep-seed-badge" style="display:none;padding:6px 12px;margin-bottom:6px;background:rgba(22,163,74,0.08);border:1px solid rgba(22,163,74,0.2);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--green);letter-spacing:1px">⚡ WHISPER SEEDED — decoder will use this text as context</div>
           <div class="prep-status" id="prep-status"></div>
           <div class="prep-results" id="prep-results">
             <div class="learn-empty">Type or paste what you're about to say. Hit PREP to scan.</div>
@@ -1906,6 +1973,27 @@ function updateUI(){
   document.getElementById('s-falcon').textContent=st.falcon_rejects;
   const cost=st.sessions*0.0032;
   document.getElementById('s-cost').textContent='$'+cost.toFixed(cost<0.01?4:2);
+  // Whisper sidebar state
+  const mtToggle=document.getElementById('multitemp-toggle');
+  if(mtToggle)mtToggle.classList.toggle('on',!!state.whisper_multi_temp);
+  // Speech metrics sidebar (#11)
+  const sm=state.speech_metrics||{};
+  const pauseEl=document.getElementById('speech-pause');
+  const rateEl=document.getElementById('speech-rate');
+  const sevEl=document.getElementById('speech-sev-mod');
+  if(pauseEl&&sm.pause_ratio!==undefined){
+    const pr=sm.pause_ratio;
+    pauseEl.textContent=Math.round(pr*100)+'%';
+    pauseEl.style.color=pr>0.6?'var(--red-bright)':pr>0.4?'var(--yellow)':'var(--green)';
+  }
+  if(rateEl&&sm.speaking_rate_sps!==undefined){
+    rateEl.textContent=sm.speaking_rate_sps.toFixed(1)+' syl/s';
+    rateEl.style.color=sm.speaking_rate_sps<2?'var(--yellow)':'var(--text-muted)';
+  }
+  if(sevEl&&sm.severity_modifier!==undefined){
+    sevEl.textContent=sm.severity_modifier>0?'+'+sm.severity_modifier:'0';
+    sevEl.style.color=sm.severity_modifier>0?'var(--yellow)':'var(--text-muted)';
+  }
   updateCompactBar();
 }
 
@@ -1943,11 +2031,24 @@ function renderLearn(){
   if(!events.length){feed.innerHTML='<div class="learn-empty">No patterns learned yet. Keep talking.</div>';return;}
   feed.innerHTML=[...events].reverse().map(e=>{
     const d=new Date(e.ts);const time=d.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit'});
-    const tc='le-type-'+e.type;const tl={correction:'CORR',filler:'FILLER',vocab:'VOCAB',trigger:'TRIGGER',candidate:'CAND'}[e.type]||e.type;
+    const tc='le-type-'+e.type;const tl={correction:'CORR',filler:'FILLER',vocab:'VOCAB',trigger:'TRIGGER',candidate:'CAND',decay:'DECAY'}[e.type]||e.type;
     return `<div class="learn-event"><span class="le-type ${tc}">${tl}</span><span class="le-value">${esc(e.value)}</span><span class="le-time">${time}</span></div>`;
   }).join('');
 }
-function updateLearnProgress(){const s=learnData.status||{};const n=s.next_in!=null?s.next_in:3;const d=3-n;document.getElementById('lp-fill').style.width=Math.round((d/3)*100)+'%';document.getElementById('lp-count').textContent=d+'/3';}
+function updateLearnProgress(){
+  const s=learnData.status||{};const n=s.next_in!=null?s.next_in:3;const d=3-n;
+  document.getElementById('lp-fill').style.width=Math.round((d/3)*100)+'%';
+  document.getElementById('lp-count').textContent=d+'/3';
+  // Decay progress bar
+  const decay=learnData.decay||{};
+  const sweepEvery=decay.sweep_every||30;
+  const nextIn=decay.next_sweep_in!=null?decay.next_sweep_in:sweepEvery;
+  const decayD=sweepEvery-nextIn;
+  const decayFill=document.getElementById('decay-fill');
+  const decayCount=document.getElementById('decay-count');
+  if(decayFill)decayFill.style.width=Math.round((decayD/sweepEvery)*100)+'%';
+  if(decayCount)decayCount.textContent=decayD+'/'+sweepEvery;
+}
 
 function renderInsights(){
   const el=document.getElementById('insights');if(!el)return;
@@ -1958,6 +2059,176 @@ function renderInsights(){
     const ev=item.evidence?esc(JSON.stringify(item.evidence,null,2)):'';
     return `<div class="insight-card"><div class="insight-head"><div class="insight-title">${esc(item.title)}</div><div class="insight-severity sev-${item.severity||'low'}">${esc(item.severity||'low')}</div></div><div class="insight-body">${esc(item.body)}</div><div class="insight-source">${esc(item.source||'')}</div>${ev?`<div class="insight-evidence">${ev}</div>`:''}</div>`;
   }).join('');
+  // Render phoneme map, covert avoidance, onset anomalies below insights
+  renderPhonemeMap();
+  renderCovertAvoidance();
+  renderOnsetAnomalies();
+  renderLangOnsets();
+  renderFingerprint();
+  renderShadowDrift();
+}
+
+function renderPhonemeMap(){
+  const ow=learnData.onset_weights||{};
+  const el=document.getElementById('phoneme-map');
+  const bars=document.getElementById('phoneme-bars');
+  if(!el||!bars)return;
+  if(!ow.has_data){el.style.display='none';return;}
+  el.style.display='block';
+  const personal=ow.personal||{};
+  const sorted=Object.entries(personal).sort((a,b)=>b[1]-a[1]);
+  bars.innerHTML=sorted.map(([onset,weight])=>{
+    const h=Math.max(4,Math.round(weight*60));
+    const color=weight>=0.7?'var(--red-bright)':weight>=0.4?'var(--yellow)':'var(--text-muted)';
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px" title="/${onset}/ — ${Math.round(weight*100)}%">
+      <div style="width:22px;height:${h}px;background:${color};border-radius:3px 3px 0 0;transition:height 0.3s"></div>
+      <span style="font-family:var(--mono);font-size:8px;color:var(--text-dim)">/${onset}/</span>
+    </div>`;
+  }).join('');
+}
+
+function renderCovertAvoidance(){
+  const covert=learnData.covert_profile||{};
+  const el=document.getElementById('covert-section');
+  const list=document.getElementById('covert-pairs');
+  if(!el||!list)return;
+  const pairs=covert.avoidance_pairs||{};
+  const allPairs=[];
+  for(const[sit,words]of Object.entries(pairs)){
+    for(const[word,data]of Object.entries(words)){
+      const subs=(data.common_substitutes||[]).slice(0,2).join(', ');
+      if(subs)allPairs.push({word,subs,onset:data.dominant_onset||'?',count:data.avoided_count||0,sit});
+    }
+  }
+  if(!allPairs.length){el.style.display='none';return;}
+  el.style.display='block';
+  allPairs.sort((a,b)=>b.count-a.count);
+  list.innerHTML=allPairs.slice(0,10).map(p=>
+    `<div style="display:flex;align-items:center;gap:8px">
+      <span style="color:var(--red-bright)">"${esc(p.word)}"</span>
+      <span style="color:var(--text-muted)">→</span>
+      <span style="color:var(--text-dim)">${esc(p.subs)}</span>
+      <span style="color:var(--text-muted);font-size:9px">(/${esc(p.onset)}/ ×${p.count})</span>
+    </div>`
+  ).join('');
+}
+
+function renderOnsetAnomalies(){
+  const anomalies=learnData.onset_anomalies||[];
+  const el=document.getElementById('anomaly-section');
+  const list=document.getElementById('anomaly-list');
+  if(!el||!list)return;
+  if(!anomalies.length){el.style.display='none';return;}
+  el.style.display='block';
+  list.innerHTML=anomalies.map(a=>
+    `<div style="display:flex;align-items:center;gap:8px">
+      <span style="color:var(--red-bright)">/${esc(a.onset)}/</span>
+      <span style="color:var(--text-muted);font-size:9px">used ${Math.round((a.user_freq||0)*100)}% vs expected ${Math.round((a.baseline_freq||0)*100)}%</span>
+      <span style="color:var(--yellow);font-size:9px">▼${Math.round((1-(a.user_freq||0)/(a.baseline_freq||0.01))*100)}%</span>
+    </div>`
+  ).join('');
+}
+
+function renderLangOnsets(){
+  const ow=learnData.onset_weights||{};
+  const byLang=ow.by_lang||{};
+  const el=document.getElementById('lang-onset-section');
+  const content=document.getElementById('lang-onset-content');
+  if(!el||!content)return;
+  const hasData=Object.values(byLang).some(lw=>Object.keys(lw).length>0);
+  if(!hasData){el.style.display='none';return;}
+  el.style.display='block';
+  const langLabels={en:'English',ru:'Русский'};
+  content.innerHTML=Object.entries(byLang).filter(([,lw])=>Object.keys(lw).length>0).map(([lang,weights])=>{
+    const sorted=Object.entries(weights).sort((a,b)=>b[1]-a[1]);
+    const bars=sorted.map(([onset,weight])=>{
+      const h=Math.max(4,Math.round(weight*50));
+      const color=weight>=0.7?'var(--red-bright)':weight>=0.4?'var(--yellow)':'var(--text-muted)';
+      return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px" title="/${onset}/ — ${Math.round(weight*100)}%">
+        <div style="width:18px;height:${h}px;background:${color};border-radius:3px 3px 0 0"></div>
+        <span style="font-family:var(--mono);font-size:7px;color:var(--text-dim)">/${onset}/</span>
+      </div>`;
+    }).join('');
+    return `<div><div style="font-family:var(--mono);font-size:8px;letter-spacing:1px;color:var(--text-dim);margin-bottom:6px">${langLabels[lang]||lang}</div><div style="display:flex;flex-wrap:wrap;gap:3px;align-items:flex-end">${bars}</div></div>`;
+  }).join('');
+}
+
+function renderFingerprint(){
+  const fp=learnData.substitution_fingerprint||{};
+  const el=document.getElementById('fingerprint-section');
+  const content=document.getElementById('fingerprint-content');
+  if(!el||!content)return;
+  if(!fp.avoidance_index&&!fp.top_substitutions?.length){el.style.display='none';return;}
+  el.style.display='block';
+  const ai=fp.avoidance_index||0;
+  const aiColor=ai>0.6?'var(--red-bright)':ai>0.3?'var(--yellow)':'var(--green)';
+  const aiLabel=ai>0.6?'heavy':ai>0.3?'moderate':'low';
+  let html=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+    <span style="color:var(--text-dim)">Avoidance Index:</span>
+    <span style="color:${aiColor};font-weight:600">${Math.round(ai*100)}%</span>
+    <span style="color:var(--text-muted);font-size:9px">(${aiLabel})</span>
+  </div>`;
+  // Onset heat
+  const heat=fp.onset_heat||{};
+  if(Object.keys(heat).length){
+    html+=`<div style="margin-bottom:8px"><span style="color:var(--text-dim);font-size:9px">Most avoided onsets: </span>`;
+    html+=Object.entries(heat).slice(0,6).map(([o,c])=>`<span style="color:var(--red-bright)">/${esc(o)}/</span><span style="color:var(--text-muted);font-size:8px">×${c}</span>`).join('  ');
+    html+=`</div>`;
+  }
+  // Top substitutions
+  const subs=fp.top_substitutions||[];
+  if(subs.length){
+    html+=subs.slice(0,5).map(s=>
+      `<div style="display:flex;align-items:center;gap:8px">
+        <span style="color:var(--red-bright)">"${esc(s.word)}"</span>
+        <span style="color:var(--text-muted)">→</span>
+        <span style="color:var(--text-dim)">${esc((s.substitutes||[]).slice(0,2).join(', '))}</span>
+        <span style="color:var(--text-muted);font-size:9px">(/${esc(s.onset)}/ ×${s.count})</span>
+      </div>`
+    ).join('');
+  }
+  // Drift alerts
+  const drift=fp.drift||[];
+  if(drift.length){
+    html+=`<div style="margin-top:8px;color:var(--yellow);font-size:9px">⚠ ${drift.length} new avoidance pattern${drift.length>1?'s':''} emerging: ${drift.slice(0,3).map(d=>'"'+esc(d.word)+'"').join(', ')}</div>`;
+  }
+  content.innerHTML=html;
+}
+
+function renderShadowDrift(){
+  const shadow=learnData.shadow_utterance||{};
+  const el=document.getElementById('shadow-section');
+  const content=document.getElementById('shadow-content');
+  if(!el||!content)return;
+  const trend=shadow.trend||{};
+  const history=shadow.history||[];
+  if(!history.length&&!trend.n){el.style.display='none';return;}
+  el.style.display='block';
+  let html='';
+  if(trend.n>0){
+    const avgDrift=trend.avg_drift||0;
+    const trendDir=trend.trend||'stable';
+    const driftColor=avgDrift>0.3?'var(--red-bright)':avgDrift>0.15?'var(--yellow)':'var(--green)';
+    const trendIcon=trendDir==='increasing'?'↗ increasing':trendDir==='decreasing'?'↘ decreasing':'→ stable';
+    const trendColor=trendDir==='increasing'?'var(--red-bright)':trendDir==='decreasing'?'var(--green)':'var(--text-muted)';
+    html+=`<div style="display:flex;align-items:center;gap:16px;margin-bottom:8px">
+      <span style="color:var(--text-dim)">Avg drift:</span>
+      <span style="color:${driftColor};font-weight:600">${Math.round(avgDrift*100)}%</span>
+      <span style="color:${trendColor};font-size:9px">${trendIcon}</span>
+      <span style="color:var(--text-muted);font-size:9px">(${trend.n} samples)</span>
+    </div>`;
+  }
+  // Recent shadow comparisons
+  if(history.length){
+    html+=history.slice(-3).reverse().map(h=>{
+      const avoided=(h.avoided_words||[]).slice(0,3);
+      const src=h.source==='prep'?'📋':'🤖';
+      return `<div style="border-left:2px solid ${h.drift_score>0.2?'var(--red-bright)':'var(--border)'};padding-left:8px;margin-bottom:6px">
+        <div style="color:var(--text-muted);font-size:9px">${src} drift: ${Math.round(h.drift_score*100)}%${avoided.length?' — avoided: '+avoided.map(w=>'"'+esc(w)+'"').join(', '):''}</div>
+      </div>`;
+    }).join('');
+  }
+  content.innerHTML=html;
 }
 
 function renderProfile(){
@@ -2101,6 +2372,17 @@ function updateDAFUI(d){
   document.getElementById('daf-delay').textContent=d.delay_ms;
   updateDialRotation(d.delay_ms);
 }
+
+// ─── Whisper controls ─────────────────────────
+async function toggleMultiTemp(){
+  try{
+    const r=await fetch(API+'/api/whisper_config',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({multi_temp:!state.whisper_multi_temp})});
+    const d=await r.json();
+    const tog=document.getElementById('multitemp-toggle');
+    if(tog)tog.classList.toggle('on',d.multi_temp);
+  }catch(e){}
+}
 // Dial drag interaction
 (function(){
   const dial=document.getElementById('daf-dial');
@@ -2174,6 +2456,16 @@ async function runPrep(){
     const nf=data.flagged?data.flagged.length:0;
     const nt=words.filter(w=>triggerSet.has(w.word.toLowerCase())).length;
     status.textContent=nf===0?'No risky words detected. You\'re good to go.':`${nf} word${nf>1?'s':''} flagged (${nt} known trigger${nt!==1?'s':''}). Hover for alternatives.`;
+    // Show Whisper seed badge — prep text is now buffered as decoder context
+    document.getElementById('prep-seed-badge').style.display='block';
+    document.getElementById('whisper-seed-status').textContent='LOADED';
+    document.getElementById('whisper-seed-status').style.color='var(--green)';
+    // Auto-hide badge after 5 min (matches _PREP_EXPIRY_SEC)
+    setTimeout(()=>{
+      document.getElementById('prep-seed-badge').style.display='none';
+      document.getElementById('whisper-seed-status').textContent='—';
+      document.getElementById('whisper-seed-status').style.color='var(--text-muted)';
+    },300000);
   }catch(e){
     status.textContent='Prep failed: '+e.message;
   }finally{
