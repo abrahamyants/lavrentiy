@@ -1711,6 +1711,16 @@ body::before {
           <span style="font-family:var(--mono);font-size:9px;letter-spacing:1px;color:var(--text-dim)">SEVERITY+</span>
           <span id="speech-sev-mod" style="font-family:var(--mono);font-size:9px;letter-spacing:1px;color:var(--text-muted)">0</span>
         </div>
+        <div id="severity-breakdown" style="display:none;margin-top:4px;padding:4px 6px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:4px">
+          <div style="font-family:var(--mono);font-size:8px;letter-spacing:1px;color:var(--text-dim);line-height:1.6">
+            <span id="sev-base">1.0</span><span style="color:var(--text-muted)"> base</span>
+            <span style="color:var(--text-muted)"> + </span>
+            <span id="sev-speech-mod">0</span><span style="color:var(--text-muted)"> speech</span>
+            <span style="color:var(--text-muted)"> = </span>
+            <span id="sev-final" style="color:var(--yellow)">1.0</span>
+            <span id="sev-band" style="margin-left:4px;padding:1px 4px;border-radius:2px;font-size:7px;letter-spacing:1.5px"></span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1818,6 +1828,19 @@ body::before {
         <div id="shadow-section" style="display:none;padding:16px 24px;border-top:1px solid var(--border)">
           <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">AVOIDANCE DRIFT</div>
           <div id="shadow-content" style="font-family:var(--mono);font-size:11px;line-height:2"></div>
+        </div>
+        <div id="fluency-trend-section" style="display:none;padding:16px 24px;border-top:1px solid var(--border)">
+          <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">FLUENCY TREND
+            <span id="fluency-trend-label" style="margin-left:8px;font-size:8px;padding:1px 5px;border-radius:3px"></span>
+            <span id="fluency-lang-dist" style="float:right;font-size:8px;color:var(--text-dim)"></span>
+          </div>
+          <div id="fluency-chart" style="display:flex;align-items:flex-end;gap:2px;height:48px;margin-bottom:8px"></div>
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            <div style="font-size:9px;color:var(--text-dim)">AVG PAUSE <span id="fluency-avg-pause" style="color:var(--text-muted)">—</span></div>
+            <div style="font-size:9px;color:var(--text-dim)">AVG RATE <span id="fluency-avg-rate" style="color:var(--text-muted)">—</span></div>
+            <div style="font-size:9px;color:var(--text-dim)">AVG SEV+ <span id="fluency-avg-sev" style="color:var(--text-muted)">—</span></div>
+            <div style="font-size:9px;color:var(--text-dim)">SESSIONS <span id="fluency-count" style="color:var(--text-muted)">0</span></div>
+          </div>
         </div>
       </div>
 
@@ -2066,6 +2089,7 @@ function renderInsights(){
   renderLangOnsets();
   renderFingerprint();
   renderShadowDrift();
+  fetchFluencyData();
 }
 
 function renderPhonemeMap(){
@@ -2229,6 +2253,66 @@ function renderShadowDrift(){
     }).join('');
   }
   content.innerHTML=html;
+}
+
+// Fluency trend (from /api/fluency)
+let fluencyData=null;
+async function fetchFluencyData(){
+  try{
+    const r=await fetch(API+'/api/fluency');
+    fluencyData=await r.json();
+    renderFluencyTrend();
+    updateSeverityBreakdown();
+  }catch(e){}
+}
+function renderFluencyTrend(){
+  const el=document.getElementById('fluency-trend-section');
+  if(!el||!fluencyData)return;
+  const trend=fluencyData.trend||[];
+  if(!trend.length){el.style.display='none';return;}
+  el.style.display='block';
+  // Sparkline bar chart (pause_ratio per session, newest on right)
+  const chart=document.getElementById('fluency-chart');
+  const bars=trend.slice(0,30).reverse(); // oldest→newest, max 30
+  const maxP=Math.max(...bars.map(b=>b.pause_ratio),0.01);
+  chart.innerHTML=bars.map(b=>{
+    const h=Math.max(Math.round((b.pause_ratio/maxP)*44),2);
+    const color=b.pause_ratio>0.5?'var(--red-bright)':b.pause_ratio>0.35?'var(--yellow)':'var(--green)';
+    const langDot=b.lang==='ru'?'border-bottom:2px solid rgba(100,149,237,0.6)':'';
+    return `<div title="${b.ts} | pause:${Math.round(b.pause_ratio*100)}% rate:${b.speaking_rate.toFixed(1)}syl/s | ${b.situation} | ${b.lang}" style="width:6px;height:${h}px;background:${color};border-radius:1px 1px 0 0;opacity:0.8;${langDot};flex-shrink:0"></div>`;
+  }).join('');
+  // Trend label
+  const tl=document.getElementById('fluency-trend-label');
+  const pt=fluencyData.pause_trend||'no_data';
+  const ptColors={improving:'background:rgba(34,197,94,0.15);color:#22c55e',worsening:'background:rgba(239,68,68,0.15);color:#ef4444',stable:'background:rgba(255,255,255,0.05);color:var(--text-muted)'};
+  tl.style.cssText=ptColors[pt]||'';
+  tl.textContent=pt==='no_data'||pt==='insufficient_data'?'':'↕ '+pt.toUpperCase();
+  // Language distribution
+  const ld=fluencyData.lang_distribution||{};
+  const total=(ld.en||0)+(ld.ru||0);
+  if(total>0){
+    const enPct=Math.round((ld.en||0)/total*100);
+    document.getElementById('fluency-lang-dist').textContent=`EN ${enPct}% / RU ${100-enPct}%`;
+  }
+  // Stats
+  document.getElementById('fluency-avg-pause').textContent=Math.round(fluencyData.avg_pause_ratio*100)+'%';
+  document.getElementById('fluency-avg-rate').textContent=fluencyData.avg_speaking_rate.toFixed(1)+' syl/s';
+  document.getElementById('fluency-avg-sev').textContent=fluencyData.avg_severity_modifier>0?'+'+fluencyData.avg_severity_modifier:'0';
+  document.getElementById('fluency-count').textContent=fluencyData.sample_count;
+}
+function updateSeverityBreakdown(){
+  const sb=fluencyData?.severity_breakdown;
+  if(!sb)return;
+  const el=document.getElementById('severity-breakdown');
+  if(!el)return;
+  el.style.display='block';
+  document.getElementById('sev-base').textContent=sb.base;
+  document.getElementById('sev-speech-mod').textContent=sb.speech_modifier>0?'+'+sb.speech_modifier:'0';
+  document.getElementById('sev-final').textContent=sb.final;
+  const band=document.getElementById('sev-band');
+  band.textContent=sb.aggression;
+  const bandColors={HIGH:'background:rgba(239,68,68,0.2);color:var(--red-bright)',MODERATE:'background:rgba(234,179,8,0.2);color:var(--yellow)',LOW:'background:rgba(34,197,94,0.15);color:var(--green)'};
+  band.style.cssText=bandColors[sb.aggression]||'';
 }
 
 function renderProfile(){
@@ -2843,7 +2927,7 @@ function updateCompactBar() {
 
 async function init(){
   applyCompact();
-  await Promise.all([fetchProfile(),fetchSessions(),fetchLearn(),fetchDAF(),fetchHotkeys()]);
+  await Promise.all([fetchProfile(),fetchSessions(),fetchLearn(),fetchDAF(),fetchHotkeys(),fetchFluencyData()]);
   pollState();
 }
 init();

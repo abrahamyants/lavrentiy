@@ -901,7 +901,8 @@ def migrate_profile(prof):
     return prof
 
 def log_session(prof, raw, output, tone, layer, decision=None, timings=None,
-                situation=None, disf_counts=None, exposure=None, edit_dist=None):
+                situation=None, disf_counts=None, exposure=None, edit_dist=None,
+                speech_metrics=None, lang=None):
     ts = datetime.now().isoformat()
     falcon = decision["falcon_ok"] if decision else True
     words = len(output.split())
@@ -909,15 +910,18 @@ def log_session(prof, raw, output, tone, layer, decision=None, timings=None,
     with _db_lock:
         _db.execute(
             "INSERT INTO sessions (ts, raw, out, tone, layer, words, falcon, decision, timings, "
-            "situation, disfluency_counts, exposure_difficulty, editorial_distance) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "situation, disfluency_counts, exposure_difficulty, editorial_distance, "
+            "speech_metrics, lang) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (ts, raw, output, tone, layer, words, int(falcon),
              json.dumps(decision) if decision else None,
              json.dumps(timings) if timings else None,
              sit,
              json.dumps(disf_counts) if disf_counts else None,
              json.dumps(exposure) if exposure else None,
-             edit_dist)
+             edit_dist,
+             json.dumps(speech_metrics) if speech_metrics else None,
+             lang or 'en')
         )
         _db.commit()
 
@@ -1422,6 +1426,16 @@ try:
     _db.execute("ALTER TABLE sessions ADD COLUMN editorial_distance REAL")
 except sqlite3.OperationalError:
     pass
+# Migration: add speech_metrics column (pause_ratio, rate, severity_modifier per session)
+try:
+    _db.execute("ALTER TABLE sessions ADD COLUMN speech_metrics TEXT")
+except sqlite3.OperationalError:
+    pass
+# Migration: add dominant language per session
+try:
+    _db.execute("ALTER TABLE sessions ADD COLUMN lang TEXT DEFAULT 'en'")
+except sqlite3.OperationalError:
+    pass
 _db.commit()
 _db_lock = threading.Lock()
 
@@ -1468,15 +1482,19 @@ def db_get_sessions(limit=50, offset=0):
     with _db_lock:
         rows = _db.execute(
             "SELECT ts, raw, out, tone, layer, words, falcon, decision, timings, "
-            "situation, disfluency_counts, exposure_difficulty, editorial_distance "
+            "situation, disfluency_counts, exposure_difficulty, editorial_distance, "
+            "speech_metrics, lang "
             "FROM sessions ORDER BY id DESC LIMIT ? OFFSET ?",
             (limit, offset)
         ).fetchall()
     result = []
-    for ts, raw, out, tone, layer, words, falcon, decision, timings, situation, disf, exposure, edit_dist in rows:
+    for row in rows:
+        ts, raw, out, tone, layer, words, falcon, decision, timings, \
+            situation, disf, exposure, edit_dist, spmet, lang = row
         entry = {"ts": ts, "raw": raw, "out": out, "tone": tone,
                  "layer": layer, "words": words, "falcon": bool(falcon),
-                 "situation": situation or "default"}
+                 "situation": situation or "default",
+                 "lang": lang or "en"}
         if decision:
             entry["decision"] = json.loads(decision)
         if timings:
@@ -1487,6 +1505,8 @@ def db_get_sessions(limit=50, offset=0):
             entry["exposure"] = json.loads(exposure)
         if edit_dist is not None:
             entry["editorial_distance"] = edit_dist
+        if spmet:
+            entry["speech_metrics"] = json.loads(spmet)
         result.append(entry)
     return result
 
@@ -3684,8 +3704,13 @@ def pipeline():
             update_covert_profile(profile, covert_pairs, current_situation)
             for cp in covert_pairs:
                 log(f"Covert avoidance: \"{cp['intended']}\" → \"{cp['said']}\" (avoided /{cp['onset_avoided']}/)", "info")
+        # Detect dominant language for this session (majority vote on words)
+        _cyr_count = sum(1 for ch in raw_text if '\u0400' <= ch <= '\u04ff')
+        _lat_count = sum(1 for ch in raw_text if ch.isalpha() and not ('\u0400' <= ch <= '\u04ff'))
+        session_lang = 'ru' if _cyr_count > _lat_count else 'en'
         log_session(profile, raw_text, output, current_tone, current_layer, decision, timings,
-                    disf_counts=disf_counts, exposure=exposure, edit_dist=edit_dist)
+                    disf_counts=disf_counts, exposure=exposure, edit_dist=edit_dist,
+                    speech_metrics=speech_metrics, lang=session_lang)
         state = 'idle'
 
         # Step 5: Trigger word detection (Layer 4)
@@ -3898,6 +3923,65 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 })
             else:
                 self._json({'avg_wer': None, 'sample_count': 0, 'interpretation': 'no data yet'})
+        elif self.path == '/api/fluency':
+            # Historical fluency metrics from persisted speech_metrics per session
+            sessions = db_get_sessions(limit=50)
+            trend = []
+            lang_dist = {"en": 0, "ru": 0}
+            for s in sessions:
+                sm = s.get("speech_metrics")
+                if sm and sm.get("pause_ratio") is not None:
+                    trend.append({
+                        "ts": s["ts"][:16],
+                        "pause_ratio": sm["pause_ratio"],
+                        "speaking_rate": sm.get("speaking_rate_sps", 0),
+                        "severity_modifier": sm.get("severity_modifier", 0),
+                        "situation": s.get("situation", "default"),
+                        "lang": s.get("lang", "en"),
+                    })
+                lang_dist[s.get("lang", "en")] = lang_dist.get(s.get("lang", "en"), 0) + 1
+            # Compute averages
+            if trend:
+                avg_pause = round(sum(t["pause_ratio"] for t in trend) / len(trend), 3)
+                avg_rate = round(sum(t["speaking_rate"] for t in trend) / len(trend), 2)
+                avg_sev = round(sum(t["severity_modifier"] for t in trend) / len(trend), 2)
+                # Trend direction: compare last 5 vs previous 5
+                recent_5 = [t["pause_ratio"] for t in trend[:5]]
+                prev_5 = [t["pause_ratio"] for t in trend[5:10]]
+                if recent_5 and prev_5:
+                    r_avg = sum(recent_5) / len(recent_5)
+                    p_avg = sum(prev_5) / len(prev_5)
+                    pause_trend = "improving" if r_avg < p_avg - 0.03 else \
+                                  "worsening" if r_avg > p_avg + 0.03 else "stable"
+                else:
+                    pause_trend = "insufficient_data"
+            else:
+                avg_pause = avg_rate = avg_sev = 0
+                pause_trend = "no_data"
+            # Severity breakdown (current session)
+            base_sev = SITUATION_SEVERITY.get(current_situation, 1.0)
+            sev_mod = _last_speech_metrics.get("severity_modifier", 0) if _last_speech_metrics else 0
+            self._json({
+                "trend": trend,  # newest first
+                "avg_pause_ratio": avg_pause,
+                "avg_speaking_rate": avg_rate,
+                "avg_severity_modifier": avg_sev,
+                "pause_trend": pause_trend,
+                "sample_count": len(trend),
+                "lang_distribution": lang_dist,
+                "severity_breakdown": {
+                    "base": base_sev,
+                    "situation": current_situation,
+                    "speech_modifier": sev_mod,
+                    "final": round(base_sev + sev_mod, 2),
+                    "aggression": (
+                        "HIGH" if base_sev + sev_mod >= 1.6 else
+                        "MODERATE" if base_sev + sev_mod >= 1.2 else
+                        "LOW"
+                    ),
+                },
+                "current": _last_speech_metrics or {},
+            })
         elif self.path == '/api/archive':
             # Archive stats
             count = 0
