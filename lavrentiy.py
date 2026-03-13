@@ -768,6 +768,241 @@ def calibration_load_progress():
 calibration_load_progress()
 
 
+# -- Synthetic disfluency augmentation (Mujtaba24 Interspeech) ──
+import random
+import base64
+
+AUGMENT_DIR = CALIBRATION_DIR / "augmented"
+AUGMENT_VARIANTS = 4              # synthetic variants per real sample
+AUGMENT_VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
+_augment_state = {
+    "running": False,
+    "total": 0,
+    "completed": 0,
+    "errors": 0,
+    "last_run": None,
+}
+
+# Interjections drawn from real stuttered speech corpora
+_INTERJECTIONS = ["um", "uh", "like", "you know", "I mean", "so", "well", "ah"]
+_RU_INTERJECTIONS = ["э", "ну", "это", "вот", "значит", "как бы", "типа"]
+
+
+def inject_disfluencies(text, variant_idx=0):
+    """Inject text-level disfluencies into a fluent transcript.
+
+    Disfluency types (per Mujtaba24 Interspeech):
+      - Word repetitions:    repeat a word 1-6 extra times
+      - Phrase repetitions:  repeat a 2-3 word phrase 1-5 times
+      - Interjection inserts: inject "um", "uh", etc. 1-7 times
+
+    Each call produces a different random pattern via seed = variant_idx.
+    Returns the disfluent text string.
+    """
+    rng = random.Random(hash(text) + variant_idx)
+    words = text.split()
+    if len(words) < 3:
+        return text
+
+    # Decide which disfluencies to apply (at least 1, up to all 3)
+    types = ["word_rep", "phrase_rep", "interjection"]
+    n_types = rng.randint(1, 3)
+    active = rng.sample(types, n_types)
+    result = list(words)
+
+    # 1. Word repetitions: pick 1-2 positions, repeat the word 1-6 extra times
+    if "word_rep" in active:
+        n_reps = rng.randint(1, min(2, len(result) - 1))
+        positions = rng.sample(range(len(result)), n_reps)
+        for pos in sorted(positions, reverse=True):
+            count = rng.randint(1, 6)
+            word = result[pos]
+            result[pos:pos+1] = [word] * (count + 1)
+
+    # 2. Phrase repetitions: pick a 2-3 word span, repeat 1-5 times
+    if "phrase_rep" in active and len(result) >= 4:
+        span_len = rng.randint(2, min(3, len(result) // 2))
+        max_start = len(result) - span_len
+        if max_start > 0:
+            start = rng.randint(0, max_start)
+            phrase = result[start:start + span_len]
+            count = rng.randint(1, 5)
+            insert = []
+            for _ in range(count):
+                insert.extend(phrase)
+            result[start:start] = insert
+
+    # 3. Interjection insertions: insert 1-7 interjections at random positions
+    if "interjection" in active:
+        interjections = _INTERJECTIONS
+        n_inserts = rng.randint(1, min(7, len(result)))
+        for _ in range(n_inserts):
+            pos = rng.randint(0, len(result))
+            filler = rng.choice(interjections)
+            result.insert(pos, filler)
+
+    return " ".join(result)
+
+
+def augment_calibration_data():
+    """Generate synthetic disfluent training data from completed calibration prompts.
+
+    For each real calibration sample:
+      1. Load ground truth text
+      2. Generate AUGMENT_VARIANTS disfluent text variants
+      3. Synthesize each via OpenAI TTS API
+      4. Save WAV + metadata JSON in AUGMENT_DIR
+
+    Multiplies 60 real samples → 240 synthetic training pairs.
+    Runs synchronously (called from background thread via API).
+    """
+    if _augment_state["running"]:
+        return {"error": "augmentation already running"}
+
+    _augment_state["running"] = True
+    _augment_state["errors"] = 0
+    _augment_state["completed"] = 0
+
+    # Collect completed calibration samples
+    if not CALIBRATION_DIR.exists():
+        _augment_state["running"] = False
+        return {"error": "no calibration data — run calibration first"}
+
+    cal_metas = []
+    for meta_file in sorted(CALIBRATION_DIR.glob("cal_*.json")):
+        try:
+            with open(meta_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if data.get("ground_truth"):
+                cal_metas.append(data)
+        except Exception:
+            continue
+
+    if not cal_metas:
+        _augment_state["running"] = False
+        return {"error": "no completed calibration samples found"}
+
+    AUGMENT_DIR.mkdir(parents=True, exist_ok=True)
+    total = len(cal_metas) * AUGMENT_VARIANTS
+    _augment_state["total"] = total
+    log(f"Augmentation starting: {len(cal_metas)} samples × {AUGMENT_VARIANTS} variants = {total} synthetic pairs", "info")
+
+    rng = random.Random(42)
+    generated = 0
+
+    for meta in cal_metas:
+        pid = meta["prompt_id"]
+        ground_truth = meta["ground_truth"]
+        category = meta.get("category", "unknown")
+
+        for v in range(AUGMENT_VARIANTS):
+            # Check if already generated
+            base = f"aug_{pid:03d}_v{v}_{category}"
+            wav_path = AUGMENT_DIR / f"{base}.wav"
+            meta_path = AUGMENT_DIR / f"{base}.json"
+            if wav_path.exists() and meta_path.exists():
+                generated += 1
+                _augment_state["completed"] = generated
+                continue
+
+            # Generate disfluent text
+            disfluent_text = inject_disfluencies(ground_truth, variant_idx=v)
+
+            # Synthesize via OpenAI TTS
+            voice = AUGMENT_VOICES[v % len(AUGMENT_VOICES)]
+            try:
+                response = client.audio.speech.create(
+                    model="tts-1",
+                    voice=voice,
+                    input=disfluent_text,
+                    response_format="wav",
+                    speed=rng.uniform(0.85, 1.15),  # slight speed variation
+                )
+                # Save WAV
+                response.stream_to_file(str(wav_path))
+                stats["api_calls"] += 1
+
+                # Run through Whisper to capture how ASR handles the disfluent audio
+                whisper_raw = ""
+                try:
+                    with open(str(wav_path), "rb") as f:
+                        w_result = client.audio.transcriptions.create(
+                            model="whisper-1", file=f, language=LANGUAGE
+                        )
+                    whisper_raw = w_result.text.strip()
+                    stats["api_calls"] += 1
+                except Exception as e:
+                    log(f"Augment Whisper pass failed for {base}: {e}", "error")
+
+                # Save metadata
+                aug_meta = {
+                    "prompt_id": pid,
+                    "variant": v,
+                    "category": category,
+                    "ground_truth": ground_truth,
+                    "disfluent_text": disfluent_text,
+                    "whisper_raw": whisper_raw,
+                    "voice": voice,
+                    "type": "augmented",
+                    "timestamp": datetime.now().isoformat(),
+                }
+                # Compute WER if we got Whisper output
+                if whisper_raw:
+                    wer_val, subs, dels, ins = compute_wer(ground_truth, whisper_raw)
+                    aug_meta["wer"] = round(wer_val, 4)
+                    aug_meta["wer_detail"] = {"substitutions": subs, "deletions": dels, "insertions": ins}
+
+                with open(meta_path, 'w', encoding='utf-8') as f:
+                    json.dump(aug_meta, f, indent=2, ensure_ascii=False)
+
+                generated += 1
+                _augment_state["completed"] = generated
+
+                if generated % 10 == 0:
+                    log(f"Augmentation progress: {generated}/{total}", "info")
+
+            except Exception as e:
+                _augment_state["errors"] += 1
+                log(f"Augment TTS failed for {base}: {e}", "error")
+                continue
+
+    _augment_state["running"] = False
+    _augment_state["last_run"] = datetime.now().isoformat()
+    log(f"Augmentation complete: {generated}/{total} synthetic pairs ({_augment_state['errors']} errors)", "info")
+    return {
+        "completed": generated,
+        "total": total,
+        "errors": _augment_state["errors"],
+        "augment_dir": str(AUGMENT_DIR),
+    }
+
+
+def augment_status():
+    """Return augmentation stats."""
+    aug_count = 0
+    aug_bytes = 0
+    if AUGMENT_DIR.exists():
+        aug_count = len(list(AUGMENT_DIR.glob("aug_*.wav")))
+        aug_bytes = sum(f.stat().st_size for f in AUGMENT_DIR.rglob("*") if f.is_file())
+
+    cal_count = len(_calibration_state["completed"])
+    potential = cal_count * AUGMENT_VARIANTS
+
+    return {
+        "running": _augment_state["running"],
+        "augmented_samples": aug_count,
+        "real_samples": cal_count,
+        "potential_total": potential,
+        "multiplier": f"{aug_count + cal_count}x" if cal_count else "0x",
+        "size_mb": round(aug_bytes / (1024 * 1024), 1),
+        "errors": _augment_state["errors"],
+        "last_run": _augment_state["last_run"],
+        "progress": _augment_state["completed"],
+        "progress_total": _augment_state["total"],
+        "ready": aug_count >= 50,
+    }
+
+
 profile = load_profile()
 profile = migrate_profile(profile)
 if normalize_profile(profile):
@@ -2019,6 +2254,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json(status)
         elif self.path == '/api/calibration/prompts':
             self._json(CALIBRATION_PROMPTS)
+        elif self.path == '/api/augment':
+            self._json(augment_status())
         else:
             self.send_error(404)
 
@@ -2121,6 +2358,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json({"skipped": pid, "next_prompt": calibration_next_prompt(), "status": calibration_status()})
             else:
                 self._json({"error": "Send {\"prompt_id\": N}"})
+        elif self.path == '/api/augment':
+            if _augment_state["running"]:
+                self._json({"error": "augmentation already running", "status": augment_status()})
+            else:
+                # Run in background thread — TTS calls take a while
+                threading.Thread(target=augment_calibration_data, daemon=True).start()
+                self._json({"started": True, "status": augment_status()})
         else:
             self.send_error(404)
 

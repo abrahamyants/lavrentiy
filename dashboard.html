@@ -1079,6 +1079,28 @@ body::before {
 .cal-wer-summary { margin-top: 24px; }
 .cal-wer-title { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 1px; color: var(--text); margin-bottom: 8px; }
 .cal-wer-body { font-family: var(--mono); font-size: 11px; color: var(--text-muted); line-height: 1.8; }
+
+/* Augmentation section */
+.aug-section { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border); }
+.aug-title { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 2px; color: var(--text); margin-bottom: 6px; }
+.aug-subtitle { font-size: 11px; color: var(--text-muted); line-height: 1.5; margin-bottom: 16px; }
+.aug-stats { font-family: var(--mono); font-size: 10px; color: var(--text-muted); line-height: 1.8; margin-bottom: 12px; }
+.aug-stats strong { color: var(--text); }
+.aug-btn {
+  font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 1px;
+  background: var(--raised); color: var(--text); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 9px 22px; cursor: pointer; transition: all 0.2s;
+}
+.aug-btn:hover { border-color: var(--red); color: var(--red); }
+.aug-btn:disabled { opacity: 0.4; cursor: default; }
+.aug-btn.running { border-color: var(--red); color: var(--red); }
+.aug-progress { margin-top: 10px; font-family: var(--mono); font-size: 10px; color: var(--text-muted); }
+.aug-progress-bar {
+  height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; margin-top: 6px;
+}
+.aug-progress-fill {
+  height: 100%; background: var(--red); border-radius: 2px; transition: width 0.4s ease;
+}
 .cal-complete-msg {
   font-family: var(--mono); font-size: 12px; color: #16a34a; font-weight: 600;
   letter-spacing: 1px; margin-top: 16px;
@@ -1780,6 +1802,20 @@ body::before {
             <div class="cal-wer-title">Calibration WER Summary</div>
             <div class="cal-wer-body" id="cal-wer-body"></div>
           </div>
+
+          <!-- Augmentation section -->
+          <div class="aug-section">
+            <div class="aug-title">DATA AUGMENTATION</div>
+            <div class="aug-subtitle">Generate synthetic disfluent speech from calibration data via TTS. Multiplies your training dataset 5x with word repetitions, phrase repetitions, and interjection insertions.</div>
+            <div class="aug-stats" id="aug-stats">Loading...</div>
+            <button class="aug-btn" id="aug-btn" onclick="augStart()">GENERATE AUGMENTED DATA</button>
+            <div class="aug-progress" id="aug-progress" style="display:none">
+              <span id="aug-progress-text">0 / 0</span>
+              <div class="aug-progress-bar">
+                <div class="aug-progress-fill" id="aug-progress-fill" style="width:0%"></div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -2368,7 +2404,66 @@ document.querySelector('[data-tab="calibrate"]').addEventListener('click',async(
       document.getElementById('cal-start-btn').textContent='RESUME CALIBRATION';
     }
   }catch(e){}
+  augRefresh();
 });
+
+// ─── AUGMENTATION ──────────────────────────────
+let augPolling=null;
+
+async function augRefresh(){
+  try{
+    const r=await fetch(API+'/api/augment');
+    const d=await r.json();
+    const el=document.getElementById('aug-stats');
+    el.innerHTML=
+      `Real samples: <strong>${d.real_samples}</strong> · `
+      +`Augmented: <strong>${d.augmented_samples}</strong> · `
+      +`Total: <strong>${d.augmented_samples+d.real_samples}</strong> (${d.multiplier})<br>`
+      +`Size: ${d.size_mb} MB`
+      +(d.errors?` · Errors: ${d.errors}`:'')
+      +(d.last_run?` · Last run: ${new Date(d.last_run).toLocaleString()}`:'');
+    const btn=document.getElementById('aug-btn');
+    if(d.running){
+      btn.textContent='GENERATING...';
+      btn.classList.add('running');
+      btn.disabled=true;
+      const prog=document.getElementById('aug-progress');
+      prog.style.display='block';
+      const pct=d.progress_total?Math.round(d.progress/d.progress_total*100):0;
+      document.getElementById('aug-progress-text').textContent=`${d.progress} / ${d.progress_total}`;
+      document.getElementById('aug-progress-fill').style.width=pct+'%';
+      if(!augPolling) augPolling=setInterval(augRefresh,3000);
+    }else{
+      btn.textContent=d.augmented_samples>0?'REGENERATE AUGMENTED DATA':'GENERATE AUGMENTED DATA';
+      btn.classList.remove('running');
+      btn.disabled=d.real_samples<1;
+      document.getElementById('aug-progress').style.display='none';
+      if(augPolling){clearInterval(augPolling);augPolling=null;}
+    }
+  }catch(e){
+    document.getElementById('aug-stats').textContent='Engine offline';
+  }
+}
+
+async function augStart(){
+  const btn=document.getElementById('aug-btn');
+  btn.textContent='STARTING...';
+  btn.disabled=true;
+  try{
+    const r=await fetch(API+'/api/augment',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    const d=await r.json();
+    if(d.error){
+      btn.textContent=d.error.toUpperCase();
+      setTimeout(()=>{btn.textContent='GENERATE AUGMENTED DATA';btn.disabled=false;},3000);
+    }else{
+      augPolling=setInterval(augRefresh,3000);
+      augRefresh();
+    }
+  }catch(e){
+    btn.textContent='FAILED';
+    setTimeout(()=>{btn.textContent='GENERATE AUGMENTED DATA';btn.disabled=false;},3000);
+  }
+}
 
 // ─── HOTKEY CUSTOMIZATION ──────────────────────
 let hotkeys={record:'F9',tone:'F10',layer:'F11',stats:'F12',quit:'F3'};
