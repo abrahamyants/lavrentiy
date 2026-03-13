@@ -68,6 +68,8 @@ RECORD_KEY = "f9"
 TONE_KEY = "f10"
 LAYER_KEY = "f11"
 MODEL = "gpt-4o-mini"
+MODEL_L4 = "gpt-4o"                  # L4 stutter reconstruction uses stronger model
+WHISPER_TEMP = 0.0                   # Whisper decoder temperature (0.0=deterministic, 1.0=creative)
 PROFILE_DIR = Path.home() / ".lavrentiy"
 PROFILE_PATH = PROFILE_DIR / "profile.json"
 DASHBOARD_PORT = 7878
@@ -610,19 +612,24 @@ def migrate_profile(prof):
         save_profile(prof)
     return prof
 
-def log_session(prof, raw, output, tone, layer, decision=None, timings=None, situation=None):
+def log_session(prof, raw, output, tone, layer, decision=None, timings=None,
+                situation=None, disf_counts=None, exposure=None, edit_dist=None):
     ts = datetime.now().isoformat()
     falcon = decision["falcon_ok"] if decision else True
     words = len(output.split())
     sit = situation or current_situation
     with _db_lock:
         _db.execute(
-            "INSERT INTO sessions (ts, raw, out, tone, layer, words, falcon, decision, timings, situation) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO sessions (ts, raw, out, tone, layer, words, falcon, decision, timings, "
+            "situation, disfluency_counts, exposure_difficulty, editorial_distance) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (ts, raw, output, tone, layer, words, int(falcon),
              json.dumps(decision) if decision else None,
              json.dumps(timings) if timings else None,
-             sit)
+             sit,
+             json.dumps(disf_counts) if disf_counts else None,
+             json.dumps(exposure) if exposure else None,
+             edit_dist)
         )
         _db.commit()
 
@@ -646,13 +653,21 @@ def archive_session_audio(tmp_path, raw_text, output_text, layer, situation):
         meta_dest = ARCHIVE_DIR / f"{ts}.json"
         # Copy WAV (don't move — original still needed for cleanup)
         shutil.copy2(tmp_path, wav_dest)
-        # Save transcript pair
+        # Detect disfluency events in raw text (regex-based, zero cost)
+        disfluency_events = []
+        for m in _HYPHEN_STUTTER.finditer(raw_text):
+            disfluency_events.append({"type": "sound_rep", "text": m.group()})
+        for m in _WORD_REPEAT.finditer(raw_text):
+            disfluency_events.append({"type": "word_rep", "text": m.group()})
+
+        # Save transcript pair with disfluency labels
         meta = {
             "timestamp": datetime.now().isoformat(),
             "raw_whisper": raw_text,
             "corrected_output": output_text,
             "layer": layer,
             "situation": situation,
+            "disfluency_events": disfluency_events,
         }
         with open(meta_dest, 'w', encoding='utf-8') as f:
             json.dump(meta, f, indent=2, ensure_ascii=False)
@@ -766,6 +781,71 @@ def calibration_load_progress():
 
 
 calibration_load_progress()
+
+
+# -- Severity score (research: isWER rises with severity) ───────
+def compute_severity_score():
+    """Compute stuttering severity from calibration WER data.
+
+    Severity bands (based on FluencyBank/clinical research):
+      mild:     WER < 10%
+      moderate: WER 10-25%
+      severe:   WER 25-40%
+      very_severe: WER > 40%
+
+    Returns dict with overall score, per-category breakdown,
+    and trend (if multiple calibration runs exist).
+    """
+    if not CALIBRATION_DIR.exists():
+        return {"severity": None, "message": "no calibration data"}
+
+    wers_by_category = {}
+    all_wers = []
+
+    for meta_file in sorted(CALIBRATION_DIR.glob("cal_*.json")):
+        try:
+            with open(meta_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            wer = data.get("wer")
+            cat = data.get("category", "unknown")
+            if wer is not None:
+                all_wers.append(wer)
+                wers_by_category.setdefault(cat, []).append(wer)
+        except Exception:
+            continue
+
+    if not all_wers:
+        return {"severity": None, "message": "no WER data in calibration"}
+
+    avg_wer = sum(all_wers) / len(all_wers)
+
+    # Severity classification
+    if avg_wer < 0.10:
+        band = "mild"
+    elif avg_wer < 0.25:
+        band = "moderate"
+    elif avg_wer < 0.40:
+        band = "severe"
+    else:
+        band = "very_severe"
+
+    # Per-category averages (sorted worst-first)
+    cat_scores = {}
+    for cat, wers in wers_by_category.items():
+        cat_scores[cat] = round(sum(wers) / len(wers), 4)
+    cat_sorted = dict(sorted(cat_scores.items(), key=lambda x: -x[1]))
+
+    # Hardest categories (top 3 by WER)
+    hardest = list(cat_sorted.keys())[:3]
+
+    return {
+        "severity": band,
+        "avg_wer": round(avg_wer, 4),
+        "avg_wer_pct": round(avg_wer * 100, 1),
+        "samples": len(all_wers),
+        "by_category": cat_sorted,
+        "hardest_categories": hardest,
+    }
 
 
 # -- Synthetic disfluency augmentation (Mujtaba24 Interspeech) ──
@@ -1040,6 +1120,20 @@ try:
     _db.execute("ALTER TABLE sessions ADD COLUMN situation TEXT DEFAULT 'default'")
 except sqlite3.OperationalError:
     pass  # column already exists
+# Migration: add disfluency_counts column
+try:
+    _db.execute("ALTER TABLE sessions ADD COLUMN disfluency_counts TEXT")
+except sqlite3.OperationalError:
+    pass  # column already exists
+# Migration: add exposure_difficulty and editorial_distance columns
+try:
+    _db.execute("ALTER TABLE sessions ADD COLUMN exposure_difficulty TEXT")
+except sqlite3.OperationalError:
+    pass
+try:
+    _db.execute("ALTER TABLE sessions ADD COLUMN editorial_distance REAL")
+except sqlite3.OperationalError:
+    pass
 _db.commit()
 _db_lock = threading.Lock()
 
@@ -1085,12 +1179,13 @@ def db_get_sessions(limit=50, offset=0):
     """Fetch recent sessions from SQLite, newest first."""
     with _db_lock:
         rows = _db.execute(
-            "SELECT ts, raw, out, tone, layer, words, falcon, decision, timings, situation "
+            "SELECT ts, raw, out, tone, layer, words, falcon, decision, timings, "
+            "situation, disfluency_counts, exposure_difficulty, editorial_distance "
             "FROM sessions ORDER BY id DESC LIMIT ? OFFSET ?",
             (limit, offset)
         ).fetchall()
     result = []
-    for ts, raw, out, tone, layer, words, falcon, decision, timings, situation in rows:
+    for ts, raw, out, tone, layer, words, falcon, decision, timings, situation, disf, exposure, edit_dist in rows:
         entry = {"ts": ts, "raw": raw, "out": out, "tone": tone,
                  "layer": layer, "words": words, "falcon": bool(falcon),
                  "situation": situation or "default"}
@@ -1098,6 +1193,12 @@ def db_get_sessions(limit=50, offset=0):
             entry["decision"] = json.loads(decision)
         if timings:
             entry["timings"] = json.loads(timings)
+        if disf:
+            entry["disfluency_counts"] = json.loads(disf)
+        if exposure:
+            entry["exposure"] = json.loads(exposure)
+        if edit_dist is not None:
+            entry["editorial_distance"] = edit_dist
         result.append(entry)
     return result
 
@@ -1126,6 +1227,44 @@ stats = {
     "start_time": time.time(),
     "api_calls": 0, "falcon_rejects": 0
 }
+
+# -- Redo detection (anti-compulsion guardrail) ──────────────────
+# Tracks consecutive re-recordings of similar content.
+REDO_SIMILARITY_THRESHOLD = 0.7   # word overlap ratio to count as "same sentence"
+REDO_NUDGE_THRESHOLD = 3          # redos before nudge
+_redo_buffer = []                 # list of recent output word sets
+_redo_count = 0                   # consecutive redo counter
+
+def check_redo(output_text):
+    """Check if this output is a redo of the previous recording.
+    Returns redo count (0 = not a redo)."""
+    global _redo_count
+    if not output_text or not _redo_buffer:
+        _redo_buffer.clear()
+        _redo_buffer.append(set(output_text.lower().split()) if output_text else set())
+        _redo_count = 0
+        return 0
+    current_words = set(output_text.lower().split())
+    last_words = _redo_buffer[-1]
+    if not current_words or not last_words:
+        _redo_buffer.clear()
+        _redo_buffer.append(current_words)
+        _redo_count = 0
+        return 0
+    # Jaccard similarity
+    overlap = len(current_words & last_words) / max(len(current_words | last_words), 1)
+    if overlap >= REDO_SIMILARITY_THRESHOLD:
+        _redo_count += 1
+        _redo_buffer.append(current_words)
+        if len(_redo_buffer) > 5:
+            _redo_buffer.pop(0)
+        return _redo_count
+    else:
+        _redo_buffer.clear()
+        _redo_buffer.append(current_words)
+        _redo_count = 0
+        return 0
+
 
 # -- Live preview state ───────────────────────────────────────────
 preview_lock = threading.Lock()
@@ -1270,13 +1409,53 @@ def reconstruct(raw_text, tone, layer, prof, situation=None):
             "\n- WORD BOUNDARY ERRORS: disfluent onset merged with previous word"
             "\n  e.g. 'the c-c-contract' → Whisper outputs 'the contract' (fine) or 'they contract' (merged)"
             "\nIf a word seems phonetically plausible but semantically wrong, suspect a Whisper artifact."
-            "\n\nExamples:"
-            "\n- 'Can you give me the, uh, the paper for the thing you sign "
-            "at the front desk' → 'Can you give me the form you sign at the front desk'"
-            "\n- 'My... my... my mother, uh, my parents are coming' → 'My parents are coming'"
-            "\n- 'I need the b-... the document from yesterday' → 'I need the document from yesterday'"
-            "\n- 'I think of uh it's something the - you can't - that sort of thing' "
-            "→ reconstruct the intended meaning from context"
+            "\n\n=== FEW-SHOT EXAMPLES (by disfluency type) ==="
+            "\n"
+            "\nBLOCKS (silent fixation before word — Whisper may hallucinate or skip):"
+            "\n  IN:  'I need the... [silence]... computer from the office'"
+            "\n  OUT: 'I need the computer from the office'"
+            "\n  IN:  'Can you get me the, the, the uh come put her from IT'"
+            "\n  OUT: 'Can you get me the computer from IT'"
+            "\n"
+            "\nSOUND/SYLLABLE REPETITIONS (part-word):"
+            "\n  IN:  'I was g-g-g-going to the st-store'"
+            "\n  OUT: 'I was going to the store'"
+            "\n  IN:  'Ca-ca-ca-can you p-p-please send the re-report'"
+            "\n  OUT: 'Can you please send the report'"
+            "\n"
+            "\nWORD REPETITIONS:"
+            "\n  IN:  'I I I want to to to go to the the meeting'"
+            "\n  OUT: 'I want to go to the meeting'"
+            "\n  IN:  'My my my mother uh my parents are coming'"
+            "\n  OUT: 'My parents are coming'"
+            "\n"
+            "\nPROLONGATIONS (stretched sounds):"
+            "\n  IN:  'I was thinking about the sssssschedule for next week'"
+            "\n  OUT: 'I was thinking about the schedule for next week'"
+            "\n  IN:  'We need to fffffinish this by Friday'"
+            "\n  OUT: 'We need to finish this by Friday'"
+            "\n"
+            "\nFILLER STACKING + POSTPONEMENT:"
+            "\n  IN:  'So um uh like basically uh the thing is we need more time'"
+            "\n  OUT: 'We need more time'"
+            "\n  IN:  'Can you give me the, uh, the paper for the thing you sign at the front desk'"
+            "\n  OUT: 'Can you give me the form you sign at the front desk'"
+            "\n"
+            "\nAVOIDANCE / CIRCUMLOCUTION / ABANDONMENT:"
+            "\n  IN:  'I need the b-... the document from yesterday'"
+            "\n  OUT: 'I need the document from yesterday'"
+            "\n  IN:  'I think of uh it's something the - you can't - that sort of thing'"
+            "\n  OUT: [reconstruct intended meaning from surrounding context]"
+            "\n  IN:  'The... oh never mind... yeah so anyway the other thing'"
+            "\n  OUT: [recover abandoned thought if context allows, else skip]"
+            "\n"
+            "\nWHISPER ARTIFACTS (misheard stuttered speech):"
+            "\n  IN:  'I was trying to come put her the file' (block on 'computer')"
+            "\n  OUT: 'I was trying to compute the file' or 'I was trying to get the file'"
+            "\n  IN:  'We but but blue print needs to be ready' (schwa corruption)"
+            "\n  OUT: 'The blueprint needs to be ready'"
+            "\n"
+            "\n=== END EXAMPLES ==="
             "\n\nDo not mistake disfluency for emphasis. "
             "Do not invent meaning beyond what was intended. "
             "When uncertain, prefer conservative cleanup over aggressive rewriting."
@@ -1299,9 +1478,10 @@ def reconstruct(raw_text, tone, layer, prof, situation=None):
             flagged = [f"{w}({r})" for w, r in predicted[:10]]
             parts.append(f"\nPhonetically predicted high-risk words in this utterance: {', '.join(flagged)}")
 
+    use_model = MODEL_L4 if layer >= 4 else MODEL
     stats["api_calls"] += 1
     resp = client.chat.completions.create(
-        model=MODEL,
+        model=use_model,
         messages=[
             {"role": "system", "content": "\n".join(parts)},
             {"role": "user", "content": raw_text}
@@ -1340,8 +1520,9 @@ def falcon_validate(raw_text, clean_text, layer):
 
 
 # -- Disfluency post-filter (rule-based, zero API cost) ────────
-# Research shows 28.7% WER reduction from simple post-processing;
-# 61.2% combined with decoder tuning (Whisper prompt parameter).
+# Post-processing yields significant WER reduction on disfluent speech;
+# combined with decoder tuning (Whisper prompt parameter), gains compound
+# (informed by Stutter-TTS and Mujtaba "Inclusive ASR for Disfluent Speech").
 
 # Common fillers to strip (bilingual EN/RU)
 _STRIP_FILLERS = {
@@ -1396,6 +1577,124 @@ def strip_disfluencies(text):
     result = re.sub(r'\s{2,}', ' ', result)
     # Don't return empty string — fall back to original
     return result if result else text
+
+
+def count_disfluencies(raw_text):
+    """Count disfluency events by type in raw transcription. Zero-cost."""
+    if not raw_text:
+        return {}
+    counts = {}
+    # Sound/syllable repetitions: "b-b-buy", "co-co-come"
+    n = len(re.findall(r'(\b\w+)-\s+(?:\1-\s+)*', raw_text, re.IGNORECASE))
+    if n: counts["sound_rep"] = n
+    # Word repetitions: "I I I want"
+    n = len(re.findall(r'\b(\w+)(?:\s+\1)+\b', raw_text, re.IGNORECASE))
+    if n: counts["word_rep"] = n
+    # Phrase repetitions: "I want I want to go"
+    n = len(re.findall(r'\b(\w+\s+\w+(?:\s+\w+)?)\s+\1\b', raw_text, re.IGNORECASE))
+    if n: counts["phrase_rep"] = n
+    # Fillers
+    words = raw_text.lower().split()
+    n = sum(1 for w in words if w.rstrip('.,!?;:') in _STRIP_FILLERS)
+    if n: counts["filler"] = n
+    # Prolongations (stretched sounds transcribed by Whisper)
+    n = len(re.findall(r'\b(\w)\1{3,}\w*\b', raw_text, re.IGNORECASE))
+    if n: counts["prolongation"] = n
+    counts["total"] = sum(counts.values())
+    return counts
+
+
+# -- Exposure difficulty scoring ───────────────────────────────
+# Combines phonetic risk, situational severity, and disfluency density
+# into a single 0.0-1.0 score per utterance. Enables therapy-aware
+# tracking: "you used high-risk word X in 4/5 attempts this week."
+
+def compute_exposure_difficulty(raw_text, situation, disf_counts, prof):
+    """Score how challenging this utterance was for the speaker.
+    Returns dict with overall score (0.0-1.0) and component breakdown."""
+    if not raw_text:
+        return {"score": 0.0, "components": {}}
+
+    words = re.findall(r'\b\w+\b', raw_text.lower())
+    if not words:
+        return {"score": 0.0, "components": {}}
+
+    # Component 1: Phonetic risk (avg risk of content words)
+    risks = [predict_phonetic_risk(w) for w in words if w not in FUNCTION_WORDS and len(w) > 1]
+    avg_risk = sum(risks) / len(risks) if risks else 0.2
+    high_risk_count = sum(1 for r in risks if r >= 0.6)
+
+    # Component 2: Situational pressure
+    sit_severity = SITUATION_SEVERITY.get(situation or "default", 1.0)
+    sit_score = min((sit_severity - 0.6) / 1.2, 1.0)  # normalize 0.6-1.8 → 0.0-1.0
+
+    # Component 3: Disfluency density (events per word)
+    total_disf = disf_counts.get("total", 0) if disf_counts else 0
+    disf_density = min(total_disf / max(len(words), 1), 1.0)
+
+    # Component 4: Trigger word usage (did user use known triggers?)
+    known_triggers = {t.lower() for t in prof.get("trigger_words", [])}
+    triggers_used = [w for w in words if w in known_triggers]
+    trigger_ratio = len(triggers_used) / max(len(words), 1)
+
+    # Weighted composite: phonetic risk most important, then situation
+    score = (
+        avg_risk * 0.35 +
+        sit_score * 0.25 +
+        disf_density * 0.20 +
+        trigger_ratio * 0.20
+    )
+    score = round(min(score, 1.0), 3)
+
+    # Difficulty band
+    if score < 0.2: band = "low"
+    elif score < 0.4: band = "moderate"
+    elif score < 0.6: band = "high"
+    else: band = "very_high"
+
+    return {
+        "score": score,
+        "band": band,
+        "components": {
+            "phonetic_risk": round(avg_risk, 3),
+            "high_risk_words": high_risk_count,
+            "situation_pressure": round(sit_score, 3),
+            "disfluency_density": round(disf_density, 3),
+            "trigger_words_used": triggers_used[:10],
+            "trigger_ratio": round(trigger_ratio, 3)
+        }
+    }
+
+
+# -- Editorial distance (clinical vs functional gap) ──────────
+# Measures how much reconstruction was needed: large distance = more
+# disfluent speech. Tracking this over time shows objective improvement.
+
+def compute_editorial_distance(raw_text, clean_text):
+    """Normalized edit distance between raw and clean text.
+    Returns 0.0 (identical) to 1.0 (completely rewritten)."""
+    if not raw_text or not clean_text:
+        return 0.0
+    if raw_text == clean_text:
+        return 0.0
+    raw_words = raw_text.lower().split()
+    clean_words = clean_text.lower().split()
+    max_len = max(len(raw_words), len(clean_words))
+    if max_len == 0:
+        return 0.0
+    # Levenshtein on word tokens (not characters — more meaningful for speech)
+    m, n = len(raw_words), len(clean_words)
+    dp = list(range(n + 1))
+    for i in range(1, m + 1):
+        prev, dp[0] = dp[0], i
+        for j in range(1, n + 1):
+            temp = dp[j]
+            if raw_words[i-1] == clean_words[j-1]:
+                dp[j] = prev
+            else:
+                dp[j] = 1 + min(dp[j], dp[j-1], prev)
+            prev = temp
+    return round(dp[n] / max_len, 3)
 
 
 # -- Script Prep (pre-speech word substitution, Ghai & Mueller ASSETS '21)
@@ -2061,7 +2360,8 @@ def pipeline():
         with open(tmp.name, "rb") as f:
             result = client.audio.transcriptions.create(
                 model="whisper-1", file=f, language=LANGUAGE,
-                prompt="Clear, fluent speech. Transcribe intended words only, not repetitions or filler sounds."
+                prompt="Clear, fluent speech. Transcribe intended words only, not repetitions or filler sounds.",
+                temperature=WHISPER_TEMP
             )
         raw_text = result.text.strip()
         t_asr = time.time()
@@ -2132,7 +2432,19 @@ def pipeline():
             stats["chars"] += len(output)
             stats["sessions"] += 1
             paste(output)
-        log_session(profile, raw_text, output, current_tone, current_layer, decision, timings)
+        disf_counts = count_disfluencies(raw_text)
+        if disf_counts.get("total", 0) > 0:
+            log(f"Disfluencies: {disf_counts}", "info")
+        exposure = compute_exposure_difficulty(raw_text, current_situation, disf_counts, profile)
+        edit_dist = compute_editorial_distance(raw_text, output)
+        if exposure["score"] >= 0.4:
+            log(f"Exposure: {exposure['band']} ({exposure['score']}) — triggers used: {exposure['components'].get('trigger_words_used', [])}", "info")
+        # Redo detection (anti-compulsion)
+        redo_n = check_redo(output)
+        if redo_n >= REDO_NUDGE_THRESHOLD:
+            log(f"Redo x{redo_n} — consider accepting this version and moving on", "info")
+        log_session(profile, raw_text, output, current_tone, current_layer, decision, timings,
+                    disf_counts=disf_counts, exposure=exposure, edit_dist=edit_dist)
         state = 'idle'
 
         # Step 5: Trigger word detection (Layer 4)
@@ -2254,7 +2566,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'mode': current_mode,
                 'situation': current_situation,
                 'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0),
-                'stats': stats
+                'stats': stats,
+                'model': MODEL_L4 if current_layer >= 4 else MODEL,
+                'whisper_temp': WHISPER_TEMP
             })
         elif self.path == '/api/profile':
             self._json(profile)
@@ -2283,7 +2597,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     'personal': _personal_onset_weights,
                     'dominant': _personal_dominant_onsets,
                     'has_data': bool(_personal_onset_weights),
-                }
+                },
+                'trigger_types': profile.get('trigger_types', {}),
+                'severity': compute_severity_score(),
             })
         elif self.path == '/api/wer':
             # Compute WER stats from recent sessions (raw vs corrected)
@@ -2356,6 +2672,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json(CALIBRATION_PROMPTS)
         elif self.path == '/api/augment':
             self._json(augment_status())
+        elif self.path == '/api/severity':
+            self._json(compute_severity_score())
         else:
             self.send_error(404)
 
@@ -2413,6 +2731,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'active': _daf_active,
                 'delay_ms': _daf_delay_ms
             })
+        elif self.path == '/api/whisper_temp':
+            global WHISPER_TEMP
+            if body and 'temperature' in body:
+                try:
+                    t = float(body['temperature'])
+                    WHISPER_TEMP = max(0.0, min(1.0, t))
+                    log(f"Whisper temperature: {WHISPER_TEMP}", "info")
+                except (ValueError, TypeError):
+                    pass
+            self._json({'temperature': WHISPER_TEMP})
         elif self.path == '/api/prep':
             if body and isinstance(body.get('text'), str):
                 result = prep_text(body['text'], profile)

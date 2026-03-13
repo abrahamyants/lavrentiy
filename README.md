@@ -44,11 +44,13 @@ Mic → Whisper (stutter-aware prompt) → Disfluency Filter → Reconstruction 
 | Situation | Severity | Effect |
 |-----------|----------|--------|
 | default | 1.0x | Standard reconstruction |
-| casual | 0.8x | Lighter cleanup |
-| phone | 1.2x | More aggressive disfluency stripping |
-| presentation | 1.4x | Heavy cleanup, formal output |
-| interview | 1.6x | Maximum reconstruction aggressiveness |
-| reading | 0.9x | Preserve structure of read text |
+| casual | 0.6x | Lighter cleanup — friends/family, low pressure |
+| phone | 1.5x | Aggressive disfluency stripping — phone calls heavily exacerbate stuttering |
+| presentation | 1.4x | Heavy cleanup, formal output — authority + audience + time pressure |
+| interview | 1.6x | Maximum reconstruction aggressiveness — authority + judgment + time pressure |
+| reading | 0.3x | Minimal cleanup — reading aloud is near-fluent for most PWS |
+
+Situation is tracked per session in the history database and displayed as a tag on session cards in the dashboard.
 
 ## Tones
 
@@ -106,7 +108,7 @@ Zero-cost rule-based cleanup applied after Whisper, before GPT reconstruction:
 - **Phrase repetitions**: `"I want I want to go"` → `"I want to go"`
 - **Filler stripping**: removes `um`, `uh`, `er`, `ah` + Russian equivalents (`э`, `ээ`, `ну`)
 
-At L1, this IS the output (no GPT call). At L2+, it pre-cleans input for GPT reconstruction. Research shows post-filtering reduces WER by 28.7%; combined with decoder tuning: 61.2%.
+At L1, this IS the output (no GPT call). At L2+, it pre-cleans input for GPT reconstruction. Post-filtering combined with decoder tuning yields significant WER reduction on disfluent speech (informed by Stutter-TTS and Mujtaba's "Inclusive ASR for Disfluent Speech" findings).
 
 ### Personalized Phonetic Onset Weighting
 
@@ -147,7 +149,13 @@ Synthetic disfluent speech generation (based on Mujtaba24 Interspeech methodolog
 
 ## Script Prep
 
-Pre-speech word substitution (based on Ghai & Mueller, ASSETS '21). Paste upcoming text into the Prep tab — Lavrentiy flags high-risk words based on phonetic onset analysis and your personal trigger history, and suggests safer synonyms.
+Pre-speech word substitution (based on Ghai & Mueller, ASSETS '21). Paste upcoming text into the Prep tab — Lavrentiy flags high-risk words and suggests phonetically safer synonyms.
+
+- **Personalized risk scoring**: Uses your learned onset weights (from `learn_onset_weights()`) — not generic population priors. Words starting with onsets you personally block on score higher than textbook-risky onsets you handle fine.
+- **Trigger word boosting**: Known trigger words from your profile score 1.0 (max risk). Words sharing onset patterns with triggers get a +0.2 boost.
+- **LLM synonym generation**: Flagged words (risk ≥ 0.6) get 2–3 alternative words/phrases that preserve meaning but use easier onsets (vowels, continuants like /l/, /m/, /n/, /r/, /w/, /h/).
+- **Swap-in-place**: Click any suggested alternative to replace the word directly in your script text.
+- **Ctrl+Enter** shortcut to run analysis.
 
 ## DAF (Delayed Auditory Feedback)
 
@@ -229,7 +237,7 @@ Single HTML file served by the engine's embedded HTTP server:
 - Session history (SQLite-backed, unlimited)
 - Learning event feed with progress tracking
 - Clinical stutter insights with therapeutic techniques (Layer 4)
-- Script Prep (pre-speech word risk analysis)
+- Script Prep with swap-in-place synonym replacement (Ctrl+Enter)
 - Calibration mode (60 prompts, WER tracking, progress bar)
 - Data augmentation controls (synthetic disfluent speech generation)
 - Stuttering Foundation tips reference (56 entries, 8 categories)
