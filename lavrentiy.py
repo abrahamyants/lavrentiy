@@ -707,6 +707,155 @@ def predict_triggers_in_text(text, existing_triggers):
             predicted.append((clean, round(risk, 2)))
     return sorted(predicted, key=lambda x: -x[1])
 
+
+# -- Clipboard Predictor ──────────────────────────────────────────
+# Background thread monitors clipboard text, scores words via Brown's features,
+# and pre-builds a Whisper initial_prompt bias with LLM-generated synonyms.
+# Never blocks recording — the bias is always pre-computed and cached.
+# Only activates in high-pressure situations (phone, interview, presentation).
+
+_CLIPBOARD_POLL_INTERVAL = 4       # seconds between clipboard checks
+_CLIPBOARD_CACHE_TTL = 300         # 5 minutes — cached bias validity
+_CLIPBOARD_RISK_THRESHOLD = 0.55   # min avg risk to trigger LLM synonym call
+_CLIPBOARD_TOP_N = 6               # top-N riskiest words sent to LLM
+_CLIPBOARD_MIN_TRIGGERS = 2        # need at least this many high-risk words
+_CLIPBOARD_HIGH_PRESSURE = {"phone", "interview", "presentation"}
+
+
+class ClipboardPredictor:
+    """Zero-blocking clipboard-based speech predictor.
+
+    Runs a daemon thread that:
+    1. Polls clipboard every 4s
+    2. Scores words locally via predict_phonetic_risk() (instant, no API)
+    3. If risk is high AND situation is high-pressure → async LLM call for synonyms
+    4. Caches result as Whisper initial_prompt bias
+
+    get_prompt_bias() returns the cached bias or None. Never blocks."""
+
+    def __init__(self):
+        self._bias = None
+        self._bias_ts = 0.0
+        self._last_clipboard = ""
+        self._lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._thread = None
+
+    def start(self):
+        self._thread = threading.Thread(
+            target=self._loop, name="clipboard-predictor", daemon=True
+        )
+        self._thread.start()
+        log("ClipboardPredictor started", "info")
+
+    def stop(self):
+        self._stop_event.set()
+        if self._thread:
+            self._thread.join(timeout=3)
+
+    def get_prompt_bias(self):
+        """Return cached Whisper initial_prompt bias if still fresh, else None."""
+        with self._lock:
+            if self._bias and (time.time() - self._bias_ts) < _CLIPBOARD_CACHE_TTL:
+                return self._bias
+        return None
+
+    def invalidate(self):
+        """Force re-evaluation — call when situation changes."""
+        with self._lock:
+            self._bias = None
+            self._bias_ts = 0.0
+            self._last_clipboard = ""
+
+    def _loop(self):
+        while not self._stop_event.wait(_CLIPBOARD_POLL_INTERVAL):
+            try:
+                self._tick()
+            except Exception as e:
+                pass  # never crash the background thread
+
+    def _tick(self):
+        # Only activate in high-pressure situations
+        if current_situation not in _CLIPBOARD_HIGH_PRESSURE:
+            with self._lock:
+                self._bias = None
+            return
+
+        try:
+            clipboard = pyperclip.paste() or ""
+        except Exception:
+            return
+
+        # No change and cache still fresh — skip
+        with self._lock:
+            cache_fresh = (time.time() - self._bias_ts) < _CLIPBOARD_CACHE_TTL
+        if clipboard == self._last_clipboard and cache_fresh:
+            return
+        self._last_clipboard = clipboard
+
+        # Step 1: local risk scoring via compute_brown_scores (instant, no API)
+        scores = compute_brown_scores(clipboard)
+        if not scores:
+            return
+
+        # Deduplicate, keep highest score per word
+        best = {}
+        for word, risk in scores:
+            wl = word.lower()
+            if risk > best.get(wl, 0):
+                best[wl] = risk
+        top = sorted(best.items(), key=lambda x: x[1], reverse=True)[:_CLIPBOARD_TOP_N]
+        high_risk = [(w, r) for w, r in top if r >= _CLIPBOARD_RISK_THRESHOLD]
+
+        if len(high_risk) < _CLIPBOARD_MIN_TRIGGERS:
+            with self._lock:
+                self._bias = None
+            return
+
+        trigger_words = [w for w, _ in high_risk]
+        log(f"CLIPBOARD triggers ({current_situation}): {trigger_words}", "info")
+
+        # Step 2: async LLM synonym call (runs in THIS background thread, never blocks recording)
+        bias = self._build_bias(trigger_words, current_situation)
+        if bias:
+            with self._lock:
+                self._bias = bias
+                self._bias_ts = time.time()
+            log(f"CLIPBOARD bias cached ({len(bias)} chars)", "info")
+
+    def _build_bias(self, triggers, situation):
+        """Call LLM to get fluency-friendly synonyms for high-risk words."""
+        try:
+            onset_weights = profile.get("onset_weights", {}).get("personal", {})
+            dominant = sorted(onset_weights.items(), key=lambda x: x[1], reverse=True)[:3]
+            dominant_str = ", ".join(f"/{o}/" for o, _ in dominant) if dominant else "plosives"
+
+            prompt = (
+                f"This speaker blocks on {dominant_str} consonants.\n"
+                f"They are about to speak in a '{situation}' context.\n"
+                f"Upcoming high-risk words: {', '.join(triggers)}.\n"
+                f"For each, provide 1-2 fluency-friendly synonyms that start with "
+                f"continuants (l, m, n, r, w, h) or vowels.\n"
+                f"Format: word→synonym. Keep it under 40 words total. No explanations."
+            )
+            response = client.chat.completions.create(
+                model=MODEL,
+                max_tokens=80,
+                temperature=0.2,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            synonyms = response.choices[0].message.content.strip()
+            return (
+                f"Speaker context ({situation}): {synonyms}. "
+                f"Reconstruct intended words from context when speech is unclear."
+            )
+        except Exception as e:
+            log(f"ClipboardPredictor LLM failed: {e}", "error")
+            return None
+
+
+_clipboard_predictor = None  # initialized after profile load
+
 client = openai.OpenAI(api_key=API_KEY)
 
 # -- Mic selection ────────────────────────────────────────────────
@@ -1385,6 +1534,10 @@ if _new_fillers:
 
 # Initialize personalized onset weights from existing trigger data
 learn_onset_weights(profile.get("trigger_words", []))
+
+# Start clipboard predictor (background thread, never blocks)
+_clipboard_predictor = ClipboardPredictor()
+_clipboard_predictor.start()
 
 # -- SQLite session history ───────────────────────────────────────
 PROFILE_DIR.mkdir(exist_ok=True)
@@ -3133,23 +3286,31 @@ def make_decision(falcon_ok, layer, used_fallback, risk_flags):
 
 # -- Whisper API (enhanced) ────────────────────────────────────────
 def _build_whisper_prompt():
-    """Build Whisper decoder prompt: Script Prep text (if available) + fluency bias.
+    """Build Whisper decoder prompt: Script Prep > Clipboard Bias > generic fluency.
+
+    Priority order:
+    1. Script Prep (explicit user-provided text — highest accuracy)
+    2. Clipboard Predictor bias (background-computed synonyms for high-risk words)
+    3. Generic fluency-biasing prompt (fallback)
 
     Script Prep as initial_prompt is the key insight: Whisper's autoregressive
     decoder treats the prompt as "previously transcribed text." When we seed it
     with the intended speech (from Script Prep), the decoder's beam search has
     the answer key before it transcribes. This dramatically reduces hallucination
     on blocked or disfluent segments.
-
-    Falls back to generic fluency-biasing prompt when no Script Prep is available.
     """
-    # Check if we have fresh Script Prep text (don't consume it — covert detection needs it too)
+    # Priority 1: explicit Script Prep text (don't consume — covert detection needs it too)
     if _last_prep_text and (time.time() - _last_prep_ts < _PREP_EXPIRY_SEC):
-        # Whisper prompt has a ~224 token limit; truncate if needed
         prep = _last_prep_text[:500]
         log(f"Whisper seeded with Script Prep ({len(prep)} chars)", "info")
         return prep
-    # No Script Prep — use fluency-biasing prompt
+    # Priority 2: clipboard predictor bias (pre-computed, never blocks)
+    if _clipboard_predictor:
+        clip_bias = _clipboard_predictor.get_prompt_bias()
+        if clip_bias:
+            log(f"Whisper seeded with Clipboard Predictor ({len(clip_bias)} chars)", "info")
+            return clip_bias
+    # Priority 3: generic fluency bias
     return "Clear, fluent speech. Transcribe intended words only, not repetitions or filler sounds."
 
 
@@ -3343,7 +3504,7 @@ def whisper_transcribe(filepath):
         "disagreements": disagreements,
         "all_texts": all_texts,
         "whisper_meta": {
-            "prompt_source": "script_prep" if (_last_prep_text and time.time() - _last_prep_ts < _PREP_EXPIRY_SEC) else "default",
+            "prompt_source": "script_prep" if (_last_prep_text and time.time() - _last_prep_ts < _PREP_EXPIRY_SEC) else ("clipboard" if (_clipboard_predictor and _clipboard_predictor.get_prompt_bias()) else "default"),
             "prompt_length": len(prompt_text),
             "temperatures": WHISPER_MULTI_TEMPS if WHISPER_MULTI_TEMP else [WHISPER_TEMP],
             "n_api_calls": stats["api_calls"] - n_calls_before,
@@ -3857,6 +4018,10 @@ def set_situation(situation):
         if preset.get("prep"):
             set_last_prep(preset["prep"])
             actions.append("prep-loaded")
+        # Invalidate clipboard predictor cache — new situation needs fresh scoring
+        if _clipboard_predictor:
+            _clipboard_predictor.invalidate()
+            actions.append("clip-rescan")
         action_str = f" → {', '.join(actions)}" if actions else ""
         log(f"Situation: {situation} (severity: {severity}x){action_str}", "info")
 
@@ -4441,6 +4606,8 @@ def on_key_event(event):
         tap_times = [t for t in tap_times if now - t < 0.8]
         tap_times.append(now)
         if len(tap_times) == 3:
+            if _clipboard_predictor:
+                _clipboard_predictor.stop()
             print("Lavrentiy out.")
             kernel32.CloseHandle(mutex_handle)
             os._exit(0)
