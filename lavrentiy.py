@@ -152,6 +152,21 @@ STUTTER_TIPS = {
         ),
         "source": "Stuttering Foundation — Book0016.pdf, 0031.pdf",
     },
+    "dominant_onset_pattern": {
+        "title": "Personal phonetic pattern detected",
+        "body": (
+            "Your blocks are clustering on a specific set of initial sounds. "
+            "This is the core of your stutter fingerprint — not random, but phonetically "
+            "systematic. Lavrentiy has learned which onsets you personally struggle with "
+            "and is now weighting predictions accordingly. "
+            "Technique — Targeted Coarticulation: for your dominant onset sounds, practice "
+            "blending the first two sounds together as one smooth movement. Don't 'hit' "
+            "the first consonant — glide through it into the vowel. "
+            "Technique — Preparatory Set: before words starting with your high-risk sounds, "
+            "position your articulators gently and start airflow before voicing."
+        ),
+        "source": "Ghai & Mueller (ASSETS '21) — phonetic pattern learning; Stuttering Foundation",
+    },
     "stable_profile": {
         "title": "Stable fluency pattern",
         "body": (
@@ -166,7 +181,7 @@ STUTTER_TIPS = {
         "source": "Stuttering Foundation — PedBook.pdf, Book0016.pdf",
     },
 }
-MAX_INSIGHTS = 5
+MAX_INSIGHTS = 6
 
 TONES = ["casual", "professional", "friend", "formal"]
 TONE_SHORT = {"casual": "CAS", "professional": "PRO", "friend": "FRD", "formal": "FRM"}
@@ -212,20 +227,100 @@ FUNCTION_WORDS = {
     'on', 'at', 'by', 'with', 'from', 'into', 'not', 'no', 'up',
 }
 
+# -- Personalized onset weights (learned from user's trigger history) ──
+# Rebuilt whenever trigger_words changes. Maps onset -> 0.0-1.0 weight.
+# Empty = no personal data yet, fall back to population priors.
+_personal_onset_weights = {}
+_personal_dominant_onsets = []  # top 3 onsets for insight display
+
+def _extract_onset(word):
+    """Extract the matching HIGH_RISK_ONSET from a word (longest match first)."""
+    w = word.lower().strip()
+    for length in (3, 2, 1):
+        onset = w[:length]
+        if onset in HIGH_RISK_ONSETS:
+            return onset
+    return None
+
+def learn_onset_weights(trigger_words):
+    """Analyze user's trigger words to learn which onsets they personally
+    struggle with. Called when trigger_words list changes.
+
+    Population prior: all high-risk onsets are equally dangerous (0.4).
+    Personal model: onsets appearing in YOUR triggers get boosted
+    proportional to their frequency. Onsets with zero personal evidence
+    stay at the population floor.
+
+    Example: triggers = [computer, conference, critical, create, class, break]
+      onset counts: k=3, cr=1, cl=1, br=1  (total=6)
+      k  -> freq 0.50 -> weight 0.65 (floor 0.4 + boost 0.25)
+      cr -> freq 0.17 -> weight 0.48 (floor 0.4 + boost 0.08)
+      Unseen onsets -> weight 0.3 (below population prior = deprioritized)
+
+    Inspired by Ghai & Mueller (ASSETS '21) — phonetic pattern learning."""
+    global _personal_onset_weights, _personal_dominant_onsets
+    if not trigger_words:
+        _personal_onset_weights = {}
+        _personal_dominant_onsets = []
+        return
+
+    onset_counts = {}
+    for word in trigger_words:
+        onset = _extract_onset(word)
+        if onset:
+            onset_counts[onset] = onset_counts.get(onset, 0) + 1
+
+    if not onset_counts:
+        _personal_onset_weights = {}
+        _personal_dominant_onsets = []
+        return
+
+    total = sum(onset_counts.values())
+
+    # Build weight map: floor (0.4) + personal boost (up to 0.5)
+    # Onsets NOT in trigger history get 0.3 (below population prior)
+    weights = {}
+    for onset, count in onset_counts.items():
+        frequency = count / total
+        personal_boost = frequency * 0.5
+        weights[onset] = min(0.4 + personal_boost, 0.9)
+
+    _personal_onset_weights = weights
+
+    # Track dominant onsets for insights (top 3 by count)
+    ranked = sorted(onset_counts.items(), key=lambda x: -x[1])
+    _personal_dominant_onsets = [
+        {"onset": onset, "count": count, "pct": round(count / total * 100)}
+        for onset, count in ranked[:3]
+    ]
+    if _personal_dominant_onsets:
+        top = _personal_dominant_onsets[0]
+        log(f"Onset weights: dominant /{top['onset']}/ ({top['pct']}% of {total} triggers)", "info")
+
+
 def predict_phonetic_risk(word):
     """Predict block risk for a word based on phonetic onset + word type.
-    Returns 0.0-1.0 risk score. Content words starting with stop plosives
-    or clusters at clause boundaries are highest risk."""
+    Returns 0.0-1.0 risk score. Uses personalized onset weights when
+    available (learned from user's trigger history), falls back to
+    population priors when no personal data exists."""
     w = word.lower().strip()
     if not w or w in FUNCTION_WORDS:
         return 0.1  # function words rarely trigger
     score = 0.3  # base risk for content words
     # Check onset against high-risk patterns (longest match first)
+    matched_onset = None
     for length in (3, 2, 1):
         onset = w[:length]
         if onset in HIGH_RISK_ONSETS:
-            score += 0.4
+            matched_onset = onset
             break
+    if matched_onset:
+        if _personal_onset_weights:
+            # Personalized: user's onset gets learned weight, unseen gets 0.3
+            score += _personal_onset_weights.get(matched_onset, 0.3)
+        else:
+            # No personal data yet — population prior: all onsets equal
+            score += 0.4
     # Unvoiced consonants are harder than voiced
     if w[0] in 'ptksf':
         score += 0.1
@@ -455,6 +550,9 @@ if normalize_profile(profile):
 _new_fillers = migrate_fillers(profile)
 if _new_fillers:
     print(f"Added {len(_new_fillers)} bilingual fillers: {', '.join(_new_fillers)}")
+
+# Initialize personalized onset weights from existing trigger data
+learn_onset_weights(profile.get("trigger_words", []))
 
 # -- SQLite session history ───────────────────────────────────────
 PROFILE_DIR.mkdir(exist_ok=True)
@@ -711,6 +809,16 @@ def reconstruct(raw_text, tone, layer, prof, situation=None):
         )
         if prof.get("trigger_words"):
             parts.append(f"\nKnown trigger words: {', '.join(prof['trigger_words'])}")
+        # Personal phonetic pattern: tell the LLM which sounds this user blocks on
+        if _personal_dominant_onsets:
+            onset_desc = ", ".join(
+                f"/{d['onset']}/ ({d['pct']}%)" for d in _personal_dominant_onsets
+            )
+            parts.append(
+                f"\nThis speaker's personal block pattern: {onset_desc} of triggers. "
+                "Words starting with these sounds are HIGH PRIORITY for reconstruction — "
+                "expect heavier disfluency on these onsets specifically."
+            )
         # Predictive: flag words in this utterance that are phonetically risky
         predicted = predict_triggers_in_text(raw_text, prof.get("trigger_words", []))
         if predicted:
@@ -990,6 +1098,8 @@ def add_trigger_words(new_triggers, prof):
             added.append(word)
     if added:
         save_profile(prof)
+        # Re-learn personalized onset weights with new trigger evidence
+        learn_onset_weights(prof.get("trigger_words", []))
     return added
 
 
@@ -1042,7 +1152,28 @@ def build_stutter_insights(prof):
             "evidence": {"count": len(corrections), "sample": list(corrections.items())[:5]},
         })
 
-    # 4. Fast growth: 3+ trigger detections in current engine run
+    # 4. Dominant onset pattern: personalized phonetic fingerprint
+    if _personal_dominant_onsets and len(trigger_words) >= 5:
+        top = _personal_dominant_onsets[0]
+        if top["pct"] >= 30:  # at least 30% concentration = real pattern
+            tip = STUTTER_TIPS["dominant_onset_pattern"]
+            onset_summary = ", ".join(
+                f"/{d['onset']}/ ({d['pct']}%)" for d in _personal_dominant_onsets
+            )
+            insights.append({
+                "id": "dominant_onset_pattern", "severity": "high",
+                "title": tip["title"], "body": tip["body"], "source": tip["source"],
+                "evidence": {
+                    "dominant_onsets": onset_summary,
+                    "total_triggers": len(trigger_words),
+                    "top_onset": top["onset"],
+                    "top_pct": top["pct"],
+                    "example_words": [w for w in trigger_words
+                                      if _extract_onset(w) == top["onset"]][:5],
+                },
+            })
+
+    # 5. Fast growth: 3+ trigger detections in current engine run
     recent_triggers = sum(1 for e in learn_events if e.get("type") == "trigger")
     if recent_triggers >= 3:
         tip = STUTTER_TIPS["fast_growth_triggers"]
@@ -1052,7 +1183,7 @@ def build_stutter_insights(prof):
             "evidence": {"recent_detections": recent_triggers},
         })
 
-    # 5. Stable: no concerns, only if enough session data
+    # 6. Stable: no concerns, only if enough session data
     if not insights and session_count >= 10:
         tip = STUTTER_TIPS["stable_profile"]
         insights.append({
@@ -1456,7 +1587,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     }
                 },
                 'insights': build_stutter_insights(profile) if current_layer >= 4 else [],
-                'insights_enabled': current_layer >= 4
+                'insights_enabled': current_layer >= 4,
+                'onset_weights': {
+                    'personal': _personal_onset_weights,
+                    'dominant': _personal_dominant_onsets,
+                    'has_data': bool(_personal_onset_weights),
+                }
             })
         elif self.path == '/api/preview':
             with preview_lock:
