@@ -1724,6 +1724,25 @@ body::before {
       </div>
     </div>
 
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Whisper</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-family:var(--mono);font-size:9px;letter-spacing:1px;color:var(--text-dim)">NO_SPEECH</span>
+          <span id="nst-value" style="font-family:var(--mono);font-size:9px;letter-spacing:1px;color:var(--text-muted)">0.15</span>
+        </div>
+        <input type="range" id="nst-slider" min="0.05" max="0.80" step="0.05" value="0.15" style="width:100%;height:4px;accent-color:var(--red);cursor:pointer;opacity:0.7" oninput="updateNST(this.value)">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-family:var(--mono);font-size:9px;letter-spacing:1px;color:var(--text-dim)">AVG LOGPROB</span>
+          <span id="avg-logprob" style="font-family:var(--mono);font-size:9px;letter-spacing:1px;color:var(--text-muted)">—</span>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-family:var(--mono);font-size:9px;letter-spacing:1px;color:var(--text-dim)">REDOS</span>
+          <span id="redo-count" style="font-family:var(--mono);font-size:9px;letter-spacing:1px;color:var(--text-muted)">0</span>
+        </div>
+      </div>
+    </div>
+
     <div class="sidebar-section hotkey-section">
       <div class="sidebar-section-title" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleHotkeyEditor()">
         Hotkeys <span class="arrow hotkey-arrow" style="font-size:9px;transition:transform 0.3s">&#9654;</span>
@@ -1752,7 +1771,7 @@ body::before {
       <div class="stat-cell"><div class="sv" id="s-sessions">0</div><div class="sl">Sessions</div></div>
       <div class="stat-cell"><div class="sv" id="s-wpm">0</div><div class="sl">WPM</div></div>
       <div class="stat-cell"><div class="sv" id="s-api">0</div><div class="sl">API Calls</div></div>
-      <div class="stat-cell"><div class="sv" id="s-falcon">0</div><div class="sl">Falcon Rej</div></div>
+      <div class="stat-cell"><div class="sv" id="s-difficulty" title="Average exposure difficulty from recent sessions">—</div><div class="sl">Avg Difficulty</div></div>
       <div class="stat-cell"><div class="sv" id="s-cost">$0.00</div><div class="sl">Est. Cost</div></div>
     </div>
 
@@ -1761,6 +1780,8 @@ body::before {
       <div class="learn-cell"><div class="lv" id="l-fillers">0</div><div class="ll">Fillers</div></div>
       <div class="learn-cell"><div class="lv" id="l-vocab">0</div><div class="ll">Vocabulary</div></div>
       <div class="learn-cell"><div class="lv" id="l-triggers">0</div><div class="ll">Triggers</div></div>
+      <div class="learn-cell"><div class="lv" id="l-editdist">—</div><div class="ll">Edit Dist</div></div>
+      <div class="learn-cell"><div class="lv" id="l-redos">0</div><div class="ll">Redos</div></div>
       <div class="learn-progress-cell">
         <span class="lp-label">Next cycle</span>
         <div class="lp-track"><div class="lp-fill" id="lp-fill" style="width:0%"></div></div>
@@ -1828,6 +1849,10 @@ body::before {
         <div id="shadow-section" style="display:none;padding:16px 24px;border-top:1px solid var(--border)">
           <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">AVOIDANCE DRIFT</div>
           <div id="shadow-content" style="font-family:var(--mono);font-size:11px;line-height:2"></div>
+        </div>
+        <div id="low-conf-section" style="display:none;padding:16px 24px;border-top:1px solid var(--border)">
+          <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">LOW CONFIDENCE SEGMENTS <span style="font-size:8px;color:var(--text-dim)">(last session — Whisper uncertainty near Brown risk positions)</span></div>
+          <div id="low-conf-content" style="font-family:var(--mono);font-size:11px;line-height:2"></div>
         </div>
         <div id="fluency-trend-section" style="display:none;padding:16px 24px;border-top:1px solid var(--border)">
           <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">FLUENCY TREND
@@ -1906,6 +1931,19 @@ body::before {
               </div>
             </div>
           </div>
+
+          <!-- WER Trend -->
+          <div class="aug-section" style="margin-top:16px">
+            <div class="aug-title">WER TREND</div>
+            <div class="aug-subtitle">Word Error Rate across recent sessions — lower is better. Shows how well Whisper transcribes your speech over time.</div>
+            <div id="wer-trend-chart" style="display:flex;align-items:flex-end;gap:2px;height:48px;margin:12px 0"></div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;font-family:var(--mono);font-size:9px">
+              <div style="color:var(--text-dim)">AVG WER <span id="wer-avg" style="color:var(--text-muted)">—</span></div>
+              <div style="color:var(--text-dim)">RECENT <span id="wer-recent" style="color:var(--text-muted)">—</span></div>
+              <div style="color:var(--text-dim)">SAMPLES <span id="wer-samples" style="color:var(--text-muted)">0</span></div>
+              <div style="color:var(--text-dim)"><span id="wer-interp" style="color:var(--text-muted)"></span></div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1930,6 +1968,10 @@ body::before {
           <div class="profile-section" id="sec-corrections">
             <div class="profile-header" onclick="toggleSection('corrections')"><span><span class="ph-title">Corrections</span><span class="ph-count" id="cnt-corrections">(0)</span></span><span class="arrow">&#9654;</span></div>
             <div class="profile-body" id="body-corrections"><div id="corrections-list"></div><div class="add-row" style="margin-top:10px"><input class="add-input" id="input-corr-from" placeholder="Heard as..." style="flex:1" onkeydown="if(event.key==='Enter')document.getElementById('input-corr-to').focus()"><span style="color:var(--text-muted);font-size:11px;padding:0 4px;font-family:var(--mono)">&rarr;</span><input class="add-input" id="input-corr-to" placeholder="Should be..." style="flex:1" onkeydown="if(event.key==='Enter')addCorrection()"><button class="add-btn" onclick="addCorrection()">+</button></div></div>
+          </div>
+          <div class="profile-section" id="sec-covert">
+            <div class="profile-header" onclick="toggleSection('covert')"><span><span class="ph-title">Covert Avoidance Pairs</span><span class="ph-count" id="cnt-covert">(0)</span></span><span class="arrow">&#9654;</span></div>
+            <div class="profile-body" id="body-covert"><div id="covert-pairs-list"></div></div>
           </div>
         </div>
       </div>
@@ -1993,7 +2035,15 @@ function updateUI(){
   const mins=(Date.now()/1000-st.start_time)/60;
   document.getElementById('s-wpm').textContent=mins>0?Math.round(st.words/mins):0;
   document.getElementById('s-api').textContent=st.api_calls;
-  document.getElementById('s-falcon').textContent=st.falcon_rejects;
+  // Avg Difficulty (from exposure band)
+  const diffEl=document.getElementById('s-difficulty');
+  if(diffEl&&state.avg_exposure){
+    const ae=state.avg_exposure;
+    diffEl.textContent=ae.band!=='no_data'?ae.score.toFixed(2):'—';
+    const diffColors={very_high:'var(--red-bright)',high:'var(--yellow)',moderate:'var(--text-muted)',low:'var(--green)',no_data:''};
+    diffEl.style.color=diffColors[ae.band]||'';
+    diffEl.title=`Band: ${ae.band} (avg score from last 20 sessions)`;
+  }
   const cost=st.sessions*0.0032;
   document.getElementById('s-cost').textContent='$'+cost.toFixed(cost<0.01?4:2);
   // Whisper sidebar state
@@ -2017,6 +2067,25 @@ function updateUI(){
     sevEl.textContent=sm.severity_modifier>0?'+'+sm.severity_modifier:'0';
     sevEl.style.color=sm.severity_modifier>0?'var(--yellow)':'var(--text-muted)';
   }
+  // Whisper sidebar: no_speech_threshold slider + avg_logprob + redos
+  const nstSlider=document.getElementById('nst-slider');
+  const nstValue=document.getElementById('nst-value');
+  if(nstSlider&&state.whisper_no_speech_threshold!==undefined){
+    nstSlider.value=state.whisper_no_speech_threshold;
+    nstValue.textContent=state.whisper_no_speech_threshold.toFixed(2);
+    const nstColor=state.whisper_no_speech_threshold>0.5?'var(--red-bright)':state.whisper_no_speech_threshold<0.1?'var(--green)':'var(--text-muted)';
+    nstValue.style.color=nstColor;
+  }
+  const logprobEl=document.getElementById('avg-logprob');
+  if(logprobEl&&state.avg_logprob!==undefined){
+    logprobEl.textContent=state.avg_logprob.toFixed(3);
+    logprobEl.style.color=state.avg_logprob<-0.7?'var(--red-bright)':state.avg_logprob<-0.4?'var(--yellow)':'var(--text-muted)';
+  }
+  const redoEl=document.getElementById('redo-count');
+  if(redoEl&&state.redo_count!==undefined){
+    redoEl.textContent=state.redo_count;
+    redoEl.style.color=state.redo_count>=3?'var(--red-bright)':state.redo_count>=1?'var(--yellow)':'var(--text-muted)';
+  }
   updateCompactBar();
 }
 
@@ -2033,7 +2102,11 @@ function renderSessions(){
     const rf=s.decision&&s.decision.risk_flags&&s.decision.risk_flags.length?`<span class="session-tag tag-falcon-fail" title="${esc(s.decision.risk_flags.join(', '))}">${s.decision.risk_flags.length} flag${s.decision.risk_flags.length>1?'s':''}</span>`:'';
     const sitLabels={phone:'PHN',presentation:'PRS',interview:'INT',casual:'CAS',reading:'RDG'};
     const sitTag=s.situation&&s.situation!=='default'?`<span class="session-tag tag-tone">${sitLabels[s.situation]||s.situation}</span>`:'';
-    return `<div class="session-card"><div class="session-header"><span class="session-time">${time}</span><div class="session-tags">${dm}<span class="session-tag tag-layer">L${s.layer}</span><span class="session-tag tag-tone">${ts}</span>${sitTag}${s.layer>1?`<span class="session-tag ${fc}">${ft}</span>`:''}${tm}${rf}</div></div>${sr?`<div class="session-raw">${esc(s.raw)}</div>`:''}<div class="session-out">${esc(s.out)}</div></div>`;
+    // Exposure band tag
+    const expBand=s.exposure&&s.exposure.band&&s.exposure.band!=='low'?`<span class="session-tag" style="background:${s.exposure.band==='very_high'?'rgba(239,68,68,0.15);color:var(--red-bright)':s.exposure.band==='high'?'rgba(234,179,8,0.15);color:var(--yellow)':'rgba(255,255,255,0.05);color:var(--text-muted)'}">${s.exposure.band.toUpperCase()}</span>`:'';
+    // Editorial distance
+    const edTag=s.editorial_distance!=null?`<span style="font-family:var(--mono);font-size:8px;color:var(--text-dim);margin-left:4px" title="Editorial distance">Δ${s.editorial_distance.toFixed(2)}</span>`:'';
+    return `<div class="session-card"><div class="session-header"><span class="session-time">${time}${edTag}</span><div class="session-tags">${dm}<span class="session-tag tag-layer">L${s.layer}</span><span class="session-tag tag-tone">${ts}</span>${sitTag}${expBand}${s.layer>1?`<span class="session-tag ${fc}">${ft}</span>`:''}${tm}${rf}</div></div>${sr?`<div class="session-raw">${esc(s.raw)}</div>`:''}<div class="session-out">${esc(s.out)}</div></div>`;
   }).join('');
 }
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
@@ -2050,6 +2123,19 @@ function renderLearn(){
   document.getElementById('l-fillers').textContent=t.fillers||0;
   document.getElementById('l-vocab').textContent=t.vocabulary||0;
   document.getElementById('l-triggers').textContent=t.triggers||0;
+  // Edit distance + redos
+  const edEl=document.getElementById('l-editdist');
+  if(edEl){
+    const ed=learnData.avg_edit_dist;
+    edEl.textContent=ed!=null?ed.toFixed(2):'—';
+    edEl.style.color=ed>0.4?'var(--red-bright)':ed>0.2?'var(--yellow)':'var(--green)';
+  }
+  const rdEl=document.getElementById('l-redos');
+  if(rdEl){
+    const rc=learnData.redo_count||0;
+    rdEl.textContent=rc;
+    rdEl.style.color=rc>=3?'var(--red-bright)':rc>=1?'var(--yellow)':'';
+  }
   const feed=document.getElementById('learn-feed');const events=learnData.events||[];
   if(!events.length){feed.innerHTML='<div class="learn-empty">No patterns learned yet. Keep talking.</div>';return;}
   feed.innerHTML=[...events].reverse().map(e=>{
@@ -2089,6 +2175,7 @@ function renderInsights(){
   renderLangOnsets();
   renderFingerprint();
   renderShadowDrift();
+  renderLowConfSegments();
   fetchFluencyData();
 }
 
@@ -2255,6 +2342,25 @@ function renderShadowDrift(){
   content.innerHTML=html;
 }
 
+function renderLowConfSegments(){
+  const segs=learnData.low_conf_segments||[];
+  const el=document.getElementById('low-conf-section');
+  const content=document.getElementById('low-conf-content');
+  if(!el||!content)return;
+  if(!segs.length){el.style.display='none';return;}
+  el.style.display='block';
+  content.innerHTML=segs.map(s=>{
+    const riskColor=s.brown_risk>=0.6?'var(--red-bright)':s.brown_risk>=0.3?'var(--yellow)':'var(--text-muted)';
+    const blockTag=s.block_suspect?'<span style="color:var(--red-bright);font-size:8px;margin-left:4px;padding:1px 4px;border:1px solid rgba(239,68,68,0.3);border-radius:2px">BLOCK?</span>':'';
+    return `<div style="display:flex;align-items:center;gap:8px;border-left:2px solid ${riskColor};padding-left:8px;margin-bottom:4px">
+      <span style="color:var(--text-dim);min-width:60px">"${esc(s.text.trim())}"</span>
+      <span style="color:var(--text-muted);font-size:9px">logp=${s.avg_logprob}</span>
+      <span style="color:${riskColor};font-size:9px">risk=${s.brown_risk.toFixed(2)}</span>
+      ${blockTag}
+    </div>`;
+  }).join('');
+}
+
 // Fluency trend (from /api/fluency)
 let fluencyData=null;
 async function fetchFluencyData(){
@@ -2324,6 +2430,24 @@ function renderProfile(){
   const corr=profile.corrections||{};const keys=Object.keys(corr);
   document.getElementById('cnt-corrections').textContent=`(${keys.length})`;
   document.getElementById('corrections-list').innerHTML=keys.map(k=>`<div class="corrections-row"><span class="tag">${esc(k)}</span><span class="arrow-icon">&rarr;</span><span class="tag">${esc(corr[k])}</span><span class="remove" style="cursor:pointer;color:var(--text-muted);margin-left:4px;opacity:0.4;transition:all 0.2s" onmouseover="this.style.color='var(--red-bright)';this.style.opacity='1'" onmouseout="this.style.color='var(--text-muted)';this.style.opacity='0.4'" onclick="removeCorrection('${esc(k)}')">&times;</span></div>`).join('');
+  // Covert avoidance pairs
+  const cp=profile.covert_profile||{};
+  let totalPairs=0;
+  let covertHtml='';
+  for(const[sit,data]of Object.entries(cp)){
+    const subs=data.substitutions||{};
+    const sitWords=Object.keys(subs);
+    totalPairs+=sitWords.length;
+    if(!sitWords.length)continue;
+    covertHtml+=`<div style="font-family:var(--mono);font-size:9px;letter-spacing:1px;color:var(--text-dim);margin:8px 0 4px">${sit.toUpperCase()} <span style="color:var(--text-muted)">(${data.total_events||0} events)</span></div>`;
+    covertHtml+=sitWords.map(w=>{
+      const s=subs[w];
+      const alts=(s.substitutes||[]).slice(0,3).join(', ');
+      return `<div class="corrections-row"><span class="tag" style="color:var(--red-bright)">${esc(w)}</span><span class="arrow-icon">&rarr;</span><span class="tag" style="color:var(--text-dim)">${esc(alts)}</span><span style="color:var(--text-muted);font-size:9px;margin-left:4px">×${s.count||0}</span><span class="remove" style="cursor:pointer;color:var(--text-muted);margin-left:4px;opacity:0.4;transition:all 0.2s" onmouseover="this.style.color='var(--red-bright)';this.style.opacity='1'" onmouseout="this.style.color='var(--text-muted)';this.style.opacity='0.4'" onclick="removeCovertPair('${esc(sit)}','${esc(w)}')">&times;</span></div>`;
+    }).join('');
+  }
+  document.getElementById('cnt-covert').textContent=`(${totalPairs})`;
+  document.getElementById('covert-pairs-list').innerHTML=covertHtml||'<div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);padding:8px 0">No avoidance pairs detected yet.</div>';
 }
 function toggleSection(key){document.querySelector(`#sec-${key} .profile-header`).classList.toggle('open');document.getElementById('body-'+key).classList.toggle('open');}
 async function addTag(key){const input=document.getElementById('input-'+key);const val=input.value.trim();if(!val)return;const field=FIELD_MAP[key];if(!profile[field])profile[field]=[];if(profile[field].includes(val)){input.value='';return;}profile[field].push(val);input.value='';renderProfile();await saveProfile();}
@@ -2331,6 +2455,13 @@ async function removeTag(key,idx){profile[FIELD_MAP[key]].splice(idx,1);renderPr
 async function addCorrection(){const from=document.getElementById('input-corr-from');const to=document.getElementById('input-corr-to');const f=from.value.trim(),t=to.value.trim();if(!f||!t)return;if(!profile.corrections)profile.corrections={};profile.corrections[f]=t;from.value='';to.value='';renderProfile();await saveProfile();}
 async function removeCorrection(key){delete profile.corrections[key];renderProfile();await saveProfile();}
 async function saveProfile(){try{await fetch(API+'/api/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({trigger_words:profile.trigger_words,filler_words:profile.filler_words,vocabulary:profile.vocabulary,corrections:profile.corrections})});}catch(e){}}
+async function removeCovertPair(situation,word){
+  try{
+    await fetch(API+'/api/covert/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({situation,word})});
+    // Refresh profile to reflect removal
+    await fetchProfile();
+  }catch(e){}
+}
 
 // ─── STUTTERING FOUNDATION TIPS DATA ─────────────────
 const TIPS_DATA = [
@@ -2466,6 +2597,11 @@ async function toggleMultiTemp(){
     const tog=document.getElementById('multitemp-toggle');
     if(tog)tog.classList.toggle('on',d.multi_temp);
   }catch(e){}
+}
+async function updateNST(val){
+  const v=parseFloat(val);
+  document.getElementById('nst-value').textContent=v.toFixed(2);
+  try{await fetch(API+'/api/whisper_config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({no_speech_threshold:v})});}catch(e){}
 }
 // Dial drag interaction
 (function(){
@@ -2781,7 +2917,38 @@ document.querySelector('[data-tab="calibrate"]').addEventListener('click',async(
     }
   }catch(e){}
   augRefresh();
+  fetchWERTrend();
 });
+async function fetchWERTrend(){
+  try{
+    const r=await fetch(API+'/api/wer');
+    const d=await r.json();
+    document.getElementById('wer-avg').textContent=d.avg_wer!=null?Math.round(d.avg_wer*100)+'%':'—';
+    document.getElementById('wer-recent').textContent=d.recent_wer!=null?Math.round(d.recent_wer*100)+'%':'—';
+    document.getElementById('wer-samples').textContent=d.sample_count||0;
+    document.getElementById('wer-interp').textContent=d.interpretation||'';
+    // WER sparkline from sessions (compute per-session WER)
+    const sr=await fetch(API+'/api/sessions');
+    const sessions=await sr.json();
+    const werBars=[];
+    sessions.filter(s=>s.layer>=2&&s.raw!==s.out).slice(0,30).forEach(s=>{
+      const rw=s.raw.split(/\s+/).filter(Boolean);const ow=s.out.split(/\s+/).filter(Boolean);
+      if(!rw.length)return;
+      const common=rw.filter(w=>ow.includes(w)).length;
+      const wer=1-common/Math.max(rw.length,1);
+      werBars.push({wer:Math.min(wer,1),ts:s.ts.slice(0,16)});
+    });
+    const chart=document.getElementById('wer-trend-chart');
+    if(werBars.length){
+      const bars=werBars.reverse();
+      chart.innerHTML=bars.map(b=>{
+        const h=Math.max(Math.round(b.wer*44),2);
+        const color=b.wer>0.3?'var(--red-bright)':b.wer>0.15?'var(--yellow)':'var(--green)';
+        return `<div title="${b.ts} WER:${Math.round(b.wer*100)}%" style="width:6px;height:${h}px;background:${color};border-radius:1px 1px 0 0;opacity:0.8;flex-shrink:0"></div>`;
+      }).join('');
+    }
+  }catch(e){}
+}
 
 // ─── AUGMENTATION ──────────────────────────────
 let augPolling=null;

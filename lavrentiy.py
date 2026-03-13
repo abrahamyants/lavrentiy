@@ -3475,6 +3475,8 @@ _SPEECH_RMS_THRESHOLD = 0.015     # RMS below this = silence (tuned for 16kHz wh
 _FRAME_SIZE_SAMPLES = 320         # 20ms frames at 16kHz (standard VAD frame size)
 _MIN_PAUSE_FRAMES = 5             # 100ms minimum silence to count as a "pause" (not just consonant gap)
 _last_speech_metrics = {}         # cached for dashboard
+_last_low_conf_segments = []     # cached low confidence Whisper segments for dashboard
+_last_avg_logprob = 0.0          # cached avg_logprob from last session
 
 
 def analyze_speech_rate(audio_data, sample_rate=16000):
@@ -3599,6 +3601,14 @@ def pipeline():
         whisper_low_conf = whisper_result["low_confidence"]
         whisper_disagreements = whisper_result["disagreements"]
         whisper_meta = whisper_result["whisper_meta"]
+        # Cache low-confidence segments + avg_logprob for dashboard
+        global _last_low_conf_segments, _last_avg_logprob
+        _last_low_conf_segments = whisper_low_conf or []
+        if whisper_segments:
+            logprobs = [s.get("avg_logprob", 0) for s in whisper_segments if "avg_logprob" in s]
+            _last_avg_logprob = round(sum(logprobs) / len(logprobs), 3) if logprobs else 0.0
+        else:
+            _last_avg_logprob = 0.0
         t_asr = time.time()
         if not raw_text:
             state = 'idle'
@@ -3833,6 +3843,25 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
 
+    def _compute_avg_edit_dist(self):
+        """Average editorial distance from recent sessions."""
+        sessions = db_get_sessions(limit=20)
+        dists = [s["editorial_distance"] for s in sessions
+                 if s.get("editorial_distance") is not None]
+        return round(sum(dists) / len(dists), 3) if dists else 0.0
+
+    def _compute_avg_exposure(self):
+        """Average exposure difficulty score from recent sessions."""
+        sessions = db_get_sessions(limit=20)
+        scores = [s["exposure"]["score"] for s in sessions
+                  if s.get("exposure") and isinstance(s["exposure"], dict) and "score" in s["exposure"]]
+        if not scores:
+            return {"score": 0.0, "band": "no_data"}
+        avg = sum(scores) / len(scores)
+        band = ("very_high" if avg >= 0.7 else "high" if avg >= 0.5 else
+                "moderate" if avg >= 0.3 else "low")
+        return {"score": round(avg, 2), "band": band}
+
     def do_GET(self):
         if self.path == '/':
             self._serve_file(DASHBOARD_PATH, 'text/html')
@@ -3851,6 +3880,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'whisper_no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD,
                 'whisper_multi_temp': WHISPER_MULTI_TEMP,
                 'speech_metrics': _last_speech_metrics,
+                'avg_logprob': _last_avg_logprob,
+                'redo_count': _redo_count,
+                'avg_exposure': self._compute_avg_exposure(),
             })
         elif self.path == '/api/profile':
             self._json(profile)
@@ -3873,6 +3905,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         'vocabulary': len(profile.get('candidate_vocabulary', {}))
                     }
                 },
+                'avg_edit_dist': self._compute_avg_edit_dist(),
+                'redo_count': _redo_count,
+                'low_conf_segments': _last_low_conf_segments[:10],
+                'avg_logprob': _last_avg_logprob,
                 'insights': build_stutter_insights(profile) if current_layer >= 4 else [],
                 'insights_enabled': current_layer >= 4,
                 'onset_weights': {
@@ -4122,6 +4158,26 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json(result)
             else:
                 self._json({"error": "Send {\"text\": \"your script here\"}"})
+        elif self.path == '/api/covert/remove':
+            # Remove a specific avoidance pair from covert_profile
+            if body and 'situation' in body and 'word' in body:
+                sit = body['situation']
+                word = body['word']
+                cp = profile.get('covert_profile', {})
+                if sit in cp and 'substitutions' in cp[sit]:
+                    if word in cp[sit]['substitutions']:
+                        count = cp[sit]['substitutions'][word].get('count', 0)
+                        del cp[sit]['substitutions'][word]
+                        cp[sit]['total_events'] = max(0, cp[sit].get('total_events', 0) - count)
+                        save_profile(profile)
+                        log(f"Removed covert pair: {word} from {sit}", "info")
+                        self._json({"removed": True, "word": word, "situation": sit})
+                    else:
+                        self._json({"removed": False, "error": "word not found"})
+                else:
+                    self._json({"removed": False, "error": "situation not found"})
+            else:
+                self._json({"error": "Send {\"situation\": \"...\", \"word\": \"...\"}"})
         elif self.path == '/api/calibration/start':
             _calibration_state["active"] = True
             _calibration_state["started_at"] = datetime.now().isoformat()
