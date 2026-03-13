@@ -1450,6 +1450,7 @@ body::before {
       <span class="compact-tag" id="compact-layer">L2</span>
       <span class="compact-tag" id="compact-tone">CAS</span>
       <span class="compact-tag" id="compact-mode">RAW</span>
+      <span class="compact-tag" id="compact-sit">DEF</span>
     </div>
   </div>
 
@@ -1499,6 +1500,18 @@ body::before {
         <button class="tone-btn mode-btn" data-mode="RAW">RAW</button>
         <button class="tone-btn mode-btn" data-mode="FAST">FAST</button>
         <button class="tone-btn mode-btn" data-mode="SAFE">SAFE</button>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Situation</div>
+      <div class="tone-stack">
+        <button class="tone-btn sit-btn" data-situation="default">Default</button>
+        <button class="tone-btn sit-btn" data-situation="casual">Casual</button>
+        <button class="tone-btn sit-btn" data-situation="phone">Phone</button>
+        <button class="tone-btn sit-btn" data-situation="presentation">Presentation</button>
+        <button class="tone-btn sit-btn" data-situation="interview">Interview</button>
+        <button class="tone-btn sit-btn" data-situation="reading">Reading</button>
       </div>
     </div>
 
@@ -1623,7 +1636,7 @@ body::before {
 
 <script>
 const API='';
-let state={state:'idle',tone:'casual',layer:2,layer_name:'reconstruct',stats:{words:0,sessions:0,chars:0,start_time:Date.now()/1000,api_calls:0,falcon_rejects:0}};
+let state={state:'idle',tone:'casual',layer:2,layer_name:'reconstruct',situation:'default',stats:{words:0,sessions:0,chars:0,start_time:Date.now()/1000,api_calls:0,falcon_rejects:0}};
 let profile={trigger_words:[],filler_words:[],vocabulary:[],corrections:{}};
 let sessions=[];let lastSessionCount=-1;let connected=true;let failCount=0;
 let lastLogId=0;let logLines=[];
@@ -1668,6 +1681,7 @@ function updateUI(){
   document.querySelectorAll('.tone-btn:not(.mode-btn)').forEach(b=>b.classList.toggle('active',b.dataset.tone===state.tone));
   document.querySelectorAll('.layer-opt').forEach(b=>b.classList.toggle('active',parseInt(b.dataset.layer)===state.layer));
   document.querySelectorAll('.mode-btn').forEach(b=>b.classList.toggle('active',b.dataset.mode===state.mode));
+  document.querySelectorAll('.sit-btn').forEach(b=>b.classList.toggle('active',b.dataset.situation===(state.situation||'default')));
   const st=state.stats;
   document.getElementById('s-words').textContent=st.words.toLocaleString();
   document.getElementById('s-sessions').textContent=st.sessions;
@@ -1691,7 +1705,9 @@ function renderSessions(){
     const tm=s.timings?`<span class="session-tag tag-layer">${s.timings.total_ms}ms</span>`:'';
     const dm=s.decision?`<span class="session-tag tag-layer">${s.decision.mode}</span>`:'';
     const rf=s.decision&&s.decision.risk_flags&&s.decision.risk_flags.length?`<span class="session-tag tag-falcon-fail" title="${esc(s.decision.risk_flags.join(', '))}">${s.decision.risk_flags.length} flag${s.decision.risk_flags.length>1?'s':''}</span>`:'';
-    return `<div class="session-card"><div class="session-header"><span class="session-time">${time}</span><div class="session-tags">${dm}<span class="session-tag tag-layer">L${s.layer}</span><span class="session-tag tag-tone">${ts}</span>${s.layer>1?`<span class="session-tag ${fc}">${ft}</span>`:''}${tm}${rf}</div></div>${sr?`<div class="session-raw">${esc(s.raw)}</div>`:''}<div class="session-out">${esc(s.out)}</div></div>`;
+    const sitLabels={phone:'PHN',presentation:'PRS',interview:'INT',casual:'CAS',reading:'RDG'};
+    const sitTag=s.situation&&s.situation!=='default'?`<span class="session-tag tag-tone">${sitLabels[s.situation]||s.situation}</span>`:'';
+    return `<div class="session-card"><div class="session-header"><span class="session-time">${time}</span><div class="session-tags">${dm}<span class="session-tag tag-layer">L${s.layer}</span><span class="session-tag tag-tone">${ts}</span>${sitTag}${s.layer>1?`<span class="session-tag ${fc}">${ft}</span>`:''}${tm}${rf}</div></div>${sr?`<div class="session-raw">${esc(s.raw)}</div>`:''}<div class="session-out">${esc(s.out)}</div></div>`;
   }).join('');
 }
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
@@ -1902,6 +1918,7 @@ async function fetchDAF(){try{const r=await fetch(API+'/api/daf');const d=await 
 document.querySelectorAll('.tone-btn:not(.mode-btn)').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/tone',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tone:btn.dataset.tone})});}catch(e){}});});
 document.querySelectorAll('.layer-opt').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/layer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layer:parseInt(btn.dataset.layer)})});}catch(e){}});});
 document.querySelectorAll('.mode-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:btn.dataset.mode})});}catch(e){}});});
+document.querySelectorAll('.sit-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/situation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({situation:btn.dataset.situation})});}catch(e){}});});
 
 // ─── HOTKEY CUSTOMIZATION ──────────────────────
 let hotkeys={record:'F9',tone:'F10',layer:'F11',stats:'F12',quit:'F3'};
@@ -1978,6 +1995,8 @@ function updateCompactBar() {
   document.getElementById('compact-layer').textContent = 'L' + state.layer;
   document.getElementById('compact-tone').textContent = toneMap[state.tone] || state.tone;
   document.getElementById('compact-mode').textContent = state.mode || 'RAW';
+  const sitMap={default:'DEF',casual:'CAS',phone:'PHN',presentation:'PRS',interview:'INT',reading:'RDG'};
+  document.getElementById('compact-sit').textContent = sitMap[state.situation||'default']||'DEF';
   // Show last console output
   if (logLines.length > 0) {
     const last = logLines[logLines.length - 1];

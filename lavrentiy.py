@@ -173,6 +173,84 @@ TONE_SHORT = {"casual": "CAS", "professional": "PRO", "friend": "FRD", "formal":
 LAYERS = [1, 2, 3, 4]
 LAYER_NAMES = {1: "transcribe", 2: "reconstruct", 3: "profile", 4: "stutter"}
 
+# -- Situational context (affects reconstruction aggressiveness) ──
+SITUATIONS = ["default", "phone", "presentation", "interview", "casual", "reading"]
+SITUATION_SEVERITY = {
+    "default":      1.0,
+    "phone":        1.5,   # phone calls heavily exacerbate stuttering
+    "presentation": 1.4,   # authority + audience + time pressure
+    "interview":    1.6,   # max stress: authority + judgment + time pressure
+    "casual":       0.6,   # friends/family, low pressure
+    "reading":      0.3,   # reading aloud = near-fluent for most PWS
+}
+current_situation = "default"
+
+# -- Phonetic trigger prediction ──────────────────────────────────
+# Stop plosives, affricates, and clusters that cause >90% of blocks
+# Source: Category 1 — initial sounds, unvoiced consonants, content words
+HIGH_RISK_ONSETS = {
+    # Unvoiced stop plosives (highest risk)
+    'p', 't', 'k',
+    # Voiced stop plosives
+    'b', 'd', 'g',
+    # Affricates
+    'ch', 'j',
+    # High-risk consonant clusters
+    'bl', 'br', 'cl', 'cr', 'dr', 'fl', 'fr', 'gl', 'gr',
+    'pl', 'pr', 'sc', 'sk', 'sl', 'sm', 'sn', 'sp', 'st',
+    'str', 'sw', 'tr', 'tw', 'thr', 'shr', 'scr', 'spl', 'spr',
+}
+# Function words rarely trigger blocks — content words do
+FUNCTION_WORDS = {
+    'a', 'an', 'the', 'is', 'am', 'are', 'was', 'were', 'be', 'been',
+    'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+    'shall', 'should', 'may', 'might', 'must', 'can', 'could',
+    'i', 'me', 'my', 'you', 'your', 'he', 'she', 'it', 'we', 'they',
+    'him', 'her', 'us', 'them', 'his', 'its', 'our', 'their',
+    'this', 'that', 'these', 'those', 'and', 'but', 'or', 'nor',
+    'for', 'yet', 'so', 'if', 'then', 'than', 'to', 'of', 'in',
+    'on', 'at', 'by', 'with', 'from', 'into', 'not', 'no', 'up',
+}
+
+def predict_phonetic_risk(word):
+    """Predict block risk for a word based on phonetic onset + word type.
+    Returns 0.0-1.0 risk score. Content words starting with stop plosives
+    or clusters at clause boundaries are highest risk."""
+    w = word.lower().strip()
+    if not w or w in FUNCTION_WORDS:
+        return 0.1  # function words rarely trigger
+    score = 0.3  # base risk for content words
+    # Check onset against high-risk patterns (longest match first)
+    for length in (3, 2, 1):
+        onset = w[:length]
+        if onset in HIGH_RISK_ONSETS:
+            score += 0.4
+            break
+    # Unvoiced consonants are harder than voiced
+    if w[0] in 'ptksf':
+        score += 0.1
+    return min(score, 1.0)
+
+def predict_triggers_in_text(text, existing_triggers):
+    """Score all content words in text, return predicted triggers above threshold.
+    Combines phonetic prior with user's known trigger history."""
+    words = set(text.lower().split())
+    known = {t.lower() for t in existing_triggers}
+    predicted = []
+    for word in words:
+        clean = re.sub(r'[^\w]', '', word)
+        if not clean or len(clean) < 2:
+            continue
+        risk = predict_phonetic_risk(clean)
+        # Boost if the word shares an onset with a known trigger
+        for trigger in known:
+            if trigger[:2] == clean[:2] and clean != trigger:
+                risk = min(risk + 0.2, 1.0)
+                break
+        if risk >= 0.6:
+            predicted.append((clean, round(risk, 2)))
+    return sorted(predicted, key=lambda x: -x[1])
+
 client = openai.OpenAI(api_key=API_KEY)
 
 # -- Mic selection ────────────────────────────────────────────────
@@ -354,17 +432,19 @@ def migrate_profile(prof):
         save_profile(prof)
     return prof
 
-def log_session(prof, raw, output, tone, layer, decision=None, timings=None):
+def log_session(prof, raw, output, tone, layer, decision=None, timings=None, situation=None):
     ts = datetime.now().isoformat()
     falcon = decision["falcon_ok"] if decision else True
     words = len(output.split())
+    sit = situation or current_situation
     with _db_lock:
         _db.execute(
-            "INSERT INTO sessions (ts, raw, out, tone, layer, words, falcon, decision, timings) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO sessions (ts, raw, out, tone, layer, words, falcon, decision, timings, situation) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (ts, raw, output, tone, layer, words, int(falcon),
              json.dumps(decision) if decision else None,
-             json.dumps(timings) if timings else None)
+             json.dumps(timings) if timings else None,
+             sit)
         )
         _db.commit()
 
@@ -392,10 +472,16 @@ _db.execute("""
         words INTEGER NOT NULL,
         falcon INTEGER NOT NULL DEFAULT 1,
         decision TEXT,
-        timings TEXT
+        timings TEXT,
+        situation TEXT DEFAULT 'default'
     )
 """)
 _db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_ts ON sessions(ts)")
+# Migration: add situation column to existing DBs
+try:
+    _db.execute("ALTER TABLE sessions ADD COLUMN situation TEXT DEFAULT 'default'")
+except sqlite3.OperationalError:
+    pass  # column already exists
 _db.commit()
 _db_lock = threading.Lock()
 
@@ -441,14 +527,15 @@ def db_get_sessions(limit=50, offset=0):
     """Fetch recent sessions from SQLite, newest first."""
     with _db_lock:
         rows = _db.execute(
-            "SELECT ts, raw, out, tone, layer, words, falcon, decision, timings "
+            "SELECT ts, raw, out, tone, layer, words, falcon, decision, timings, situation "
             "FROM sessions ORDER BY id DESC LIMIT ? OFFSET ?",
             (limit, offset)
         ).fetchall()
     result = []
-    for ts, raw, out, tone, layer, words, falcon, decision, timings in rows:
+    for ts, raw, out, tone, layer, words, falcon, decision, timings, situation in rows:
         entry = {"ts": ts, "raw": raw, "out": out, "tone": tone,
-                 "layer": layer, "words": words, "falcon": bool(falcon)}
+                 "layer": layer, "words": words, "falcon": bool(falcon),
+                 "situation": situation or "default"}
         if decision:
             entry["decision"] = json.loads(decision)
         if timings:
@@ -532,14 +619,30 @@ def log(text, kind="info"):
     print(text)
 
 # -- LLM Calls ───────────────────────────────────────────────────
-def reconstruct(raw_text, tone, layer, prof):
+def reconstruct(raw_text, tone, layer, prof, situation=None):
     """Layer 2+: Rebuild raw transcription into clean output."""
     # Detect if input contains Cyrillic (bilingual speaker)
     has_cyrillic = any('\u0400' <= c <= '\u04ff' for c in raw_text)
     lang_note = " Speaker is bilingual (English/Russian) and may mix languages." if has_cyrillic else ""
 
+    # Situational aggressiveness — higher stress = more aggressive cleanup
+    sit = situation or current_situation
+    severity = SITUATION_SEVERITY.get(sit, 1.0)
+    aggression_note = ""
+    if severity >= 1.4:
+        aggression_note = (
+            " Speaker is in a HIGH-STRESS context (phone/presentation/interview). "
+            "Expect more disfluencies, heavier avoidance, more filler stacking. "
+            "Be MORE aggressive in reconstructing — strip more, trust less of the literal words."
+        )
+    elif severity <= 0.6:
+        aggression_note = (
+            " Speaker is in a low-stress context. Expect near-fluent speech. "
+            "Be conservative — minor cleanup only."
+        )
+
     parts = [
-        f"Rebuild this raw voice transcription into clean {tone} text.{lang_note}",
+        f"Rebuild this raw voice transcription into clean {tone} text.{lang_note}{aggression_note}",
         "Fix grammar. Strip filler words (including non-English fillers). Restructure for clarity.",
         "Preserve FULL meaning. Do not summarize or add information.",
         "Output ONLY the reconstructed text."
@@ -582,11 +685,19 @@ def reconstruct(raw_text, tone, layer, prof):
             "\n- Mazes/cluttering = rambling run-on filler adding no information"
             "\n  e.g. 'I think of uh - it's something you say as it comes out of - that sort of thing'"
             "\n- Pause before a word = anticipatory fear (scanning ahead), not thinking"
-            "\n\nPhonetic triggers (common block locations):"
-            "\n- Stop plosives: /p/, /b/, /t/, /d/, /k/, /g/"
+            "\n\nPhonetic triggers (common block locations — 90%+ occur on initial sounds):"
+            "\n- Stop plosives: /p/, /b/, /t/, /d/, /k/, /g/ (unvoiced > voiced)"
             "\n- Affricates: /tʃ/, /dʒ/"
-            "\n- Initial position of words and clauses"
+            "\n- Consonant clusters at onset: bl-, br-, cr-, str-, spl-, thr-, etc."
+            "\n- Initial position of words and clauses (clause boundary = high risk)"
+            "\n- Content words (nouns, verbs, adjectives) >> function words (articles, conjunctions)"
             "\n- Consonant-vowel transitions (speaker starts vowel but can't coarticulate to next sound)"
+            "\n\nAnticipatory behavior (cognitive pattern — CRITICAL):"
+            "\n- A pause or silence BEFORE a content word is likely ANTICIPATORY FEAR, not thinking"
+            "\n- The speaker scans ahead, detects a feared word coming, and freezes"
+            "\n- Ellipsis, trailing off, or sudden topic change before a specific word = avoidance"
+            "\n- 'I need the... uh... that thing' = speaker feared the next word, not searching for it"
+            "\n- Treat pre-word pauses on content words as blocks, not as natural hesitation"
             "\n\nExamples:"
             "\n- 'Can you give me the, uh, the paper for the thing you sign "
             "at the front desk' → 'Can you give me the form you sign at the front desk'"
@@ -600,6 +711,11 @@ def reconstruct(raw_text, tone, layer, prof):
         )
         if prof.get("trigger_words"):
             parts.append(f"\nKnown trigger words: {', '.join(prof['trigger_words'])}")
+        # Predictive: flag words in this utterance that are phonetically risky
+        predicted = predict_triggers_in_text(raw_text, prof.get("trigger_words", []))
+        if predicted:
+            flagged = [f"{w}({r})" for w, r in predicted[:10]]
+            parts.append(f"\nPhonetically predicted high-risk words in this utterance: {', '.join(flagged)}")
 
     stats["api_calls"] += 1
     resp = client.chat.completions.create(
@@ -1154,7 +1270,7 @@ def pipeline():
 
             # Step 2: Reconstruct
             try:
-                clean_text = reconstruct(raw_text, current_tone, current_layer, profile)
+                clean_text = reconstruct(raw_text, current_tone, current_layer, profile, current_situation)
             except Exception as e:
                 log(f"Reconstruct failed ({e}) -- using raw", "error")
                 used_fallback = True
@@ -1285,6 +1401,13 @@ def set_mode(mode):
         save_profile(profile)
         log(f"Mode: {current_mode}", "info")
 
+def set_situation(situation):
+    global current_situation
+    if situation in SITUATIONS:
+        current_situation = situation
+        severity = SITUATION_SEVERITY[situation]
+        log(f"Situation: {situation} (severity: {severity}x)", "info")
+
 # -- Dashboard HTTP server ────────────────────────────────────────
 class DashboardHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
@@ -1307,6 +1430,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'layer': current_layer,
                 'layer_name': LAYER_NAMES.get(current_layer, '?'),
                 'mode': current_mode,
+                'situation': current_situation,
+                'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0),
                 'stats': stats
             })
         elif self.path == '/api/profile':
@@ -1369,6 +1494,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if body and isinstance(body.get('mode'), str):
                 set_mode(body['mode'].upper())
             self._json({'mode': current_mode})
+        elif self.path == '/api/situation':
+            if body and isinstance(body.get('situation'), str):
+                set_situation(body['situation'].lower())
+            self._json({
+                'situation': current_situation,
+                'severity': SITUATION_SEVERITY.get(current_situation, 1.0),
+                'situations': SITUATIONS
+            })
         elif self.path == '/api/profile':
             if body and isinstance(body, dict):
                 for key in ('trigger_words', 'filler_words', 'vocabulary'):
