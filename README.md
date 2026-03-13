@@ -2,7 +2,7 @@
 
 **Voice Reconstruction Engine** — *"We've got a file on you"*
 
-Lavrentiy captures your voice, transcribes it via Whisper, reconstructs it through GPT-4o-mini, validates meaning with a secondary LLM pass (Falcon), and pastes the cleaned output directly into whatever app you were typing in. It learns your speech patterns over time — corrections, filler words, vocabulary, and stutter triggers — building a persistent profile that improves accuracy with every session.
+Lavrentiy captures your voice, transcribes it via an enhanced Whisper pipeline (Script Prep decoder seeding, block preservation, confidence targeting, multi-temperature voting), reconstructs through GPT-4o/4o-mini with personalized phoneme context, validates meaning with Falcon, and pastes the cleaned output directly into whatever app you were typing in. It learns your speech patterns over time — corrections, filler words, vocabulary, and stutter triggers — building a persistent profile that improves accuracy with every session.
 
 Built for people who stutter. The Layer 4 pipeline uses a clinically-informed reconstruction prompt grounded in stuttering research, covering overt disfluencies (part-word repetitions, prolongations, blocks, schwa substitution, consonant cluster breaks, tremors) and covert stuttering patterns (postponement fillers, synonym substitution, circumlocution, sentence abandonment, mazes/cluttering). Includes DAF (Delayed Auditory Feedback), covert avoidance detection, and a 5-feature phonetic risk model based on Brown's linguistic predictors of stuttering.
 
@@ -11,9 +11,17 @@ Built for people who stutter. The Layer 4 pipeline uses a clinically-informed re
 Single Python process, no frameworks, no Electron, no build step.
 
 ```
-Mic → Whisper (stutter-aware prompt) → Disfluency Filter → Reconstruction (personalized phoneme context) → Falcon Validation → Clipboard → Paste
-                                                                ↓
-                                                    Covert Avoidance Detection ← Script Prep (intended text)
+                    Script Prep (intended text)
+                        ↓ (decoder seeding)
+Mic → Whisper (Script Prep seed | verbose JSON | multi-temp voting)
+        ↓                                  ↓
+   Disfluency Filter              Low-confidence segments
+        ↓                          + disagreement map
+   Reconstruction (phoneme context + Whisper confidence targeting)
+        ↓
+   Falcon Validation → Clipboard → Paste
+        ↓
+   Covert Avoidance Detection ← Script Prep
 ```
 
 - **Engine** (`lavrentiy.py`): Hotkey listener, audio capture, LLM pipeline, DAF streaming, calibration, augmentation, embedded HTTP server
@@ -28,7 +36,7 @@ Mic → Whisper (stutter-aware prompt) → Disfluency Filter → Reconstruction 
 
 | Layer | Name | What it does |
 |-------|------|-------------|
-| 1 | Transcribe | Whisper output + disfluency post-filter (strips repetitions, fillers) |
+| 1 | Transcribe | Enhanced Whisper (Script Prep seeding, block preservation, verbose JSON) + disfluency post-filter |
 | 2 | Reconstruct | LLM cleans grammar, strips fillers, restructures |
 | 3 | Profile | + your learned vocabulary, corrections, preferred terms |
 | 4 | Stutter | + disfluency detection, trigger word tracking, clinical insights, personalized onset weighting, per-user phoneme context in prompt, covert avoidance reversal |
@@ -97,9 +105,23 @@ Dashboard opens at [http://localhost:7878](http://localhost:7878)
 
 ## Pipeline Detail
 
-### Whisper (Stutter-Aware)
+### Whisper (Enhanced Stutter Pipeline)
 
-The Whisper API call includes a decoder-biasing prompt that steers transcription toward intended speech rather than faithful disfluency reproduction. Research shows decoder tuning alone can reduce WER by 51.2% on stuttered speech.
+The Whisper integration goes beyond a simple API call. Four parameter-level optimizations work together:
+
+**1. Script Prep Decoder Seeding**
+When Script Prep text is available (user typed what they intend to say), it's passed as Whisper's `prompt` parameter — the decoder conditioning token. Whisper's beam search treats this as "previously transcribed text," giving it the answer key before transcription starts. This dramatically reduces hallucination on blocked or disfluent segments. Falls back to a fluency-biasing prompt when no Script Prep exists.
+
+**2. Block Preservation (`no_speech_threshold=0.2`)**
+Whisper's default 0.6 threshold drops "silent" segments. For stutterers, a block (strained silence with laryngeal tension) scores high on this threshold and gets silently deleted. Lowering to 0.2 preserves blocks as segments, which the disfluency filter correctly identifies rather than losing them.
+
+**3. Confidence Targeting (`avg_logprob`)**
+Verbose JSON mode returns per-segment `avg_logprob` confidence scores. Low-confidence segments near Brown high-risk positions (consonant-initial content words early in sentence) are flagged and injected into the L4 reconstruction prompt as "Whisper is uncertain here — reconstruct aggressively."
+
+**4. Multi-Temperature Voting**
+Three Whisper calls at temperatures 0, 0.2, and 0.4. Where all three agree = confident. Where they disagree = the audio is ambiguous = almost certainly a disfluency artifact. Disagreements are word-level aligned and passed to L4 as precision-targeted reconstruction hints. Configurable via `/api/whisper_config`.
+
+Research shows decoder tuning alone can reduce WER by 51.2% on stuttered speech. These four enhancements stack on top of that baseline.
 
 ### Disfluency Post-Filter
 
@@ -221,6 +243,7 @@ Pre-speech word substitution (based on Ghai & Mueller, ASSETS '21). Paste upcomi
 - **LLM synonym generation**: Flagged words (risk ≥ 0.6) get 2–3 alternative words/phrases that preserve meaning but use easier onsets (vowels, continuants like /l/, /m/, /n/, /r/, /w/, /h/).
 - **Swap-in-place**: Click any suggested alternative to replace the word directly in your script text.
 - **Covert avoidance bridge**: Script Prep text is buffered as "intended content" for comparison against actual speech (see Covert Stuttering Detection).
+- **Whisper decoder seeding**: Script Prep text is also fed as Whisper's `prompt` parameter — the decoder conditioning token. Whisper's beam search treats this as "previously transcribed text," giving it the answer key before it starts transcribing. This is the single biggest accuracy improvement available on the current API.
 - **Ctrl+Enter** shortcut to run analysis.
 
 ## DAF (Delayed Auditory Feedback)
@@ -333,6 +356,7 @@ Single HTML file served by the engine's embedded HTTP server:
 | POST | `/api/profile` | Update profile sections |
 | POST | `/api/prep` | Script Prep analysis |
 | POST | `/api/daf` | DAF toggle/delay |
+| POST | `/api/whisper_config` | Whisper params: `no_speech_threshold`, `multi_temp` toggle |
 | POST | `/api/calibration/start` | Begin calibration session |
 | POST | `/api/calibration/record` | Submit calibration recording (base64 WAV) |
 | POST | `/api/calibration/skip` | Skip a prompt |

@@ -70,6 +70,9 @@ LAYER_KEY = "f11"
 MODEL = "gpt-4o-mini"
 MODEL_L4 = "gpt-4o"                  # L4 stutter reconstruction uses stronger model
 WHISPER_TEMP = 0.0                   # Whisper decoder temperature (0.0=deterministic, 1.0=creative)
+WHISPER_NO_SPEECH_THRESHOLD = 0.2    # Lower than default 0.6 — preserves blocks (strained silence)
+WHISPER_MULTI_TEMP = True            # Multi-temperature voting: 3 decoding passes, disagreements flagged
+WHISPER_MULTI_TEMPS = [0.0, 0.2, 0.4]  # Temperature schedule for voting passes
 PROFILE_DIR = Path.home() / ".lavrentiy"
 PROFILE_PATH = PROFILE_DIR / "profile.json"
 DASHBOARD_PORT = 7878
@@ -560,6 +563,12 @@ def predict_phonetic_risk(word, sentence_position=None, sentence_length=None):
             score += _personal_onset_weights.get(matched_onset, 0.3)
         else:
             score += 0.4
+        # Boost for covert avoidance signal (onset statistically underrepresented)
+        if _onset_anomalies:
+            for anomaly in _onset_anomalies:
+                if anomaly["onset"] == matched_onset:
+                    score += 0.10  # this onset is being avoided — it's harder than triggers alone show
+                    break
     # Unvoiced plosives/fricatives are harder than voiced
     if w[0] in 'ptksf':
         score += 0.05
@@ -1420,7 +1429,8 @@ is_pasting = False
 stats = {
     "words": 0, "sessions": 0, "chars": 0,
     "start_time": time.time(),
-    "api_calls": 0, "falcon_rejects": 0
+    "api_calls": 0, "falcon_rejects": 0,
+    "multi_temp_votes": 0, "multi_temp_disagreements": 0
 }
 
 # -- Redo detection (anti-compulsion guardrail) ──────────────────
@@ -1511,7 +1521,8 @@ def log(text, kind="info"):
     print(text)
 
 # -- LLM Calls ───────────────────────────────────────────────────
-def reconstruct(raw_text, tone, layer, prof, situation=None):
+def reconstruct(raw_text, tone, layer, prof, situation=None,
+                whisper_low_conf=None, whisper_disagreements=None):
     """Layer 2+: Rebuild raw transcription into clean output."""
     # Detect if input contains Cyrillic (bilingual speaker)
     has_cyrillic = any('\u0400' <= c <= '\u04ff' for c in raw_text)
@@ -1583,6 +1594,33 @@ def reconstruct(raw_text, tone, layer, prof, situation=None):
                     + "\nIf you see a synonym where the original word would fit better, "
                     "the original IS what they meant. Reconstruct with the intended word."
                 )
+
+        # Inject Whisper confidence signals: low-confidence segments + multi-temp disagreements
+        # avg_logprob targeting: where Whisper is uncertain near Brown risk = disfluency artifact
+        if whisper_low_conf:
+            lc_notes = []
+            for seg in whisper_low_conf[:5]:
+                lc_notes.append(
+                    f"  \"{seg['text']}\" (logprob={seg['avg_logprob']}, brown_risk={seg['brown_risk']})"
+                )
+            parts.append(
+                "\n⚠ WHISPER UNCERTAINTY — these segments have low decoder confidence "
+                "AND high stuttering risk. They are almost certainly transcription artifacts:\n"
+                + "\n".join(lc_notes)
+                + "\nReconstruct aggressively. Trust semantic context, not the literal words."
+            )
+        # Multi-temperature voting: disagreements between decoding passes = garbled regions
+        if whisper_disagreements:
+            dis_notes = []
+            for d in whisper_disagreements[:5]:
+                variants = "/".join(set(d["variants"]))
+                dis_notes.append(f"  position {d['position']}: [{variants}]")
+            parts.append(
+                "\n⚠ MULTI-PASS DISAGREEMENT — Whisper produced different words at these positions "
+                "across 3 decoding temperatures. Disagreement = uncertain = likely disfluency artifact:\n"
+                + "\n".join(dis_notes)
+                + "\nThe truth is in the semantic context, not any single variant."
+            )
 
         parts.append(
             "\nThe speaker stutters. Raw transcription is evidence, not truth. "
@@ -2712,6 +2750,212 @@ def make_decision(falcon_ok, layer, used_fallback, risk_flags):
         "decision": decision
     }
 
+# -- Whisper API (enhanced) ────────────────────────────────────────
+def _build_whisper_prompt():
+    """Build Whisper decoder prompt: Script Prep text (if available) + fluency bias.
+
+    Script Prep as initial_prompt is the key insight: Whisper's autoregressive
+    decoder treats the prompt as "previously transcribed text." When we seed it
+    with the intended speech (from Script Prep), the decoder's beam search has
+    the answer key before it transcribes. This dramatically reduces hallucination
+    on blocked or disfluent segments.
+
+    Falls back to generic fluency-biasing prompt when no Script Prep is available.
+    """
+    # Check if we have fresh Script Prep text (don't consume it — covert detection needs it too)
+    if _last_prep_text and (time.time() - _last_prep_ts < _PREP_EXPIRY_SEC):
+        # Whisper prompt has a ~224 token limit; truncate if needed
+        prep = _last_prep_text[:500]
+        log(f"Whisper seeded with Script Prep ({len(prep)} chars)", "info")
+        return prep
+    # No Script Prep — use fluency-biasing prompt
+    return "Clear, fluent speech. Transcribe intended words only, not repetitions or filler sounds."
+
+
+def _whisper_single_call(filepath, temperature, prompt_text):
+    """Single Whisper API call returning verbose JSON with segment data.
+
+    Returns dict with:
+      text: full transcription
+      segments: list of {text, avg_logprob, no_speech_prob, ...}
+    """
+    with open(filepath, "rb") as f:
+        result = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=f,
+            language=LANGUAGE,
+            prompt=prompt_text,
+            temperature=temperature,
+            response_format="verbose_json",
+        )
+    stats["api_calls"] += 1
+    # OpenAI SDK returns a Transcription object; normalize to dict
+    if hasattr(result, 'model_dump'):
+        return result.model_dump()
+    elif hasattr(result, '__dict__'):
+        return result.__dict__
+    return {"text": result.text if hasattr(result, 'text') else str(result), "segments": []}
+
+
+def _extract_low_confidence_segments(verbose_result, risk_threshold=-0.7):
+    """Extract segments where Whisper is uncertain (low avg_logprob).
+
+    avg_logprob closer to 0 = confident. Below threshold = uncertain.
+    Segments near Brown high-risk positions (early sentence, consonant-initial
+    content words) are flagged for targeted L4 reconstruction.
+
+    Returns list of {text, avg_logprob, no_speech_prob, position, risk_score}
+    """
+    segments = verbose_result.get("segments", [])
+    if not segments:
+        return []
+
+    flagged = []
+    full_text = verbose_result.get("text", "")
+    words_so_far = 0
+
+    for seg in segments:
+        avg_lp = seg.get("avg_logprob", 0.0)
+        no_speech = seg.get("no_speech_prob", 0.0)
+        seg_text = seg.get("text", "").strip()
+
+        if not seg_text:
+            continue
+
+        seg_words = re.findall(r'\b\w+\b', seg_text)
+        n_total = len(re.findall(r'\b\w+\b', full_text)) if full_text else 1
+
+        # Check if this segment has Brown risk factors
+        brown_risk = 0.0
+        for i, w in enumerate(seg_words):
+            brown_risk = max(brown_risk, predict_phonetic_risk(
+                w, sentence_position=words_so_far + i, sentence_length=n_total
+            ))
+
+        words_so_far += len(seg_words)
+
+        # Flag if: low confidence AND near high-risk position
+        if avg_lp < risk_threshold or (avg_lp < -0.4 and brown_risk >= 0.5):
+            flagged.append({
+                "text": seg_text,
+                "avg_logprob": round(avg_lp, 3),
+                "no_speech_prob": round(no_speech, 3),
+                "position": words_so_far,
+                "brown_risk": round(brown_risk, 2),
+            })
+
+    return flagged
+
+
+def _multi_temperature_vote(filepath, prompt_text):
+    """Call Whisper at multiple temperatures, flag disagreements.
+
+    Three decoding passes on the same audio. Where they agree = confident.
+    Where they disagree = almost certainly a disfluency artifact.
+
+    Returns:
+      text: best transcription (temperature=0 unless outvoted)
+      segments: verbose segments from primary call
+      disagreements: list of {position, variants: [str, str, str]}
+      all_texts: list of all transcriptions
+    """
+    results = []
+    for temp in WHISPER_MULTI_TEMPS:
+        r = _whisper_single_call(filepath, temp, prompt_text)
+        results.append(r)
+        stats["multi_temp_votes"] += 1
+
+    primary = results[0]  # temp=0 is authoritative by default
+    all_texts = [r.get("text", "").strip() for r in results]
+
+    # Quick check: if all three agree, no need for analysis
+    if len(set(all_texts)) == 1:
+        return {
+            "text": all_texts[0],
+            "segments": primary.get("segments", []),
+            "disagreements": [],
+            "all_texts": all_texts,
+        }
+
+    # Find disagreements at word level
+    word_lists = [re.findall(r'\b\w+\b', t.lower()) for t in all_texts]
+    max_len = max(len(wl) for wl in word_lists)
+    disagreements = []
+
+    for i in range(max_len):
+        words_at_pos = []
+        for wl in word_lists:
+            words_at_pos.append(wl[i] if i < len(wl) else "<END>")
+        if len(set(words_at_pos)) > 1:
+            disagreements.append({
+                "position": i,
+                "variants": words_at_pos,
+            })
+
+    if disagreements:
+        stats["multi_temp_disagreements"] += 1
+        log(f"Multi-temp voting: {len(disagreements)} disagreements across {len(all_texts[0].split())} words", "info")
+
+    return {
+        "text": all_texts[0],  # temp=0 primary
+        "segments": primary.get("segments", []),
+        "disagreements": disagreements,
+        "all_texts": all_texts,
+    }
+
+
+def whisper_transcribe(filepath):
+    """Full Whisper transcription with all enhancements:
+    1. Script Prep seeding (decoder conditioning)
+    2. Verbose JSON mode (segment-level confidence)
+    3. Multi-temperature voting (disagreement detection)
+
+    Returns dict with:
+      text: final transcription
+      segments: verbose segment data
+      low_confidence: flagged uncertain segments
+      disagreements: multi-temp voting disagreements (if enabled)
+      whisper_meta: {prompt_used, temperatures, n_api_calls}
+    """
+    prompt_text = _build_whisper_prompt()
+    n_calls_before = stats["api_calls"]
+
+    if WHISPER_MULTI_TEMP:
+        vote = _multi_temperature_vote(filepath, prompt_text)
+        text = vote["text"]
+        segments = vote["segments"]
+        disagreements = vote["disagreements"]
+        all_texts = vote["all_texts"]
+    else:
+        result = _whisper_single_call(filepath, WHISPER_TEMP, prompt_text)
+        text = result.get("text", "").strip()
+        segments = result.get("segments", [])
+        disagreements = []
+        all_texts = [text]
+
+    # Extract low-confidence segments for targeted reconstruction
+    low_confidence = _extract_low_confidence_segments(
+        {"text": text, "segments": segments}
+    )
+
+    if low_confidence:
+        log(f"Whisper low-confidence segments: {len(low_confidence)} flagged", "info")
+
+    return {
+        "text": text,
+        "segments": segments,
+        "low_confidence": low_confidence,
+        "disagreements": disagreements,
+        "all_texts": all_texts,
+        "whisper_meta": {
+            "prompt_source": "script_prep" if (_last_prep_text and time.time() - _last_prep_ts < _PREP_EXPIRY_SEC) else "default",
+            "prompt_length": len(prompt_text),
+            "temperatures": WHISPER_MULTI_TEMPS if WHISPER_MULTI_TEMP else [WHISPER_TEMP],
+            "n_api_calls": stats["api_calls"] - n_calls_before,
+        }
+    }
+
+
 # -- Pipeline ─────────────────────────────────────────────────────
 def pipeline():
     global state
@@ -2731,19 +2975,26 @@ def pipeline():
     tmp.close()
 
     try:
-        # Step 1: Whisper (with stutter-aware prompt to bias decoder)
+        # Step 1: Whisper (enhanced — Script Prep seeding + verbose JSON + multi-temp voting)
         t0 = time.time()
-        with open(tmp.name, "rb") as f:
-            result = client.audio.transcriptions.create(
-                model="whisper-1", file=f, language=LANGUAGE,
-                prompt="Clear, fluent speech. Transcribe intended words only, not repetitions or filler sounds.",
-                temperature=WHISPER_TEMP
-            )
-        raw_text = result.text.strip()
+        whisper_result = whisper_transcribe(tmp.name)
+        raw_text = whisper_result["text"].strip()
+        whisper_segments = whisper_result["segments"]
+        whisper_low_conf = whisper_result["low_confidence"]
+        whisper_disagreements = whisper_result["disagreements"]
+        whisper_meta = whisper_result["whisper_meta"]
         t_asr = time.time()
         if not raw_text:
             state = 'idle'
             return
+
+        # Log Whisper pipeline details
+        meta_tag = f"[{whisper_meta['prompt_source']}|{whisper_meta['n_api_calls']}calls]"
+        if whisper_low_conf:
+            meta_tag += f" low_conf:{len(whisper_low_conf)}"
+        if whisper_disagreements:
+            meta_tag += f" disagree:{len(whisper_disagreements)}"
+        log(f"Whisper {meta_tag}", "info")
 
         used_fallback = False
         clean_text = None
@@ -2762,8 +3013,13 @@ def pipeline():
             log(f"Raw: \"{raw_text}\"", "raw")
 
             # Step 2: Reconstruct (using pre-cleaned text to reduce GPT noise)
+            # Pass Whisper confidence data so L4 can target uncertain segments
             try:
-                clean_text = reconstruct(filtered_text, current_tone, current_layer, profile, current_situation)
+                clean_text = reconstruct(
+                    filtered_text, current_tone, current_layer, profile, current_situation,
+                    whisper_low_conf=whisper_low_conf,
+                    whisper_disagreements=whisper_disagreements
+                )
             except Exception as e:
                 log(f"Reconstruct failed ({e}) -- using raw", "error")
                 used_fallback = True
@@ -2849,6 +3105,9 @@ def pipeline():
                 _learn_counter = 0
                 learn_status["next_in"] = LEARN_EVERY
                 threading.Thread(target=learn_from_sessions, args=(profile,), daemon=True).start()
+                # Onset anomaly detection (covert avoidance signal, zero API cost)
+                all_sessions = db_get_sessions(limit=200)
+                detect_onset_anomalies(all_sessions)
 
         # Step 7: Archive audio for future Whisper fine-tuning
         # Runs synchronously — must complete before finally{} deletes tmp
@@ -2950,7 +3209,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0),
                 'stats': stats,
                 'model': MODEL_L4 if current_layer >= 4 else MODEL,
-                'whisper_temp': WHISPER_TEMP
+                'whisper_temp': WHISPER_TEMP,
+                'whisper_no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD,
+                'whisper_multi_temp': WHISPER_MULTI_TEMP,
             })
         elif self.path == '/api/profile':
             self._json(profile)
@@ -2983,6 +3244,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'trigger_types': profile.get('trigger_types', {}),
                 'severity': compute_severity_score(),
                 'covert_profile': profile.get('covert_profile', {}),
+                'onset_anomalies': _onset_anomalies,
             })
         elif self.path == '/api/wer':
             # Compute WER stats from recent sessions (raw vs corrected)
@@ -3124,6 +3386,25 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 except (ValueError, TypeError):
                     pass
             self._json({'temperature': WHISPER_TEMP})
+        elif self.path == '/api/whisper_config':
+            global WHISPER_NO_SPEECH_THRESHOLD, WHISPER_MULTI_TEMP
+            if body:
+                if 'no_speech_threshold' in body:
+                    try:
+                        v = float(body['no_speech_threshold'])
+                        WHISPER_NO_SPEECH_THRESHOLD = max(0.0, min(1.0, v))
+                        log(f"Whisper no_speech_threshold: {WHISPER_NO_SPEECH_THRESHOLD}", "info")
+                    except (ValueError, TypeError):
+                        pass
+                if 'multi_temp' in body:
+                    WHISPER_MULTI_TEMP = bool(body['multi_temp'])
+                    log(f"Whisper multi-temp voting: {'ON' if WHISPER_MULTI_TEMP else 'OFF'}", "info")
+            self._json({
+                'temperature': WHISPER_TEMP,
+                'no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD,
+                'multi_temp': WHISPER_MULTI_TEMP,
+                'multi_temps': WHISPER_MULTI_TEMPS,
+            })
         elif self.path == '/api/prep':
             if body and isinstance(body.get('text'), str):
                 result = prep_text(body['text'], profile)
