@@ -1339,6 +1339,65 @@ def falcon_validate(raw_text, clean_text, layer):
     return "yes" in resp.choices[0].message.content.strip().lower()
 
 
+# -- Disfluency post-filter (rule-based, zero API cost) ────────
+# Research shows 28.7% WER reduction from simple post-processing;
+# 61.2% combined with decoder tuning (Whisper prompt parameter).
+
+# Common fillers to strip (bilingual EN/RU)
+_STRIP_FILLERS = {
+    "um", "uh", "uhm", "umm", "erm", "er", "ah", "hm", "hmm",
+    "э", "ээ", "эм", "эээ", "ну", "нуу",
+}
+
+def strip_disfluencies(text):
+    """Remove obvious disfluency artifacts from transcription.
+
+    Handles:
+      1. Word repetitions: "I I I want" → "I want"
+      2. Part-word/stutter fragments: "p- p- pop" → "pop"
+      3. Common filler words: "um", "uh", "er" (EN + RU)
+      4. Phrase repetitions: "I want I want to go" → "I want to go"
+
+    Designed for L1 (transcribe-only) post-processing and
+    L2+ pre-cleaning before GPT reconstruction.
+    """
+    if not text or not text.strip():
+        return text
+
+    # Step 1: Remove stutter fragments (hyphenated false starts)
+    # "p- p- pop" → "pop",  "be- be- become" → "become"
+    cleaned = re.sub(r'(\b\w+)-\s+(?:\1-\s+)*', '', text, flags=re.IGNORECASE)
+
+    # Step 2: Remove consecutive word repetitions
+    # "I I I want" → "I want",  "the the dog" → "the dog"
+    cleaned = re.sub(r'\b(\w+)(?:\s+\1)+\b', r'\1', cleaned, flags=re.IGNORECASE)
+
+    # Step 3: Remove phrase repetitions (2-3 word phrases repeated)
+    # "I want I want to go" → "I want to go"
+    cleaned = re.sub(
+        r'\b(\w+\s+\w+(?:\s+\w+)?)\s+\1\b', r'\1', cleaned, flags=re.IGNORECASE
+    )
+
+    # Step 4: Strip standalone filler words (preserve if part of real content)
+    words = cleaned.split()
+    filtered = []
+    for i, w in enumerate(words):
+        w_lower = w.lower().rstrip('.,!?;:')
+        if w_lower in _STRIP_FILLERS:
+            # Keep filler only if it's the entire utterance
+            if len(words) == 1:
+                filtered.append(w)
+            # Otherwise skip it
+            continue
+        filtered.append(w)
+
+    result = " ".join(filtered).strip()
+    # Collapse multiple spaces
+    result = re.sub(r'\s{2,}', ' ', result)
+    # Don't return empty string — fall back to original
+    return result if result else text
+
+
 # -- Script Prep (pre-speech word substitution, Ghai & Mueller ASSETS '21)
 def prep_text(text, prof):
     """Analyze text the user is about to speak. Flag high-risk words and
@@ -1588,8 +1647,12 @@ def detect_triggers_regex(raw_text):
     return triggers
 
 
+DISFLUENCY_TYPES = {"block", "sound_rep", "word_rep", "prolongation", "interjection", "avoidance"}
+
+
 def detect_triggers_llm(raw_text, output, prof):
-    """LLM-assisted trigger word detection. Async, Layer 4 only."""
+    """LLM-assisted trigger word detection with disfluency type classification.
+    Async, Layer 4 only. Returns dict: {word: disfluency_type}."""
     stats["api_calls"] += 1
     try:
         resp = client.chat.completions.create(
@@ -1598,59 +1661,88 @@ def detect_triggers_llm(raw_text, output, prof):
                 {"role": "system", "content": (
                     "The speaker stutters. Analyze this raw voice transcription and its "
                     "clean reconstruction. Identify TRIGGER WORDS — specific words the "
-                    "speaker stuttered on (repeated syllables, blocks, prolongations).\n\n"
-                    "Disfluency patterns to detect:\n"
-                    "- Part-word repetitions: 'Co-Co-Coca-Cola' → trigger: 'Coca-Cola'\n"
-                    "- Whole-word repetitions: 'I I I want' → trigger: 'I'\n"
-                    "- Prolongations: 'Sssssscience' → trigger: 'Science'\n"
-                    "- Schwa insertion in clusters: 'buh-buh-blue' → trigger: 'blue'\n"
-                    "- Blocks: long pause/silence then a word = that word is a trigger\n"
-                    "- Word avoidance: speaker uses a synonym or circumlocution = "
-                    "the avoided word (if recoverable) is the trigger\n"
-                    "- Sentence abandonment: dropping a thought = the next word was likely a trigger\n\n"
+                    "speaker stuttered on — and classify the DISFLUENCY TYPE for each.\n\n"
+                    "Disfluency types and detection patterns:\n"
+                    "- sound_rep: Part-word/sound repetitions: 'Co-Co-Coca-Cola', 'buh-buh-blue'\n"
+                    "- word_rep: Whole-word repetitions: 'I I I want', 'the the dog'\n"
+                    "- prolongation: Elongated sounds: 'Sssssscience', 'Mmmmmom'\n"
+                    "- block: Silent pause/fixation then a word bursts out (Whisper may hallucinate during the silence)\n"
+                    "- interjection: Filler stacking used to delay a difficult word\n"
+                    "- avoidance: Speaker uses a synonym or circumlocution to avoid a trigger word\n\n"
                     "Phonetic risk factors (words more likely to be triggers):\n"
                     "- Words starting with stop plosives: /p/, /b/, /t/, /d/, /k/, /g/\n"
                     "- Words starting with affricates: /tʃ/ (ch), /dʒ/ (j)\n"
                     "- First word of a sentence or clause boundary\n"
                     "- Consonant clusters at word onset (bl-, cr-, str-, etc.)\n\n"
-                    "Return ONLY valid JSON: {\"trigger_words\": [\"word1\", \"word2\"]}\n"
-                    "If no stuttering detected, return {\"trigger_words\": []}\n"
+                    "Return ONLY valid JSON:\n"
+                    "{\"triggers\": [{\"word\": \"word1\", \"type\": \"block\"}, "
+                    "{\"word\": \"word2\", \"type\": \"sound_rep\"}]}\n"
+                    "If no stuttering detected, return {\"triggers\": []}\n"
                     "Be conservative — only include words with clear evidence of disfluency."
                 )},
                 {"role": "user", "content": f"Raw: {raw_text}\nClean: {output}"}
             ],
-            max_tokens=150,
+            max_tokens=200,
             temperature=0
         )
         text = resp.choices[0].message.content.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
         result = json.loads(text)
-        return set(w.lower() for w in result.get("trigger_words", []))
+        typed_triggers = {}
+        for t in result.get("triggers", []):
+            if isinstance(t, dict) and "word" in t:
+                word = t["word"].lower()
+                dtype = t.get("type", "unknown")
+                if dtype not in DISFLUENCY_TYPES:
+                    dtype = "unknown"
+                typed_triggers[word] = dtype
+            elif isinstance(t, str):
+                # Backward compat: plain string without type
+                typed_triggers[t.lower()] = "unknown"
+        return typed_triggers
     except Exception as e:
         log(f"Trigger detect failed: {e}", "error")
-        return set()
+        return {}
 
 
 def add_trigger_words(new_triggers, prof):
-    """Merge newly detected trigger words into profile."""
+    """Merge newly detected trigger words into profile.
+    Accepts either a set of words or a dict of {word: disfluency_type}."""
     existing = {w.lower() for w in prof.get("trigger_words", [])}
+    trigger_types = prof.get("trigger_types", {})
     added = []
-    for word in new_triggers:
+
+    # Normalize input: set → dict with unknown type
+    if isinstance(new_triggers, set):
+        new_triggers = {w: "unknown" for w in new_triggers}
+
+    for word, dtype in new_triggers.items():
         if word.lower() not in existing and len(word) > 1:
             prof.setdefault("trigger_words", []).append(word)
             existing.add(word.lower())
+            # Store disfluency type
+            trigger_types[word.lower()] = dtype
             learn_events.append({
                 "ts": datetime.now().isoformat(),
                 "type": "trigger",
-                "value": word
+                "value": word,
+                "disfluency_type": dtype
             })
-            log(f"Trigger detected: \"{word}\"", "info")
+            log(f"Trigger detected: \"{word}\" ({dtype})", "info")
             added.append(word)
+        elif word.lower() in existing and dtype != "unknown":
+            # Update type for existing trigger if we now have a classification
+            if trigger_types.get(word.lower()) in (None, "unknown"):
+                trigger_types[word.lower()] = dtype
+
+    prof["trigger_types"] = trigger_types
     if added:
         save_profile(prof)
         # Re-learn personalized onset weights with new trigger evidence
         learn_onset_weights(prof.get("trigger_words", []))
+    elif trigger_types != prof.get("trigger_types"):
+        save_profile(prof)  # save type updates even without new words
     return added
 
 
@@ -1964,11 +2056,12 @@ def pipeline():
     tmp.close()
 
     try:
-        # Step 1: Whisper
+        # Step 1: Whisper (with stutter-aware prompt to bias decoder)
         t0 = time.time()
         with open(tmp.name, "rb") as f:
             result = client.audio.transcriptions.create(
-                model="whisper-1", file=f, language=LANGUAGE
+                model="whisper-1", file=f, language=LANGUAGE,
+                prompt="Clear, fluent speech. Transcribe intended words only, not repetitions or filler sounds."
             )
         raw_text = result.text.strip()
         t_asr = time.time()
@@ -1982,12 +2075,19 @@ def pipeline():
         t_recon = t_asr
         t_val = t_asr
 
+        # Step 1.5: Disfluency post-filter (rule-based, zero cost)
+        # At L1: this IS the output cleanup (no GPT reconstruction)
+        # At L2+: pre-cleans Whisper output before sending to GPT
+        filtered_text = strip_disfluencies(raw_text)
+        if filtered_text != raw_text and current_layer == 1:
+            log(f"Filter: \"{raw_text}\" → \"{filtered_text}\"", "info")
+
         if current_layer > 1 and current_mode != "RAW":
             log(f"Raw: \"{raw_text}\"", "raw")
 
-            # Step 2: Reconstruct
+            # Step 2: Reconstruct (using pre-cleaned text to reduce GPT noise)
             try:
-                clean_text = reconstruct(raw_text, current_tone, current_layer, profile, current_situation)
+                clean_text = reconstruct(filtered_text, current_tone, current_layer, profile, current_situation)
             except Exception as e:
                 log(f"Reconstruct failed ({e}) -- using raw", "error")
                 used_fallback = True
@@ -2007,7 +2107,7 @@ def pipeline():
         # Decision
         risk_flags = compute_risk_flags(raw_text, clean_text, falcon_ok, used_fallback, current_layer)
         decision = make_decision(falcon_ok, current_layer, used_fallback, risk_flags)
-        output = clean_text if (decision["decision"] == "paste_clean" and clean_text) else raw_text
+        output = clean_text if (decision["decision"] == "paste_clean" and clean_text) else filtered_text
         timings = {
             "asr_ms": round((t_asr - t0) * 1000),
             "reconstruct_ms": round((t_recon - t_asr) * 1000),
