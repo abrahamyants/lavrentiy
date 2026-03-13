@@ -246,6 +246,78 @@ Pre-speech word substitution (based on Ghai & Mueller, ASSETS '21). Paste upcomi
 - **Whisper decoder seeding**: Script Prep text is also fed as Whisper's `prompt` parameter — the decoder conditioning token. Whisper's beam search treats this as "previously transcribed text," giving it the answer key before it starts transcribing. This is the single biggest accuracy improvement available on the current API.
 - **Ctrl+Enter** shortcut to run analysis.
 
+## Clipboard Predictor
+
+Background daemon thread that pre-builds Whisper `initial_prompt` bias from clipboard content. Zero-blocking — the bias is always pre-computed and cached before you press record.
+
+**How it works:**
+1. Polls clipboard every 4 seconds
+2. Scores all words locally via `compute_brown_scores()` (instant, no API call)
+3. If ≥2 words exceed 0.55 risk AND situation is high-pressure (phone/interview/presentation) → fires an async LLM call for fluency-friendly synonyms
+4. Caches the result as Whisper `initial_prompt` bias (5-minute TTL)
+5. When you record, `_build_whisper_prompt()` checks the cache — if bias exists, Whisper gets it for free
+
+**Priority chain:** Script Prep (explicit) > Clipboard Predictor (passive) > generic fluency prompt (fallback).
+
+The LLM prompt uses your personal onset weights to ask for synonyms starting with continuants (/l/, /m/, /n/, /r/, /w/, /h/) or vowels. Cache invalidates automatically on situation change.
+
+## Live Trigger Warning
+
+Real-time risk visualization in the live preview bar. As Whisper streams interim results, each word is scored via `predict_phonetic_risk()` and color-coded:
+
+- **Risk ≥ 0.8**: Red with pulsing animation — high block probability
+- **Risk ≥ 0.6**: Yellow with wavy underline — moderate risk
+- **Below 0.6**: Normal text
+
+Known trigger words from the profile are forced to 1.0 (always red). Gives the speaker a visual heads-up on upcoming difficult words before they finish the utterance.
+
+## Situation Pre-Warm
+
+When you switch situations (phone, interview, presentation, reading), Lavrentiy auto-configures the full stack:
+
+| Situation | DAF | Layer | Prep Text |
+|-----------|-----|-------|-----------|
+| Phone | 100ms | L4 | "Hello this is speaking. Can you repeat that? I'm calling about" |
+| Interview | 80ms | L4 | "Thank you for having me. Great question. To summarize" |
+| Presentation | Off | L4 | "Next slide. As you can see. In conclusion. Thank you" |
+| Reading | Off | L3 | (none) |
+
+Prep text is loaded automatically as Script Prep, which means Whisper decoder seeding is instant — you don't have to type anything. Clipboard predictor cache also invalidates on situation change for immediate re-scoring.
+
+## Shadow Utterance
+
+"What you probably meant to say." For prepped text, the Script Prep IS the shadow (zero cost). For unprepped text, one LLM call infers intended speech from the partial/disfluent context. The diff between shadow and actual transcript = **avoidance drift score** — a quantitative measure of how far the spoken output deviated from intent. History tracked per session.
+
+## Weekly Clinical Report
+
+Aggregates session analytics in Python and sends structured data to GPT-4o-mini for a therapist-grade narrative summary. Metrics included:
+
+- Edit distance trend (first half vs second half of period — improving or regressing?)
+- Pause ratio averages
+- Top onset triggers by frequency
+- Situation breakdown (which contexts produce the most disfluency)
+- Language breakdown (EN vs RU)
+- Covert avoidance event counts
+- Correction and trigger counts
+
+Output is a clinical summary suitable for sharing with an SLP. Available via the 📊 button in the Learning tab.
+
+## Fluency Trend Tracking
+
+Per-session fluency scores (0.0–1.0) computed from disfluency density, edit distance, and speaking rate. Persisted in SQLite. The `/api/fluency` endpoint returns the full trend array plus a moving average, enabling the dashboard to render a fluency sparkline over time. Severity decomposition breaks the score into component factors.
+
+## Speech Rate Analysis
+
+Syllable-per-second speaking rate estimated from word count and audio duration. Tracked per session. Abnormally slow rate (< 2.0 syl/s) may indicate prolongations or blocks not captured by Whisper.
+
+## Substitution Fingerprinting
+
+Tracks onset-level substitution patterns across sessions. If a speaker consistently replaces /k/-initial words with /m/-initial synonyms, the fingerprint captures this as a directional avoidance vector. Used to predict future avoidance before it happens.
+
+## Profile Decay
+
+Stale profile entries (trigger words, fillers, corrections) that haven't been reinforced by recent sessions gradually lose weight. Prevents the profile from accumulating false positives from early sessions when calibration data was sparse. Runs automatically every 5 sessions.
+
 ## DAF (Delayed Auditory Feedback)
 
 Plays your mic audio back through headphones with a configurable delay (30–300ms, default 100ms). The delayed echo creates a choral reading effect that reduces stuttering blocks for many speakers. Toggle on/off and adjust the delay slider in the dashboard sidebar. Uses the same mic device as the recording pipeline. No extra dependencies — built on `sounddevice` streaming.
@@ -321,20 +393,23 @@ Built for English/Russian bilingual speakers. Filler detection covers both langu
 Single HTML file served by the engine's embedded HTTP server:
 
 - Real-time state indicator (recording / processing / idle)
-- Tone, layer, mode, and situation controls
+- Tone, layer, mode, and situation controls (with pre-warm indicators)
 - DAF toggle and delay slider
+- Live preview bar with risk-colored trigger warnings
 - Session stats and estimated API cost
 - Live console log
-- Session history (SQLite-backed, unlimited)
-- Learning event feed with progress tracking
+- Session history (SQLite-backed, unlimited) with exposure bands and edit distance
+- Fluency trend sparkline
+- Learning event feed with progress tracking and edit distance chart
 - Clinical stutter insights with therapeutic techniques (Layer 4)
 - Script Prep with swap-in-place synonym replacement (Ctrl+Enter)
-- Calibration mode (60 prompts, WER tracking, progress bar)
+- Weekly clinical report generation (📊 button)
+- Calibration mode (60 prompts, WER tracking, progress bar, WER sparkline)
 - Data augmentation controls (synthetic disfluent speech generation)
 - Stuttering Foundation tips reference (56 entries, 8 categories)
-- Profile editor (triggers, fillers, vocabulary, corrections)
+- Profile editor (triggers, fillers, vocabulary, corrections, covert pairs management)
 - Compact mode (minimized bar for always-on-top use)
-- Customizable hotkeys
+- Customizable hotkeys (F1–F12 rebinding via sidebar editor)
 
 ## API Endpoints
 
@@ -346,17 +421,26 @@ Single HTML file served by the engine's embedded HTTP server:
 | GET | `/api/log` | Console log |
 | GET | `/api/learn` | Learning status, events, onset weights, insights |
 | GET | `/api/wer` | WER stats from session history |
+| GET | `/api/fluency` | Fluency trend array + moving average |
+| GET | `/api/preview` | Live preview text with per-word risk scores |
 | GET | `/api/archive` | Archive stats (sessions, size, fine-tuning readiness) |
 | GET | `/api/calibration` | Calibration progress + next prompt |
 | GET | `/api/augment` | Augmentation status |
+| GET | `/api/severity` | Current severity decomposition |
+| GET | `/api/hotkeys` | Current hotkey bindings |
+| GET | `/api/daf` | DAF state and delay |
 | POST | `/api/tone` | Set tone |
 | POST | `/api/layer` | Set layer |
 | POST | `/api/mode` | Set mode |
-| POST | `/api/situation` | Set situational context |
+| POST | `/api/situation` | Set situational context (triggers pre-warm) |
 | POST | `/api/profile` | Update profile sections |
 | POST | `/api/prep` | Script Prep analysis |
 | POST | `/api/daf` | DAF toggle/delay |
+| POST | `/api/hotkeys` | Update hotkey bindings (F1–F12) |
+| POST | `/api/report` | Generate weekly clinical report (GPT-4o-mini) |
 | POST | `/api/whisper_config` | Whisper params: `no_speech_threshold`, `multi_temp` toggle |
+| POST | `/api/whisper_temp` | Set Whisper decoder temperature |
+| POST | `/api/covert/remove` | Remove a covert avoidance pair |
 | POST | `/api/calibration/start` | Begin calibration session |
 | POST | `/api/calibration/record` | Submit calibration recording (base64 WAV) |
 | POST | `/api/calibration/skip` | Skip a prompt |
