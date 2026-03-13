@@ -298,6 +298,10 @@ HIGH_RISK_ONSETS = {
     'p', 't', 'k',
     # Voiced stop plosives
     'b', 'd', 'g',
+    # Spelling variant: 'c' maps to /k/ (cat, come, call) or /s/ (city, cell)
+    # Both are risky — /k/ is a plosive, /s/ is a fricative. Adding 'c' catches
+    # words like "computer", "conference", "could" that _extract_onset missed.
+    'c',
     # Affricates
     'ch', 'j',
     # High-risk consonant clusters
@@ -4342,6 +4346,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json(augment_status())
         elif self.path == '/api/severity':
             self._json(compute_severity_score())
+        elif self.path == '/api/hotkeys':
+            self._json({
+                'record': RECORD_KEY.upper(),
+                'tone': TONE_KEY.upper(),
+                'layer': LAYER_KEY.upper(),
+                'stats': 'F12',
+                'quit': 'F3',
+            })
         else:
             self.send_error(404)
 
@@ -4499,6 +4511,30 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json({"skipped": pid, "next_prompt": calibration_next_prompt(), "status": calibration_status()})
             else:
                 self._json({"error": "Send {\"prompt_id\": N}"})
+        elif self.path == '/api/hotkeys':
+            global RECORD_KEY, TONE_KEY, LAYER_KEY
+            if body and isinstance(body, dict):
+                valid_keys = {'f1','f2','f3','f4','f5','f6','f7','f8','f9','f10','f11','f12'}
+                if 'record' in body:
+                    k = str(body['record']).lower()
+                    if k in valid_keys:
+                        RECORD_KEY = k
+                if 'tone' in body:
+                    k = str(body['tone']).lower()
+                    if k in valid_keys:
+                        TONE_KEY = k
+                if 'layer' in body:
+                    k = str(body['layer']).lower()
+                    if k in valid_keys:
+                        LAYER_KEY = k
+                log(f"Hotkeys updated: record={RECORD_KEY} tone={TONE_KEY} layer={LAYER_KEY}", "info")
+            self._json({
+                'record': RECORD_KEY.upper(),
+                'tone': TONE_KEY.upper(),
+                'layer': LAYER_KEY.upper(),
+                'stats': 'F12',
+                'quit': 'F3',
+            })
         elif self.path == '/api/augment':
             if _augment_state["running"]:
                 self._json({"error": "augmentation already running", "status": augment_status()})
