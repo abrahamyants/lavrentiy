@@ -25,6 +25,7 @@ import time
 import json
 import sqlite3
 import ctypes
+import shutil
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from scipy.signal import resample_poly
 from math import gcd
@@ -91,6 +92,88 @@ PREVIEW_LANGUAGE = "en"
 DAF_DEFAULT_DELAY_MS = 100        # default delay in milliseconds
 DAF_MIN_DELAY_MS = 30
 DAF_MAX_DELAY_MS = 300
+
+# -- Session audio archive (training data for future local Whisper) ──
+ARCHIVE_AUDIO = True              # save session WAVs for fine-tuning
+ARCHIVE_DIR = PROFILE_DIR / "audio_archive"
+ARCHIVE_MAX_MB = 2000             # auto-pause archiving above this (≈2GB)
+
+# -- Calibration mode (Tier 2: structured data collection) ───────
+CALIBRATION_DIR = PROFILE_DIR / "calibration"
+CALIBRATION_PROMPTS = [
+    # Category 1: Smart Home / Virtual Assistant (short commands)
+    {"id": 1,  "category": "smart_home", "text": "Turn off the kitchen lights"},
+    {"id": 2,  "category": "smart_home", "text": "Set the thermostat to seventy-two degrees"},
+    {"id": 3,  "category": "smart_home", "text": "Lock the front door"},
+    {"id": 4,  "category": "smart_home", "text": "Play my morning playlist on the living room speaker"},
+    {"id": 5,  "category": "smart_home", "text": "Set a timer for fifteen minutes"},
+    # Category 2: Healthcare (medium complexity, clinical terms)
+    {"id": 6,  "category": "healthcare", "text": "Schedule an appointment with Doctor Peterson for next Thursday"},
+    {"id": 7,  "category": "healthcare", "text": "Refill my prescription for blood pressure medication"},
+    {"id": 8,  "category": "healthcare", "text": "I need to cancel my physical therapy session on Friday"},
+    {"id": 9,  "category": "healthcare", "text": "What are the side effects of this medication"},
+    {"id": 10, "category": "healthcare", "text": "Check if my insurance covers the procedure"},
+    # Category 3: Finance (numbers, proper nouns)
+    {"id": 11, "category": "finance", "text": "Transfer three hundred dollars to my savings account"},
+    {"id": 12, "category": "finance", "text": "What is my current credit card balance"},
+    {"id": 13, "category": "finance", "text": "Pay the electricity bill before the fifteenth"},
+    {"id": 14, "category": "finance", "text": "Show me transactions from the past two weeks"},
+    {"id": 15, "category": "finance", "text": "Set up automatic payment for my student loan"},
+    # Category 4: Navigation / Travel (place names, directions)
+    {"id": 16, "category": "navigation", "text": "Navigate to the nearest gas station"},
+    {"id": 17, "category": "navigation", "text": "What time does the train to San Francisco depart"},
+    {"id": 18, "category": "navigation", "text": "Find a restaurant within walking distance"},
+    {"id": 19, "category": "navigation", "text": "Book a hotel room for two nights starting Saturday"},
+    {"id": 20, "category": "navigation", "text": "How long is the drive to the airport from here"},
+    # Category 5: Communication (emails, calls, messages)
+    {"id": 21, "category": "communication", "text": "Send a message to Jana saying I will be home by six"},
+    {"id": 22, "category": "communication", "text": "Read my most recent email from work"},
+    {"id": 23, "category": "communication", "text": "Call the dentist office and ask about availability"},
+    {"id": 24, "category": "communication", "text": "Reply to the last message and say sounds good"},
+    {"id": 25, "category": "communication", "text": "Compose an email to my manager about the project deadline"},
+    # Category 6: Shopping / E-commerce
+    {"id": 26, "category": "shopping", "text": "Add milk and eggs to my grocery list"},
+    {"id": 27, "category": "shopping", "text": "Order the blue jacket in size medium"},
+    {"id": 28, "category": "shopping", "text": "Compare prices for wireless headphones"},
+    {"id": 29, "category": "shopping", "text": "Return the package I received yesterday"},
+    {"id": 30, "category": "shopping", "text": "Track the delivery status of my recent order"},
+    # Category 7: Work / Productivity (longer, more complex)
+    {"id": 31, "category": "productivity", "text": "Create a meeting for Tuesday at two o'clock with the design team"},
+    {"id": 32, "category": "productivity", "text": "Remind me to submit the quarterly report by end of day Friday"},
+    {"id": 33, "category": "productivity", "text": "Move my three o'clock meeting to four thirty"},
+    {"id": 34, "category": "productivity", "text": "Take a note that the client wants the proposal revised by Monday"},
+    {"id": 35, "category": "productivity", "text": "What is on my calendar for tomorrow morning"},
+    # Category 8: Media / Entertainment
+    {"id": 36, "category": "media", "text": "Play the latest episode of my podcast"},
+    {"id": 37, "category": "media", "text": "Turn on closed captioning for this video"},
+    {"id": 38, "category": "media", "text": "Search for comedy movies released this year"},
+    {"id": 39, "category": "media", "text": "Pause the music and set a sleep timer for thirty minutes"},
+    {"id": 40, "category": "media", "text": "Show me the news headlines from today"},
+    # Category 9: Phonetically challenging (loaded with known trigger onsets)
+    {"id": 41, "category": "phonetic_challenge", "text": "Please print the presentation before the conference call"},
+    {"id": 42, "category": "phonetic_challenge", "text": "The critical component of the contract requires clarification"},
+    {"id": 43, "category": "phonetic_challenge", "text": "Can you confirm the customer complaint was properly documented"},
+    {"id": 44, "category": "phonetic_challenge", "text": "The committee concluded that the proposal needs comprehensive revisions"},
+    {"id": 45, "category": "phonetic_challenge", "text": "Prepare the quarterly performance report for the board presentation"},
+    # Category 10: Spontaneous / Conversational (longer, natural speech)
+    {"id": 46, "category": "spontaneous", "text": "Tell me about a time you had to work under pressure to meet a deadline"},
+    {"id": 47, "category": "spontaneous", "text": "Describe a project you are most proud of and explain why"},
+    {"id": 48, "category": "spontaneous", "text": "What would you do if you disagreed with a decision your manager made"},
+    {"id": 49, "category": "spontaneous", "text": "Explain how you would handle a situation where a coworker is not contributing to a group project"},
+    {"id": 50, "category": "spontaneous", "text": "If you could improve one thing about your daily routine what would it be and why"},
+    # Category 11: Technical / Bilingual (code-switching, technical terms)
+    {"id": 51, "category": "technical", "text": "Deploy the latest build to the staging environment"},
+    {"id": 52, "category": "technical", "text": "The database connection timed out during the migration"},
+    {"id": 53, "category": "technical", "text": "Run the automated test suite and send me the results"},
+    {"id": 54, "category": "technical", "text": "Check if the pull request has any merge conflicts"},
+    {"id": 55, "category": "technical", "text": "The API endpoint is returning a five hundred internal server error"},
+    # Category 12: Personal / Emotional (names, family, feelings)
+    {"id": 56, "category": "personal", "text": "Remind me to pick up Alex from school at three fifteen"},
+    {"id": 57, "category": "personal", "text": "Add dog food and treats to the shopping list"},
+    {"id": 58, "category": "personal", "text": "Call my wife and tell her I am running about twenty minutes late"},
+    {"id": 59, "category": "personal", "text": "Save this recipe for banana bread so I can make it this weekend"},
+    {"id": 60, "category": "personal", "text": "Set an alarm for six thirty tomorrow morning"},
+]
 
 # -- Stutter insights ────────────────────────────────────────────
 STUTTER_TIPS = {
@@ -543,6 +626,148 @@ def log_session(prof, raw, output, tone, layer, decision=None, timings=None, sit
         )
         _db.commit()
 
+
+def archive_session_audio(tmp_path, raw_text, output_text, layer, situation):
+    """Save session audio + transcript pair for future Whisper fine-tuning.
+    Each session becomes one training sample: (audio.wav, metadata.json)."""
+    if not ARCHIVE_AUDIO:
+        return
+    try:
+        ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+        # Check disk budget
+        if ARCHIVE_DIR.exists():
+            total_bytes = sum(f.stat().st_size for f in ARCHIVE_DIR.rglob("*") if f.is_file())
+            if total_bytes > ARCHIVE_MAX_MB * 1024 * 1024:
+                log(f"Audio archive at {total_bytes // (1024*1024)}MB — paused (limit: {ARCHIVE_MAX_MB}MB)", "info")
+                return
+        # Timestamp-based filename
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        wav_dest = ARCHIVE_DIR / f"{ts}.wav"
+        meta_dest = ARCHIVE_DIR / f"{ts}.json"
+        # Copy WAV (don't move — original still needed for cleanup)
+        shutil.copy2(tmp_path, wav_dest)
+        # Save transcript pair
+        meta = {
+            "timestamp": datetime.now().isoformat(),
+            "raw_whisper": raw_text,
+            "corrected_output": output_text,
+            "layer": layer,
+            "situation": situation,
+        }
+        with open(meta_dest, 'w', encoding='utf-8') as f:
+            json.dump(meta, f, indent=2, ensure_ascii=False)
+        log(f"Archived session audio: {wav_dest.name}", "info")
+    except Exception as e:
+        log(f"Audio archive failed (non-fatal): {e}", "error")
+
+
+# -- Calibration mode ────────────────────────────────────────────
+_calibration_state = {
+    "active": False,
+    "started_at": None,
+    "completed": [],
+    "skipped": [],
+    "current_prompt": None
+}
+
+
+def calibration_status():
+    """Return calibration progress."""
+    total = len(CALIBRATION_PROMPTS)
+    done = len(_calibration_state["completed"])
+    skipped = len(_calibration_state["skipped"])
+    remaining = total - done - skipped
+    existing_wavs = 0
+    if CALIBRATION_DIR.exists():
+        existing_wavs = len(list(CALIBRATION_DIR.glob("*.wav")))
+    return {
+        "active": _calibration_state["active"],
+        "total_prompts": total,
+        "completed": done,
+        "skipped": skipped,
+        "remaining": remaining,
+        "pct": round(done / total * 100) if total else 0,
+        "existing_samples": existing_wavs,
+        "ready_for_finetuning": existing_wavs >= 50,
+        "categories": list({p["category"] for p in CALIBRATION_PROMPTS}),
+        "started_at": _calibration_state["started_at"],
+    }
+
+
+def calibration_next_prompt():
+    """Get the next uncompleted, unskipped prompt."""
+    done_ids = set(_calibration_state["completed"]) | set(_calibration_state["skipped"])
+    for p in CALIBRATION_PROMPTS:
+        if p["id"] not in done_ids:
+            _calibration_state["current_prompt"] = p["id"]
+            return p
+    return None
+
+
+def calibration_save_audio(prompt_id, audio_data, sample_rate):
+    """Save calibration audio with ground-truth alignment."""
+    prompt = next((p for p in CALIBRATION_PROMPTS if p["id"] == prompt_id), None)
+    if not prompt:
+        return {"error": "unknown prompt_id"}
+    CALIBRATION_DIR.mkdir(parents=True, exist_ok=True)
+    base = f"cal_{prompt_id:03d}_{prompt['category']}"
+    wav_path = CALIBRATION_DIR / f"{base}.wav"
+    meta_path = CALIBRATION_DIR / f"{base}.json"
+    sf.write(str(wav_path), audio_data, sample_rate)
+    # Run through Whisper to capture raw ASR for WER comparison
+    whisper_raw = ""
+    try:
+        with open(str(wav_path), "rb") as f:
+            result = client.audio.transcriptions.create(
+                model="whisper-1", file=f, language=LANGUAGE
+            )
+        whisper_raw = result.text.strip()
+        stats["api_calls"] += 1
+    except Exception as e:
+        log(f"Calibration Whisper pass failed: {e}", "error")
+    wer_val = None
+    if whisper_raw:
+        wer_val, _, _, _ = compute_wer(prompt["text"], whisper_raw)
+    meta = {
+        "prompt_id": prompt_id,
+        "category": prompt["category"],
+        "ground_truth": prompt["text"],
+        "whisper_raw": whisper_raw,
+        "wer": round(wer_val, 4) if wer_val is not None else None,
+        "timestamp": datetime.now().isoformat(),
+        "sample_rate": sample_rate,
+    }
+    with open(meta_path, 'w', encoding='utf-8') as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
+    if prompt_id not in _calibration_state["completed"]:
+        _calibration_state["completed"].append(prompt_id)
+    wer_pct = f" (WER: {round(wer_val * 100, 1)}%)" if wer_val is not None else ""
+    log(f"Calibration #{prompt_id}: saved{wer_pct}", "info")
+    return {
+        "saved": True, "prompt_id": prompt_id,
+        "whisper_raw": whisper_raw, "ground_truth": prompt["text"],
+        "wer": round(wer_val, 4) if wer_val is not None else None,
+    }
+
+
+def calibration_load_progress():
+    """Restore calibration progress from disk."""
+    if not CALIBRATION_DIR.exists():
+        return
+    for meta_file in CALIBRATION_DIR.glob("*.json"):
+        try:
+            with open(meta_file, 'r') as f:
+                data = json.load(f)
+            pid = data.get("prompt_id")
+            if pid and pid not in _calibration_state["completed"]:
+                _calibration_state["completed"].append(pid)
+        except Exception:
+            pass
+
+
+calibration_load_progress()
+
+
 profile = load_profile()
 profile = migrate_profile(profile)
 if normalize_profile(profile):
@@ -796,6 +1021,20 @@ def reconstruct(raw_text, tone, layer, prof, situation=None):
             "\n- Ellipsis, trailing off, or sudden topic change before a specific word = avoidance"
             "\n- 'I need the... uh... that thing' = speaker feared the next word, not searching for it"
             "\n- Treat pre-word pauses on content words as blocks, not as natural hesitation"
+            "\n\nWhisper ASR failure modes on stuttered speech (correct these artifacts):"
+            "\n- HALLUCINATION DURING BLOCKS: silence/frozen onset → Whisper invents words to fill the gap"
+            "\n  e.g. block before 'computer' → Whisper outputs 'come to' or 'come put her'"
+            "\n- SYLLABLE DELETION: repeated syllables get collapsed or dropped"
+            "\n  e.g. 'Ca-ca-ca-can I' → Whisper outputs 'Can I' (correct) or just 'I' (dropped too much)"
+            "\n- PHANTOM INSERTIONS: during prolongations, Whisper hallucinates phonetically similar words"
+            "\n  e.g. 'sssscience' → Whisper outputs 'signs' or 'silence'"
+            "\n- SCHWA CORRUPTION: neutral vowel in repeated clusters gets transcribed as a real word"
+            "\n  e.g. 'buh-buh-blue' → Whisper outputs 'but but blue' or 'above blue'"
+            "\n- PAUSE HALLUCINATION: long pauses → Whisper generates filler text, thanks, or topic shifts"
+            "\n  e.g. 3-second block → Whisper adds 'Thank you' or 'Okay' or repeats the previous phrase"
+            "\n- WORD BOUNDARY ERRORS: disfluent onset merged with previous word"
+            "\n  e.g. 'the c-c-contract' → Whisper outputs 'the contract' (fine) or 'they contract' (merged)"
+            "\nIf a word seems phonetically plausible but semantically wrong, suspect a Whisper artifact."
             "\n\nExamples:"
             "\n- 'Can you give me the, uh, the paper for the thing you sign "
             "at the front desk' → 'Can you give me the form you sign at the front desk'"
@@ -863,6 +1102,83 @@ def falcon_validate(raw_text, clean_text, layer):
         temperature=0
     )
     return "yes" in resp.choices[0].message.content.strip().lower()
+
+
+# -- Script Prep (pre-speech word substitution, Ghai & Mueller ASSETS '21)
+def prep_text(text, prof):
+    """Analyze text the user is about to speak. Flag high-risk words and
+    suggest phonetically safer synonyms. Returns list of flagged words
+    with alternatives."""
+    if not text or not text.strip():
+        return {"words": [], "flagged": []}
+
+    triggers = prof.get("trigger_words", [])
+    trigger_set = {t.lower() for t in triggers}
+    # Score every word
+    words = re.findall(r'\b\w+\b', text)
+    scored = []
+    for w in words:
+        risk = predict_phonetic_risk(w)
+        # Exact match on known triggers = max risk
+        if w.lower() in trigger_set:
+            risk = 1.0
+        # Boost for onset match with known triggers
+        elif any(w.lower()[:2] == t.lower()[:2] for t in triggers if len(t) >= 2):
+            risk = min(risk + 0.2, 1.0)
+        scored.append({"word": w, "risk": round(risk, 2)})
+
+    flagged = [s for s in scored if s["risk"] >= 0.6]
+    if not flagged:
+        return {"words": scored, "flagged": []}
+
+    # Build onset avoidance list from personal patterns
+    avoid_onsets = []
+    if _personal_onset_weights:
+        avoid_onsets = sorted(_personal_onset_weights.keys(),
+                              key=lambda k: _personal_onset_weights[k], reverse=True)[:5]
+
+    flagged_words = list(dict.fromkeys(s["word"] for s in flagged))  # unique, order-preserved
+    onset_note = f"\nOnsets this speaker struggles with: {', '.join(avoid_onsets)}" if avoid_onsets else ""
+
+    stats["api_calls"] += 1
+    try:
+        resp = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": (
+                    "You are a speech preparation assistant for a person who stutters. "
+                    "For each word provided, suggest 2-3 alternative words or short phrases that:\n"
+                    "1. Preserve the same meaning in context\n"
+                    "2. Are phonetically easier — prefer words starting with vowels, "
+                    "continuants (/l/, /m/, /n/, /r/, /w/, /h/), or soft onsets\n"
+                    "3. AVOID words starting with these sounds: "
+                    f"{', '.join(avoid_onsets) if avoid_onsets else 'stop plosives and consonant clusters'}\n"
+                    "4. Sound natural — not clinical or obscure\n"
+                    f"{onset_note}\n\n"
+                    "Return ONLY valid JSON: {\"suggestions\": {\"word1\": [\"alt1\", \"alt2\"], ...}}\n"
+                    "If no good alternative exists, return an empty array for that word."
+                )},
+                {"role": "user", "content": (
+                    f"Context sentence: {text}\n\n"
+                    f"Words to find alternatives for: {', '.join(flagged_words[:15])}"
+                )}
+            ],
+            max_tokens=500,
+            temperature=0.4
+        )
+        result_text = resp.choices[0].message.content.strip()
+        if result_text.startswith("```"):
+            result_text = result_text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        suggestions = json.loads(result_text).get("suggestions", {})
+    except Exception as e:
+        log(f"Prep synonyms failed: {e}", "error")
+        suggestions = {}
+
+    # Merge suggestions into flagged words
+    for item in flagged:
+        item["alternatives"] = suggestions.get(item["word"], [])
+
+    return {"words": scored, "flagged": flagged}
 
 
 # -- Auto-Learn ──────────────────────────────────────────────────
@@ -1320,6 +1636,41 @@ def set_state(s):
 
 _DANGLING = re.compile(r'(?:,|\band\s*$|\bor\s*$|\bbut\s*$|\.{2}(?!\.)|\bthe\s*$)', re.IGNORECASE)
 
+
+def compute_wer(reference, hypothesis):
+    """Word Error Rate between reference (intended) and hypothesis (ASR output).
+    Returns (wer_float, substitutions, deletions, insertions)."""
+    ref = reference.lower().split()
+    hyp = hypothesis.lower().split()
+    r, h = len(ref), len(hyp)
+    # Dynamic programming edit distance
+    d = [[0] * (h + 1) for _ in range(r + 1)]
+    for i in range(r + 1):
+        d[i][0] = i
+    for j in range(h + 1):
+        d[0][j] = j
+    for i in range(1, r + 1):
+        for j in range(1, h + 1):
+            if ref[i - 1] == hyp[j - 1]:
+                d[i][j] = d[i - 1][j - 1]
+            else:
+                d[i][j] = 1 + min(d[i - 1][j], d[i][j - 1], d[i - 1][j - 1])
+    # Backtrace for S/D/I counts
+    i, j = r, h
+    s_count = d_count = i_count = 0
+    while i > 0 or j > 0:
+        if i > 0 and j > 0 and ref[i - 1] == hyp[j - 1]:
+            i -= 1; j -= 1
+        elif i > 0 and j > 0 and d[i][j] == d[i - 1][j - 1] + 1:
+            s_count += 1; i -= 1; j -= 1
+        elif i > 0 and d[i][j] == d[i - 1][j] + 1:
+            d_count += 1; i -= 1
+        else:
+            i_count += 1; j -= 1
+    wer = d[r][h] / max(r, 1)
+    return (wer, s_count, d_count, i_count)
+
+
 def compute_risk_flags(raw_text, clean_text, falcon_ok, used_fallback, layer):
     """Deterministic risk flags — no LLM calls."""
     flags = []
@@ -1470,6 +1821,11 @@ def pipeline():
                 learn_status["next_in"] = LEARN_EVERY
                 threading.Thread(target=learn_from_sessions, args=(profile,), daemon=True).start()
 
+        # Step 7: Archive audio for future Whisper fine-tuning
+        # Runs synchronously — must complete before finally{} deletes tmp
+        if current_layer >= 2 and raw_text and output:
+            archive_session_audio(tmp.name, raw_text, output, current_layer, current_situation)
+
     except Exception as e:
         log(f"Error: {e}", "error")
         state = 'error'
@@ -1594,6 +1950,52 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     'has_data': bool(_personal_onset_weights),
                 }
             })
+        elif self.path == '/api/wer':
+            # Compute WER stats from recent sessions (raw vs corrected)
+            sessions = db_get_sessions(limit=100)
+            l2_plus = [s for s in sessions if s.get("layer", 1) >= 2 and s.get("raw") != s.get("out")]
+            if l2_plus:
+                wers = []
+                for s in l2_plus:
+                    w, _, _, _ = compute_wer(s["out"], s["raw"])
+                    wers.append(w)
+                avg_wer = sum(wers) / len(wers)
+                recent_wers = wers[:10]
+                recent_avg = sum(recent_wers) / len(recent_wers) if recent_wers else 0
+                self._json({
+                    'avg_wer': round(avg_wer, 4),
+                    'recent_wer': round(recent_avg, 4),
+                    'sample_count': len(l2_plus),
+                    'interpretation': (
+                        'excellent (<10%)' if avg_wer < 0.10 else
+                        'good (10-20%)' if avg_wer < 0.20 else
+                        'moderate (20-30%) — reconstruction doing heavy lifting' if avg_wer < 0.30 else
+                        'high (>30%) — fine-tuned local Whisper would help significantly'
+                    )
+                })
+            else:
+                self._json({'avg_wer': None, 'sample_count': 0, 'interpretation': 'no data yet'})
+        elif self.path == '/api/archive':
+            # Archive stats
+            count = 0
+            total_bytes = 0
+            if ARCHIVE_DIR.exists():
+                wavs = list(ARCHIVE_DIR.glob("*.wav"))
+                count = len(wavs)
+                total_bytes = sum(f.stat().st_size for f in ARCHIVE_DIR.rglob("*") if f.is_file())
+            self._json({
+                'enabled': ARCHIVE_AUDIO,
+                'sessions_archived': count,
+                'size_mb': round(total_bytes / (1024 * 1024), 1),
+                'max_mb': ARCHIVE_MAX_MB,
+                'path': str(ARCHIVE_DIR),
+                'ready_for_finetuning': count >= 50,
+                'finetuning_note': (
+                    f'{count} sessions archived — need ~50 for meaningful fine-tuning'
+                    if count < 50 else
+                    f'{count} sessions archived — sufficient for LoRA fine-tuning'
+                )
+            })
         elif self.path == '/api/preview':
             with preview_lock:
                 self._json({
@@ -1610,6 +2012,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'min': DAF_MIN_DELAY_MS,
                 'max': DAF_MAX_DELAY_MS
             })
+        elif self.path == '/api/calibration':
+            status = calibration_status()
+            nxt = calibration_next_prompt()
+            status["next_prompt"] = nxt
+            self._json(status)
+        elif self.path == '/api/calibration/prompts':
+            self._json(CALIBRATION_PROMPTS)
         else:
             self.send_error(404)
 
@@ -1667,6 +2076,51 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'active': _daf_active,
                 'delay_ms': _daf_delay_ms
             })
+        elif self.path == '/api/prep':
+            if body and isinstance(body.get('text'), str):
+                result = prep_text(body['text'], profile)
+                self._json(result)
+            else:
+                self._json({"error": "Send {\"text\": \"your script here\"}"})
+        elif self.path == '/api/calibration/start':
+            _calibration_state["active"] = True
+            _calibration_state["started_at"] = datetime.now().isoformat()
+            log("Calibration mode started", "info")
+            nxt = calibration_next_prompt()
+            self._json({"started": True, "next_prompt": nxt, "status": calibration_status()})
+        elif self.path == '/api/calibration/stop':
+            _calibration_state["active"] = False
+            log(f"Calibration stopped — {len(_calibration_state['completed'])}/{len(CALIBRATION_PROMPTS)} completed", "info")
+            self._json({"stopped": True, "status": calibration_status()})
+        elif self.path == '/api/calibration/record':
+            # Receives base64-encoded WAV audio for a specific prompt
+            if body and 'prompt_id' in body and 'audio_b64' in body:
+                import base64
+                try:
+                    audio_bytes = base64.b64decode(body['audio_b64'])
+                    # Write to temp file, read back as numpy array
+                    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                    tmp.write(audio_bytes)
+                    tmp.close()
+                    audio_data, sr = sf.read(tmp.name)
+                    os.unlink(tmp.name)
+                    result = calibration_save_audio(int(body['prompt_id']), audio_data, sr)
+                    result["next_prompt"] = calibration_next_prompt()
+                    result["status"] = calibration_status()
+                    self._json(result)
+                except Exception as e:
+                    log(f"Calibration record failed: {e}", "error")
+                    self._json({"error": str(e)})
+            else:
+                self._json({"error": "Send {\"prompt_id\": N, \"audio_b64\": \"...\"}"})
+        elif self.path == '/api/calibration/skip':
+            if body and 'prompt_id' in body:
+                pid = int(body['prompt_id'])
+                if pid not in _calibration_state["skipped"]:
+                    _calibration_state["skipped"].append(pid)
+                self._json({"skipped": pid, "next_prompt": calibration_next_prompt(), "status": calibration_status()})
+            else:
+                self._json({"error": "Send {\"prompt_id\": N}"})
         else:
             self.send_error(404)
 

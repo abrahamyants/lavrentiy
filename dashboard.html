@@ -957,6 +957,133 @@ body::before {
 .tab-panel.active .tip-item .ti-example { background: #3a1818; color: #b09898; }
 .tab-panel.active .tip-item .ti-source { color: #a08888; }
 
+/* ─── PREP (Script Preparation) ───────────────── */
+.prep-wrap { padding: 16px 24px; display: flex; flex-direction: column; height: 100%; }
+.prep-input-area { display: flex; gap: 8px; margin-bottom: 12px; }
+.prep-textarea {
+  flex: 1; min-height: 80px; max-height: 160px; resize: vertical;
+  background: var(--sunken); border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text); font-family: var(--sans); font-size: 13px;
+  padding: 12px 14px; outline: none; transition: border-color 0.2s;
+}
+.prep-textarea:focus { border-color: var(--red); }
+.prep-textarea::placeholder { color: var(--text-muted); }
+.prep-btn {
+  align-self: flex-end; padding: 10px 20px;
+  background: var(--red); color: #fff; border: none; border-radius: var(--radius);
+  font-family: var(--mono); font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+  cursor: pointer; transition: all 0.2s; white-space: nowrap;
+}
+.prep-btn:hover { background: var(--red-bright); transform: translateY(-1px); }
+.prep-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+.prep-results { flex: 1; overflow-y: auto; }
+.prep-word {
+  display: inline-block; padding: 3px 8px; margin: 2px 3px; border-radius: 4px;
+  font-family: var(--sans); font-size: 14px; line-height: 1.8;
+  transition: all 0.15s; position: relative;
+}
+.prep-word.safe { color: var(--text-dim); }
+.prep-word.risky {
+  background: rgba(220,38,38,0.15); color: var(--red-bright);
+  border: 1px solid rgba(220,38,38,0.25); cursor: pointer;
+}
+.prep-word.risky:hover { background: rgba(220,38,38,0.25); transform: translateY(-1px); }
+.prep-word.trigger {
+  background: rgba(220,38,38,0.3); color: #fff;
+  border: 1px solid rgba(220,38,38,0.5); cursor: pointer; font-weight: 600;
+}
+.prep-word.trigger:hover { background: rgba(220,38,38,0.45); }
+.prep-alts {
+  display: none; position: absolute; top: 100%; left: 0; z-index: 10;
+  background: var(--elevated); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 6px 0; min-width: 120px;
+  box-shadow: var(--shadow-elevated);
+}
+.prep-word:hover .prep-alts { display: block; }
+.prep-alt {
+  display: block; padding: 5px 14px; color: var(--text);
+  font-family: var(--sans); font-size: 12px; cursor: pointer; transition: background 0.15s;
+}
+.prep-alt:hover { background: rgba(220,38,38,0.1); color: var(--red-bright); }
+.prep-legend {
+  display: flex; gap: 16px; padding: 8px 0; margin-bottom: 8px;
+  font-family: var(--mono); font-size: 9px; color: var(--text-muted); letter-spacing: 1px;
+}
+.prep-legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+.prep-legend-dot.dot-safe { background: var(--text-dim); opacity: 0.3; }
+.prep-legend-dot.dot-risky { background: rgba(220,38,38,0.4); }
+.prep-legend-dot.dot-trigger { background: rgba(220,38,38,0.7); }
+.prep-status { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 1px; padding: 8px 0; }
+.tab-panel.active .prep-textarea { background: #3a1818; border-color: rgba(255,200,200,0.1); color: #e8d8d8; }
+.tab-panel.active .prep-textarea:focus { border-color: var(--red); }
+.tab-panel.active .prep-word.safe { color: #a08888; }
+
+/* ─── CALIBRATION ─────────────────────────────── */
+.cal-wrap { padding: 24px 32px; max-width: 640px; margin: 0 auto; }
+.cal-title { font-family: var(--mono); font-size: 13px; font-weight: 700; letter-spacing: 2px; color: var(--text); margin-bottom: 6px; }
+.cal-subtitle { font-size: 12px; color: var(--text-muted); line-height: 1.5; margin-bottom: 16px; }
+.cal-progress-bar {
+  height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-bottom: 6px;
+}
+.cal-progress-fill {
+  height: 100%; background: var(--red); border-radius: 3px;
+  transition: width 0.4s ease;
+}
+.cal-stats { font-family: var(--mono); font-size: 10px; color: var(--text-muted); letter-spacing: 1px; margin-bottom: 16px; }
+.cal-start-btn {
+  font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 1px;
+  background: var(--red); color: #fff; border: none; border-radius: var(--radius);
+  padding: 10px 28px; cursor: pointer; transition: all 0.2s;
+}
+.cal-start-btn:hover { background: var(--red-bright); transform: translateY(-1px); }
+.cal-prompt-area { margin-top: 20px; }
+.cal-category {
+  font-family: var(--mono); font-size: 9px; font-weight: 600; letter-spacing: 2px;
+  color: var(--red); text-transform: uppercase; margin-bottom: 8px;
+}
+.cal-prompt-text {
+  font-size: 20px; font-weight: 500; line-height: 1.5; color: var(--text);
+  padding: 20px 24px; background: var(--raised); border: 1px solid var(--border);
+  border-radius: var(--radius); margin-bottom: 12px; min-height: 80px;
+  display: flex; align-items: center;
+}
+.cal-instruction { font-size: 11px; color: var(--text-muted); font-style: italic; margin-bottom: 16px; }
+.cal-rec-controls { display: flex; gap: 10px; align-items: center; }
+.cal-rec-btn {
+  font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 1px;
+  background: var(--raised); color: var(--text); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 10px 24px; cursor: pointer; transition: all 0.2s;
+  display: flex; align-items: center; gap: 8px;
+}
+.cal-rec-btn:hover { border-color: var(--red); }
+.cal-rec-btn.recording { background: var(--red); color: #fff; border-color: var(--red); }
+.cal-rec-btn.recording .cal-rec-dot { background: #fff; animation: cal-pulse 1s infinite; }
+.cal-rec-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
+@keyframes cal-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+.cal-skip-btn {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 1px;
+  background: transparent; color: var(--text-muted); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 10px 16px; cursor: pointer; transition: all 0.2s;
+}
+.cal-skip-btn:hover { color: var(--text); border-color: var(--text-muted); }
+.cal-feedback {
+  margin-top: 16px; font-family: var(--mono); font-size: 11px; line-height: 1.6;
+  padding: 12px 16px; border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--border);
+  display: none;
+}
+.cal-feedback.visible { display: block; }
+.cal-feedback .wer-good { color: #16a34a; }
+.cal-feedback .wer-ok { color: #ca8a04; }
+.cal-feedback .wer-bad { color: var(--red); }
+.cal-wer-summary { margin-top: 24px; }
+.cal-wer-title { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 1px; color: var(--text); margin-bottom: 8px; }
+.cal-wer-body { font-family: var(--mono); font-size: 11px; color: var(--text-muted); line-height: 1.8; }
+.cal-complete-msg {
+  font-family: var(--mono); font-size: 12px; color: #16a34a; font-weight: 600;
+  letter-spacing: 1px; margin-top: 16px;
+}
+
 /* ─── PROFILE ──────────────────────────────────── */
 .profile-wrap { padding: 16px 24px; }
 .profile-section { margin-bottom: 8px; }
@@ -1578,6 +1705,8 @@ body::before {
         <button class="tab-btn" data-tab="sessions">Sessions</button>
         <button class="tab-btn" data-tab="learning">Learning</button>
         <button class="tab-btn" data-tab="insights">Insights</button>
+        <button class="tab-btn" data-tab="prep">Prep</button>
+        <button class="tab-btn" data-tab="calibrate">Calibrate</button>
         <button class="tab-btn" data-tab="tips">Tips</button>
         <button class="tab-btn" data-tab="profile">The File</button>
       </div>
@@ -1601,6 +1730,56 @@ body::before {
       <div class="tab-panel" id="tab-insights">
         <div class="insights-wrap" id="insights">
           <div class="learn-empty">Switch to Layer 4 to view stuttering insights.</div>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tab-prep">
+        <div class="prep-wrap">
+          <div class="prep-input-area">
+            <textarea class="prep-textarea" id="prep-input" placeholder="Paste your script, talking points, or email here. Lavrentiy will flag words you might stutter on and suggest safer alternatives."></textarea>
+            <button class="prep-btn" id="prep-btn" onclick="runPrep()">PREP</button>
+          </div>
+          <div class="prep-legend">
+            <span><span class="prep-legend-dot dot-safe"></span>SAFE</span>
+            <span><span class="prep-legend-dot dot-risky"></span>RISKY</span>
+            <span><span class="prep-legend-dot dot-trigger"></span>KNOWN TRIGGER</span>
+          </div>
+          <div class="prep-status" id="prep-status"></div>
+          <div class="prep-results" id="prep-results">
+            <div class="learn-empty">Type or paste what you're about to say. Hit PREP to scan.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tab-calibrate">
+        <div class="cal-wrap">
+          <div class="cal-header">
+            <div class="cal-title">WHISPER CALIBRATION</div>
+            <div class="cal-subtitle">Read 60 prompts aloud. Each recording becomes a training sample for personalized speech recognition.</div>
+            <div class="cal-progress-bar">
+              <div class="cal-progress-fill" id="cal-progress-fill" style="width:0%"></div>
+            </div>
+            <div class="cal-stats" id="cal-stats">0 / 60 — 0%</div>
+          </div>
+          <div class="cal-controls" id="cal-controls">
+            <button class="cal-start-btn" id="cal-start-btn" onclick="calStart()">BEGIN CALIBRATION</button>
+          </div>
+          <div class="cal-prompt-area" id="cal-prompt-area" style="display:none">
+            <div class="cal-category" id="cal-category"></div>
+            <div class="cal-prompt-text" id="cal-prompt-text"></div>
+            <div class="cal-instruction">Read this sentence aloud, naturally. Don't try to hide your stutter.</div>
+            <div class="cal-rec-controls">
+              <button class="cal-rec-btn" id="cal-rec-btn" onclick="calToggleRecord()">
+                <span class="cal-rec-dot"></span> RECORD
+              </button>
+              <button class="cal-skip-btn" onclick="calSkip()">SKIP</button>
+            </div>
+            <div class="cal-feedback" id="cal-feedback"></div>
+          </div>
+          <div class="cal-wer-summary" id="cal-wer-summary" style="display:none">
+            <div class="cal-wer-title">Calibration WER Summary</div>
+            <div class="cal-wer-body" id="cal-wer-body"></div>
+          </div>
         </div>
       </div>
 
@@ -1919,6 +2098,277 @@ document.querySelectorAll('.tone-btn:not(.mode-btn)').forEach(btn=>{btn.addEvent
 document.querySelectorAll('.layer-opt').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/layer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layer:parseInt(btn.dataset.layer)})});}catch(e){}});});
 document.querySelectorAll('.mode-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:btn.dataset.mode})});}catch(e){}});});
 document.querySelectorAll('.sit-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/situation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({situation:btn.dataset.situation})});}catch(e){}});});
+
+// ─── SCRIPT PREP ─────────────────────────────────
+async function runPrep(){
+  const input=document.getElementById('prep-input');
+  const btn=document.getElementById('prep-btn');
+  const results=document.getElementById('prep-results');
+  const status=document.getElementById('prep-status');
+  const text=input.value.trim();
+  if(!text){status.textContent='Nothing to prep.';return;}
+  btn.disabled=true;btn.textContent='SCANNING...';
+  status.textContent='Analyzing text and generating alternatives...';
+  results.innerHTML='';
+  try{
+    const r=await fetch(API+'/api/prep',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text})});
+    const data=await r.json();
+    if(data.error){status.textContent=data.error;return;}
+    const flaggedMap={};
+    (data.flagged||[]).forEach(f=>{flaggedMap[f.word]={risk:f.risk,alts:f.alternatives||[]};});
+    const triggerSet=new Set((profile.trigger_words||[]).map(w=>w.toLowerCase()));
+    const words=data.words||[];
+    let html='';
+    words.forEach(w=>{
+      const wl=w.word.toLowerCase();
+      const f=flaggedMap[w.word];
+      if(f){
+        const isTrigger=triggerSet.has(wl);
+        const cls=isTrigger?'trigger':'risky';
+        let altsHtml='';
+        if(f.alts&&f.alts.length){
+          altsHtml='<div class="prep-alts">'+f.alts.map(a=>`<span class="prep-alt" onclick="prepSwap(this,'${esc(a)}')">${esc(a)}</span>`).join('')+'</div>';
+        }
+        html+=`<span class="prep-word ${cls}" title="Risk: ${w.risk}${isTrigger?' (known trigger)':''}">${esc(w.word)}${altsHtml}</span>`;
+      }else{
+        html+=`<span class="prep-word safe">${esc(w.word)}</span>`;
+      }
+    });
+    results.innerHTML=html;
+    const nf=data.flagged?data.flagged.length:0;
+    const nt=words.filter(w=>triggerSet.has(w.word.toLowerCase())).length;
+    status.textContent=nf===0?'No risky words detected. You\'re good to go.':`${nf} word${nf>1?'s':''} flagged (${nt} known trigger${nt!==1?'s':''}). Hover for alternatives.`;
+  }catch(e){
+    status.textContent='Prep failed: '+e.message;
+  }finally{
+    btn.disabled=false;btn.textContent='PREP';
+  }
+}
+function prepSwap(el,alt){
+  const parent=el.closest('.prep-word');
+  if(parent){
+    const safe=document.createElement('span');
+    safe.className='prep-word safe';
+    safe.style.color='#88cc88';
+    safe.title='Swapped from: '+parent.textContent.split('\n')[0];
+    safe.textContent=alt;
+    parent.replaceWith(safe);
+    // Update the textarea with swapped text
+    const allWords=[...document.querySelectorAll('#prep-results .prep-word')].map(w=>w.textContent.split('\n')[0].trim());
+    document.getElementById('prep-input').value=allWords.join(' ');
+  }
+}
+// Allow Ctrl+Enter to trigger prep
+document.getElementById('prep-input').addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();runPrep();}});
+
+// ─── CALIBRATION ───────────────────────────────
+let calMediaRecorder=null;
+let calChunks=[];
+let calCurrentPrompt=null;
+let calRecording=false;
+let calWerResults=[];
+
+async function calStart(){
+  try{
+    const r=await fetch(API+'/api/calibration/start',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    const d=await r.json();
+    document.getElementById('cal-start-btn').textContent='RESUME CALIBRATION';
+    calShowPrompt(d.next_prompt);
+    calUpdateStats(d.status);
+    document.getElementById('cal-prompt-area').style.display='block';
+  }catch(e){console.error('Cal start failed:',e);}
+}
+
+function calShowPrompt(p){
+  if(!p){
+    document.getElementById('cal-prompt-area').style.display='none';
+    document.getElementById('cal-controls').innerHTML='<div class="cal-complete-msg">CALIBRATION COMPLETE</div>';
+    calShowSummary();
+    return;
+  }
+  calCurrentPrompt=p;
+  document.getElementById('cal-category').textContent=p.category.replace(/_/g,' ');
+  document.getElementById('cal-prompt-text').textContent=p.text;
+  document.getElementById('cal-feedback').classList.remove('visible');
+  document.getElementById('cal-feedback').innerHTML='';
+  // Reset record button
+  const btn=document.getElementById('cal-rec-btn');
+  btn.classList.remove('recording');
+  btn.innerHTML='<span class="cal-rec-dot"></span> RECORD';
+  calRecording=false;
+}
+
+async function calToggleRecord(){
+  if(!calCurrentPrompt) return;
+  const btn=document.getElementById('cal-rec-btn');
+  if(!calRecording){
+    // Start recording via browser MediaRecorder
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+      calChunks=[];
+      calMediaRecorder=new MediaRecorder(stream,{mimeType:'audio/webm'});
+      calMediaRecorder.ondataavailable=e=>{if(e.data.size>0) calChunks.push(e.data);};
+      calMediaRecorder.onstop=()=>{
+        stream.getTracks().forEach(t=>t.stop());
+        calProcessRecording();
+      };
+      calMediaRecorder.start();
+      calRecording=true;
+      btn.classList.add('recording');
+      btn.innerHTML='<span class="cal-rec-dot"></span> STOP';
+    }catch(e){
+      console.error('Mic access failed:',e);
+      const fb=document.getElementById('cal-feedback');
+      fb.innerHTML='<span class="wer-bad">Microphone access denied. Check browser permissions.</span>';
+      fb.classList.add('visible');
+    }
+  }else{
+    // Stop recording
+    if(calMediaRecorder && calMediaRecorder.state==='recording'){
+      calMediaRecorder.stop();
+    }
+    btn.classList.remove('recording');
+    btn.innerHTML='<span class="cal-rec-dot"></span> SAVING...';
+    btn.disabled=true;
+  }
+}
+
+async function calProcessRecording(){
+  // Convert webm blob to WAV via AudioContext, then base64 encode
+  const blob=new Blob(calChunks,{type:'audio/webm'});
+  try{
+    const arrayBuf=await blob.arrayBuffer();
+    const audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    const audioBuf=await audioCtx.decodeAudioData(arrayBuf);
+    // Convert to 16kHz mono WAV
+    const targetRate=16000;
+    const offlineCtx=new OfflineAudioContext(1,Math.ceil(audioBuf.duration*targetRate),targetRate);
+    const source=offlineCtx.createBufferSource();
+    source.buffer=audioBuf;
+    source.connect(offlineCtx.destination);
+    source.start(0);
+    const rendered=await offlineCtx.startRendering();
+    const pcm=rendered.getChannelData(0);
+    // Encode as WAV
+    const wavBytes=encodeWAV(pcm,targetRate);
+    const b64=btoa(String.fromCharCode(...new Uint8Array(wavBytes)));
+    // Send to backend
+    const r=await fetch(API+'/api/calibration/record',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({prompt_id:calCurrentPrompt.id,audio_b64:b64})
+    });
+    const d=await r.json();
+    // Show WER feedback
+    const fb=document.getElementById('cal-feedback');
+    if(d.wer!==null && d.wer!==undefined){
+      const werPct=Math.round(d.wer*100);
+      const cls=werPct<10?'wer-good':werPct<25?'wer-ok':'wer-bad';
+      calWerResults.push({id:calCurrentPrompt.id,wer:d.wer,category:calCurrentPrompt.category});
+      fb.innerHTML=`<span class="${cls}">WER: ${werPct}%</span>`
+        +`<br>Ground truth: "${d.ground_truth}"`
+        +`<br>Whisper heard: "${d.whisper_raw}"`;
+    }else{
+      fb.innerHTML='Saved (no WER data)';
+    }
+    fb.classList.add('visible');
+    calUpdateStats(d.status);
+    // Auto-advance after 2 seconds
+    setTimeout(()=>{
+      calShowPrompt(d.next_prompt);
+      const btn=document.getElementById('cal-rec-btn');
+      btn.disabled=false;
+    },2000);
+  }catch(e){
+    console.error('Cal process failed:',e);
+    const fb=document.getElementById('cal-feedback');
+    fb.innerHTML='<span class="wer-bad">Processing failed: '+e.message+'</span>';
+    fb.classList.add('visible');
+    document.getElementById('cal-rec-btn').disabled=false;
+  }
+}
+
+function encodeWAV(samples,sampleRate){
+  const buf=new ArrayBuffer(44+samples.length*2);
+  const view=new DataView(buf);
+  function writeStr(o,s){for(let i=0;i<s.length;i++) view.setUint8(o+i,s.charCodeAt(i));}
+  writeStr(0,'RIFF');
+  view.setUint32(4,36+samples.length*2,true);
+  writeStr(8,'WAVE');
+  writeStr(12,'fmt ');
+  view.setUint32(16,16,true);
+  view.setUint16(20,1,true);
+  view.setUint16(22,1,true);
+  view.setUint32(24,sampleRate,true);
+  view.setUint32(28,sampleRate*2,true);
+  view.setUint16(32,2,true);
+  view.setUint16(34,16,true);
+  writeStr(36,'data');
+  view.setUint32(40,samples.length*2,true);
+  for(let i=0;i<samples.length;i++){
+    let s=Math.max(-1,Math.min(1,samples[i]));
+    view.setInt16(44+i*2,s<0?s*0x8000:s*0x7FFF,true);
+  }
+  return buf;
+}
+
+async function calSkip(){
+  if(!calCurrentPrompt) return;
+  try{
+    const r=await fetch(API+'/api/calibration/skip',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({prompt_id:calCurrentPrompt.id})
+    });
+    const d=await r.json();
+    calUpdateStats(d.status);
+    calShowPrompt(d.next_prompt);
+  }catch(e){console.error('Cal skip failed:',e);}
+}
+
+function calUpdateStats(s){
+  if(!s) return;
+  document.getElementById('cal-stats').textContent=`${s.completed} / ${s.total_prompts} — ${s.pct}%`;
+  document.getElementById('cal-progress-fill').style.width=s.pct+'%';
+  if(s.existing_samples>=50){
+    document.getElementById('cal-stats').textContent+=` ✓ ready for fine-tuning`;
+  }
+}
+
+function calShowSummary(){
+  if(calWerResults.length===0) return;
+  const avg=calWerResults.reduce((a,b)=>a+b.wer,0)/calWerResults.length;
+  const byCat={};
+  calWerResults.forEach(r=>{
+    if(!byCat[r.category]) byCat[r.category]=[];
+    byCat[r.category].push(r.wer);
+  });
+  let html=`Average WER: <strong>${Math.round(avg*100)}%</strong><br><br>`;
+  html+='By category:<br>';
+  for(const[cat,wers] of Object.entries(byCat).sort((a,b)=>{
+    const avgA=a[1].reduce((x,y)=>x+y,0)/a[1].length;
+    const avgB=b[1].reduce((x,y)=>x+y,0)/b[1].length;
+    return avgB-avgA;
+  })){
+    const catAvg=Math.round(wers.reduce((a,b)=>a+b,0)/wers.length*100);
+    const cls=catAvg<10?'wer-good':catAvg<25?'wer-ok':'wer-bad';
+    html+=`  <span class="${cls}">${cat.replace(/_/g,' ')}: ${catAvg}%</span> (${wers.length} samples)<br>`;
+  }
+  const sumEl=document.getElementById('cal-wer-summary');
+  document.getElementById('cal-wer-body').innerHTML=html;
+  sumEl.style.display='block';
+}
+
+// Load calibration status on tab switch
+document.querySelector('[data-tab="calibrate"]').addEventListener('click',async()=>{
+  try{
+    const r=await fetch(API+'/api/calibration');
+    const d=await r.json();
+    calUpdateStats(d);
+    if(d.completed>0){
+      document.getElementById('cal-start-btn').textContent='RESUME CALIBRATION';
+    }
+  }catch(e){}
+});
 
 // ─── HOTKEY CUSTOMIZATION ──────────────────────
 let hotkeys={record:'F9',tone:'F10',layer:'F11',stats:'F12',quit:'F3'};
