@@ -2,9 +2,9 @@
 
 **Voice Reconstruction Engine**
 
-Lavrentiy captures your voice, transcribes it via an enhanced Whisper pipeline (Script Prep decoder seeding, block preservation, confidence targeting, multi-temperature voting), reconstructs through GPT-4o/4o-mini with personalized phoneme context, validates meaning with Falcon, and pastes the cleaned output directly into whatever app you were typing in. It learns your speech patterns over time — corrections, filler words, vocabulary, and stutter triggers — building a persistent profile that improves accuracy with every session.
+Lavrentiy captures voice via microphone, transcribes with Whisper (with optional decoder seeding, block preservation, confidence targeting, and multi-temperature voting), reconstructs through GPT-4o/4o-mini with personalized phoneme context, validates meaning with Falcon, and pastes output into the active application. It learns speech patterns over time — corrections, filler words, vocabulary, and stutter triggers — building a persistent profile.
 
-Built for people who stutter. The Layer 4 pipeline uses a clinically-informed reconstruction prompt grounded in stuttering research, covering overt disfluencies (part-word repetitions, prolongations, blocks, schwa substitution, consonant cluster breaks, tremors) and covert stuttering patterns (postponement fillers, synonym substitution, circumlocution, sentence abandonment, mazes/cluttering). Includes DAF (Delayed Auditory Feedback), covert avoidance detection, and a 5-feature phonetic risk model based on Brown's linguistic predictors of stuttering.
+Built for people who stutter. The Layer 4 pipeline uses a reconstruction prompt informed by stuttering research, covering overt disfluencies (part-word repetitions, prolongations, blocks, schwa substitution, consonant cluster breaks) and covert stuttering patterns (postponement fillers, synonym substitution, circumlocution, sentence abandonment). Includes DAF (Delayed Auditory Feedback), covert avoidance detection, and a 5-feature phonetic risk model based on Brown's linguistic predictors.
 
 ## Architecture
 
@@ -110,7 +110,7 @@ Dashboard opens at [http://localhost:7878](http://localhost:7878)
 The Whisper integration goes beyond a simple API call. Four parameter-level optimizations work together:
 
 **1. Script Prep Decoder Seeding**
-When Script Prep text is available (user typed what they intend to say), it's passed as Whisper's `prompt` parameter — the decoder conditioning token. Whisper's beam search treats this as "previously transcribed text," giving it the answer key before transcription starts. This dramatically reduces hallucination on blocked or disfluent segments. Falls back to a fluency-biasing prompt when no Script Prep exists.
+When Script Prep text is available (user typed what they intend to say), it's passed as Whisper's `prompt` parameter — the decoder conditioning token. Whisper's beam search treats this as "previously transcribed text." This reduces hallucination on blocked or disfluent segments. Falls back to a fluency-biasing prompt when no Script Prep exists.
 
 **2. Block Detection (via `no_speech_prob`)**
 Verbose JSON returns per-segment `no_speech_prob` — how close Whisper came to classifying a segment as silence. The OpenAI API applies its own internal threshold server-side (~0.6), but segments that survive with high `no_speech_prob` are flagged as "block suspects" — Whisper hallucinated filler text into what was really strained silence (a block). These are flagged in the L4 prompt: "discard these words entirely or replace with the word the speaker was trying to say."
@@ -121,7 +121,7 @@ Verbose JSON mode returns per-segment `avg_logprob` confidence scores. Low-confi
 **4. Multi-Temperature Voting**
 Three Whisper calls at temperatures 0, 0.2, and 0.4. Where all three agree = confident. Where they disagree = the audio is ambiguous = almost certainly a disfluency artifact. Disagreements are word-level aligned and passed to L4 as precision-targeted reconstruction hints. Configurable via `/api/whisper_config`.
 
-Research shows decoder tuning alone can reduce WER by 51.2% on stuttered speech. These four enhancements stack on top of that baseline.
+These four enhancements are designed to stack. Actual WER improvement depends on the speaker and context.
 
 ### Disfluency Post-Filter
 
@@ -132,7 +132,7 @@ Zero-cost rule-based cleanup applied after Whisper, before GPT reconstruction:
 - **Phrase repetitions**: `"I want I want to go"` → `"I want to go"`
 - **Filler stripping**: removes `um`, `uh`, `er`, `ah` + Russian equivalents (`э`, `ээ`, `ну`)
 
-At L1, this IS the output (no GPT call). At L2+, it pre-cleans input for GPT reconstruction. Post-filtering combined with decoder tuning yields significant WER reduction on disfluent speech (informed by Stutter-TTS and Mujtaba's "Inclusive ASR for Disfluent Speech" findings).
+At L1, this IS the output (no GPT call). At L2+, it pre-cleans input for GPT reconstruction. Post-filtering approach informed by Stutter-TTS and Mujtaba's "Inclusive ASR for Disfluent Speech" findings.
 
 ### Phonetic Risk Model (5 Features)
 
@@ -180,7 +180,7 @@ Tracks word-level avoidance patterns invisible to every other speech system. Whe
 }
 ```
 
-No other production speech app detects covert stuttering.
+Covert stuttering detection is not commonly implemented in consumer speech tools.
 
 ## Exposure Difficulty Scoring
 
@@ -243,7 +243,7 @@ Pre-speech word substitution (based on Ghai & Mueller, ASSETS '21). Paste upcomi
 - **LLM synonym generation**: Flagged words (risk ≥ 0.6) get 2–3 alternative words/phrases that preserve meaning but use easier onsets (vowels, continuants like /l/, /m/, /n/, /r/, /w/, /h/).
 - **Swap-in-place**: Click any suggested alternative to replace the word directly in your script text.
 - **Covert avoidance bridge**: Script Prep text is buffered as "intended content" for comparison against actual speech (see Covert Stuttering Detection).
-- **Whisper decoder seeding**: Script Prep text is also fed as Whisper's `prompt` parameter — the decoder conditioning token. Whisper's beam search treats this as "previously transcribed text," giving it the answer key before it starts transcribing. This is the single biggest accuracy improvement available on the current API.
+- **Whisper decoder seeding**: Script Prep text is also fed as Whisper's `prompt` parameter — the decoder conditioning token, which biases Whisper toward the expected vocabulary.
 - **Ctrl+Enter** shortcut to run analysis.
 
 ## Clipboard Predictor
@@ -437,7 +437,7 @@ Single HTML file served by the engine's embedded HTTP server:
 | POST | `/api/prep` | Script Prep analysis |
 | POST | `/api/daf` | DAF toggle/delay |
 | POST | `/api/hotkeys` | Update hotkey bindings (F1–F12) |
-| POST | `/api/report` | Generate weekly clinical report (GPT-4o-mini) |
+| GET  | `/api/report` | Generate weekly clinical report (GPT-4o-mini) |
 | POST | `/api/whisper_config` | Whisper params: `no_speech_threshold`, `multi_temp` toggle |
 | POST | `/api/whisper_temp` | Set Whisper decoder temperature |
 | POST | `/api/covert/remove` | Remove a covert avoidance pair |
@@ -472,3 +472,35 @@ Runtime data at `~/.lavrentiy/`:
 - `calibration/` — calibration WAV + metadata pairs
 - `calibration/augmented/` — synthetic disfluent training data
 - `audio_archive/` — session WAV + metadata pairs for fine-tuning
+
+## Test Coverage — Redwood Audit (2026-03-14)
+
+**14 of 18 clinical features have automated test coverage.** 95 tests passing across 2 test suites.
+
+| Feature | Tests | Status |
+|---------|-------|--------|
+| Onset extraction (`_extract_onset`) | 7 | Passing |
+| Onset weight learning (`learn_onset_weights`) | 6 | Passing |
+| Phonetic risk model — Brown 5-factor (`predict_phonetic_risk`) | 9 | Passing |
+| Situation severity mapping | 6 | Passing |
+| Word Error Rate (`compute_wer`) | 5 | Passing |
+| Risk flag computation (`compute_risk_flags`) | 4 | Passing |
+| Decision engine (`make_decision`) | 5 | Passing |
+| Disfluency stripping (`strip_disfluencies`) | 13 | Passing |
+| Disfluency counting (`count_disfluencies`) | 7 | Passing |
+| OCD redo-loop detection (`detect_ocd_loops`) | 3 | Passing |
+| Session database round-trip + schema | 12 | Passing |
+| Profile schema migration (v1→v4) | 9 | Passing |
+| Bilingual filler detection (EN + RU) | 6 | Passing |
+| Editorial distance tracking | 3 | Passing |
+| **Total** | **95** | **All passing** |
+
+**Not yet tested** (require live API or audio hardware): Whisper pipeline integration, LLM reconstruction, covert avoidance detection, DAF streaming.
+
+## Changelog
+
+### 2026-03-14 — Bug fixes
+
+- **Fixed**: Covert pair removal endpoint (`/api/covert/remove`) was navigating a non-existent data structure (`substitutions`/`total_events` keys). Rewritten to use the actual `covert_profile.avoidance_pairs` structure.
+- **Fixed**: Mobile transcribe endpoint (`/api/transcribe`) passed `low_confidence=` and `disagreements=` to `reconstruct()`, which silently ignored them. Corrected to `whisper_low_conf=` and `whisper_disagreements=`.
+- **Fixed**: Dashboard HTTP server used single-threaded `HTTPServer`. During LLM calls (3–10s), all other requests queued, causing "CONNECTION LOST" in the dashboard. Replaced with `ThreadingHTTPServer`.

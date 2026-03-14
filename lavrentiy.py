@@ -6,7 +6,7 @@ Pipeline: Mic -> Whisper -> Reconstruction -> Falcon -> Paste
 Layers:  1=Transcribe  2=Reconstruct  3=Profile  4=Stutter
 Tones:   casual | professional | friend | formal
 
-F9=talk  F10=tone  F11=layer  F12=stats  F3x3=quit
+Defaults: F9=talk  F10=tone  F11=layer  F12=stats  F3x3=quit  (rebindable)
 """
 
 import sys
@@ -26,8 +26,8 @@ import json
 import sqlite3
 import ctypes
 import shutil
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from scipy.signal import resample_poly
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from scipy.signal import resample_poly, butter, filtfilt
 from math import gcd
 from pathlib import Path
 from datetime import datetime
@@ -67,6 +67,8 @@ PREFERRED_MIC = "C930"
 RECORD_KEY = "f9"
 TONE_KEY = "f10"
 LAYER_KEY = "f11"
+STATS_KEY = "f12"
+QUIT_KEY = "f3"
 MODEL = "gpt-4o-mini"
 MODEL_L4 = "gpt-4o"                  # L4 stutter reconstruction uses stronger model
 WHISPER_TEMP = 0.0                   # Whisper decoder temperature (0.0=deterministic, 1.0=creative)
@@ -830,8 +832,7 @@ class ClipboardPredictor:
     def _build_bias(self, triggers, situation):
         """Call LLM to get fluency-friendly synonyms for high-risk words."""
         try:
-            onset_weights = profile.get("onset_weights", {}).get("personal", {})
-            dominant = sorted(onset_weights.items(), key=lambda x: x[1], reverse=True)[:3]
+            dominant = sorted(_personal_onset_weights.items(), key=lambda x: x[1], reverse=True)[:3]
             dominant_str = ", ".join(f"/{o}/" for o, _ in dominant) if dominant else "plosives"
 
             prompt = (
@@ -1182,7 +1183,7 @@ def calibration_save_audio(prompt_id, audio_data, sample_rate):
                 model="whisper-1", file=f, language=LANGUAGE
             )
         whisper_raw = result.text.strip()
-        stats["api_calls"] += 1
+        stats_inc("api_calls")
     except Exception as e:
         log(f"Calibration Whisper pass failed: {e}", "error")
     wer_val = None
@@ -1445,7 +1446,7 @@ def augment_calibration_data():
                 )
                 # Save WAV
                 response.stream_to_file(str(wav_path))
-                stats["api_calls"] += 1
+                stats_inc("api_calls")
 
                 # Run through Whisper to capture how ASR handles the disfluent audio
                 whisper_raw = ""
@@ -1455,7 +1456,7 @@ def augment_calibration_data():
                             model="whisper-1", file=f, language=LANGUAGE
                         )
                     whisper_raw = w_result.text.strip()
-                    stats["api_calls"] += 1
+                    stats_inc("api_calls")
                 except Exception as e:
                     log(f"Augment Whisper pass failed for {base}: {e}", "error")
 
@@ -1693,6 +1694,12 @@ stats = {
     "api_calls": 0, "falcon_rejects": 0,
     "multi_temp_votes": 0, "multi_temp_disagreements": 0
 }
+_stats_lock = threading.Lock()
+
+def stats_inc(key, n=1):
+    """Thread-safe increment of a stats counter."""
+    with _stats_lock:
+        stats[key] = stats.get(key, 0) + n
 
 # -- Redo detection (anti-compulsion guardrail) ──────────────────
 # Tracks consecutive re-recordings of similar content.
@@ -1772,13 +1779,15 @@ def stop_preview_stream():
 # -- Live console log ─────────────────────────────────────────────
 console_log = []
 console_id = 0
+_log_lock = threading.Lock()
 
 def log(text, kind="info"):
     global console_id
-    console_id += 1
-    console_log.append({"id": console_id, "ts": time.time(), "text": text, "kind": kind})
-    if len(console_log) > 80:
-        console_log.pop(0)
+    with _log_lock:
+        console_id += 1
+        console_log.append({"id": console_id, "ts": time.time(), "text": text, "kind": kind})
+        if len(console_log) > 80:
+            console_log.pop(0)
     print(text)
 
 # -- LLM Calls ───────────────────────────────────────────────────
@@ -1801,15 +1810,50 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
             "Expect more disfluencies, heavier avoidance, more filler stacking. "
             "Be MORE aggressive in reconstructing — strip more, trust less of the literal words."
         )
+    elif severity >= 1.1:
+        aggression_note = (
+            " Speaker's speech shows elevated pausing or slow rate. "
+            "Apply moderate cleanup — fix grammar, strip fillers, smooth hesitations."
+        )
     elif severity <= 0.6:
         aggression_note = (
             " Speaker is in a low-stress context. Expect near-fluent speech. "
             "Be conservative — minor cleanup only."
         )
+    # Always include raw speech metrics when available (Layer 2+ benefits from this context)
+    if speech_severity_mod > 0:
+        aggression_note += f" [Speech metrics: severity_boost={speech_severity_mod:.1f}]"
+
+    # Per-tone instructions: each tone gets specific rules about style,
+    # contractions, sentence structure, and how much rewriting is allowed
+    TONE_RULES = {
+        "formal": (
+            "Use complete sentences. No contractions. No colloquialisms or slang. "
+            "Proper grammar and punctuation. Do not paraphrase — preserve the speaker's "
+            "exact word choices where possible. Only fix disfluencies and grammar errors."
+        ),
+        "professional": (
+            "Clean, clear business language. Contractions acceptable but not preferred. "
+            "Fix grammar and strip fillers. Minor rephrasing for clarity is OK, "
+            "but do not editorialize or change the speaker's intent."
+        ),
+        "casual": (
+            "Natural spoken rhythm. Contractions OK. Colloquial phrasing OK. "
+            "Strip fillers and fix obvious errors, but keep the speaker's natural voice. "
+            "Don't make it sound like a formal document."
+        ),
+        "friend": (
+            "Conversational, relaxed. Contractions expected. Sentence fragments OK if natural. "
+            "Strip fillers and repetitions but preserve personality and informal expressions. "
+            "This should sound like a real person talking, not writing."
+        ),
+    }
+    tone_rule = TONE_RULES.get(tone, TONE_RULES["casual"])
 
     parts = [
         f"Rebuild this raw voice transcription into clean {tone} text.{lang_note}{aggression_note}",
-        "Fix grammar. Strip filler words (including non-English fillers). Restructure for clarity.",
+        tone_rule,
+        "Strip filler words (including non-English fillers like э, ну, ээ).",
         "Preserve FULL meaning. Do not summarize or add information.",
         "Output ONLY the reconstructed text."
     ]
@@ -1818,7 +1862,7 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
     if prof.get("filler_words"):
         parts.append(f"\nStrip these fillers: {', '.join(prof['filler_words'][:25])}")
 
-    if layer >= 3 and prof:
+    if layer >= 2 and prof:
         ctx = []
         if prof.get("vocabulary"):
             ctx.append(f"Preferred terms: {', '.join(prof['vocabulary'][:20])}")
@@ -1827,6 +1871,87 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
             ctx.append(f"Known corrections: {'; '.join(pairs)}")
         if ctx:
             parts.append("\nUser context:\n" + "\n".join(ctx))
+
+    # -- Whisper confidence signals (L2+, zero additional cost) ──────
+    # Data always computed; prompt framing is layer-differentiated:
+    # L4 = stutter-clinical ("BLOCK suspects"), L2/L3 = general ASR-aware
+    if whisper_low_conf:
+        lc_notes = []
+        block_notes = []
+        for seg in whisper_low_conf[:5]:
+            if seg.get("block_suspect"):
+                block_notes.append(f"  \"{seg['text']}\" (no_speech_prob={seg['no_speech_prob']})")
+            else:
+                lc_notes.append(
+                    f"  \"{seg['text']}\" (logprob={seg['avg_logprob']}, brown_risk={seg['brown_risk']})"
+                )
+        if lc_notes:
+            if layer >= 4:
+                parts.append(
+                    "\n⚠ WHISPER UNCERTAINTY — these segments have low decoder confidence "
+                    "AND high stuttering risk. They are almost certainly transcription artifacts:\n"
+                    + "\n".join(lc_notes)
+                    + "\nReconstruct aggressively. Trust semantic context, not the literal words."
+                )
+            else:
+                parts.append(
+                    "\n⚠ LOW CONFIDENCE — Whisper's decoder was uncertain about these words:\n"
+                    + "\n".join(lc_notes)
+                    + "\nThese may be misheard. Use surrounding context to determine what was actually said."
+                )
+        if block_notes:
+            if layer >= 4:
+                parts.append(
+                    "\n⚠ BLOCK SUSPECTS — Whisper nearly classified these as silence "
+                    "(high no_speech_prob). For this speaker, silence before/during a word "
+                    "is a BLOCK, not absence of speech. The text here is likely hallucinated "
+                    "filler that Whisper invented to fill the gap:\n"
+                    + "\n".join(block_notes)
+                    + "\nDiscard these words entirely or replace with the word the speaker "
+                    "was trying to say (use semantic context from surrounding words)."
+                )
+            else:
+                parts.append(
+                    "\n⚠ POSSIBLE HALLUCINATION — Whisper nearly classified these segments as silence "
+                    "but produced text anyway. The words here may be fabricated:\n"
+                    + "\n".join(block_notes)
+                    + "\nEvaluate carefully — if these words don't fit the context, discard them."
+                )
+    if whisper_disagreements:
+        dis_notes = []
+        for d in whisper_disagreements[:5]:
+            variants = "/".join(set(d["variants"]))
+            dis_notes.append(f"  position {d['position']}: [{variants}]")
+        parts.append(
+            "\n⚠ MULTI-PASS DISAGREEMENT — Whisper produced different words at these positions "
+            "across 3 decoding temperatures. Disagreement = uncertain = likely misheard:\n"
+            + "\n".join(dis_notes)
+            + "\nThe truth is in the semantic context, not any single variant."
+        )
+
+    # -- L2/L3 general ASR artifact guidance ───────────────────────
+    # Lighter than L4's clinical taxonomy but gives the model awareness
+    # of common voice transcription errors so it can fix them intelligently.
+    if 2 <= layer <= 3:
+        parts.append(
+            "\nThe input is a voice transcription and may contain ASR artifacts:"
+            "\n- Repeated words or phrases from natural speech hesitation"
+            "\n- Filler sounds transcribed as real words (e.g., 'um' → 'come')"
+            "\n- Phantom words inserted during pauses in speech"
+            "\n- Phonetically similar but semantically wrong words (misheard)"
+            "\n- Truncated or garbled words from unclear pronunciation"
+            "\nWhen a word is phonetically plausible but doesn't fit the context, "
+            "prefer the contextually correct interpretation."
+            "\n\nExamples:"
+            "\n  IN:  'So um I was going to uh the store to get some, some milk'"
+            "\n  OUT: 'I was going to the store to get some milk'"
+            "\n  IN:  'Can you send me the, the report by, by Friday'"
+            "\n  OUT: 'Can you send me the report by Friday'"
+            "\n  IN:  'I think we should, we should probably move the meeting'"
+            "\n  OUT: 'I think we should probably move the meeting'"
+            "\n  IN:  'The, uh, what's it called, the database needs updating'"
+            "\n  OUT: 'The database needs updating'"
+        )
 
     if layer >= 4:
         # Inject per-user phoneme difficulty map from learned onset weights
@@ -1858,47 +1983,7 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
                     "the original IS what they meant. Reconstruct with the intended word."
                 )
 
-        # Inject Whisper confidence signals: low-confidence segments + multi-temp disagreements
-        # avg_logprob targeting: where Whisper is uncertain near Brown risk = disfluency artifact
-        if whisper_low_conf:
-            lc_notes = []
-            block_notes = []
-            for seg in whisper_low_conf[:5]:
-                if seg.get("block_suspect"):
-                    block_notes.append(f"  \"{seg['text']}\" (no_speech_prob={seg['no_speech_prob']})")
-                else:
-                    lc_notes.append(
-                        f"  \"{seg['text']}\" (logprob={seg['avg_logprob']}, brown_risk={seg['brown_risk']})"
-                    )
-            if lc_notes:
-                parts.append(
-                    "\n⚠ WHISPER UNCERTAINTY — these segments have low decoder confidence "
-                    "AND high stuttering risk. They are almost certainly transcription artifacts:\n"
-                    + "\n".join(lc_notes)
-                    + "\nReconstruct aggressively. Trust semantic context, not the literal words."
-                )
-            if block_notes:
-                parts.append(
-                    "\n⚠ BLOCK SUSPECTS — Whisper nearly classified these as silence "
-                    "(high no_speech_prob). For this speaker, silence before/during a word "
-                    "is a BLOCK, not absence of speech. The text here is likely hallucinated "
-                    "filler that Whisper invented to fill the gap:\n"
-                    + "\n".join(block_notes)
-                    + "\nDiscard these words entirely or replace with the word the speaker "
-                    "was trying to say (use semantic context from surrounding words)."
-                )
-        # Multi-temperature voting: disagreements between decoding passes = garbled regions
-        if whisper_disagreements:
-            dis_notes = []
-            for d in whisper_disagreements[:5]:
-                variants = "/".join(set(d["variants"]))
-                dis_notes.append(f"  position {d['position']}: [{variants}]")
-            parts.append(
-                "\n⚠ MULTI-PASS DISAGREEMENT — Whisper produced different words at these positions "
-                "across 3 decoding temperatures. Disagreement = uncertain = likely disfluency artifact:\n"
-                + "\n".join(dis_notes)
-                + "\nThe truth is in the semantic context, not any single variant."
-            )
+        # Whisper confidence injection now at Layer 2+ (above)
 
         parts.append(
             "\nThe speaker stutters. Raw transcription is evidence, not truth. "
@@ -2018,8 +2103,13 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
             flagged = [f"{w}({r})" for w, r in predicted[:10]]
             parts.append(f"\nPhonetically predicted high-risk words in this utterance: {', '.join(flagged)}")
 
+    # Per-tone temperature: formal/professional = low creativity (stick to the words),
+    # casual/friend = higher creativity (natural rewording OK)
+    TONE_TEMP = {"formal": 0.1, "professional": 0.15, "casual": 0.35, "friend": 0.4}
+    temp = TONE_TEMP.get(tone, 0.3)
+
     use_model = MODEL_L4 if layer >= 4 else MODEL
-    stats["api_calls"] += 1
+    stats_inc("api_calls")
     resp = client.chat.completions.create(
         model=use_model,
         messages=[
@@ -2027,14 +2117,21 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
             {"role": "user", "content": raw_text}
         ],
         max_tokens=1000,
-        temperature=0.3
+        temperature=temp
     )
     return resp.choices[0].message.content.strip()
 
 
 def falcon_validate(raw_text, clean_text, layer):
     """Binary meaning check. Returns True if meaning preserved."""
-    prompt = "Does the reconstruction preserve the same meaning? Answer ONLY 'yes' or 'no'."
+    if layer <= 3:
+        prompt = (
+            "The reconstruction cleans up a voice transcription: removing filler words "
+            "(um, uh, like, you know), fixing grammar, and improving clarity. "
+            "Filler removal and grammar fixes are expected and acceptable. "
+            "Does the reconstruction preserve the core content and intent? "
+            "Answer ONLY 'yes' or 'no'."
+        )
     if layer >= 4:
         prompt = (
             "Speaker stutters. Repeated syllables, prolongations, and blocks are "
@@ -2046,7 +2143,7 @@ def falcon_validate(raw_text, clean_text, layer):
             "Answer ONLY 'yes' or 'no'."
         )
 
-    stats["api_calls"] += 1
+    stats_inc("api_calls")
     resp = client.chat.completions.create(
         model=MODEL,
         messages=[
@@ -2116,6 +2213,49 @@ def strip_disfluencies(text):
     # Collapse multiple spaces
     result = re.sub(r'\s{2,}', ' ', result)
     # Don't return empty string — fall back to original
+    return result if result else text
+
+
+def apply_profile_corrections(text, prof):
+    """Apply known corrections from profile to transcription (zero API cost).
+
+    Used at L1 to fix known Whisper misrecognitions without GPT reconstruction.
+    Profile corrections are learned over time (e.g., "Duncan" → "Dankeschön",
+    "Web3Forms" → "WordPress"). At L2+ these are fed to GPT; at L1 we apply
+    them directly via regex word-boundary replacement.
+    """
+    corrections = prof.get("corrections", {})
+    if not corrections or not text:
+        return text
+    result = text
+    for wrong, right in corrections.items():
+        pattern = re.compile(r'\b' + re.escape(wrong) + r'\b', re.IGNORECASE)
+        if pattern.search(result):
+            result = pattern.sub(right, result)
+            log(f"L1 correction: \"{wrong}\" → \"{right}\"", "info")
+    return result
+
+
+def strip_block_hallucinations(text, low_conf_segments):
+    """Strip Whisper-hallucinated text from block-suspect segments (zero API cost).
+
+    When Whisper encounters silence (a stuttering block), it often hallucinates
+    short filler phrases ("Thank you", "Okay", etc.) into the gap. At L1 we
+    can remove these using the confidence metadata already computed.
+    Only strips short segments (≤3 words) to avoid removing real speech.
+    """
+    if not low_conf_segments or not text:
+        return text
+    result = text
+    for seg in low_conf_segments:
+        if seg.get("block_suspect"):
+            seg_text = seg.get("text", "").strip()
+            if seg_text and len(seg_text.split()) <= 3:
+                before = result
+                result = result.replace(seg_text, "")
+                if result != before:
+                    log(f"L1 block strip: \"{seg_text}\" (no_speech_prob={seg['no_speech_prob']})", "info")
+    result = re.sub(r'\s{2,}', ' ', result).strip()
     return result if result else text
 
 
@@ -2302,7 +2442,7 @@ def prep_text(text, prof):
     flagged_words = list(dict.fromkeys(s["word"] for s in flagged))  # unique, order-preserved
     onset_note = f"\nOnsets this speaker struggles with: {', '.join(avoid_onsets)}" if avoid_onsets else ""
 
-    stats["api_calls"] += 1
+    stats_inc("api_calls")
     try:
         resp = client.chat.completions.create(
             model=MODEL,
@@ -2582,7 +2722,7 @@ def learn_from_sessions(prof):
         f"Raw: {s['raw']}\nOut: {s['out']}" for s in recent
     )
 
-    stats["api_calls"] += 1
+    stats_inc("api_calls")
     try:
         resp = client.chat.completions.create(
             model=MODEL,
@@ -2887,7 +3027,7 @@ DISFLUENCY_TYPES = {
 def detect_triggers_llm(raw_text, output, prof):
     """LLM-assisted trigger word detection with disfluency type classification.
     Async, Layer 4 only. Returns dict: {word: disfluency_type}."""
-    stats["api_calls"] += 1
+    stats_inc("api_calls")
     try:
         resp = client.chat.completions.create(
             model=MODEL,
@@ -3270,6 +3410,24 @@ def compute_risk_flags(raw_text, clean_text, falcon_ok, used_fallback, layer):
             flags.append("contains_unfinished_fragment")
     return flags
 
+_CRITICAL_TOKEN_RE = re.compile(
+    r'\b(?:\d+(?:[.,]\d+)?%?|\$?\d+(?:,\d{3})*(?:\.\d+)?)\b'  # numbers, percentages, dollar amounts
+)
+
+def _check_critical_retention(raw_text, clean_text):
+    """Check if numbers and dollar amounts from raw text survived reconstruction.
+
+    Returns list of lost tokens, or empty list if all preserved.
+    Zero cost — regex only, no API calls.
+    """
+    critical = _CRITICAL_TOKEN_RE.findall(raw_text)
+    if not critical:
+        return []
+    clean_lower = clean_text.lower()
+    lost = [t for t in critical if t.lower() not in clean_lower]
+    return lost
+
+
 def make_decision(falcon_ok, layer, used_fallback, risk_flags):
     """Build decision record for this pipeline run."""
     if current_mode == "RAW" or layer == 1:
@@ -3314,33 +3472,51 @@ def _build_whisper_prompt():
         if clip_bias:
             log(f"Whisper seeded with Clipboard Predictor ({len(clip_bias)} chars)", "info")
             return clip_bias
-    # Priority 3: generic fluency bias
+    # Priority 3: layer-aware fallback
+    if current_layer == 1:
+        # L1 = verbatim transcription. Do NOT bias Whisper toward fluency —
+        # that causes it to silently drop fillers and repetitions.
+        return "Transcribe exactly what the speaker says, including all words, repetitions, and filler sounds."
+    # L2+: bias toward clean output since reconstruction handles the rest
     return "Clear, fluent speech. Transcribe intended words only, not repetitions or filler sounds."
 
 
-def _whisper_single_call(filepath, temperature, prompt_text):
+def _whisper_single_call(filepath, temperature, prompt_text, max_retries=3):
     """Single Whisper API call returning verbose JSON with segment data.
 
     Returns dict with:
       text: full transcription
       segments: list of {text, avg_logprob, no_speech_prob, ...}
+
+    Retries up to max_retries on 5xx server errors and rate limits.
     """
-    with open(filepath, "rb") as f:
-        result = client.audio.transcriptions.create(
-            model="whisper-1",
-            file=f,
-            language=LANGUAGE,
-            prompt=prompt_text,
-            temperature=temperature,
-            response_format="verbose_json",
-        )
-    stats["api_calls"] += 1
-    # OpenAI SDK returns a Transcription object; normalize to dict
-    if hasattr(result, 'model_dump'):
-        return result.model_dump()
-    elif hasattr(result, '__dict__'):
-        return result.__dict__
-    return {"text": result.text if hasattr(result, 'text') else str(result), "segments": []}
+    for attempt in range(max_retries):
+        try:
+            with open(filepath, "rb") as f:
+                result = client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=f,
+                    language=LANGUAGE,
+                    prompt=prompt_text,
+                    temperature=temperature,
+                    response_format="verbose_json",
+                )
+            stats_inc("api_calls")
+            # OpenAI SDK returns a Transcription object; normalize to dict
+            if hasattr(result, 'model_dump'):
+                return result.model_dump()
+            elif hasattr(result, '__dict__'):
+                return result.__dict__
+            return {"text": result.text if hasattr(result, 'text') else str(result), "segments": []}
+        except Exception as e:
+            err_str = str(e)
+            is_retryable = any(code in err_str for code in ("500", "502", "503", "429"))
+            if is_retryable and attempt < max_retries - 1:
+                wait = 2 ** attempt  # 1s, 2s, 4s
+                log(f"Whisper API error ({err_str[:80]}), retry {attempt+1}/{max_retries} in {wait}s", "warn")
+                time.sleep(wait)
+                continue
+            raise
 
 
 def _extract_low_confidence_segments(verbose_result, risk_threshold=-0.7):
@@ -3423,7 +3599,7 @@ def _multi_temperature_vote(filepath, prompt_text):
     for temp in WHISPER_MULTI_TEMPS:
         r = _whisper_single_call(filepath, temp, prompt_text)
         results.append(r)
-        stats["multi_temp_votes"] += 1
+        stats_inc("multi_temp_votes")
 
     primary = results[0]  # temp=0 is authoritative by default
     all_texts = [r.get("text", "").strip() for r in results]
@@ -3453,7 +3629,7 @@ def _multi_temperature_vote(filepath, prompt_text):
             })
 
     if disagreements:
-        stats["multi_temp_disagreements"] += 1
+        stats_inc("multi_temp_disagreements")
         log(f"Multi-temp voting: {len(disagreements)} disagreements across {len(all_texts[0].split())} words", "info")
 
     return {
@@ -3550,7 +3726,7 @@ def generate_shadow_utterance(raw_text, prof):
                 for sub in data.get("common_substitutes", []):
                     known_swaps[sub] = word  # substitute → original intended
 
-        stats["api_calls"] += 1
+        stats_inc("api_calls")
         try:
             resp = client.chat.completions.create(
                 model=MODEL,
@@ -3748,6 +3924,23 @@ def pipeline():
     if NEEDS_RESAMPLE:
         audio_data = resample_poly(audio_data, RESAMPLE_UP, RESAMPLE_DOWN)
 
+    # Audio preprocessing: DC removal → high-pass filter → AGC → soft clip
+    # 1. DC offset removal — centers waveform around zero
+    audio_data = audio_data - numpy.mean(audio_data)
+    # 2. 70Hz high-pass filter — removes AC hum, desk vibrations, wind rumble
+    #    Butterworth order 2 is gentle enough to preserve speech fundamentals
+    nyq = TARGET_RATE / 2.0
+    b_hp, a_hp = butter(2, 70.0 / nyq, btype="highpass")
+    audio_data = filtfilt(b_hp, a_hp, audio_data).astype(numpy.float32)
+    # 3. AGC: normalize to -12 dB RMS so Whisper gets consistent input levels
+    rms = numpy.sqrt(numpy.mean(audio_data ** 2))
+    if rms > 1e-6:
+        target_rms = 10 ** (-12 / 20)  # -12 dB
+        audio_data = audio_data * (target_rms / rms)
+    # 4. Soft clip via tanh — gentler than hard clip, avoids digital artifacts
+    #    in Whisper's mel spectrogram from peak transients
+    audio_data = numpy.tanh(1.2 * audio_data).astype(numpy.float32)
+
     # Step 0: Speech rate & pause analysis (pure numpy, zero cost)
     speech_metrics = analyze_speech_rate(audio_data, TARGET_RATE)
     if speech_metrics["severity_modifier"] > 0:
@@ -3797,6 +3990,13 @@ def pipeline():
         # At L1: this IS the output cleanup (no GPT reconstruction)
         # At L2+: pre-cleans Whisper output before sending to GPT
         filtered_text = strip_disfluencies(raw_text)
+
+        # L1 enhancements: profile corrections + block hallucination removal (zero cost)
+        # These use data that's already computed but was previously only consumed at L4
+        if current_layer == 1:
+            filtered_text = apply_profile_corrections(filtered_text, profile)
+            filtered_text = strip_block_hallucinations(filtered_text, whisper_low_conf)
+
         if filtered_text != raw_text and current_layer == 1:
             log(f"Filter: \"{raw_text}\" → \"{filtered_text}\"", "info")
 
@@ -3824,9 +4024,17 @@ def pipeline():
                 except Exception:
                     falcon_ok = True
                 if not falcon_ok:
-                    stats["falcon_rejects"] += 1
+                    stats_inc("falcon_rejects")
                     log("Falcon: REJECTED -- using raw", "error")
             t_val = time.time()
+
+        # Critical token retention: verify numbers, names, dollar amounts survived reconstruction
+        if clean_text and not used_fallback:
+            critical_lost = _check_critical_retention(filtered_text, clean_text)
+            if critical_lost:
+                log(f"Critical tokens lost in reconstruction: {critical_lost}", "warn")
+                # Fall back to raw if names/numbers were destroyed
+                falcon_ok = False
 
         # Decision
         risk_flags = compute_risk_flags(raw_text, clean_text, falcon_ok, used_fallback, current_layer)
@@ -3852,9 +4060,9 @@ def pipeline():
         if decision["decision"] == "hold":
             log("HELD — high-risk output not pasted", "error")
         else:
-            stats["words"] += wc
-            stats["chars"] += len(output)
-            stats["sessions"] += 1
+            stats_inc("words", wc)
+            stats_inc("chars", len(output))
+            stats_inc("sessions")
             paste(output)
         disf_counts = count_disfluencies(raw_text)
         if disf_counts.get("total", 0) > 0:
@@ -4062,7 +4270,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == '/':
-            self._serve_file(DASHBOARD_PATH, 'text/html')
+            dash = DASHBOARD_PATH if DASHBOARD_PATH.exists() else Path(__file__).parent / 'dashboard.html'
+            self._serve_file(dash, 'text/html')
         elif self.path == '/mobile':
             mobile_path = Path(__file__).parent / 'mobile.html'
             self._serve_file(mobile_path, 'text/html')
@@ -4290,10 +4499,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "trigger_count": len(triggers),
                     "corrections_count": len(profile.get("corrections", {})),
                     "covert_avoidance_events": sum(
-                        d.get("total_events", 0) for d in profile.get("covert_profile", {}).values()
+                        entry.get("avoided_count", 0)
+                        for sit_words in profile.get("covert_profile", {}).get("avoidance_pairs", {}).values()
+                        for entry in sit_words.values()
                     ),
                 }
-                stats["api_calls"] += 1
+                stats_inc("api_calls")
                 try:
                     resp = client.chat.completions.create(
                         model="gpt-4o-mini",
@@ -4360,8 +4571,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'record': RECORD_KEY.upper(),
                 'tone': TONE_KEY.upper(),
                 'layer': LAYER_KEY.upper(),
-                'stats': 'F12',
-                'quit': 'F3',
+                'stats': STATS_KEY.upper(),
+                'quit': QUIT_KEY.upper(),
             })
         else:
             self.send_error(404)
@@ -4466,12 +4677,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if body and 'situation' in body and 'word' in body:
                 sit = body['situation']
                 word = body['word']
-                cp = profile.get('covert_profile', {})
-                if sit in cp and 'substitutions' in cp[sit]:
-                    if word in cp[sit]['substitutions']:
-                        count = cp[sit]['substitutions'][word].get('count', 0)
-                        del cp[sit]['substitutions'][word]
-                        cp[sit]['total_events'] = max(0, cp[sit].get('total_events', 0) - count)
+                pairs = profile.get('covert_profile', {}).get('avoidance_pairs', {})
+                if sit in pairs:
+                    if word in pairs[sit]:
+                        del pairs[sit][word]
                         save_profile(profile)
                         log(f"Removed covert pair: {word} from {sit}", "info")
                         self._json({"removed": True, "word": word, "situation": sit})
@@ -4521,7 +4730,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             else:
                 self._json({"error": "Send {\"prompt_id\": N}"})
         elif self.path == '/api/hotkeys':
-            global RECORD_KEY, TONE_KEY, LAYER_KEY
+            global RECORD_KEY, TONE_KEY, LAYER_KEY, STATS_KEY, QUIT_KEY
             if body and isinstance(body, dict):
                 valid_keys = {'f1','f2','f3','f4','f5','f6','f7','f8','f9','f10','f11','f12'}
                 if 'record' in body:
@@ -4536,13 +4745,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     k = str(body['layer']).lower()
                     if k in valid_keys:
                         LAYER_KEY = k
-                log(f"Hotkeys updated: record={RECORD_KEY} tone={TONE_KEY} layer={LAYER_KEY}", "info")
+                if 'stats' in body:
+                    k = str(body['stats']).lower()
+                    if k in valid_keys:
+                        STATS_KEY = k
+                if 'quit' in body:
+                    k = str(body['quit']).lower()
+                    if k in valid_keys:
+                        QUIT_KEY = k
+                log(f"Hotkeys updated: record={RECORD_KEY} tone={TONE_KEY} layer={LAYER_KEY} stats={STATS_KEY} quit={QUIT_KEY}", "info")
             self._json({
                 'record': RECORD_KEY.upper(),
                 'tone': TONE_KEY.upper(),
                 'layer': LAYER_KEY.upper(),
-                'stats': 'F12',
-                'quit': 'F3',
+                'stats': STATS_KEY.upper(),
+                'quit': QUIT_KEY.upper(),
             })
         elif self.path == '/api/transcribe':
             # Mobile PWA endpoint: accept base64 WAV, run pipeline, return text
@@ -4566,6 +4783,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 # Flatten to mono if stereo
                 if len(audio_data.shape) > 1:
                     audio_data = audio_data.mean(axis=1)
+                # Audio preprocessing (same as main pipeline)
+                audio_data = audio_data - numpy.mean(audio_data)  # DC removal
+                nyq = TARGET_RATE / 2.0
+                b_hp, a_hp = butter(2, 70.0 / nyq, btype="highpass")
+                audio_data = filtfilt(b_hp, a_hp, audio_data).astype(numpy.float32)
+                rms = numpy.sqrt(numpy.mean(audio_data ** 2))
+                if rms > 1e-6:
+                    target_rms = 10 ** (-12 / 20)
+                    audio_data = audio_data * (target_rms / rms)
+                audio_data = numpy.tanh(1.2 * audio_data).astype(numpy.float32)
+                # Speech rate analysis (zero cost, informs reconstruction)
+                speech_metrics = analyze_speech_rate(audio_data, TARGET_RATE)
                 # Write resampled WAV
                 tmp2 = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
                 sf.write(tmp2.name, audio_data, TARGET_RATE)
@@ -4588,16 +4817,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     try:
                         clean_text = reconstruct(
                             filtered, current_tone, current_layer, profile,
-                            low_confidence=whisper_result.get("low_confidence"),
-                            disagreements=whisper_result.get("disagreements"))
+                            whisper_low_conf=whisper_result.get("low_confidence"),
+                            whisper_disagreements=whisper_result.get("disagreements"),
+                            speech_severity_mod=speech_metrics["severity_modifier"])
                     except Exception as e:
                         log(f"Mobile reconstruct failed: {e}", "error")
                         clean_text = filtered
                     t_recon = time.time()
                 total_ms = round((t_recon - t0) * 1000)
-                stats["sessions"] += 1
-                stats["words"] += len(clean_text.split())
-                stats["api_calls"] += 1
+                stats_inc("sessions")
+                stats_inc("words", len(clean_text.split()))
                 log(f"Mobile transcribe: {len(raw_text)}c -> {len(clean_text)}c ({total_ms}ms)", "info")
                 self._json({
                     "raw": raw_text,
@@ -4621,7 +4850,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def _read_body(self):
-        length = int(self.headers.get('Content-Length', 0))
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+        except (ValueError, TypeError):
+            return None
         # 10MB limit for audio uploads (transcribe, calibration)
         if length == 0 or length > 10_000_000:
             return None
@@ -4653,7 +4885,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 def run_dashboard():
     try:
-        server = HTTPServer(('0.0.0.0', DASHBOARD_PORT), DashboardHandler)
+        server = ThreadingHTTPServer(('0.0.0.0', DASHBOARD_PORT), DashboardHandler)
         server.serve_forever()
     except OSError as e:
         print(f"  Dashboard server failed: {e}")
@@ -4701,7 +4933,7 @@ def on_key_event(event):
     if event.event_type != keyboard.KEY_DOWN and event.name != RECORD_KEY:
         return
 
-    if event.name == 'f12' and event.event_type == keyboard.KEY_DOWN:
+    if event.name == STATS_KEY and event.event_type == keyboard.KEY_DOWN:
         print_stats()
         return
 
@@ -4713,7 +4945,7 @@ def on_key_event(event):
         cycle_layer()
         return
 
-    if event.name == 'f3' and event.event_type == keyboard.KEY_DOWN:
+    if event.name == QUIT_KEY and event.event_type == keyboard.KEY_DOWN:
         now = time.time()
         tap_times = [t for t in tap_times if now - t < 0.8]
         tap_times.append(now)
@@ -4743,7 +4975,7 @@ def keep_alive():
 # -- Main ─────────────────────────────────────────────────────────
 print(f"LAVRENTIY v0.1 | L{current_layer} {current_tone}")
 print(f"Mic: {device_info['name']} | {NATIVE_RATE}Hz")
-print(f"F9=talk  F10=tone  F11=layer  F12=stats  F3x3=quit")
+print(f"{RECORD_KEY.upper()}=talk  {TONE_KEY.upper()}=tone  {LAYER_KEY.upper()}=layer  {STATS_KEY.upper()}=stats  {QUIT_KEY.upper()}x3=quit")
 print(f"Dashboard: http://localhost:{DASHBOARD_PORT}")
 print(f"\"Lavrentiy does his best. Check your shit before you send it.\"")
 print()

@@ -7,10 +7,11 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#b91c1c">
 <link rel="manifest" href="/manifest.json">
-<title>LAVRENTIY</title>
+<title>Лаврентий</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&family=JetBrains+Mono:wght@400;500&family=Playfair+Display:wght@700;800;900&family=Nixie+One&display=swap" rel="stylesheet">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%231a1a1a'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-family='serif' font-weight='900' font-size='42' fill='%23d4a574'%3EЛ%3C/text%3E%3C/svg%3E">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -18,7 +19,9 @@
   --bg: #d8d8dc;
   --surface: #c8c8cc;
   --raised: #bfbfc4;
+  --raised-hi: #b5b5ba;
   --border: rgba(0,0,0,0.1);
+  --border-hi: rgba(0,0,0,0.18);
   --text: #2a2a30;
   --text-dim: #55555e;
   --text-muted: #888890;
@@ -66,23 +69,38 @@ body::before {
 .header {
   padding: 20px 24px 16px;
   text-align: center;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid rgba(0,0,0,0.2);
+  background:
+    repeating-linear-gradient(90deg,
+      rgba(255,255,255,0.0) 0px, rgba(255,255,255,0.04) 1px,
+      rgba(0,0,0,0.02) 2px, transparent 3px, transparent 6px),
+    linear-gradient(180deg, #ccccd0 0%, #c4c4c8 50%, #bcbcc0 100%);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.1);
 }
-.header h1 {
-  font-size: 18px;
-  font-weight: 800;
-  letter-spacing: 8px;
-  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 40%, #ff6b6b 80%);
+.header .brand-cyrillic {
+  font-family: 'Playfair Display', serif;
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  background: linear-gradient(180deg, #d4a574 0%, #c4956a 40%, #b8855a 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+.header .brand-latin {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 2px;
 }
 .header .status {
   font-family: var(--mono);
   font-size: 10px;
   color: var(--text-muted);
   letter-spacing: 2px;
-  margin-top: 4px;
+  margin-top: 8px;
 }
 .header .status.connected { color: var(--green); }
 .header .status.disconnected { color: var(--red-bright); }
@@ -104,6 +122,11 @@ body::before {
   cursor: pointer;
   position: relative;
   background:
+    conic-gradient(from 0deg,
+      rgba(255,255,255,0.06) 0deg, transparent 3deg, transparent 6deg,
+      rgba(255,255,255,0.06) 6deg, transparent 9deg, transparent 12deg,
+      rgba(255,255,255,0.06) 12deg, transparent 15deg, transparent 18deg,
+      rgba(255,255,255,0.06) 18deg, transparent 21deg, transparent 360deg),
     radial-gradient(circle at 40% 35%, rgba(255,255,255,0.06) 0%, transparent 60%),
     linear-gradient(145deg, #c0c0c5, #aaabb0);
   box-shadow:
@@ -167,41 +190,50 @@ body::before {
   overflow-y: auto;
   padding: 0 20px 20px;
   -webkit-overflow-scrolling: touch;
+  background:
+    radial-gradient(circle at center, rgba(0,0,0,0.35) 1.2px, transparent 1.2px),
+    radial-gradient(circle at center, rgba(0,0,0,0.12) 2px, transparent 2px),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.008) 0px, transparent 1px, transparent 3px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.008) 0px, transparent 1px, transparent 3px),
+    #5c2a2a;
+  background-size: 5px 5px, 5px 5px, 4px 4px, 4px 4px;
+  padding-top: 16px;
 }
 
 .result-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: #4a2020;
+  border: 1px solid rgba(255,200,200,0.1);
   border-radius: 12px;
   padding: 16px;
   margin-bottom: 12px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
 .result-card .label {
   font-family: var(--mono);
   font-size: 9px;
   letter-spacing: 2px;
-  color: var(--text-muted);
+  color: #a08888;
   text-transform: uppercase;
   margin-bottom: 6px;
 }
 .result-card .text {
   font-size: 15px;
   line-height: 1.6;
-  color: var(--text);
+  color: #e8d8d8;
   word-break: break-word;
 }
 .result-card .text.raw {
   font-size: 12px;
-  color: var(--text-dim);
+  color: #a08888;
   font-family: var(--mono);
 }
 .result-card .meta {
-  font-family: var(--mono);
-  font-size: 9px;
-  color: var(--text-muted);
+  font-family: 'Nixie One', var(--mono);
+  font-size: 11px;
+  color: #d4a574;
   margin-top: 8px;
   letter-spacing: 1px;
+  text-shadow: 0 0 6px rgba(238,90,36,0.4);
 }
 
 .copy-btn {
@@ -209,20 +241,22 @@ body::before {
   width: 100%;
   padding: 12px;
   margin-top: 8px;
-  border: 1px solid var(--border);
+  border: 1px solid rgba(255,200,200,0.1);
+  border-bottom: 2px solid rgba(0,0,0,0.3);
   border-radius: 8px;
-  background: var(--raised);
-  color: var(--text);
+  background: #4a2020;
+  color: #e8d8d8;
   font-family: var(--mono);
   font-size: 11px;
   letter-spacing: 2px;
   text-transform: uppercase;
   cursor: pointer;
   transition: all 0.15s;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
 .copy-btn:active {
-  background: var(--surface);
   transform: scale(0.98);
+  box-shadow: none;
 }
 .copy-btn.copied {
   background: var(--green);
@@ -233,14 +267,14 @@ body::before {
 .empty-state {
   text-align: center;
   padding: 40px 20px;
-  color: var(--text-muted);
+  color: #a08888;
   font-size: 13px;
 }
 
 /* ─── History ─── */
 .history-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: #4a2020;
+  border: 1px solid rgba(255,200,200,0.1);
   border-radius: 10px;
   padding: 12px 14px;
   margin-bottom: 8px;
@@ -248,31 +282,64 @@ body::before {
 .history-card .hc-text {
   font-size: 13px;
   line-height: 1.5;
-  color: var(--text);
+  color: #e8d8d8;
 }
 .history-card .hc-meta {
-  font-family: var(--mono);
-  font-size: 9px;
-  color: var(--text-muted);
+  font-family: 'Nixie One', var(--mono);
+  font-size: 10px;
+  color: #d4a574;
   margin-top: 4px;
+  text-shadow: 0 0 4px rgba(238,90,36,0.3);
 }
 .history-card .hc-copy {
   font-family: var(--mono);
   font-size: 9px;
-  color: var(--text-dim);
+  color: #b09898;
   background: none;
-  border: 1px solid var(--border);
+  border: 1px solid rgba(255,200,200,0.1);
   border-radius: 4px;
   padding: 2px 8px;
   margin-top: 6px;
   cursor: pointer;
+}
+
+/* ─── Footer grille ─── */
+.footer-grille {
+  padding: 10px 20px;
+  text-align: center;
+  border-top: 1px solid rgba(0,0,0,0.25);
+  background:
+    radial-gradient(circle at center, rgba(0,0,0,0.18) 1.2px, transparent 1.2px),
+    linear-gradient(180deg, #b8b8bc 0%, #aeaeb2 100%);
+  background-size: 8px 8px, 100% 100%;
+  box-shadow: inset 0 2px 6px rgba(0,0,0,0.15);
+}
+.footer-badge {
+  display: inline-block;
+  padding: 3px 14px;
+  background: linear-gradient(180deg, #2a2a2a 0%, #1a1a1a 100%);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 3px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+.footer-badge span {
+  font-family: 'Playfair Display', serif;
+  font-weight: 900;
+  font-size: 9px;
+  letter-spacing: 4px;
+  background: linear-gradient(180deg, #d4a574 0%, #c4956a 40%, #b8855a 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-transform: uppercase;
 }
 </style>
 </head>
 <body>
 <div class="app">
   <div class="header">
-    <h1>LAVRENTIY</h1>
+    <div class="brand-cyrillic">Лаврентий</div>
+    <div class="brand-latin">LAVRENTIY</div>
     <div class="status" id="status">CONNECTING...</div>
   </div>
 
@@ -287,6 +354,10 @@ body::before {
 
   <div class="result-area" id="results">
     <div class="empty-state">Tap the button and speak.<br>Transcription appears here.</div>
+  </div>
+
+  <div class="footer-grille">
+    <div class="footer-badge"><span>Лаврентий</span></div>
   </div>
 </div>
 
@@ -328,7 +399,6 @@ async function toggleRecord() {
   const label = document.getElementById('rec-label');
 
   if (!recording) {
-    // Start
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       chunks = [];
@@ -347,7 +417,6 @@ async function toggleRecord() {
       setTimeout(() => { label.textContent = 'TAP TO RECORD'; }, 2000);
     }
   } else {
-    // Stop
     recording = false;
     if (mediaRecorder && mediaRecorder.state === 'recording') {
       mediaRecorder.stop();
@@ -363,12 +432,10 @@ async function processRecording() {
   const blob = new Blob(chunks, { type: 'audio/webm' });
 
   try {
-    // Decode to WAV (same approach as calibration tab)
     const arrayBuf = await blob.arrayBuffer();
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const audioBuf = await audioCtx.decodeAudioData(arrayBuf);
 
-    // Resample to 16kHz mono
     const targetRate = 16000;
     const offlineCtx = new OfflineAudioContext(1, Math.ceil(audioBuf.duration * targetRate), targetRate);
     const source = offlineCtx.createBufferSource();
@@ -378,11 +445,9 @@ async function processRecording() {
     const rendered = await offlineCtx.startRendering();
     const pcm = rendered.getChannelData(0);
 
-    // Encode as WAV
     const wavBytes = encodeWAV(pcm, targetRate);
     const b64 = btoa(String.fromCharCode(...new Uint8Array(wavBytes)));
 
-    // Send to engine
     const r = await fetch(API + '/api/transcribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -413,7 +478,6 @@ function showResult(data) {
   const ms = data.total_ms || 0;
   const layer = data.layer || '?';
 
-  // Add to history
   history.unshift({ clean, raw, ms, layer, ts: new Date() });
   if (history.length > 20) history.pop();
 
@@ -436,7 +500,6 @@ function renderResults() {
   const latest = history[0];
   let html = '';
 
-  // Latest result — prominent
   html += '<div class="result-card">';
   html += '<div class="label">RESULT</div>';
   html += '<div class="text">' + esc(latest.clean) + '</div>';
@@ -447,9 +510,8 @@ function renderResults() {
   html += '</div>';
   html += '<button class="copy-btn" onclick="copyText(0)">COPY TO CLIPBOARD</button>';
 
-  // History
   if (history.length > 1) {
-    html += '<div style="font-family:var(--mono);font-size:9px;letter-spacing:2px;color:var(--text-muted);padding:16px 0 8px;text-transform:uppercase">History</div>';
+    html += '<div style="font-family:var(--mono);font-size:9px;letter-spacing:2px;color:#a08888;padding:16px 0 8px;text-transform:uppercase">History</div>';
     for (let i = 1; i < history.length; i++) {
       const h = history[i];
       const time = h.ts.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
@@ -483,9 +545,6 @@ async function copyText(idx) {
   if (!item) return;
   try {
     await navigator.clipboard.writeText(item.clean);
-    // Flash the button
-    const btns = document.querySelectorAll('.copy-btn, .hc-copy');
-    // Find the right one (approximate)
     const btn = idx === 0 ? document.querySelector('.copy-btn') : document.querySelectorAll('.hc-copy')[idx - 1];
     if (btn) {
       btn.classList.add('copied');
@@ -496,7 +555,6 @@ async function copyText(idx) {
       }, 1500);
     }
   } catch (e) {
-    // Fallback for older browsers
     const ta = document.createElement('textarea');
     ta.value = item.clean;
     document.body.appendChild(ta);
