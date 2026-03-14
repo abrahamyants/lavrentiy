@@ -1,6 +1,6 @@
 # LAVRENTIY
 
-**Voice Reconstruction Engine** — *"We've got a file on you"*
+**Voice Reconstruction Engine**
 
 Lavrentiy captures your voice, transcribes it via an enhanced Whisper pipeline (Script Prep decoder seeding, block preservation, confidence targeting, multi-temperature voting), reconstructs through GPT-4o/4o-mini with personalized phoneme context, validates meaning with Falcon, and pastes the cleaned output directly into whatever app you were typing in. It learns your speech patterns over time — corrections, filler words, vocabulary, and stutter triggers — building a persistent profile that improves accuracy with every session.
 
