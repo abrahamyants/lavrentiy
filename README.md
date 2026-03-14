@@ -446,13 +446,15 @@ Single HTML file served by the engine's embedded HTTP server:
 | POST | `/api/calibration/skip` | Skip a prompt |
 | POST | `/api/calibration/stop` | End calibration session |
 | POST | `/api/augment` | Trigger augmentation generation |
+| GET  | `/api/calibration/prompts` | List all calibration prompts |
+| POST | `/api/transcribe` | Mobile transcription endpoint (base64 WAV in, text out) |
 
 ## Data Safety
 
 - **Atomic profile saves**: temp-write → fsync → rename (no partial writes)
 - **SQLite WAL mode**: concurrent reads during writes, no corruption
 - **Pre-migration backups**: timestamped snapshots in `~/.lavrentiy/backups/`
-- **Schema versioning**: profile version 3 (vote-based candidate corrections, covert avoidance pairs)
+- **Schema versioning**: profile version 4 (vote-based candidate corrections, covert avoidance pairs, phonetic triggers, OCD speech profile)
 - **All data local**: everything stored in `~/.lavrentiy/`, nothing server-side except OpenAI API calls
 - **Archive budget**: auto-pause at 2GB to prevent disk fill
 
