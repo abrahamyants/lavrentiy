@@ -22,3 +22,6 @@ jobs:
 
       - name: Run integration tests
         run: python test_integration.py -v
+
+      - name: Run clinical feature tests
+        run: python test_clinical.py -v
