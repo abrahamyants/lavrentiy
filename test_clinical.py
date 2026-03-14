@@ -54,6 +54,16 @@ ns['_last_prep_text'] = None
 ns['_last_prep_ts'] = 0.0
 ns['_PREP_EXPIRY_SEC'] = 300
 
+# Thread locks (needed by functions that now use locking)
+import threading
+ns['threading'] = threading
+ns['_prep_lock'] = threading.Lock()
+ns['_redo_lock'] = threading.Lock()
+ns['_shadow_lock'] = threading.Lock()
+ns['_learn_lock'] = threading.Lock()
+ns['_augment_lock'] = threading.Lock()
+ns['_stats_lock'] = threading.Lock()
+
 # Stubs
 ns['log'] = lambda msg, level='info': None
 ns['stats'] = {'api_calls': 0, 'sessions': 50, 'falcon_rejects': 0,
@@ -71,9 +81,10 @@ ns['save_profile'] = lambda prof: None
 _mock_session_count = [50]
 ns['db_session_count'] = lambda: _mock_session_count[0]
 
-# Load target functions
+# Load target functions (including _learn_event helper used by decay/learn functions)
 target_funcs = [
     '_extract_onset', 'learn_onset_weights', 'predict_phonetic_risk',
+    '_learn_event', '_learn_events_snapshot',
     'compute_exposure_difficulty', 'compute_editorial_distance',
     'detect_covert_avoidance', 'update_covert_profile',
     'compute_substitution_fingerprint',

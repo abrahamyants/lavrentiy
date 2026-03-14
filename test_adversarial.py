@@ -59,6 +59,16 @@ ns['current_situation'] = 'default'
 ns['HOLD_ON_HIGH_RISK'] = False
 ns['_DANGLING'] = re.compile(r'(?:,|\band\s*$|\bor\s*$|\bbut\s*$|\.{2}(?!\.)|\bthe\s*$)', re.IGNORECASE)
 ns['save_profile'] = lambda prof: None
+# Thread locks (needed by functions that now use locking)
+import threading
+ns['threading'] = threading
+ns['_prep_lock'] = threading.Lock()
+ns['_redo_lock'] = threading.Lock()
+ns['_shadow_lock'] = threading.Lock()
+ns['_learn_lock'] = threading.Lock()
+ns['_augment_lock'] = threading.Lock()
+ns['_stats_lock'] = threading.Lock()
+
 ns['learn_events'] = []
 ns['REDO_SIMILARITY_THRESHOLD'] = 0.7
 ns['_redo_buffer'] = []

@@ -1301,6 +1301,7 @@ import base64
 AUGMENT_DIR = CALIBRATION_DIR / "augmented"
 AUGMENT_VARIANTS = 4              # synthetic variants per real sample
 AUGMENT_VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
+_augment_lock = threading.Lock()
 _augment_state = {
     "running": False,
     "total": 0,
@@ -1382,12 +1383,12 @@ def augment_calibration_data():
     Multiplies 60 real samples → 240 synthetic training pairs.
     Runs synchronously (called from background thread via API).
     """
-    if _augment_state["running"]:
-        return {"error": "augmentation already running"}
-
-    _augment_state["running"] = True
-    _augment_state["errors"] = 0
-    _augment_state["completed"] = 0
+    with _augment_lock:
+        if _augment_state["running"]:
+            return {"error": "augmentation already running"}
+        _augment_state["running"] = True
+        _augment_state["errors"] = 0
+        _augment_state["completed"] = 0
 
     # Collect completed calibration samples
     if not CALIBRATION_DIR.exists():
@@ -1707,36 +1708,38 @@ REDO_SIMILARITY_THRESHOLD = 0.7   # word overlap ratio to count as "same sentenc
 REDO_NUDGE_THRESHOLD = 3          # redos before nudge
 _redo_buffer = []                 # list of recent output word sets
 _redo_count = 0                   # consecutive redo counter
+_redo_lock = threading.Lock()
 
 def check_redo(output_text):
     """Check if this output is a redo of the previous recording.
     Returns redo count (0 = not a redo)."""
     global _redo_count
-    if not output_text or not _redo_buffer:
-        _redo_buffer.clear()
-        _redo_buffer.append(set(output_text.lower().split()) if output_text else set())
-        _redo_count = 0
-        return 0
-    current_words = set(output_text.lower().split())
-    last_words = _redo_buffer[-1]
-    if not current_words or not last_words:
-        _redo_buffer.clear()
-        _redo_buffer.append(current_words)
-        _redo_count = 0
-        return 0
-    # Jaccard similarity
-    overlap = len(current_words & last_words) / max(len(current_words | last_words), 1)
-    if overlap >= REDO_SIMILARITY_THRESHOLD:
-        _redo_count += 1
-        _redo_buffer.append(current_words)
-        if len(_redo_buffer) > 5:
-            _redo_buffer.pop(0)
-        return _redo_count
-    else:
-        _redo_buffer.clear()
-        _redo_buffer.append(current_words)
-        _redo_count = 0
-        return 0
+    with _redo_lock:
+        if not output_text or not _redo_buffer:
+            _redo_buffer.clear()
+            _redo_buffer.append(set(output_text.lower().split()) if output_text else set())
+            _redo_count = 0
+            return 0
+        current_words = set(output_text.lower().split())
+        last_words = _redo_buffer[-1]
+        if not current_words or not last_words:
+            _redo_buffer.clear()
+            _redo_buffer.append(current_words)
+            _redo_count = 0
+            return 0
+        # Jaccard similarity
+        overlap = len(current_words & last_words) / max(len(current_words | last_words), 1)
+        if overlap >= REDO_SIMILARITY_THRESHOLD:
+            _redo_count += 1
+            _redo_buffer.append(current_words)
+            if len(_redo_buffer) > 5:
+                _redo_buffer.pop(0)
+            return _redo_count
+        else:
+            _redo_buffer.clear()
+            _redo_buffer.append(current_words)
+            _redo_count = 0
+            return 0
 
 
 # -- Live preview state ───────────────────────────────────────────
@@ -2132,7 +2135,7 @@ def falcon_validate(raw_text, clean_text, layer):
             "Does the reconstruction preserve the core content and intent? "
             "Answer ONLY 'yes' or 'no'."
         )
-    if layer >= 4:
+    elif layer >= 4:
         prompt = (
             "Speaker stutters. Repeated syllables, prolongations, and blocks are "
             "disfluencies, not emphasis. Filler clusters before content words are "
@@ -2494,13 +2497,15 @@ def prep_text(text, prof):
 _last_prep_text = None
 _last_prep_ts = 0.0
 _PREP_EXPIRY_SEC = 300  # 5 minutes — prep text older than this is stale
+_prep_lock = threading.Lock()
 
 
 def set_last_prep(text):
     """Store the most recent Script Prep input for covert avoidance comparison."""
     global _last_prep_text, _last_prep_ts
-    _last_prep_text = text.strip() if text else None
-    _last_prep_ts = time.time()
+    with _prep_lock:
+        _last_prep_text = text.strip() if text else None
+        _last_prep_ts = time.time()
 
 
 def detect_covert_avoidance(actual_text, prof):
@@ -2508,14 +2513,19 @@ def detect_covert_avoidance(actual_text, prof):
     Returns list of avoidance pairs: [{intended: word, said: word, onset: str}]
     Returns empty list if no prep text is available or it's expired."""
     global _last_prep_text
-    if not _last_prep_text or not actual_text:
+    # Snapshot prep text under lock to avoid races with set_last_prep()
+    with _prep_lock:
+        prep_snapshot = _last_prep_text
+        prep_ts_snapshot = _last_prep_ts
+    if not prep_snapshot or not actual_text:
         return []
     # Check expiry
-    if time.time() - _last_prep_ts > _PREP_EXPIRY_SEC:
-        _last_prep_text = None
+    if time.time() - prep_ts_snapshot > _PREP_EXPIRY_SEC:
+        with _prep_lock:
+            _last_prep_text = None
         return []
 
-    prep_words = [w.lower() for w in re.findall(r'\b\w+\b', _last_prep_text)]
+    prep_words = [w.lower() for w in re.findall(r'\b\w+\b', prep_snapshot)]
     actual_words = [w.lower() for w in re.findall(r'\b\w+\b', actual_text)]
     if not prep_words or not actual_words:
         return []
@@ -2527,7 +2537,8 @@ def detect_covert_avoidance(actual_text, prof):
     # Find words that are in prep but NOT in actual speech
     missing = [w for w in prep_content if w not in actual_content]
     if not missing:
-        _last_prep_text = None  # consumed
+        with _prep_lock:
+            _last_prep_text = None  # consumed
         return []
 
     # For each missing word, check if something semantically close appeared instead
@@ -2562,7 +2573,8 @@ def detect_covert_avoidance(actual_text, prof):
                 })
                 break  # one substitute per missing word
 
-    _last_prep_text = None  # consumed after comparison
+    with _prep_lock:
+        _last_prep_text = None  # consumed after comparison
     return avoidance_pairs
 
 
@@ -2708,7 +2720,22 @@ DECAY_DEAD_SESSIONS = 200    # candidates not re-seen for this many sessions →
 _learn_counter = 0
 _decay_counter = 0
 learn_events = []  # [{ts, type, value}, ...]
+_learn_lock = threading.Lock()
 learn_status = {"last_run": None, "total_learned": 0, "next_in": LEARN_EVERY}
+
+
+def _learn_event(entry):
+    """Thread-safe append to learn_events with cap at 50."""
+    with _learn_lock:
+        learn_events.append(entry)
+        if len(learn_events) > 50:
+            learn_events[:] = learn_events[-50:]
+
+
+def _learn_events_snapshot():
+    """Thread-safe copy of learn_events for reading."""
+    with _learn_lock:
+        return list(learn_events)
 
 def learn_from_sessions(prof):
     """Analyze recent raw→output pairs and extract patterns."""
@@ -2777,18 +2804,18 @@ def learn_from_sessions(prof):
         if entry["total"] >= LEARN_PROMOTION_THRESHOLD:
             ranked = sorted(entry["votes"].items(), key=lambda x: x[1], reverse=True)
             if len(ranked) >= 2 and ranked[0][1] == ranked[1][1]:
-                learn_events.append({"ts": now, "type": "candidate", "value": f"{wrong}: tie ({entry['total']} votes), held"})
+                _learn_event({"ts": now, "type": "candidate", "value": f"{wrong}: tie ({entry['total']} votes), held"})
                 log(f"Candidate tie: \"{wrong}\" — not promoted", "info")
             else:
                 winner = ranked[0][0]
                 if len(prof.get("corrections", {})) < MAX_PROFILE_ITEMS:
                     prof.setdefault("corrections", {})[wrong] = winner
                 del cand_corr[key]
-                learn_events.append({"ts": now, "type": "correction", "value": f"{wrong} → {winner}"})
+                _learn_event({"ts": now, "type": "correction", "value": f"{wrong} → {winner}"})
                 log(f"Promoted: \"{wrong}\" → \"{winner}\"", "info")
                 promoted += 1
         else:
-            learn_events.append({"ts": now, "type": "candidate", "value": f"{wrong} → {right} ({entry['total']}/{LEARN_PROMOTION_THRESHOLD})"})
+            _learn_event({"ts": now, "type": "candidate", "value": f"{wrong} → {right} ({entry['total']}/{LEARN_PROMOTION_THRESHOLD})"})
 
     # Fillers → candidates → promote
     existing_fillers = {f.lower() for f in prof.get("filler_words", [])}
@@ -2805,11 +2832,11 @@ def learn_from_sessions(prof):
             if len(prof.get("filler_words", [])) < MAX_PROFILE_ITEMS:
                 prof.setdefault("filler_words", []).append(key)
             del cand_fill[key]
-            learn_events.append({"ts": now, "type": "filler", "value": key})
+            _learn_event({"ts": now, "type": "filler", "value": key})
             log(f"Promoted filler: \"{filler}\"", "info")
             promoted += 1
         else:
-            learn_events.append({"ts": now, "type": "candidate", "value": f"filler: {key} ({cand_fill[key]}/{LEARN_PROMOTION_THRESHOLD})"})
+            _learn_event({"ts": now, "type": "candidate", "value": f"filler: {key} ({cand_fill[key]}/{LEARN_PROMOTION_THRESHOLD})"})
 
     # Vocabulary → candidates → promote
     existing_vocab = {v.lower() for v in prof.get("vocabulary", [])}
@@ -2826,11 +2853,11 @@ def learn_from_sessions(prof):
             if len(prof.get("vocabulary", [])) < MAX_PROFILE_ITEMS:
                 prof.setdefault("vocabulary", []).append(term)
             del cand_vocab[key]
-            learn_events.append({"ts": now, "type": "vocab", "value": term})
+            _learn_event({"ts": now, "type": "vocab", "value": term})
             log(f"Promoted vocab: \"{term}\"", "info")
             promoted += 1
         else:
-            learn_events.append({"ts": now, "type": "candidate", "value": f"vocab: {term} ({cand_vocab[key]}/{LEARN_PROMOTION_THRESHOLD})"})
+            _learn_event({"ts": now, "type": "candidate", "value": f"vocab: {term} ({cand_vocab[key]}/{LEARN_PROMOTION_THRESHOLD})"})
 
     learn_status["last_run"] = now
     if promoted:
@@ -2838,9 +2865,6 @@ def learn_from_sessions(prof):
     else:
         log("Learn: no promotions this cycle", "info")
     save_profile(prof)  # always save — candidate counts changed
-
-    if len(learn_events) > 50:
-        learn_events[:] = learn_events[-50:]
 
 
 # -- Profile Decay (evidence-based staleness pruning) ─────────────
@@ -2921,7 +2945,7 @@ def decay_stale_profile_entries(prof):
             "total": 1,
             "demoted_at": session_n,
         }
-        learn_events.append({"ts": now, "type": "decay", "value": f"demoted: {key} → {value} (stale {DECAY_STALE_SESSIONS}+ sessions)"})
+        _learn_event({"ts": now, "type": "decay", "value": f"demoted: {key} → {value} (stale {DECAY_STALE_SESSIONS}+ sessions)"})
         log(f"Decay: demoted correction \"{key}\" → \"{value}\" (unused {DECAY_STALE_SESSIONS}+ sessions)", "info")
         demoted += 1
 
@@ -2931,7 +2955,7 @@ def decay_stale_profile_entries(prof):
         demoted_at = entry.get("demoted_at", 0)
         if demoted_at > 0 and session_n - demoted_at > DECAY_DEAD_SESSIONS:
             del cand_corr[key]
-            learn_events.append({"ts": now, "type": "decay", "value": f"pruned candidate: {key}"})
+            _learn_event({"ts": now, "type": "decay", "value": f"pruned candidate: {key}"})
             log(f"Decay: pruned dead candidate \"{key}\"", "info")
             pruned += 1
 
@@ -2956,7 +2980,7 @@ def decay_stale_profile_entries(prof):
 
     for filler in stale_fillers:
         fillers.remove(filler)
-        learn_events.append({"ts": now, "type": "decay", "value": f"demoted filler: {filler}"})
+        _learn_event({"ts": now, "type": "decay", "value": f"demoted filler: {filler}"})
         log(f"Decay: removed stale filler \"{filler}\" (unused {DECAY_STALE_SESSIONS}+ sessions)", "info")
         demoted += 1
 
@@ -2974,7 +2998,7 @@ def decay_stale_profile_entries(prof):
 
     for term in stale_vocab:
         vocab.remove(term)
-        learn_events.append({"ts": now, "type": "decay", "value": f"demoted vocab: {term}"})
+        _learn_event({"ts": now, "type": "decay", "value": f"demoted vocab: {term}"})
         log(f"Decay: removed stale vocab \"{term}\" (unused {DECAY_STALE_SESSIONS}+ sessions)", "info")
         demoted += 1
 
@@ -3102,7 +3126,7 @@ def add_trigger_words(new_triggers, prof):
                 by_lang.setdefault(lang, []).append(word)
             # Store disfluency type
             trigger_types[word.lower()] = dtype
-            learn_events.append({
+            _learn_event({
                 "ts": datetime.now().isoformat(),
                 "type": "trigger",
                 "value": word,
@@ -3196,7 +3220,7 @@ def build_stutter_insights(prof):
             })
 
     # 5. Fast growth: 3+ trigger detections in current engine run
-    recent_triggers = sum(1 for e in learn_events if e.get("type") == "trigger")
+    recent_triggers = sum(1 for e in _learn_events_snapshot() if e.get("type") == "trigger")
     if recent_triggers >= 3:
         tip = STUTTER_TIPS["fast_growth_triggers"]
         insights.append({
@@ -3654,7 +3678,8 @@ def whisper_transcribe(filepath):
       whisper_meta: {prompt_used, temperatures, n_api_calls}
     """
     prompt_text = _build_whisper_prompt()
-    n_calls_before = stats["api_calls"]
+    with _stats_lock:
+        n_calls_before = stats["api_calls"]
 
     if WHISPER_MULTI_TEMP:
         vote = _multi_temperature_vote(filepath, prompt_text)
@@ -3677,6 +3702,9 @@ def whisper_transcribe(filepath):
     if low_confidence:
         log(f"Whisper low-confidence segments: {len(low_confidence)} flagged", "info")
 
+    with _stats_lock:
+        n_calls_delta = stats["api_calls"] - n_calls_before
+
     return {
         "text": text,
         "segments": segments,
@@ -3687,7 +3715,7 @@ def whisper_transcribe(filepath):
             "prompt_source": "script_prep" if (_last_prep_text and time.time() - _last_prep_ts < _PREP_EXPIRY_SEC) else ("clipboard" if (_clipboard_predictor and _clipboard_predictor.get_prompt_bias()) else "default"),
             "prompt_length": len(prompt_text),
             "temperatures": WHISPER_MULTI_TEMPS if WHISPER_MULTI_TEMP else [WHISPER_TEMP],
-            "n_api_calls": stats["api_calls"] - n_calls_before,
+            "n_api_calls": n_calls_delta,
         }
     }
 
@@ -3700,6 +3728,7 @@ def whisper_transcribe(filepath):
 # L4 only (extra API cost).
 
 _shadow_history = []  # list of {ts, shadow, actual, drift_score, source}
+_shadow_lock = threading.Lock()
 _MAX_SHADOW_HISTORY = 50
 
 
@@ -3774,9 +3803,10 @@ def generate_shadow_utterance(raw_text, prof):
         "substitute_words": list(substituted)[:10],
         "source": source,
     }
-    _shadow_history.append(entry)
-    if len(_shadow_history) > _MAX_SHADOW_HISTORY:
-        _shadow_history.pop(0)
+    with _shadow_lock:
+        _shadow_history.append(entry)
+        if len(_shadow_history) > _MAX_SHADOW_HISTORY:
+            _shadow_history.pop(0)
 
     if drift_score > 0.15:
         log(f"Shadow drift: {drift_score:.0%} — {len(avoided)} words avoided [{source}]", "info")
@@ -3787,9 +3817,11 @@ def generate_shadow_utterance(raw_text, prof):
 def compute_avoidance_trend():
     """Compute rolling avoidance drift trend from shadow history.
     Returns: avg drift over last 10 recordings, trend direction."""
-    if not _shadow_history:
+    with _shadow_lock:
+        history_snapshot = list(_shadow_history)
+    if not history_snapshot:
         return {"avg_drift": 0.0, "trend": "stable", "n": 0}
-    recent = _shadow_history[-10:]
+    recent = history_snapshot[-10:]
     drifts = [e["drift_score"] for e in recent]
     avg = sum(drifts) / len(drifts)
     # Trend: compare first half vs second half
@@ -4136,7 +4168,8 @@ def pipeline():
             archive_session_audio(tmp.name, raw_text, output, current_layer, current_situation)
 
     except Exception as e:
-        log(f"Error: {e}", "error")
+        import traceback
+        log(f"Error: {e}\n{traceback.format_exc()}", "error")
         state = 'error'
         threading.Timer(3, lambda: set_state('idle')).start()
     finally:
@@ -4309,7 +4342,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif self.path == '/api/learn':
             self._json({
                 'status': learn_status,
-                'events': learn_events,
+                'events': _learn_events_snapshot(),
                 'totals': {
                     'corrections': len(profile.get('corrections', {})),
                     'fillers': len(profile.get('filler_words', [])),
@@ -4339,7 +4372,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'onset_anomalies': _onset_anomalies,
                 'substitution_fingerprint': compute_substitution_fingerprint(profile),
                 'shadow_utterance': {
-                    'history': _shadow_history[-5:],  # last 5 for display
+                    'history': list(_shadow_history[-5:]),
                     'trend': compute_avoidance_trend(),
                 },
                 'decay': {
