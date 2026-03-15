@@ -148,6 +148,8 @@ Predicts per-word stuttering risk using five linguistic features validated by Fl
 
 The same word scores differently depending on where it appears: "because" at sentence start (high risk) vs "...mostly because..." (lower risk). Feeds into Script Prep, exposure difficulty, trigger prediction, and the L4 reconstruction prompt.
 
+**Verified against original research:** All four of Brown's factors have been verified factor-by-factor against the 1945 paper with page citations. See **[docs/browns_verification.md](docs/browns_verification.md)** for the full verification including Table 4/5/6 data and code comparison.
+
 ### Personalized Onset Weighting
 
 Analyzes trigger words to learn which phonetic onsets (e.g., /k/, /cr/, /p/) the user blocks on. Weights are personalized beyond population priors — dominant onsets get boosted (up to 0.9), unseen onsets get demoted (to 0.3). At Layer 4, the user's hardest phonemes are injected directly into the GPT reconstruction prompt: "Whisper output near these onsets is unreliable — trust semantic context over literal transcription."
@@ -475,31 +477,75 @@ Runtime data at `~/.lavrentiy/`:
 - `calibration/augmented/` — synthetic disfluent training data
 - `audio_archive/` — session WAV + metadata pairs for fine-tuning
 
-## Test Coverage — Redwood Audit (2026-03-14)
+## Brown's Paper Verification (2026-03-15)
 
-**14 of 18 clinical features have automated test coverage.** 95 tests passing across 2 test suites.
+The 5-feature phonetic risk model was verified against the original 1945 paper: Spencer F. Brown, "The Loci of Stutterings in the Speech Sequence," *Journal of Speech Disorders*, Vol. 10, No. 3, pp. 181–192. All four original factors are correctly implemented. The 5th feature (word frequency) is properly attributed to FluencyBank 2023. Full verification with page citations, table data, and factor-by-factor comparison: **[docs/browns_verification.md](docs/browns_verification.md)**
+
+Key finding from Brown: rank-order correlation between factor count and stuttering frequency was **.99 ± .003** (Table 4, p. 186). Only 5.3% of 5,136 stutterings could not be accounted for by at least one factor.
+
+## Test Coverage — Updated 2026-03-15
+
+**~336 test assertions across 4 test suites covering 39 test groups.** All passing, zero errors.
+
+### test_core.py — Unit Tests (~42 assertions, 7 groups)
 
 | Feature | Tests | Status |
 |---------|-------|--------|
-| Onset extraction (`_extract_onset`) | 7 | Passing |
-| Onset weight learning (`learn_onset_weights`) | 6 | Passing |
-| Phonetic risk model — Brown 5-factor (`predict_phonetic_risk`) | 9 | Passing |
-| Situation severity mapping | 6 | Passing |
-| Word Error Rate (`compute_wer`) | 5 | Passing |
-| Risk flag computation (`compute_risk_flags`) | 4 | Passing |
-| Decision engine (`make_decision`) | 5 | Passing |
-| Disfluency stripping (`strip_disfluencies`) | 13 | Passing |
-| Disfluency counting (`count_disfluencies`) | 7 | Passing |
-| OCD redo-loop detection (`detect_ocd_loops`) | 3 | Passing |
-| Session database round-trip + schema | 12 | Passing |
-| Profile schema migration (v1→v4) | 9 | Passing |
-| Bilingual filler detection (EN + RU) | 6 | Passing |
-| Editorial distance tracking | 3 | Passing |
-| **Total** | **95** | **All passing** |
+| Onset extraction (`_extract_onset`) | 7 | ✅ Passing |
+| Onset weight learning (`learn_onset_weights`) | 6 | ✅ Passing |
+| Phonetic risk model — Brown 5-factor (`predict_phonetic_risk`) | 9 | ✅ Passing |
+| Situation severity mapping | 6 | ✅ Passing |
+| Word Error Rate (`compute_wer`) | 5 | ✅ Passing |
+| Risk flag computation (`compute_risk_flags`) | 4 | ✅ Passing |
+| Decision engine (`make_decision`) | 5 | ✅ Passing |
 
-**Not yet tested** (require live API or audio hardware): Whisper pipeline integration, LLM reconstruction, covert avoidance detection, DAF streaming.
+### test_clinical.py — Clinical Feature Tests (~85 assertions, 8 groups)
+
+| Feature | Tests | Status |
+|---------|-------|--------|
+| Exposure difficulty scoring (`compute_exposure_difficulty`) | 12 | ✅ Passing |
+| Editorial distance tracking (`compute_editorial_distance`) | 11 | ✅ Passing |
+| Covert avoidance detection (`detect_covert_avoidance`) | 8 | ✅ Passing |
+| Substitution fingerprinting (`compute_substitution_fingerprint`) | 16 | ✅ Passing |
+| Redo detection / anti-compulsion (`check_redo`) | 8 | ✅ Passing |
+| Profile relevance tracking (`track_profile_relevance`) | 8 | ✅ Passing |
+| Profile decay (`decay_stale_profile_entries`) | 13 | ✅ Passing |
+| Covert profile updates (`update_covert_profile`) | 9 | ✅ Passing |
+
+### test_adversarial.py — Stress Tests (~154 assertions, 19 groups)
+
+Adversarial inputs for every testable function: empty/None/whitespace, 100K character strings, Unicode (CJK, Arabic, Cyrillic, emoji, combining chars, zero-width spaces), type confusion (int/float/list/dict/bool where string expected), SQL injection, HTML injection, null bytes, negative values, boundary numerics, 100-level JSON nesting, and regression tests for 3 specific bug fixes (covert/remove data path, reconstruct() kwargs, ThreadingHTTPServer).
+
+### test_integration.py — Integration Tests (~55 assertions, 5 groups)
+
+| Feature | Tests | Status |
+|---------|-------|--------|
+| Disfluency stripping (`strip_disfluencies`) | 13 | ✅ Passing |
+| Disfluency counting (`count_disfluencies`) | 7 | ✅ Passing |
+| OCD loop detection (`detect_ocd_loops`) | 3 | ✅ Passing |
+| Session database round-trip + schema | 18 | ✅ Passing |
+| Profile schema migration (v3→v4) | 9 | ✅ Passing |
+| Bilingual filler detection (EN + RU) | 5 | ✅ Passing |
+
+### CI
+
+GitHub Actions runs `test_core.py`, `test_clinical.py`, `test_adversarial.py`, and `test_integration.py` on every push (`.github/workflows/ci.yml`).
+
+### Not yet tested (4 features)
+
+Require live OpenAI API calls or audio hardware — cannot be unit tested offline:
+
+1. **Whisper pipeline integration** (live audio → Whisper API → verbose JSON parsing)
+2. **LLM reconstruction** (GPT-4o/4o-mini prompt → cleaned output → Falcon validation)
+3. **Covert avoidance detection (live)** (Script Prep → real speech → comparison — unit tests cover the detection logic but not the live pipeline)
+4. **DAF streaming** (real-time audio playback with delay — requires audio hardware)
 
 ## Changelog
+
+### 2026-03-15 — Brown verification + test coverage update
+
+- **Added**: `docs/browns_verification.md` — factor-by-factor verification of the phonetic risk model against Brown's 1945 paper with page citations and table data.
+- **Updated**: Test coverage section — now reflects all 4 test suites (~336 assertions across 39 groups), up from the previous 95 across 2 suites.
 
 ### 2026-03-14 — Bug fixes
 
