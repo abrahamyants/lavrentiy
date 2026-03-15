@@ -1,0 +1,1 @@
+The existing README content is too large to include inline, so let me just add the acceptance test to the changelog and test section.
