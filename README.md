@@ -485,60 +485,20 @@ Key finding from Brown: rank-order correlation between factor count and stutteri
 
 ## Test Coverage — Updated 2026-03-15
 
-**~336 test assertions across 4 test suites covering 39 test groups.** All passing, zero errors.
+**705 assertions passing across 7 test suites.**
 
-### test_core.py — Unit Tests (~42 assertions, 7 groups)
+| Suite | Assertions | Coverage |
+|-------|-----------|----------|
+| `test_core.py` | 42 | `_extract_onset`, `learn_onset_weights`, `predict_phonetic_risk`, `SITUATION_SEVERITY`, `compute_wer`, `compute_risk_flags`, `make_decision` |
+| `test_clinical.py` | 95 | `compute_exposure_difficulty`, `compute_editorial_distance`, `detect_covert_avoidance`, `compute_substitution_fingerprint`, `check_redo`, `track_profile_relevance`, `decay_stale_profile_entries`, `update_covert_profile` |
+| `test_integration.py` | 53 | `strip_disfluencies`, `count_disfluencies`, `detect_ocd_loops`, database round-trip, profile schema migration, bilingual filler detection |
+| `test_pending.py` | 127 | `detect_word_language`, `detect_onset_anomalies`, `compute_brown_scores`, `predict_triggers_in_text`, `generate_shadow_utterance`, `compute_avoidance_trend`, `_build_whisper_prompt`, `learn_from_sessions`, `build_stutter_insights` |
+| `test_pipeline.py` | 97 | Pipeline stage chaining, L1/L2/L4 data flow, mode×layer decision matrix, critical token retention, disfluency→exposure→editorial chain, trigger detection chain, profile corrections |
+| `test_endpoints.py` | 93 | All GET/POST HTTP endpoints, JSON response shape, state mutations, CORS headers, error handling, `/api/covert/remove` edge cases |
+| `test_adversarial.py` | 198 | Stress/boundary/Unicode tests for all clinical features (run locally, not in CI) |
+| **Total** | **705** | **All passing** |
 
-| Feature | Tests | Status |
-|---------|-------|--------|
-| Onset extraction (`_extract_onset`) | 7 | ✅ Passing |
-| Onset weight learning (`learn_onset_weights`) | 6 | ✅ Passing |
-| Phonetic risk model — Brown 5-factor (`predict_phonetic_risk`) | 9 | ✅ Passing |
-| Situation severity mapping | 6 | ✅ Passing |
-| Word Error Rate (`compute_wer`) | 5 | ✅ Passing |
-| Risk flag computation (`compute_risk_flags`) | 4 | ✅ Passing |
-| Decision engine (`make_decision`) | 5 | ✅ Passing |
-
-### test_clinical.py — Clinical Feature Tests (~85 assertions, 8 groups)
-
-| Feature | Tests | Status |
-|---------|-------|--------|
-| Exposure difficulty scoring (`compute_exposure_difficulty`) | 12 | ✅ Passing |
-| Editorial distance tracking (`compute_editorial_distance`) | 11 | ✅ Passing |
-| Covert avoidance detection (`detect_covert_avoidance`) | 8 | ✅ Passing |
-| Substitution fingerprinting (`compute_substitution_fingerprint`) | 16 | ✅ Passing |
-| Redo detection / anti-compulsion (`check_redo`) | 8 | ✅ Passing |
-| Profile relevance tracking (`track_profile_relevance`) | 8 | ✅ Passing |
-| Profile decay (`decay_stale_profile_entries`) | 13 | ✅ Passing |
-| Covert profile updates (`update_covert_profile`) | 9 | ✅ Passing |
-
-### test_adversarial.py — Stress Tests (~154 assertions, 19 groups)
-
-Adversarial inputs for every testable function: empty/None/whitespace, 100K character strings, Unicode (CJK, Arabic, Cyrillic, emoji, combining chars, zero-width spaces), type confusion (int/float/list/dict/bool where string expected), SQL injection, HTML injection, null bytes, negative values, boundary numerics, 100-level JSON nesting, and regression tests for 3 specific bug fixes (covert/remove data path, reconstruct() kwargs, ThreadingHTTPServer).
-
-### test_integration.py — Integration Tests (~55 assertions, 5 groups)
-
-| Feature | Tests | Status |
-|---------|-------|--------|
-| Disfluency stripping (`strip_disfluencies`) | 13 | ✅ Passing |
-| Disfluency counting (`count_disfluencies`) | 7 | ✅ Passing |
-| OCD loop detection (`detect_ocd_loops`) | 3 | ✅ Passing |
-| Session database round-trip + schema | 18 | ✅ Passing |
-| Profile schema migration (v3→v4) | 9 | ✅ Passing |
-| Bilingual filler detection (EN + RU) | 5 | ✅ Passing |
-
-### CI
-
-GitHub Actions runs `test_core.py`, `test_clinical.py`, `test_adversarial.py`, and `test_integration.py` on every push (`.github/workflows/ci.yml`).
-
-### Not yet tested (4 features)
-
-Require live OpenAI API calls or audio hardware — cannot be unit tested offline:
-
-1. **Whisper pipeline integration** (live audio → Whisper API → verbose JSON parsing)
-2. **LLM reconstruction** (GPT-4o/4o-mini prompt → cleaned output → Falcon validation)
-3. **Covert avoidance detection (live)** (Script Prep → real speech → comparison — unit tests cover the detection logic but not the live pipeline)
-4. **DAF streaming** (real-time audio playback with delay — requires audio hardware)
+**Not yet tested** (require live API or audio hardware): Whisper transcription, LLM reconstruction, Falcon validation, DAF audio streaming.
 
 ## Changelog
 

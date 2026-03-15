@@ -25,3 +25,12 @@ jobs:
 
       - name: Run clinical feature tests
         run: python test_clinical.py -v
+
+      - name: Run pending coverage tests
+        run: python test_pending.py -v
+
+      - name: Run pipeline integration tests
+        run: python test_pipeline.py -v
+
+      - name: Run endpoint tests
+        run: python test_endpoints.py -v
