@@ -485,7 +485,7 @@ Key finding from Brown: rank-order correlation between factor count and stutteri
 
 ## Test Coverage — Updated 2026-03-15
 
-**705 assertions passing across 7 test suites.**
+**843 assertions passing across 12 test suites.**
 
 | Suite | Assertions | Coverage |
 |-------|-----------|----------|
@@ -495,8 +495,13 @@ Key finding from Brown: rank-order correlation between factor count and stutteri
 | `test_pending.py` | 127 | `detect_word_language`, `detect_onset_anomalies`, `compute_brown_scores`, `predict_triggers_in_text`, `generate_shadow_utterance`, `compute_avoidance_trend`, `_build_whisper_prompt`, `learn_from_sessions`, `build_stutter_insights` |
 | `test_pipeline.py` | 97 | Pipeline stage chaining, L1/L2/L4 data flow, mode×layer decision matrix, critical token retention, disfluency→exposure→editorial chain, trigger detection chain, profile corrections |
 | `test_endpoints.py` | 93 | All GET/POST HTTP endpoints, JSON response shape, state mutations, CORS headers, error handling, `/api/covert/remove` edge cases |
+| `test_threads.py` | 22 | Concurrent `_shadow_history` writes, trend reads during writes, `stats_inc` atomicity, `preview_state` updates, `learn_events` writes + snapshots, onset anomaly detection |
+| `test_fuzz.py` | 23 | 36,000+ random inputs (ASCII, Unicode, CJK, emoji, null bytes, massive) across 12 functions — invariant verification: scores in [0,1], no crashes, valid return types |
+| `test_perf.py` | 19 | Timing thresholds for 12 functions — prevents silent slowdowns (e.g. `predict_phonetic_risk` < 1ms, `strip_disfluencies` 7.4KB < 100ms, `brown_scores` 13KB < 500ms) |
+| `test_whisper_voting.py` | 43 | Multi-temperature voting: agreement, word-level disagreement detection, `<END>` sentinel, total disagreement, empty transcription, low-confidence segment extraction, block suspect flagging |
+| `test_clipboard.py` | 31 | `ClipboardPredictor` cache TTL, `invalidate()`, situation filtering, `compute_brown_scores` integration, prep > clipboard > fallback priority chain, `_build_bias` structure, min triggers threshold |
 | `test_adversarial.py` | 198 | Stress/boundary/Unicode tests for all clinical features (run locally, not in CI) |
-| **Total** | **705** | **All passing** |
+| **Total** | **843** | **All passing** |
 
 **Not yet tested** (require live API or audio hardware): Whisper transcription, LLM reconstruction, Falcon validation, DAF audio streaming.
 

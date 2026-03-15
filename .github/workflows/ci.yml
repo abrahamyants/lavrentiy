@@ -34,3 +34,18 @@ jobs:
 
       - name: Run endpoint tests
         run: python test_endpoints.py -v
+
+      - name: Run thread safety tests
+        run: python test_threads.py -v
+
+      - name: Run fuzz tests
+        run: python test_fuzz.py -v
+
+      - name: Run performance regression tests
+        run: python test_perf.py -v
+
+      - name: Run Whisper voting tests
+        run: python test_whisper_voting.py -v
+
+      - name: Run clipboard predictor tests
+        run: python test_clipboard.py -v
