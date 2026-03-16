@@ -42,7 +42,7 @@ Mic → Whisper (Script Prep seed | verbose JSON | multi-temp voting)
 | 2 | Reconstruct | LLM cleans grammar, strips fillers, restructures |
 | 3 | Profile | + your learned vocabulary, corrections, preferred terms |
 | 4 | Stutter | + disfluency detection, trigger word tracking, clinical insights, personalized onset weighting, per-user phoneme context in prompt, covert avoidance reversal |
-| 5 | Paralinguistic | + non-verbal event detection (laughter, cough, sigh, breathing, throat-clearing, pauses) via HNR analysis + Whisper error patterns. Detected events injected into reconstruction prompt to prevent hallucination near non-speech audio |
+| 5 | Paralinguistic | + non-verbal event detection (laughter, cough, sigh, breathing, throat-clearing, pauses) via HNR analysis + Whisper error patterns. Detected events injected into reconstruction prompt to prevent hallucination near non-speech audio. + Prosodic bridging: per-segment F0/energy/rate extraction, speaker state inference, stutter-specific prosodic rules. Rich acoustic context injected into GPT prompt to recover information Whisper's text decoder destroys |
 
 ## Modes
 
@@ -395,6 +395,37 @@ Detects non-verbal paralinguistic events (laughter, cough, sigh, breathing, thro
 
 **Prompt injection:** At Layer 5, detected events are injected into the reconstruction prompt: "Whisper was confused near [Laughter] at 3.2s–4.1s — ignore hallucinated text in this window." This prevents the LLM from trying to interpret non-speech audio as garbled words.
 
+## Layer 5.5: Prosodic Bridging
+
+Recovers acoustic features that Whisper's text decoder destroys and describes them as structured text for GPT. Validated by two papers: USDM (Kim et al., NeurIPS 2024) proved acoustic tokens preserve prosodic info through tokenization; SpeechEmotionLlama (Kang et al., Interspeech 2025, MIT/Meta) proved frozen LLMs respond to text-described paralinguistic state.
+
+**Per-segment features:**
+- **F0 (pitch)**: autocorrelation peak frequency, same infrastructure as `compute_hnr()`
+- **F0 variance**: pitch stability across sub-windows within each segment
+- **Pitch direction**: rising / falling / flat / erratic (from F0 contour slope)
+- **RMS energy**: segment loudness
+- **Speaking rate**: syllables per second per segment
+
+**Speaker baseline:** Running averages of F0/energy/rate from historical sessions, stored in `profile.json` under `prosodic_baseline`. Current session features compared in sigma units.
+
+**Speaker state inference:** Maps prosodic deviations to natural language descriptions:
+- High F0 variance + fast rate + high energy → "Elevated stress/arousal"
+- Dropping energy + slow rate → "Low energy/fatigue"
+- Erratic F0 → "Vocal tension"
+- Near baseline → "Calm/casual"
+
+**Stutter-specific prosodic rules:**
+| Acoustic Pattern | Interpretation | Reconstruction |
+|---|---|---|
+| Block + laughter context | Self-deprecating humor | Reconstruct lightly, preserve tone |
+| Block + dropping energy | Frustration/shutdown | Reconstruct gently |
+| Repetition + rising pitch | Genuine struggle | Aggressive reconstruction |
+| Repetition + stable pitch | Emphatic repetition, NOT stutter | Leave it |
+| Filler + flat energy + constant pitch | Postponement stalling | Strip it |
+| Filler + rising pitch | Discourse marker ("you know?") | Keep it |
+
+**Automatic situation inference:** If F0/energy/rate exceed 1.5σ above baseline, logs a suggestion that the situation may warrant upgrade. Does not auto-switch — George can override.
+
 ## Risk Flags
 
 Every pipeline run computes deterministic risk flags (no extra API calls):
@@ -506,7 +537,7 @@ Key finding from Brown: rank-order correlation between factor count and stutteri
 
 ## Test Coverage — Updated 2026-03-15
 
-**892 assertions passing across 13 test suites.**
+**943 assertions passing across 14 test suites.**
 
 | Suite | Assertions | Coverage |
 |-------|-----------|----------|
@@ -522,12 +553,25 @@ Key finding from Brown: rank-order correlation between factor count and stutteri
 | `test_whisper_voting.py` | 43 | Multi-temperature voting: agreement, word-level disagreement detection, `<END>` sentinel, total disagreement, empty transcription, low-confidence segment extraction, block suspect flagging |
 | `test_clipboard.py` | 31 | `ClipboardPredictor` cache TTL, `invalidate()`, situation filtering, `compute_brown_scores` integration, prep > clipboard > fallback priority chain, `_build_bias` structure, min triggers threshold |
 | `test_paralinguistic.py` | 49 | `compute_hnr` (synthetic ground truth: pure tone, noise, mixed, thresholds, degenerate inputs), `_classify_from_error_patterns` (S/D/I mapping, no_speech_prob, disagreement clusters), `detect_paralinguistic_events` (integration: noisy + clean audio, HNR exemption, duration gates), `format_paralinguistic_tags`, LAYERS/LAYER_NAMES constants |
+| `test_prosodic.py` | 51 | `extract_f0` (synthetic pitch detection), `extract_prosodic_features` (per-segment F0/energy/rate), `compute_speaker_baseline` (historical averages), `infer_speaker_state` (stress/fatigue/calm/tension), `build_prosodic_context` (prompt formatting with stutter rules), `compute_prosodic_summary` (session-level aggregation) |
 | `test_adversarial.py` | 198 | Stress/boundary/Unicode tests for all clinical features (run locally, not in CI) |
-| **Total** | **892** | **All passing** |
+| **Total** | **943** | **All passing** |
 
 **Not yet tested** (require live API or audio hardware): Whisper transcription, LLM reconstruction, Falcon validation, DAF audio streaming.
 
 ## Changelog
+
+### 2026-03-15 — Layer 5.5: Prosodic Bridging
+
+- **Added**: Per-segment prosodic feature extraction (`extract_f0`, `extract_prosodic_features`) — F0 via autocorrelation, energy, rate, pitch direction per Whisper segment.
+- **Added**: Speaker baseline computation from historical sessions (`compute_speaker_baseline`). Running F0/energy/rate averages stored in profile. Deviations expressed in sigma units.
+- **Added**: Speaker state inference (`infer_speaker_state`) — maps prosodic deviations to natural language descriptions: stress, fatigue, vocal tension, calm.
+- **Added**: Prosodic context formatting (`build_prosodic_context`) — rich per-segment acoustic transcript injected into GPT prompt at Layer 5. Includes stutter-specific disambiguation rules.
+- **Added**: Automatic situation inference suggestion — elevated prosodic stress (>1.5σ) triggers logged suggestion, no auto-switch.
+- **Added**: `prosodic_summary` column in sessions table for long-term prosodic trend tracking.
+- **Added**: Speaker state indicator in dashboard sidebar.
+- **Research basis**: USDM (Kim et al., NeurIPS 2024), SpeechEmotionLlama (Kang et al., Interspeech 2025).
+- **Tests**: 51 new assertions in `test_prosodic.py`.
 
 ### 2026-03-15 — Layer 5: Paralinguistic Event Detection
 

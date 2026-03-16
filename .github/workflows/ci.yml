@@ -52,3 +52,6 @@ jobs:
 
       - name: Run paralinguistic detection tests
         run: python test_paralinguistic.py -v
+
+      - name: Run prosodic bridging tests
+        run: python test_prosodic.py -v

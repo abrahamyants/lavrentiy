@@ -1056,7 +1056,8 @@ def migrate_profile(prof):
 
 def log_session(prof, raw, output, tone, layer, decision=None, timings=None,
                 situation=None, disf_counts=None, exposure=None, edit_dist=None,
-                speech_metrics=None, lang=None, paralinguistic_events=None):
+                speech_metrics=None, lang=None, paralinguistic_events=None,
+                prosodic_summary=None):
     ts = datetime.now().isoformat()
     falcon = decision["falcon_ok"] if decision else True
     words = len(output.split())
@@ -1065,8 +1066,8 @@ def log_session(prof, raw, output, tone, layer, decision=None, timings=None,
         _db.execute(
             "INSERT INTO sessions (ts, raw, out, tone, layer, words, falcon, decision, timings, "
             "situation, disfluency_counts, exposure_difficulty, editorial_distance, "
-            "speech_metrics, lang, paralinguistic_events) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "speech_metrics, lang, paralinguistic_events, prosodic_summary) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (ts, raw, output, tone, layer, words, int(falcon),
              json.dumps(decision) if decision else None,
              json.dumps(timings) if timings else None,
@@ -1076,7 +1077,8 @@ def log_session(prof, raw, output, tone, layer, decision=None, timings=None,
              edit_dist,
              json.dumps(speech_metrics) if speech_metrics else None,
              lang or 'en',
-             json.dumps(paralinguistic_events) if paralinguistic_events else None)
+             json.dumps(paralinguistic_events) if paralinguistic_events else None,
+             json.dumps(prosodic_summary) if prosodic_summary else None)
         )
         _db.commit()
 
@@ -1601,6 +1603,11 @@ try:
     _db.execute("ALTER TABLE sessions ADD COLUMN paralinguistic_events TEXT")
 except sqlite3.OperationalError:
     pass
+# Migration: add prosodic summary column (Layer 5.5)
+try:
+    _db.execute("ALTER TABLE sessions ADD COLUMN prosodic_summary TEXT")
+except sqlite3.OperationalError:
+    pass
 _db.commit()
 _db_lock = threading.Lock()
 
@@ -1648,14 +1655,14 @@ def db_get_sessions(limit=50, offset=0):
         rows = _db.execute(
             "SELECT ts, raw, out, tone, layer, words, falcon, decision, timings, "
             "situation, disfluency_counts, exposure_difficulty, editorial_distance, "
-            "speech_metrics, lang "
+            "speech_metrics, lang, prosodic_summary "
             "FROM sessions ORDER BY id DESC LIMIT ? OFFSET ?",
             (limit, offset)
         ).fetchall()
     result = []
     for row in rows:
         ts, raw, out, tone, layer, words, falcon, decision, timings, \
-            situation, disf, exposure, edit_dist, spmet, lang = row
+            situation, disf, exposure, edit_dist, spmet, lang, prosodic_sum = row
         entry = {"ts": ts, "raw": raw, "out": out, "tone": tone,
                  "layer": layer, "words": words, "falcon": bool(falcon),
                  "situation": situation or "default",
@@ -1672,6 +1679,8 @@ def db_get_sessions(limit=50, offset=0):
             entry["editorial_distance"] = edit_dist
         if spmet:
             entry["speech_metrics"] = json.loads(spmet)
+        if prosodic_sum:
+            entry["prosodic_summary"] = json.loads(prosodic_sum)
         result.append(entry)
     return result
 
@@ -1802,7 +1811,8 @@ def log(text, kind="info"):
 # -- LLM Calls ───────────────────────────────────────────────────
 def reconstruct(raw_text, tone, layer, prof, situation=None,
                 whisper_low_conf=None, whisper_disagreements=None,
-                speech_severity_mod=0.0, paralinguistic_events=None):
+                speech_severity_mod=0.0, paralinguistic_events=None,
+                prosodic_context=None):
     """Layer 2+: Rebuild raw transcription into clean output."""
     # Detect if input contains Cyrillic (bilingual speaker)
     has_cyrillic = any('\u0400' <= c <= '\u04ff' for c in raw_text)
@@ -2132,6 +2142,13 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
                 + "\nReconstruct using surrounding context only. Do not try to interpret "
                 "non-speech sounds as words."
             )
+
+    # -- Layer 5.5: Prosodic bridging ──────────────────────────────
+    # Rich per-segment prosodic transcript: F0, energy, rate, pitch direction,
+    # speaker state. Gives GPT the acoustic features Whisper destroyed.
+    # Validated by: USDM (NeurIPS 2024), SpeechEmotionLlama (Interspeech 2025)
+    if prosodic_context:
+        parts.append("\n" + prosodic_context)
 
     # Per-tone temperature: formal/professional = low creativity (stick to the words),
     # casual/friend = higher creativity (natural rewording OK)
@@ -4293,6 +4310,382 @@ def format_paralinguistic_tags(events):
     return tags
 
 
+# -- Layer 5.5: Prosodic Bridging ────────────────────────────────
+# Per-segment extraction of prosodic features that Whisper's text decoder
+# destroys: F0 (pitch), energy, speaking rate, pitch direction.
+# Two papers drive this:
+#   USDM (Kim et al., NeurIPS 2024): acoustic tokens preserve prosodic info
+#   SpeechEmotionLlama (Kang et al., Interspeech 2025): frozen LLMs respond
+#   to text-described paralinguistic state — even a crude <happy> tag helps.
+# We extract what Whisper destroys and describe it as structured text for GPT.
+
+_last_prosodic_features = []
+_last_speaker_state = ""
+
+
+def extract_f0(audio_segment, sample_rate=16000):
+    """Extract fundamental frequency (F0) via autocorrelation.
+
+    Same math as compute_hnr() but returns the frequency at the
+    autocorrelation peak instead of the peak-to-noise ratio.
+    Returns F0 in Hz, or 0.0 if no pitch detected (unvoiced/noise).
+    """
+    import numpy as np
+    from scipy.signal import fftconvolve
+
+    min_samples = int(sample_rate / 80) * 2
+    if len(audio_segment) < min_samples:
+        return 0.0
+
+    segment = audio_segment - np.mean(audio_segment)
+    rms = np.sqrt(np.mean(segment ** 2))
+    if rms < 1e-6:
+        return 0.0
+
+    autocorr = fftconvolve(segment, segment[::-1], mode='full')
+    autocorr = autocorr[len(segment) - 1:]
+    if autocorr[0] <= 0:
+        return 0.0
+    autocorr = autocorr / autocorr[0]
+
+    min_lag = max(1, int(sample_rate / 500))
+    max_lag = min(len(autocorr) - 1, int(sample_rate / 80))
+    if min_lag >= max_lag:
+        return 0.0
+
+    search = autocorr[min_lag:max_lag + 1]
+    if len(search) == 0:
+        return 0.0
+
+    peak_val = float(np.max(search))
+    if peak_val < 0.2:  # Too weak — not a clear pitch
+        return 0.0
+
+    peak_lag = int(np.argmax(search)) + min_lag
+    if peak_lag == 0:
+        return 0.0
+
+    return round(sample_rate / peak_lag, 1)
+
+
+def extract_prosodic_features(audio_data, whisper_segments, sample_rate=16000):
+    """Extract per-segment prosodic features from raw audio.
+
+    For each Whisper segment, computes:
+      - f0_mean: mean fundamental frequency (Hz)
+      - f0_var: F0 variance across sub-windows (pitch stability)
+      - energy: RMS energy of the segment
+      - rate_sps: speaking rate (syllables per second, estimated from word count)
+      - pitch_direction: rising / falling / flat / erratic
+      - hnr: Harmonics-to-Noise Ratio (reused from Layer 5)
+
+    Uses autocorrelation (same pattern as compute_hnr/extract_f0).
+    Numpy/scipy only. No new dependencies.
+
+    Returns list of dicts with timestamps, one per segment.
+    """
+    import numpy as np
+
+    total_duration = len(audio_data) / sample_rate if sample_rate > 0 else 0
+    if total_duration < 0.3 or not whisper_segments:
+        return []
+
+    features = []
+    for seg in whisper_segments:
+        seg_start = seg.get("start", 0)
+        seg_end = seg.get("end", seg_start + 0.5)
+        seg_text = seg.get("text", "").strip()
+        seg_duration = max(seg_end - seg_start, 0.01)
+
+        # Extract audio window for this segment
+        start_sample = max(0, int(seg_start * sample_rate))
+        end_sample = min(len(audio_data), int(seg_end * sample_rate))
+        if end_sample - start_sample < int(sample_rate * 0.05):
+            features.append({
+                "start_s": round(seg_start, 2), "end_s": round(seg_end, 2),
+                "text": seg_text, "f0_mean": 0.0, "f0_var": 0.0,
+                "energy": 0.0, "rate_sps": 0.0, "pitch_direction": "flat",
+                "hnr": 20.0,
+            })
+            continue
+
+        window = audio_data[start_sample:end_sample]
+
+        # RMS energy
+        energy = float(np.sqrt(np.mean(window ** 2)))
+
+        # HNR
+        hnr = compute_hnr(window, sample_rate)
+
+        # F0: split segment into 3-4 sub-windows for contour
+        n_subwindows = min(4, max(2, int(seg_duration / 0.1)))
+        sub_len = len(window) // n_subwindows
+        f0_values = []
+        for i in range(n_subwindows):
+            sub = window[i * sub_len:(i + 1) * sub_len]
+            if len(sub) >= int(sample_rate / 80) * 2:
+                f0 = extract_f0(sub, sample_rate)
+                if f0 > 0:
+                    f0_values.append(f0)
+
+        f0_mean = round(float(np.mean(f0_values)), 1) if f0_values else 0.0
+        f0_var = round(float(np.var(f0_values)), 1) if len(f0_values) >= 2 else 0.0
+
+        # Pitch direction from F0 contour slope
+        if len(f0_values) >= 2:
+            slope = f0_values[-1] - f0_values[0]
+            f0_range = max(f0_values) - min(f0_values)
+            if f0_range > f0_mean * 0.3 and f0_var > 100:
+                pitch_dir = "erratic"
+            elif slope > f0_mean * 0.1:
+                pitch_dir = "rising"
+            elif slope < -f0_mean * 0.1:
+                pitch_dir = "falling"
+            else:
+                pitch_dir = "flat"
+        else:
+            pitch_dir = "flat"
+
+        # Speaking rate: word count / duration
+        word_count = len(seg_text.split()) if seg_text else 0
+        # Rough syllable estimate: ~1.3 syllables per word (English average)
+        syllables = word_count * 1.3
+        rate_sps = round(syllables / seg_duration, 1) if seg_duration > 0.1 else 0.0
+
+        features.append({
+            "start_s": round(seg_start, 2),
+            "end_s": round(seg_end, 2),
+            "text": seg_text,
+            "f0_mean": f0_mean,
+            "f0_var": f0_var,
+            "energy": round(energy, 4),
+            "rate_sps": rate_sps,
+            "pitch_direction": pitch_dir,
+            "hnr": hnr,
+        })
+
+    return features
+
+
+def compute_speaker_baseline(prof, db_sessions_func, limit=50):
+    """Compute prosodic baseline from historical sessions.
+
+    Pulls stored prosodic summaries and computes running averages
+    for F0, energy, and speaking rate. Stores in profile under
+    prosodic_baseline key. Returns baseline dict with means and stds.
+    """
+    import numpy as np
+
+    baseline = prof.get("prosodic_baseline", {
+        "f0_mean": 0.0, "f0_std": 1.0,
+        "energy_mean": 0.0, "energy_std": 1.0,
+        "rate_mean": 0.0, "rate_std": 1.0,
+        "n_sessions": 0,
+    })
+
+    # Pull recent sessions that have prosodic summaries
+    try:
+        sessions = db_sessions_func(limit=limit)
+    except Exception:
+        return baseline
+
+    f0_vals, energy_vals, rate_vals = [], [], []
+    for s in sessions:
+        ps = s.get("prosodic_summary")
+        if isinstance(ps, str):
+            try:
+                ps = json.loads(ps)
+            except (json.JSONDecodeError, TypeError):
+                continue
+        if not isinstance(ps, dict):
+            continue
+        if ps.get("f0_mean", 0) > 0:
+            f0_vals.append(ps["f0_mean"])
+        if ps.get("energy_mean", 0) > 0:
+            energy_vals.append(ps["energy_mean"])
+        if ps.get("rate_mean", 0) > 0:
+            rate_vals.append(ps["rate_mean"])
+
+    if len(f0_vals) >= 3:
+        baseline["f0_mean"] = round(float(np.mean(f0_vals)), 1)
+        baseline["f0_std"] = round(max(float(np.std(f0_vals)), 1.0), 1)
+    if len(energy_vals) >= 3:
+        baseline["energy_mean"] = round(float(np.mean(energy_vals)), 4)
+        baseline["energy_std"] = round(max(float(np.std(energy_vals)), 0.0001), 4)
+    if len(rate_vals) >= 3:
+        baseline["rate_mean"] = round(float(np.mean(rate_vals)), 1)
+        baseline["rate_std"] = round(max(float(np.std(rate_vals)), 0.1), 1)
+    baseline["n_sessions"] = len(f0_vals)
+
+    return baseline
+
+
+def infer_speaker_state(prosodic_features, baseline):
+    """Map prosodic deviations to a natural language state description.
+
+    Compares current session features against personal baseline.
+    Returns a descriptive sentence, not a label.
+
+    Deviation rules (from USDM + SpeechEmotionLlama findings):
+      High F0 var + fast rate + high energy = elevated arousal/stress
+      Dropping energy + slow rate = fatigue/shutdown
+      Erratic F0 near a block = vocal fold tension
+      Stable features = calm/casual
+    """
+    if not prosodic_features:
+        return ""
+
+    import numpy as np
+
+    # Compute session-level averages
+    f0s = [f["f0_mean"] for f in prosodic_features if f["f0_mean"] > 0]
+    energies = [f["energy"] for f in prosodic_features if f["energy"] > 0]
+    rates = [f["rate_sps"] for f in prosodic_features if f["rate_sps"] > 0]
+    f0_vars = [f["f0_var"] for f in prosodic_features if f["f0_var"] > 0]
+    pitch_dirs = [f["pitch_direction"] for f in prosodic_features]
+
+    if not f0s and not energies:
+        return ""
+
+    sess_f0 = float(np.mean(f0s)) if f0s else 0
+    sess_energy = float(np.mean(energies)) if energies else 0
+    sess_rate = float(np.mean(rates)) if rates else 0
+    sess_f0_var = float(np.mean(f0_vars)) if f0_vars else 0
+    erratic_ratio = pitch_dirs.count("erratic") / max(len(pitch_dirs), 1)
+
+    # Compute deviations from baseline in sigma units
+    b = baseline
+    f0_dev = (sess_f0 - b["f0_mean"]) / b["f0_std"] if b["f0_std"] > 0 and b["f0_mean"] > 0 else 0
+    energy_dev = (sess_energy - b["energy_mean"]) / b["energy_std"] if b["energy_std"] > 0 and b["energy_mean"] > 0 else 0
+    rate_dev = (sess_rate - b["rate_mean"]) / b["rate_std"] if b["rate_std"] > 0 and b["rate_mean"] > 0 else 0
+
+    # State inference rules
+    parts = []
+
+    # High arousal: elevated F0 variance + fast rate + high energy
+    if (sess_f0_var > 200 or f0_dev > 1.5) and rate_dev > 0.5 and energy_dev > 0.5:
+        parts.append(f"Elevated stress/arousal (F0 {f0_dev:+.1f}σ, energy {energy_dev:+.1f}σ, rate {rate_dev:+.1f}σ)")
+
+    # Fatigue/shutdown: dropping energy + slow rate
+    elif energy_dev < -1.0 and rate_dev < -0.5:
+        parts.append(f"Low energy/fatigue (energy {energy_dev:+.1f}σ, rate {rate_dev:+.1f}σ)")
+
+    # Erratic pitch = vocal tension (often near blocks)
+    elif erratic_ratio > 0.3:
+        parts.append(f"Vocal tension (erratic pitch in {erratic_ratio:.0%} of segments)")
+
+    # Amused/laughing: high energy + high F0 variance + erratic
+    elif energy_dev > 0.5 and sess_f0_var > 150:
+        parts.append(f"Amused/animated (F0 variance elevated, energy {energy_dev:+.1f}σ)")
+
+    # Calm/casual: everything near baseline
+    elif abs(f0_dev) < 1.0 and abs(energy_dev) < 1.0 and abs(rate_dev) < 1.0:
+        parts.append("Calm/casual (features near baseline)")
+
+    # Mild deviation — note it but don't over-interpret
+    else:
+        deviations = []
+        if abs(f0_dev) > 1.0:
+            deviations.append(f"F0 {f0_dev:+.1f}σ")
+        if abs(energy_dev) > 1.0:
+            deviations.append(f"energy {energy_dev:+.1f}σ")
+        if abs(rate_dev) > 1.0:
+            deviations.append(f"rate {rate_dev:+.1f}σ")
+        if deviations:
+            parts.append(f"Mild deviation ({', '.join(deviations)})")
+
+    # Situation inference suggestion
+    suggestion = ""
+    if f0_dev > 1.5 and energy_dev > 1.0:
+        suggestion = "auto_suggest: situation may warrant upgrade (elevated prosodic stress)"
+
+    state = "; ".join(parts) if parts else "Neutral"
+    return state + (f" [{suggestion}]" if suggestion else "")
+
+
+def build_prosodic_context(prosodic_features, paralinguistic_events, speaker_state):
+    """Format a per-segment prosodic transcript for prompt injection.
+
+    Combines Layer 5 event tags with per-segment F0/energy/rate annotations.
+    Includes stutter-specific prosodic rules derived from USDM + Kang findings.
+    """
+    if not prosodic_features:
+        return ""
+
+    lines = ["PROSODIC CONTEXT (acoustic features Whisper cannot transcribe):"]
+
+    # Build a map of paralinguistic events by time for overlay
+    event_map = {}
+    for ev in (paralinguistic_events or []):
+        event_map[(ev.get("start_s", 0), ev.get("end_s", 0))] = ev
+
+    for feat in prosodic_features[:15]:  # Cap at 15 segments
+        start = feat["start_s"]
+        end = feat["end_s"]
+        text = feat.get("text", "")
+
+        # Check for overlapping paralinguistic event
+        para_tag = ""
+        for (ev_start, ev_end), ev in event_map.items():
+            if ev_start <= end and ev_end >= start:
+                para_tag = f" [{ev['type']}] HNR:{ev.get('hnr_db', '?')}dB —"
+                break
+
+        # Format segment annotation
+        f0_str = f"pitch:{feat['pitch_direction']}" if feat["f0_mean"] > 0 else "pitch:none"
+        energy_label = "high" if feat["energy"] > 0.1 else "low" if feat["energy"] < 0.02 else "moderate"
+        rate_str = f"rate:{feat['rate_sps']}syl/s" if feat["rate_sps"] > 0 else "rate:0"
+
+        if para_tag:
+            lines.append(f"  [{start:.1f}-{end:.1f}s]{para_tag} non-speech, DISCARD Whisper text")
+        elif text:
+            lines.append(f"  [{start:.1f}-{end:.1f}s] {f0_str} energy:{energy_label} {rate_str}")
+        else:
+            lines.append(f"  [{start:.1f}-{end:.1f}s] {f0_str} energy:{energy_label} — silence/gap")
+
+    if speaker_state:
+        lines.append(f"SPEAKER STATE: {speaker_state}")
+
+    # Stutter-specific prosodic reconstruction rules
+    lines.append(
+        "\nSTUTTER-PROSODIC RULES (use acoustic context to disambiguate):"
+        "\n- Block + laughter context = self-deprecating humor → reconstruct lightly, preserve tone"
+        "\n- Block + dropping energy = frustration/shutdown → reconstruct gently"
+        "\n- Repetition + rising pitch = genuine struggle → aggressive reconstruction"
+        "\n- Repetition + stable pitch = emphatic repetition, NOT a stutter → leave it"
+        "\n- Filler + flat energy + constant pitch = postponement stalling → strip it"
+        "\n- Filler + rising pitch = discourse marker ('you know?') → keep it"
+    )
+
+    return "\n".join(lines)
+
+
+def compute_prosodic_summary(prosodic_features):
+    """Compute session-level prosodic summary for logging.
+
+    Returns dict with f0_mean, energy_mean, rate_mean, speaker_state_label.
+    Stored in sessions table for long-term trend tracking.
+    """
+    import numpy as np
+
+    if not prosodic_features:
+        return None
+
+    f0s = [f["f0_mean"] for f in prosodic_features if f["f0_mean"] > 0]
+    energies = [f["energy"] for f in prosodic_features if f["energy"] > 0]
+    rates = [f["rate_sps"] for f in prosodic_features if f["rate_sps"] > 0]
+    pitch_dirs = [f["pitch_direction"] for f in prosodic_features]
+
+    return {
+        "f0_mean": round(float(np.mean(f0s)), 1) if f0s else 0.0,
+        "f0_var": round(float(np.var(f0s)), 1) if len(f0s) >= 2 else 0.0,
+        "energy_mean": round(float(np.mean(energies)), 4) if energies else 0.0,
+        "rate_mean": round(float(np.mean(rates)), 1) if rates else 0.0,
+        "n_segments": len(prosodic_features),
+        "pitch_directions": {d: pitch_dirs.count(d) for d in set(pitch_dirs)},
+    }
+
+
 # -- Pipeline ─────────────────────────────────────────────────────
 def pipeline():
     global state
@@ -4381,6 +4774,23 @@ def pipeline():
             tags = format_paralinguistic_tags(para_events)
             log(f"Paralinguistic: {', '.join(tags)} ({len(para_events)} events)", "info")
 
+        # Step 1.4: Layer 5.5 — Prosodic feature extraction (numpy/scipy, no API)
+        global _last_prosodic_features, _last_speaker_state
+        prosodic_feats = extract_prosodic_features(audio_data, whisper_segments, TARGET_RATE)
+        _last_prosodic_features = prosodic_feats
+        prosodic_ctx = ""
+        _last_speaker_state = ""
+        if prosodic_feats and current_layer >= 5:
+            baseline = compute_speaker_baseline(profile, db_get_sessions)
+            speaker_state = infer_speaker_state(prosodic_feats, baseline)
+            _last_speaker_state = speaker_state
+            prosodic_ctx = build_prosodic_context(prosodic_feats, para_events, speaker_state)
+            if speaker_state:
+                log(f"Prosodic: {speaker_state}", "info")
+            # Auto-suggest situation upgrade if prosodic stress is elevated
+            if "auto_suggest" in speaker_state:
+                log(f"Situation suggestion: prosodic features suggest higher stress than '{current_situation}'", "info")
+
         # Step 1.5: Disfluency post-filter (rule-based, zero cost)
         # At L1: this IS the output cleanup (no GPT reconstruction)
         # At L2+: pre-cleans Whisper output before sending to GPT
@@ -4407,7 +4817,8 @@ def pipeline():
                     whisper_low_conf=whisper_low_conf,
                     whisper_disagreements=whisper_disagreements,
                     speech_severity_mod=speech_metrics["severity_modifier"],
-                    paralinguistic_events=para_events if current_layer >= 5 else None
+                    paralinguistic_events=para_events if current_layer >= 5 else None,
+                    prosodic_context=prosodic_ctx if current_layer >= 5 else None
                 )
             except Exception as e:
                 log(f"Reconstruct failed ({e}) -- using raw", "error")
@@ -4488,10 +4899,12 @@ def pipeline():
         _cyr_count = sum(1 for ch in raw_text if '\u0400' <= ch <= '\u04ff')
         _lat_count = sum(1 for ch in raw_text if ch.isalpha() and not ('\u0400' <= ch <= '\u04ff'))
         session_lang = 'ru' if _cyr_count > _lat_count else 'en'
+        prosodic_sum = compute_prosodic_summary(prosodic_feats) if prosodic_feats else None
         log_session(profile, raw_text, output, current_tone, current_layer, decision, timings,
                     disf_counts=disf_counts, exposure=exposure, edit_dist=edit_dist,
                     speech_metrics=speech_metrics, lang=session_lang,
-                    paralinguistic_events=para_events if para_events else None)
+                    paralinguistic_events=para_events if para_events else None,
+                    prosodic_summary=prosodic_sum)
         state = 'idle'
 
         # Step 5: Trigger word detection (Layer 4)
@@ -4699,6 +5112,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'redo_count': _redo_count,
                 'avg_exposure': self._compute_avg_exposure(),
                 'paralinguistic_events': _last_paralinguistic_events,
+                'speaker_state': _last_speaker_state,
             })
         elif self.path == '/api/profile':
             self._json(profile)

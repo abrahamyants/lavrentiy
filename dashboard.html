@@ -2007,6 +2007,7 @@ body::before {
           <div class="engine-row"><span>Words/Min</span><span id="speech-rate" class="engine-val">—</span></div>
           <div class="engine-row"><span>Severity Mod</span><span id="speech-sev-mod" class="engine-val">0</span></div>
           <div class="engine-row"><span>Paralinguistic</span><span id="para-events" class="engine-val">—</span></div>
+          <div class="engine-row"><span>Speaker State</span><span id="speaker-state" class="engine-val">—</span></div>
         </div>
         <div id="severity-breakdown" style="display:none;margin-top:2px;padding:3px 6px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:3px">
           <div style="font-family:var(--mono);font-size:7px;letter-spacing:1px;color:var(--text-dim);line-height:1.6">
@@ -2374,6 +2375,18 @@ function updateUI(){
     }else{
       paraEl.textContent='—';
       paraEl.style.color='var(--text-muted)';
+    }
+  }
+  // Speaker state (Layer 5.5 prosodic bridging)
+  const stateEl=document.getElementById('speaker-state');
+  if(stateEl){
+    const ss=state.speaker_state||'';
+    if(ss){
+      stateEl.textContent=ss.split('[')[0].trim();
+      stateEl.style.color=ss.includes('stress')||ss.includes('tension')?'var(--red-bright)':ss.includes('fatigue')?'var(--yellow)':'var(--green)';
+    }else{
+      stateEl.textContent='—';
+      stateEl.style.color='var(--text-muted)';
     }
   }
   const redoEl=document.getElementById('redo-count');
