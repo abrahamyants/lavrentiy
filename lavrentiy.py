@@ -1724,6 +1724,7 @@ REDO_NUDGE_THRESHOLD = 3          # redos before nudge
 _redo_buffer = []                 # list of recent output word sets
 _redo_count = 0                   # consecutive redo counter
 _redo_lock = threading.Lock()
+_block_count = 0                  # block suspects detected in last transcription
 
 def check_redo(output_text):
     """Check if this output is a redo of the previous recording.
@@ -3746,6 +3747,9 @@ def whisper_transcribe(filepath):
     if low_confidence:
         log(f"Whisper low-confidence segments: {len(low_confidence)} flagged", "info")
 
+    global _block_count
+    _block_count = sum(1 for s in low_confidence if s.get("block_suspect"))
+
     with _stats_lock:
         n_calls_delta = stats["api_calls"] - n_calls_before
 
@@ -5110,6 +5114,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'speech_metrics': _last_speech_metrics,
                 'avg_logprob': _last_avg_logprob,
                 'redo_count': _redo_count,
+                'block_count': _block_count,
                 'avg_exposure': self._compute_avg_exposure(),
                 'paralinguistic_events': _last_paralinguistic_events,
                 'speaker_state': _last_speaker_state,
