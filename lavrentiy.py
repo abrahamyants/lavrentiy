@@ -277,8 +277,8 @@ MAX_INSIGHTS = 6
 
 TONES = ["casual", "professional", "friend", "formal"]
 TONE_SHORT = {"casual": "CAS", "professional": "PRO", "friend": "FRD", "formal": "FRM"}
-LAYERS = [1, 2, 3, 4]
-LAYER_NAMES = {1: "transcribe", 2: "reconstruct", 3: "profile", 4: "stutter"}
+LAYERS = [1, 2, 3, 4, 5]
+LAYER_NAMES = {1: "transcribe", 2: "reconstruct", 3: "profile", 4: "stutter", 5: "paralinguistic"}
 
 # -- Situational context (affects reconstruction aggressiveness) ──
 SITUATIONS = ["default", "phone", "presentation", "interview", "casual", "reading"]
@@ -3940,6 +3940,330 @@ def analyze_speech_rate(audio_data, sample_rate=16000):
     }
     _last_speech_metrics = metrics
     return metrics
+
+
+# -- Layer 5: Paralinguistic Event Detection ─────────────────────
+# Detects non-verbal events (laughter, cough, sigh, breathing, throat-clearing,
+# pauses) using audio analysis + Whisper's own errors as detection signals.
+# Key insight (Zhang): 96.1% of ASR errors cluster within ±1s of a paralinguistic
+# event. Uses existing multi-temp disagreements and low-confidence segments to find
+# candidate windows, then classifies via HNR + error-type signatures.
+# No new dependencies beyond numpy/scipy.
+
+# Phase 1 tags only — prosodic/attitudinal tags come later
+PARALINGUISTIC_TAGS = ["Laughter", "Cough", "Sigh", "Pause", "Throat-clearing", "Breathing"]
+
+# Detection thresholds (derived from Gupta et al. + Zhang)
+_HNR_SPEECH_THRESHOLD = 4.0       # dB — below this = paralinguistic, not speech
+_HNR_CERTAIN_THRESHOLD = 2.0      # dB — below this = high-confidence paralinguistic event
+_MIN_EVENT_DURATION_S = 0.5       # VAD rule: discard events shorter than 500ms
+_MIN_LAUGHTER_DURATION_S = 1.0    # Laughter requires 1000ms sustained evidence
+_CONFIDENCE_FLOOR = 0.15          # Discard candidates below this combined score
+_EVENT_WINDOW_S = 1.0             # ±1s around error clusters (Zhang's temporal error zone)
+
+# Error-type-to-event mapping (Zhang: "Composition of error types by event type")
+# Laughter: 48.9% substitutions, 39.1% deletions → S+D dominant
+# Sigh: 50% before-event errors, insertions 10.57x more likely than laughter
+# Throat-clearing: 46.7% during-event errors, 40% insertions, 5.86x more likely
+_LAUGHTER_SD_RATIO = 0.6    # S+D must be ≥60% of errors in window for laughter
+_INSERTION_RATIO = 0.35      # Insertions ≥35% of errors → sigh or throat-clearing
+
+# Cached paralinguistic events from last pipeline run (for dashboard)
+_last_paralinguistic_events = []
+
+
+def compute_hnr(audio_segment, sample_rate=16000):
+    """Compute Harmonics-to-Noise Ratio via autocorrelation.
+
+    HNR measures how much of the signal is periodic (harmonic/voiced) vs
+    aperiodic (noise). Speech has high HNR (>4 dB). Coughs, sighs, breathing
+    have low HNR (<4 dB). This is the core acoustic discriminator for
+    paralinguistic event detection.
+
+    Method: normalized autocorrelation, find peak in pitch range (80-500 Hz),
+    HNR = 10 * log10(r_peak / (1 - r_peak)) where r_peak is the normalized
+    autocorrelation at the pitch lag.
+
+    Returns HNR in dB. Higher = more harmonic. Returns 20.0 (safe default
+    = "assume speech") for degenerate inputs (too short, silence, etc).
+    """
+    import numpy as np
+
+    min_samples = int(sample_rate / 80) * 2  # Need ≥2 pitch periods at lowest pitch
+    if len(audio_segment) < min_samples:
+        return 20.0  # Too short to analyze → assume speech (safe default)
+
+    # Remove DC offset
+    segment = audio_segment - np.mean(audio_segment)
+
+    # Check for silence (all zeros or near-zero energy)
+    rms = np.sqrt(np.mean(segment ** 2))
+    if rms < 1e-6:
+        return 20.0  # Silence → not a paralinguistic event, assume speech
+
+    # Normalized autocorrelation via numpy
+    n = len(segment)
+    # Use scipy.signal.fftconvolve for efficiency on large segments
+    from scipy.signal import fftconvolve
+    autocorr = fftconvolve(segment, segment[::-1], mode='full')
+    autocorr = autocorr[n - 1:]  # Take positive lags only
+    if autocorr[0] > 0:
+        autocorr = autocorr / autocorr[0]  # Normalize
+    else:
+        return 20.0  # Degenerate signal
+
+    # Search for peak in pitch range: 80-500 Hz
+    # Lag for 500 Hz = sample_rate / 500, lag for 80 Hz = sample_rate / 80
+    min_lag = max(1, int(sample_rate / 500))
+    max_lag = min(len(autocorr) - 1, int(sample_rate / 80))
+
+    if min_lag >= max_lag or max_lag >= len(autocorr):
+        return 20.0  # Can't search pitch range
+
+    search_region = autocorr[min_lag:max_lag + 1]
+    if len(search_region) == 0:
+        return 20.0
+
+    r_peak = float(np.max(search_region))
+
+    # Clamp to valid range for log computation
+    # r_peak must be in (0, 1) for the formula to work
+    if r_peak >= 1.0:
+        return 40.0  # Nearly perfect harmonic (pure tone)
+    if r_peak <= 0.0:
+        return -10.0  # Pure noise
+
+    # HNR = 10 * log10(r / (1 - r))
+    import math
+    hnr = 10.0 * math.log10(r_peak / (1.0 - r_peak))
+    return round(hnr, 2)
+
+
+def _classify_from_error_patterns(whisper_low_conf, whisper_disagreements,
+                                   wer_sdi=None):
+    """Classify paralinguistic event type from Whisper error signatures.
+
+    Uses Zhang's finding: error-type composition predicts event type.
+    - Substitution + Deletion clusters → Laughter (48.9% S + 39.1% D)
+    - Insertion clusters → Sigh (10.57x) or Throat-clearing (5.86x)
+    - High no_speech_prob → Breathing or Pause
+
+    Args:
+        whisper_low_conf: low-confidence segments from Whisper
+        whisper_disagreements: multi-temp voting disagreements
+        wer_sdi: optional (substitutions, deletions, insertions) tuple from compute_wer
+
+    Returns list of candidate events:
+        [{type, start_s, confidence, detection_method}]
+    """
+    candidates = []
+
+    # Signal 1: Error-type signature from WER decomposition
+    if wer_sdi and sum(wer_sdi) > 0:
+        subs, dels, ins = wer_sdi
+        total_errors = subs + dels + ins
+        sd_ratio = (subs + dels) / total_errors
+        ins_ratio = ins / total_errors
+
+        if sd_ratio >= _LAUGHTER_SD_RATIO and total_errors >= 2:
+            candidates.append({
+                "type": "Laughter",
+                "confidence": min(0.9, 0.4 + sd_ratio * 0.5),
+                "detection_method": "error_pattern_sd",
+                "detail": f"S={subs} D={dels} I={ins} sd_ratio={sd_ratio:.2f}"
+            })
+        elif ins_ratio >= _INSERTION_RATIO and total_errors >= 2:
+            # Sigh vs throat-clearing: sighs cause before-event errors,
+            # throat-clearing causes during-event errors.
+            # Without precise timing, use insertion density as tiebreaker:
+            # higher insertion density = throat-clearing (40% insertions)
+            if ins_ratio >= 0.45:
+                candidates.append({
+                    "type": "Throat-clearing",
+                    "confidence": min(0.85, 0.3 + ins_ratio * 0.6),
+                    "detection_method": "error_pattern_ins_high",
+                    "detail": f"S={subs} D={dels} I={ins} ins_ratio={ins_ratio:.2f}"
+                })
+            else:
+                candidates.append({
+                    "type": "Sigh",
+                    "confidence": min(0.8, 0.3 + ins_ratio * 0.5),
+                    "detection_method": "error_pattern_ins",
+                    "detail": f"S={subs} D={dels} I={ins} ins_ratio={ins_ratio:.2f}"
+                })
+
+    # Signal 2: High no_speech_prob segments → breathing or pause
+    if whisper_low_conf:
+        for seg in whisper_low_conf:
+            if seg.get("block_suspect"):
+                no_speech = seg.get("no_speech_prob", 0)
+                avg_lp = seg.get("avg_logprob", 0)
+                # Very high no_speech_prob + very low logprob = breathing/pause
+                if no_speech > 0.5:
+                    event_type = "Breathing" if no_speech > 0.7 else "Pause"
+                    candidates.append({
+                        "type": event_type,
+                        "confidence": min(0.9, no_speech * 0.8),
+                        "detection_method": "no_speech_prob",
+                        "detail": f"no_speech={no_speech:.2f} logprob={avg_lp:.2f}",
+                        "text": seg.get("text", ""),
+                    })
+
+    # Signal 3: Multi-temp disagreement density
+    # Dense disagreements in a small window = audio is non-speech
+    if whisper_disagreements and len(whisper_disagreements) >= 3:
+        # Cluster disagreements by position proximity
+        positions = [d["position"] for d in whisper_disagreements]
+        if len(positions) >= 3:
+            # Check if disagreements are clustered (within 5 word positions)
+            for i in range(len(positions) - 2):
+                window = positions[i:i+3]
+                if window[-1] - window[0] <= 5:
+                    candidates.append({
+                        "type": "unknown",  # Needs HNR to classify
+                        "confidence": min(0.7, 0.2 + len(whisper_disagreements) * 0.1),
+                        "detection_method": "disagreement_cluster",
+                        "detail": f"{len(whisper_disagreements)} disagreements, cluster at pos {window[0]}-{window[-1]}",
+                    })
+                    break  # One cluster candidate is enough
+
+    return candidates
+
+
+def detect_paralinguistic_events(audio_data, sample_rate, whisper_segments,
+                                  whisper_low_conf, whisper_disagreements,
+                                  wer_sdi=None):
+    """Main Layer 5 detection: find paralinguistic events in audio.
+
+    Combines multiple signals:
+    1. Error-type patterns from Whisper metadata (zero-cost, already computed)
+    2. HNR analysis on candidate windows (numpy/scipy, ~5ms per window)
+    3. Temporal gating (discard events < 500ms, laughter < 1000ms)
+
+    The ±1s rule (Zhang): 96.1% of ASR errors cluster within 1s of a
+    paralinguistic event. We use Whisper error locations to find candidate
+    windows, then analyze the raw audio in those windows.
+
+    Args:
+        audio_data: numpy array of audio samples
+        sample_rate: sample rate (typically 16000)
+        whisper_segments: Whisper verbose JSON segments
+        whisper_low_conf: low-confidence segments from _extract_low_confidence_segments
+        whisper_disagreements: multi-temp voting disagreements
+        wer_sdi: optional (substitutions, deletions, insertions) tuple
+
+    Returns list of detected events:
+        [{type, start_s, end_s, confidence, detection_method, hnr_db}]
+    """
+    import numpy as np
+
+    total_duration = len(audio_data) / sample_rate if sample_rate > 0 else 0
+    if total_duration < 0.5:
+        return []  # Audio too short for meaningful detection
+
+    events = []
+
+    # Step 1: Get candidate events from error patterns
+    candidates = _classify_from_error_patterns(
+        whisper_low_conf, whisper_disagreements, wer_sdi
+    )
+
+    # Step 2: For each candidate, find the audio window and compute HNR
+    # Use Whisper segment timestamps to locate the candidate in audio
+    segment_times = []
+    if whisper_segments:
+        for seg in whisper_segments:
+            start = seg.get("start", 0)
+            end = seg.get("end", start + 1)
+            segment_times.append((start, end))
+
+    for cand in candidates:
+        # Determine the audio window for this candidate
+        # Default: analyze the full audio if we can't localize
+        window_start_s = 0.0
+        window_end_s = total_duration
+
+        # Try to localize from low-confidence segment text
+        if cand.get("text") and segment_times:
+            for seg, (seg_start, seg_end) in zip(whisper_segments, segment_times):
+                if cand["text"] in seg.get("text", ""):
+                    # Apply ±1s window (Zhang's temporal error zone)
+                    window_start_s = max(0, seg_start - _EVENT_WINDOW_S)
+                    window_end_s = min(total_duration, seg_end + _EVENT_WINDOW_S)
+                    break
+
+        # Extract audio window
+        start_sample = int(window_start_s * sample_rate)
+        end_sample = min(len(audio_data), int(window_end_s * sample_rate))
+        if end_sample - start_sample < int(sample_rate * 0.05):  # < 50ms
+            continue
+
+        audio_window = audio_data[start_sample:end_sample]
+
+        # Compute HNR on the window
+        hnr = compute_hnr(audio_window, sample_rate)
+
+        # Decision: HNR < 4.0 dB confirms paralinguistic event
+        if hnr < _HNR_SPEECH_THRESHOLD:
+            # Boost confidence based on how low the HNR is
+            hnr_boost = min(0.3, (_HNR_SPEECH_THRESHOLD - hnr) * 0.05)
+            final_confidence = min(0.95, cand["confidence"] + hnr_boost)
+
+            if final_confidence < _CONFIDENCE_FLOOR:
+                continue
+
+            # If candidate type is "unknown" (from disagreement cluster), classify by HNR
+            event_type = cand["type"]
+            if event_type == "unknown":
+                if hnr < _HNR_CERTAIN_THRESHOLD:
+                    event_type = "Cough"  # Very low HNR = impulsive noise
+                else:
+                    event_type = "Sigh"   # Moderate low HNR = breathy noise
+
+            # Apply duration gate
+            event_duration = window_end_s - window_start_s
+            if event_type == "Laughter" and event_duration < _MIN_LAUGHTER_DURATION_S:
+                continue
+            elif event_duration < _MIN_EVENT_DURATION_S:
+                continue
+
+            events.append({
+                "type": event_type,
+                "start_s": round(window_start_s, 2),
+                "end_s": round(window_end_s, 2),
+                "confidence": round(final_confidence, 2),
+                "detection_method": cand["detection_method"],
+                "hnr_db": hnr,
+            })
+        elif hnr >= _HNR_SPEECH_THRESHOLD and cand["type"] in ("Pause", "Breathing"):
+            # Pause/Breathing can still be valid even with higher HNR
+            # (silence has no meaningful HNR; breathing can be slightly harmonic)
+            if cand["confidence"] >= 0.5:
+                event_duration = window_end_s - window_start_s
+                if event_duration >= _MIN_EVENT_DURATION_S:
+                    events.append({
+                        "type": cand["type"],
+                        "start_s": round(window_start_s, 2),
+                        "end_s": round(window_end_s, 2),
+                        "confidence": round(cand["confidence"], 2),
+                        "detection_method": cand["detection_method"],
+                        "hnr_db": hnr,
+                    })
+
+    return events
+
+
+def format_paralinguistic_tags(events):
+    """Format detected events as inline transcript tags.
+
+    Phase 1 format: [Laughter], [Cough], [Sigh], [Pause], [Throat-clearing], [Breathing]
+    Sorted by start time. Only includes events with valid Phase 1 tag types.
+    """
+    tags = []
+    for ev in sorted(events, key=lambda e: e.get("start_s", 0)):
+        if ev["type"] in PARALINGUISTIC_TAGS:
+            tags.append(f"[{ev['type']}]")
+    return tags
 
 
 # -- Pipeline ─────────────────────────────────────────────────────
