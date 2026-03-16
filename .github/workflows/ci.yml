@@ -49,3 +49,6 @@ jobs:
 
       - name: Run clipboard predictor tests
         run: python test_clipboard.py -v
+
+      - name: Run paralinguistic detection tests
+        run: python test_paralinguistic.py -v

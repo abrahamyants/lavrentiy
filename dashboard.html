@@ -1948,6 +1948,7 @@ body::before {
         <div class="layer-opt" data-layer="2"><div class="l-info"><div class="l-name">Reconstruct</div><div class="l-desc">LLM + tone</div></div></div>
         <div class="layer-opt" data-layer="3"><div class="l-info"><div class="l-name">Profile</div><div class="l-desc">+ vocabulary</div></div></div>
         <div class="layer-opt" data-layer="4"><div class="l-info"><div class="l-name">Stutter</div><div class="l-desc">+ disfluency</div></div></div>
+        <div class="layer-opt" data-layer="5"><div class="l-info"><div class="l-name">Paralinguistic</div><div class="l-desc">+ non-verbal</div></div></div>
       </div>
     </div>
 
@@ -2005,6 +2006,7 @@ body::before {
           <div class="engine-row"><span>Pause Ratio</span><span id="speech-pause" class="engine-val">—</span></div>
           <div class="engine-row"><span>Words/Min</span><span id="speech-rate" class="engine-val">—</span></div>
           <div class="engine-row"><span>Severity Mod</span><span id="speech-sev-mod" class="engine-val">0</span></div>
+          <div class="engine-row"><span>Paralinguistic</span><span id="para-events" class="engine-val">—</span></div>
         </div>
         <div id="severity-breakdown" style="display:none;margin-top:2px;padding:3px 6px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:3px">
           <div style="font-family:var(--mono);font-size:7px;letter-spacing:1px;color:var(--text-dim);line-height:1.6">
@@ -2361,6 +2363,18 @@ function updateUI(){
   if(logprobEl&&state.avg_logprob!==undefined){
     logprobEl.textContent=state.avg_logprob.toFixed(3);
     logprobEl.style.color=state.avg_logprob<-0.7?'var(--red-bright)':state.avg_logprob<-0.4?'var(--yellow)':'var(--text-muted)';
+  }
+  // Paralinguistic events (Layer 5)
+  const paraEl=document.getElementById('para-events');
+  if(paraEl){
+    const pe=state.paralinguistic_events||[];
+    if(pe.length>0){
+      paraEl.textContent=pe.map(e=>'['+e.type+']').join(' ');
+      paraEl.style.color='var(--yellow)';
+    }else{
+      paraEl.textContent='—';
+      paraEl.style.color='var(--text-muted)';
+    }
   }
   const redoEl=document.getElementById('redo-count');
   if(redoEl&&state.redo_count!==undefined){

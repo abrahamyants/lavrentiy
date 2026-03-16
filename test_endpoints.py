@@ -166,6 +166,7 @@ ns['_MAX_SHADOW_HISTORY'] = 50
 ns['_last_speech_metrics'] = {}
 ns['_last_low_conf_segments'] = []
 ns['_last_avg_logprob'] = 0.0
+ns['_last_paralinguistic_events'] = []
 ns['_redo_count'] = 0
 ns['_decay_counter'] = 0
 ns['_daf_active'] = False

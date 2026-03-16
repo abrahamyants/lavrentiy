@@ -3,7 +3,7 @@ LAVRENTIY -- Voice Reconstruction Engine
 "We've got a file on you"
 
 Pipeline: Mic -> Whisper -> Reconstruction -> Falcon -> Paste
-Layers:  1=Transcribe  2=Reconstruct  3=Profile  4=Stutter
+Layers:  1=Transcribe  2=Reconstruct  3=Profile  4=Stutter  5=Paralinguistic
 Tones:   casual | professional | friend | formal
 
 Defaults: F9=talk  F10=tone  F11=layer  F12=stats  F3x3=quit  (rebindable)
@@ -1056,7 +1056,7 @@ def migrate_profile(prof):
 
 def log_session(prof, raw, output, tone, layer, decision=None, timings=None,
                 situation=None, disf_counts=None, exposure=None, edit_dist=None,
-                speech_metrics=None, lang=None):
+                speech_metrics=None, lang=None, paralinguistic_events=None):
     ts = datetime.now().isoformat()
     falcon = decision["falcon_ok"] if decision else True
     words = len(output.split())
@@ -1065,8 +1065,8 @@ def log_session(prof, raw, output, tone, layer, decision=None, timings=None,
         _db.execute(
             "INSERT INTO sessions (ts, raw, out, tone, layer, words, falcon, decision, timings, "
             "situation, disfluency_counts, exposure_difficulty, editorial_distance, "
-            "speech_metrics, lang) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "speech_metrics, lang, paralinguistic_events) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (ts, raw, output, tone, layer, words, int(falcon),
              json.dumps(decision) if decision else None,
              json.dumps(timings) if timings else None,
@@ -1075,7 +1075,8 @@ def log_session(prof, raw, output, tone, layer, decision=None, timings=None,
              json.dumps(exposure) if exposure else None,
              edit_dist,
              json.dumps(speech_metrics) if speech_metrics else None,
-             lang or 'en')
+             lang or 'en',
+             json.dumps(paralinguistic_events) if paralinguistic_events else None)
         )
         _db.commit()
 
@@ -1595,6 +1596,11 @@ try:
     _db.execute("ALTER TABLE sessions ADD COLUMN lang TEXT DEFAULT 'en'")
 except sqlite3.OperationalError:
     pass
+# Migration: add paralinguistic events column (Layer 5)
+try:
+    _db.execute("ALTER TABLE sessions ADD COLUMN paralinguistic_events TEXT")
+except sqlite3.OperationalError:
+    pass
 _db.commit()
 _db_lock = threading.Lock()
 
@@ -1796,7 +1802,7 @@ def log(text, kind="info"):
 # -- LLM Calls ───────────────────────────────────────────────────
 def reconstruct(raw_text, tone, layer, prof, situation=None,
                 whisper_low_conf=None, whisper_disagreements=None,
-                speech_severity_mod=0.0):
+                speech_severity_mod=0.0, paralinguistic_events=None):
     """Layer 2+: Rebuild raw transcription into clean output."""
     # Detect if input contains Cyrillic (bilingual speaker)
     has_cyrillic = any('\u0400' <= c <= '\u04ff' for c in raw_text)
@@ -2105,6 +2111,27 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
         if predicted:
             flagged = [f"{w}({r})" for w, r in predicted[:10]]
             parts.append(f"\nPhonetically predicted high-risk words in this utterance: {', '.join(flagged)}")
+
+    # -- Layer 5: Paralinguistic event context ───────────────────
+    # Tell the LLM which segments contain non-speech events so it ignores
+    # Whisper hallucinations near those timestamps.
+    if paralinguistic_events:
+        para_notes = []
+        for ev in paralinguistic_events[:8]:
+            para_notes.append(
+                f"  [{ev['type']}] at {ev['start_s']:.1f}s–{ev['end_s']:.1f}s "
+                f"(confidence={ev['confidence']}, HNR={ev.get('hnr_db', '?')}dB)"
+            )
+        if para_notes:
+            parts.append(
+                "\n⚠ PARALINGUISTIC EVENTS DETECTED — the following non-speech sounds were "
+                "found in the audio. Whisper likely hallucinated words in these windows. "
+                "IGNORE or DISCARD any transcribed text that falls within ±1 second of "
+                "these timestamps — it is not speech:\n"
+                + "\n".join(para_notes)
+                + "\nReconstruct using surrounding context only. Do not try to interpret "
+                "non-speech sounds as words."
+            )
 
     # Per-tone temperature: formal/professional = low creativity (stick to the words),
     # casual/friend = higher creativity (natural rewording OK)
@@ -4342,6 +4369,18 @@ def pipeline():
         t_recon = t_asr
         t_val = t_asr
 
+        # Step 1.3: Layer 5 — Paralinguistic event detection (numpy/scipy, no API)
+        # Runs at all layers (data is cheap), but only injected into prompt at L5
+        global _last_paralinguistic_events
+        para_events = detect_paralinguistic_events(
+            audio_data, TARGET_RATE, whisper_segments,
+            whisper_low_conf, whisper_disagreements
+        )
+        _last_paralinguistic_events = para_events
+        if para_events:
+            tags = format_paralinguistic_tags(para_events)
+            log(f"Paralinguistic: {', '.join(tags)} ({len(para_events)} events)", "info")
+
         # Step 1.5: Disfluency post-filter (rule-based, zero cost)
         # At L1: this IS the output cleanup (no GPT reconstruction)
         # At L2+: pre-cleans Whisper output before sending to GPT
@@ -4361,12 +4400,14 @@ def pipeline():
 
             # Step 2: Reconstruct (using pre-cleaned text to reduce GPT noise)
             # Pass Whisper confidence data so L4 can target uncertain segments
+            # Pass paralinguistic events so L5 can guide hallucination removal
             try:
                 clean_text = reconstruct(
                     filtered_text, current_tone, current_layer, profile, current_situation,
                     whisper_low_conf=whisper_low_conf,
                     whisper_disagreements=whisper_disagreements,
-                    speech_severity_mod=speech_metrics["severity_modifier"]
+                    speech_severity_mod=speech_metrics["severity_modifier"],
+                    paralinguistic_events=para_events if current_layer >= 5 else None
                 )
             except Exception as e:
                 log(f"Reconstruct failed ({e}) -- using raw", "error")
@@ -4449,7 +4490,8 @@ def pipeline():
         session_lang = 'ru' if _cyr_count > _lat_count else 'en'
         log_session(profile, raw_text, output, current_tone, current_layer, decision, timings,
                     disf_counts=disf_counts, exposure=exposure, edit_dist=edit_dist,
-                    speech_metrics=speech_metrics, lang=session_lang)
+                    speech_metrics=speech_metrics, lang=session_lang,
+                    paralinguistic_events=para_events if para_events else None)
         state = 'idle'
 
         # Step 5: Trigger word detection (Layer 4)
@@ -4656,6 +4698,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'avg_logprob': _last_avg_logprob,
                 'redo_count': _redo_count,
                 'avg_exposure': self._compute_avg_exposure(),
+                'paralinguistic_events': _last_paralinguistic_events,
             })
         elif self.path == '/api/profile':
             self._json(profile)
@@ -5165,6 +5208,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 if not raw_text:
                     self._json({"error": "No speech detected", "raw": "", "clean": ""})
                     return
+                # Paralinguistic detection (Layer 5, zero API cost)
+                para_events = detect_paralinguistic_events(
+                    audio_data, TARGET_RATE, whisper_result.get("segments", []),
+                    whisper_result.get("low_confidence"),
+                    whisper_result.get("disagreements")
+                )
                 # Disfluency filter
                 filtered = strip_disfluencies(raw_text)
                 # Reconstruct (if layer >= 2)
@@ -5176,7 +5225,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             filtered, current_tone, current_layer, profile,
                             whisper_low_conf=whisper_result.get("low_confidence"),
                             whisper_disagreements=whisper_result.get("disagreements"),
-                            speech_severity_mod=speech_metrics["severity_modifier"])
+                            speech_severity_mod=speech_metrics["severity_modifier"],
+                            paralinguistic_events=para_events if current_layer >= 5 else None)
                     except Exception as e:
                         log(f"Mobile reconstruct failed: {e}", "error")
                         clean_text = filtered

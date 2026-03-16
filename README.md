@@ -17,7 +17,9 @@ Mic → Whisper (Script Prep seed | verbose JSON | multi-temp voting)
         ↓                                  ↓
    Disfluency Filter              Low-confidence segments
         ↓                          + disagreement map
-   Reconstruction (phoneme context + Whisper confidence targeting)
+   Paralinguistic Detection ←── HNR + error patterns (±1s rule)
+        ↓
+   Reconstruction (phoneme context + Whisper confidence + paralinguistic events)
         ↓
    Falcon Validation → Clipboard → Paste
         ↓
@@ -40,6 +42,7 @@ Mic → Whisper (Script Prep seed | verbose JSON | multi-temp voting)
 | 2 | Reconstruct | LLM cleans grammar, strips fillers, restructures |
 | 3 | Profile | + your learned vocabulary, corrections, preferred terms |
 | 4 | Stutter | + disfluency detection, trigger word tracking, clinical insights, personalized onset weighting, per-user phoneme context in prompt, covert avoidance reversal |
+| 5 | Paralinguistic | + non-verbal event detection (laughter, cough, sigh, breathing, throat-clearing, pauses) via HNR analysis + Whisper error patterns. Detected events injected into reconstruction prompt to prevent hallucination near non-speech audio |
 
 ## Modes
 
@@ -374,6 +377,24 @@ Each insight prescribes specific therapeutic techniques — Preparatory Sets, Vo
 **Tips reference** (Tips tab):
 56 clinical entries across 8 categories with source document citations: Trigger Patterns, Situational Modifiers, Avoidance Behaviors, Disfluency Types, Therapeutic Techniques, Persistent vs. Developmental Markers, Cognitive/Emotional Patterns, and Hard Statistics.
 
+## Layer 5: Paralinguistic Event Detection
+
+Detects non-verbal paralinguistic events (laughter, cough, sigh, breathing, throat-clearing, pauses) using audio analysis and Whisper's own errors as detection signals. No ML model required — pure signal processing + error pattern analysis.
+
+**Key insight (Zhang, 2024):** 96.1% of ASR errors cluster within ±1 second of a paralinguistic event boundary. Whisper's errors are the detector.
+
+**Detection pipeline:**
+
+1. **Error-type classifier**: WER S/D/I backtrace → event hypothesis (S+D cluster = laughter, insertions = sigh/throat-clearing)
+2. **No-speech probability**: High `no_speech_prob` segments → breathing/pause candidates
+3. **Disagreement clusters**: Dense multi-temp voting disagreements → non-speech audio
+4. **HNR confirmation**: Extract ±1s audio window around candidate → compute Harmonics-to-Noise Ratio. HNR < 4.0 dB confirms paralinguistic event (speech averages ~12 dB, coughs ~-15 dB)
+5. **Temporal gating**: Discard events < 500ms; laughter requires 1000ms sustained evidence
+
+**Phase 1 tags:** `[Laughter]`, `[Cough]`, `[Sigh]`, `[Pause]`, `[Throat-clearing]`, `[Breathing]`
+
+**Prompt injection:** At Layer 5, detected events are injected into the reconstruction prompt: "Whisper was confused near [Laughter] at 3.2s–4.1s — ignore hallucinated text in this window." This prevents the LLM from trying to interpret non-speech audio as garbled words.
+
 ## Risk Flags
 
 Every pipeline run computes deterministic risk flags (no extra API calls):
@@ -485,7 +506,7 @@ Key finding from Brown: rank-order correlation between factor count and stutteri
 
 ## Test Coverage — Updated 2026-03-15
 
-**843 assertions passing across 12 test suites.**
+**892 assertions passing across 13 test suites.**
 
 | Suite | Assertions | Coverage |
 |-------|-----------|----------|
@@ -500,12 +521,24 @@ Key finding from Brown: rank-order correlation between factor count and stutteri
 | `test_perf.py` | 19 | Timing thresholds for 12 functions — prevents silent slowdowns (e.g. `predict_phonetic_risk` < 1ms, `strip_disfluencies` 7.4KB < 100ms, `brown_scores` 13KB < 500ms) |
 | `test_whisper_voting.py` | 43 | Multi-temperature voting: agreement, word-level disagreement detection, `<END>` sentinel, total disagreement, empty transcription, low-confidence segment extraction, block suspect flagging |
 | `test_clipboard.py` | 31 | `ClipboardPredictor` cache TTL, `invalidate()`, situation filtering, `compute_brown_scores` integration, prep > clipboard > fallback priority chain, `_build_bias` structure, min triggers threshold |
+| `test_paralinguistic.py` | 49 | `compute_hnr` (synthetic ground truth: pure tone, noise, mixed, thresholds, degenerate inputs), `_classify_from_error_patterns` (S/D/I mapping, no_speech_prob, disagreement clusters), `detect_paralinguistic_events` (integration: noisy + clean audio, HNR exemption, duration gates), `format_paralinguistic_tags`, LAYERS/LAYER_NAMES constants |
 | `test_adversarial.py` | 198 | Stress/boundary/Unicode tests for all clinical features (run locally, not in CI) |
-| **Total** | **843** | **All passing** |
+| **Total** | **892** | **All passing** |
 
 **Not yet tested** (require live API or audio hardware): Whisper transcription, LLM reconstruction, Falcon validation, DAF audio streaming.
 
 ## Changelog
+
+### 2026-03-15 — Layer 5: Paralinguistic Event Detection
+
+- **Added**: Layer 5 (Paralinguistic) — detects non-verbal events in audio using HNR analysis + Whisper error pattern signatures.
+- **Detection**: `compute_hnr()` (autocorrelation-based Harmonics-to-Noise Ratio), `_classify_from_error_patterns()` (Zhang's ASR error-type mapping: S+D → laughter, insertions → sigh/throat-clearing), `detect_paralinguistic_events()` (multi-signal pipeline with ±1s temporal gating).
+- **Phase 1 tags**: `[Laughter]`, `[Cough]`, `[Sigh]`, `[Pause]`, `[Throat-clearing]`, `[Breathing]`.
+- **Pipeline integration**: Detected events injected into `reconstruct()` prompt at L5 — tells the LLM to ignore Whisper hallucinations near paralinguistic timestamps.
+- **Dashboard**: Layer 5 option in layer selector, paralinguistic event indicator in sidebar.
+- **Database**: `paralinguistic_events` column added to sessions table (auto-migration).
+- **Tests**: 49 new assertions in `test_paralinguistic.py` (HNR ground truth, error-pattern classification, integration detection, tag formatting, constants).
+- **No new dependencies**: HNR computation uses existing numpy/scipy only.
 
 ### 2026-03-15 — Brown verification + test coverage update
 
