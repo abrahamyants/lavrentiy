@@ -408,13 +408,13 @@ if fmt:
     print()
 
 # ============================================================
-# TEST 5: LAYERS and LAYER_NAMES include Layer 5
+# TEST 5: LAYERS (1-4) + independent toggles
 # ============================================================
 print('=== TEST 5: LAYERS and LAYER_NAMES ===')
-check('LAYERS includes 5', 5 in ns.get('LAYERS', []))
-check('LAYER_NAMES[5] = paralinguistic',
-      ns.get('LAYER_NAMES', {}).get(5) == 'paralinguistic')
-check('LAYERS has 5 entries', len(ns.get('LAYERS', [])) == 5)
+check('LAYERS has 4 entries', len(ns.get('LAYERS', [])) == 4)
+check('LAYERS max is 4', max(ns.get('LAYERS', [0])) == 4)
+check('LAYER_NAMES[4] = stutter',
+      ns.get('LAYER_NAMES', {}).get(4) == 'stutter')
 print()
 
 # ============================================================

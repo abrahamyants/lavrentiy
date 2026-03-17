@@ -4,11 +4,14 @@
 - Single-file engine: `lavrentiy.py` (~260KB, ~5800 lines)
 - Single-file dashboard: `dashboard.html` (~175KB)
 - Profile dir: `~/.lavrentiy/` (profile.json, history.db, dashboard.html copy)
-- Layers: 1=Transcribe, 2=Reconstruct, 3=Profile, 4=Stutter, 5=Paralinguistic, 5.5=Prosodic
+- Layers: 1=Transcribe, 2=Reconstruct, 3=Profile, 4=Stutter (stack — each includes all below)
+- Independent toggles: Paralinguistic (cough/laugh/HNR), Prosodic (F0/energy/rate) — not layer-gated
+- Toggles auto-enable on high-stress situations (phone, interview, presentation)
 
 ## Deployment
 - VBS shortcut runs `C:\Users\georg\Documents\GitHub\lavrentiy\lavrentiy.py` (single source of truth)
 - Dashboard served from `~/.lavrentiy/dashboard.html`, fallback `Path(__file__).parent / dashboard.html`
+- After editing repo dashboard.html, MUST copy to `~/.lavrentiy/dashboard.html` — engine serves profile copy first
 - Engine runs under `pythonw.exe` — errors are SILENT. Test with `python` first.
 
 ## Gotchas
