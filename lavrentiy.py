@@ -277,8 +277,8 @@ MAX_INSIGHTS = 6
 
 TONES = ["casual", "professional", "friend", "formal"]
 TONE_SHORT = {"casual": "CAS", "professional": "PRO", "friend": "FRD", "formal": "FRM"}
-LAYERS = [1, 2, 3, 4, 5]
-LAYER_NAMES = {1: "transcribe", 2: "reconstruct", 3: "profile", 4: "stutter", 5: "paralinguistic"}
+LAYERS = [1, 2, 3, 4]
+LAYER_NAMES = {1: "transcribe", 2: "reconstruct", 3: "profile", 4: "stutter"}
 
 # -- Situational context (affects reconstruction aggressiveness) ──
 SITUATIONS = ["default", "phone", "presentation", "interview", "casual", "reading"]
@@ -533,7 +533,7 @@ def learn_onset_weights(trigger_words):
     ]
     if _personal_dominant_onsets:
         top = _personal_dominant_onsets[0]
-        log(f"Onset weights: dominant /{top['onset']}/ ({top['pct']}% of {total} triggers)", "info")
+        print(f"Onset weights: dominant /{top['onset']}/ ({top['pct']}% of {total} triggers)")
 
 
 # -- Onset frequency anomaly detection (covert avoidance signal) ──
@@ -605,8 +605,8 @@ def detect_onset_anomalies(sessions, min_sessions=30, min_content_words=200):
     _onset_anomalies = anomalies[:5]  # top 5 most avoided
     if _onset_anomalies:
         top = _onset_anomalies[0]
-        log(f"Onset anomaly: /{top['onset']}/ at {top['actual_pct']}% vs expected {top['expected_pct']}% "
-            f"(deficit {top['deficit_ratio']}x) — possible covert avoidance", "info")
+        print(f"Onset anomaly: /{top['onset']}/ at {top['actual_pct']}% vs expected {top['expected_pct']}% "
+            f"(deficit {top['deficit_ratio']}x) -- possible covert avoidance")
     return _onset_anomalies
 
 
@@ -752,7 +752,7 @@ class ClipboardPredictor:
             target=self._loop, name="clipboard-predictor", daemon=True
         )
         self._thread.start()
-        log("ClipboardPredictor started", "info")
+        print("ClipboardPredictor started")
 
     def stop(self):
         self._stop_event.set()
@@ -902,7 +902,7 @@ DEFAULT_PROFILE = {
     "candidate_corrections": {},
     "candidate_fillers": {},
     "candidate_vocabulary": {},
-    "preferences": {"tone": "casual", "layer": 2}
+    "preferences": {"tone": "casual", "layer": 2, "paralinguistic": False, "prosodic": False}
 }
 
 def load_profile():
@@ -1048,7 +1048,7 @@ def migrate_profile(prof):
                 else:
                     by_lang["en"].append(word)  # default to English
             prof["trigger_words_by_lang"] = by_lang
-            log(f"Profile v4: split {len(triggers)} triggers → en:{len(by_lang['en'])} ru:{len(by_lang['ru'])}", "info")
+            print(f"Profile v4: split {len(triggers)} triggers -> en:{len(by_lang['en'])} ru:{len(by_lang['ru'])}")
         normalize_profile(prof)
         prof["version"] = PROFILE_VERSION
         save_profile(prof)
@@ -1699,6 +1699,18 @@ state = 'idle'
 current_tone = profile["preferences"].get("tone", "casual")
 current_layer = profile["preferences"].get("layer", 2)
 current_mode = profile["preferences"].get("mode", MODE)
+paralinguistic_enabled = profile["preferences"].get("paralinguistic", False)
+prosodic_enabled = profile["preferences"].get("prosodic", False)
+
+# Migration: Layer 5 -> Layer 4 + toggles
+if current_layer >= 5:
+    current_layer = 4
+    paralinguistic_enabled = True
+    prosodic_enabled = True
+    profile["preferences"]["layer"] = 4
+    profile["preferences"]["paralinguistic"] = True
+    profile["preferences"]["prosodic"] = True
+    save_profile(profile)
 tap_times = []
 target_hwnd = None
 last_paste_time = 0
@@ -1807,7 +1819,10 @@ def log(text, kind="info"):
         console_log.append({"id": console_id, "ts": time.time(), "text": text, "kind": kind})
         if len(console_log) > 80:
             console_log.pop(0)
-    print(text)
+    try:
+        print(text)
+    except Exception:
+        pass
 
 # -- LLM Calls ───────────────────────────────────────────────────
 def reconstruct(raw_text, tone, layer, prof, situation=None,
@@ -4784,7 +4799,7 @@ def pipeline():
         _last_prosodic_features = prosodic_feats
         prosodic_ctx = ""
         _last_speaker_state = ""
-        if prosodic_feats and current_layer >= 5:
+        if prosodic_feats and prosodic_enabled:
             baseline = compute_speaker_baseline(profile, db_get_sessions)
             speaker_state = infer_speaker_state(prosodic_feats, baseline)
             _last_speaker_state = speaker_state
@@ -4821,8 +4836,8 @@ def pipeline():
                     whisper_low_conf=whisper_low_conf,
                     whisper_disagreements=whisper_disagreements,
                     speech_severity_mod=speech_metrics["severity_modifier"],
-                    paralinguistic_events=para_events if current_layer >= 5 else None,
-                    prosodic_context=prosodic_ctx if current_layer >= 5 else None
+                    paralinguistic_events=para_events if paralinguistic_enabled else None,
+                    prosodic_context=prosodic_ctx if prosodic_enabled else None
                 )
             except Exception as e:
                 log(f"Reconstruct failed ({e}) -- using raw", "error")
@@ -5005,6 +5020,20 @@ def set_layer(layer):
         save_profile(profile)
         log(f"Layer: {current_layer} ({LAYER_NAMES[current_layer]})", "info")
 
+def set_paralinguistic(enabled):
+    global paralinguistic_enabled
+    paralinguistic_enabled = bool(enabled)
+    profile["preferences"]["paralinguistic"] = paralinguistic_enabled
+    save_profile(profile)
+    log(f"Paralinguistic: {'ON' if paralinguistic_enabled else 'OFF'}", "info")
+
+def set_prosodic(enabled):
+    global prosodic_enabled
+    prosodic_enabled = bool(enabled)
+    profile["preferences"]["prosodic"] = prosodic_enabled
+    save_profile(profile)
+    log(f"Prosodic: {'ON' if prosodic_enabled else 'OFF'}", "info")
+
 def set_mode(mode):
     global current_mode
     if mode in MODES:
@@ -5015,11 +5044,11 @@ def set_mode(mode):
 
 # Situation pre-warm presets: auto-configure DAF, layer, and prep text
 SITUATION_PRESETS = {
-    "phone": {"daf_ms": 100, "layer": 4,
+    "phone": {"daf_ms": 100, "layer": 4, "paralinguistic": True, "prosodic": True,
               "prep": "Hello this is speaking. Can you repeat that? I'm calling about"},
-    "interview": {"daf_ms": 80, "layer": 4,
+    "interview": {"daf_ms": 80, "layer": 4, "paralinguistic": True, "prosodic": True,
                   "prep": "Thank you for having me. Great question. To summarize"},
-    "presentation": {"daf_ms": 0, "layer": 4,
+    "presentation": {"daf_ms": 0, "layer": 4, "paralinguistic": True, "prosodic": True,
                      "prep": "Next slide. As you can see. In conclusion. Thank you"},
     "reading": {"daf_ms": 0, "layer": 3, "prep": ""},
 }
@@ -5042,6 +5071,15 @@ def set_situation(situation):
         if preset.get("layer") and preset["layer"] != current_layer:
             set_layer(preset["layer"])
             actions.append(f"L{preset['layer']}")
+        # Auto-toggles
+        if "paralinguistic" in preset:
+            set_paralinguistic(preset["paralinguistic"])
+            if preset["paralinguistic"]:
+                actions.append("para:ON")
+        if "prosodic" in preset:
+            set_prosodic(preset["prosodic"])
+            if preset["prosodic"]:
+                actions.append("prosodic:ON")
         # Auto-prep text
         if preset.get("prep"):
             set_last_prep(preset["prep"])
@@ -5118,6 +5156,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'avg_exposure': self._compute_avg_exposure(),
                 'paralinguistic_events': _last_paralinguistic_events,
                 'speaker_state': _last_speaker_state,
+                'paralinguistic_enabled': paralinguistic_enabled,
+                'prosodic_enabled': prosodic_enabled,
             })
         elif self.path == '/api/profile':
             self._json(profile)
@@ -5409,6 +5449,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 except (ValueError, TypeError):
                     pass
             self._json({'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?')})
+        elif self.path == '/api/paralinguistic':
+            if body and 'enabled' in body:
+                set_paralinguistic(body['enabled'])
+            self._json({'paralinguistic_enabled': paralinguistic_enabled})
+        elif self.path == '/api/prosodic':
+            if body and 'enabled' in body:
+                set_prosodic(body['enabled'])
+            self._json({'prosodic_enabled': prosodic_enabled})
         elif self.path == '/api/mode':
             if body and isinstance(body.get('mode'), str):
                 set_mode(body['mode'].upper())
@@ -5645,7 +5693,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                             whisper_low_conf=whisper_result.get("low_confidence"),
                             whisper_disagreements=whisper_result.get("disagreements"),
                             speech_severity_mod=speech_metrics["severity_modifier"],
-                            paralinguistic_events=para_events if current_layer >= 5 else None)
+                            paralinguistic_events=para_events if paralinguistic_enabled else None)
                     except Exception as e:
                         log(f"Mobile reconstruct failed: {e}", "error")
                         clean_text = filtered
@@ -5799,7 +5847,11 @@ def keep_alive():
         pass
 
 # -- Main ─────────────────────────────────────────────────────────
-print(f"LAVRENTIY v0.1 | L{current_layer} {current_tone}")
+_toggles = []
+if paralinguistic_enabled: _toggles.append("para")
+if prosodic_enabled: _toggles.append("prosodic")
+_toggle_str = f" +{'+'.join(_toggles)}" if _toggles else ""
+print(f"LAVRENTIY v0.1 | L{current_layer} {current_tone}{_toggle_str}")
 print(f"Mic: {device_info['name']} | {NATIVE_RATE}Hz")
 print(f"{RECORD_KEY.upper()}=talk  {TONE_KEY.upper()}=tone  {LAYER_KEY.upper()}=layer  {STATS_KEY.upper()}=stats  {QUIT_KEY.upper()}x3=quit")
 print(f"Dashboard: http://localhost:{DASHBOARD_PORT}")

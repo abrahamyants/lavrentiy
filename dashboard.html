@@ -491,6 +491,25 @@ body::before {
 
 .tone-stack, .layer-stack { display: flex; flex-direction: column; gap: 2px; }
 
+/* Enhancement toggles */
+.toggle-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.toggle-label { font-family: var(--font); font-size: 11px; color: var(--text); font-weight: 500; }
+.toggle-hint { font-family: var(--mono); font-size: 9px; color: var(--text-dim); margin-left: auto; }
+.toggle-switch { position: relative; display: inline-block; width: 32px; height: 18px; flex-shrink: 0; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--raised); border: 1px solid rgba(0,0,0,0.15);
+  border-radius: 9px; transition: background 0.2s;
+}
+.toggle-slider:before {
+  position: absolute; content: ""; height: 12px; width: 12px; left: 2px; bottom: 2px;
+  background: #fff; border-radius: 50%; transition: transform 0.2s;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+.toggle-switch input:checked + .toggle-slider { background: var(--red-bright); border-color: var(--red-bright); }
+.toggle-switch input:checked + .toggle-slider:before { transform: translateX(14px); }
+
 .tone-btn {
   padding: 5px 12px;
   background: linear-gradient(180deg, var(--raised-hi) 0%, var(--raised) 50%, #b8b8bd 100%);
@@ -1948,8 +1967,13 @@ body::before {
         <div class="layer-opt" data-layer="2"><div class="l-info"><div class="l-name">Reconstruct</div><div class="l-desc">LLM + tone</div></div></div>
         <div class="layer-opt" data-layer="3"><div class="l-info"><div class="l-name">Profile</div><div class="l-desc">+ vocabulary</div></div></div>
         <div class="layer-opt" data-layer="4"><div class="l-info"><div class="l-name">Stutter</div><div class="l-desc">+ disfluency</div></div></div>
-        <div class="layer-opt" data-layer="5"><div class="l-info"><div class="l-name">Paralinguistic</div><div class="l-desc">+ non-verbal</div></div></div>
       </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Enhancements</div>
+      <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-paralinguistic"><span class="toggle-slider"></span></label><span class="toggle-label">Paralinguistic</span><span class="toggle-hint">cough / laugh</span></div>
+      <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-prosodic"><span class="toggle-slider"></span></label><span class="toggle-label">Prosodic</span><span class="toggle-hint">pitch / energy / rate</span></div>
     </div>
 
     <div class="sidebar-section">
@@ -2336,6 +2360,11 @@ function updateUI(){
   // Whisper sidebar state
   const mtToggle=document.getElementById('multitemp-toggle');
   if(mtToggle)mtToggle.classList.toggle('on',!!state.whisper_multi_temp);
+  // Enhancement toggles
+  const paraToggle=document.getElementById('toggle-paralinguistic');
+  const prosToggle=document.getElementById('toggle-prosodic');
+  if(paraToggle)paraToggle.checked=!!state.paralinguistic_enabled;
+  if(prosToggle)prosToggle.checked=!!state.prosodic_enabled;
   // Speech metrics sidebar (#11)
   const sm=state.speech_metrics||{};
   const pauseEl=document.getElementById('speech-pause');
@@ -2975,6 +3004,10 @@ document.querySelectorAll('.layer-opt').forEach(btn=>{btn.addEventListener('clic
 document.querySelectorAll('.mode-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:btn.dataset.mode})});}catch(e){}});});
 document.querySelectorAll('.sit-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/situation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({situation:btn.dataset.situation})});}catch(e){}});});
 
+// ─── ENHANCEMENT TOGGLES ─────────────────────────
+document.getElementById('toggle-paralinguistic').addEventListener('change',async(e)=>{try{await fetch(API+'/api/paralinguistic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}});
+document.getElementById('toggle-prosodic').addEventListener('change',async(e)=>{try{await fetch(API+'/api/prosodic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}});
+
 // ─── SCRIPT PREP ─────────────────────────────────
 async function runPrep(){
   const input=document.getElementById('prep-input');
@@ -3446,7 +3479,10 @@ function updateCompactBar() {
   const elapsed = Math.floor(Date.now()/1000 - state.stats.start_time);
   document.getElementById('compact-time').textContent =
     String(Math.floor(elapsed/60)).padStart(2,'0') + ':' + String(elapsed%60).padStart(2,'0');
-  document.getElementById('compact-layer').textContent = 'L' + state.layer;
+  let layerTag = 'L' + state.layer;
+  if(state.paralinguistic_enabled) layerTag += '+P';
+  if(state.prosodic_enabled) layerTag += '+F0';
+  document.getElementById('compact-layer').textContent = layerTag;
   document.getElementById('compact-tone').textContent = toneMap[state.tone] || state.tone;
   document.getElementById('compact-mode').textContent = state.mode || 'RAW';
   const sitMap={default:'DEF',casual:'CAS',phone:'PHN',presentation:'PRS',interview:'INT',reading:'RDG'};

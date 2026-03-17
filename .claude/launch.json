@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mbc-site",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8090", "-d", "C:\\Users\\georg\\Documents\\GitHub\\gugosf114.github.io"],
+      "port": 8090
+    }
+  ]
+}
