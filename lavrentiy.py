@@ -4781,24 +4781,29 @@ def pipeline():
         t_recon = t_asr
         t_val = t_asr
 
-        # Step 1.3: Layer 5 — Paralinguistic event detection (numpy/scipy, no API)
-        # Runs at all layers (data is cheap), but only injected into prompt at L5
+        # Step 1.3: Paralinguistic event detection (numpy/scipy, no API)
+        # Only runs when toggle is ON — skipped entirely when OFF for speed
         global _last_paralinguistic_events
-        para_events = detect_paralinguistic_events(
-            audio_data, TARGET_RATE, whisper_segments,
-            whisper_low_conf, whisper_disagreements
-        )
+        para_events = []
+        if paralinguistic_enabled:
+            para_events = detect_paralinguistic_events(
+                audio_data, TARGET_RATE, whisper_segments,
+                whisper_low_conf, whisper_disagreements
+            )
+            if para_events:
+                tags = format_paralinguistic_tags(para_events)
+                log(f"Paralinguistic: {', '.join(tags)} ({len(para_events)} events)", "info")
         _last_paralinguistic_events = para_events
-        if para_events:
-            tags = format_paralinguistic_tags(para_events)
-            log(f"Paralinguistic: {', '.join(tags)} ({len(para_events)} events)", "info")
 
-        # Step 1.4: Layer 5.5 — Prosodic feature extraction (numpy/scipy, no API)
+        # Step 1.4: Prosodic feature extraction (numpy/scipy, no API)
+        # Only runs when toggle is ON
         global _last_prosodic_features, _last_speaker_state
-        prosodic_feats = extract_prosodic_features(audio_data, whisper_segments, TARGET_RATE)
-        _last_prosodic_features = prosodic_feats
+        prosodic_feats = None
         prosodic_ctx = ""
         _last_speaker_state = ""
+        if prosodic_enabled:
+            prosodic_feats = extract_prosodic_features(audio_data, whisper_segments, TARGET_RATE)
+        _last_prosodic_features = prosodic_feats
         if prosodic_feats and prosodic_enabled:
             baseline = compute_speaker_baseline(profile, db_get_sessions)
             speaker_state = infer_speaker_state(prosodic_feats, baseline)
@@ -5124,7 +5129,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == '/':
-            dash = DASHBOARD_PATH if DASHBOARD_PATH.exists() else Path(__file__).parent / 'dashboard.html'
+            dash = Path(__file__).parent / 'dashboard.html'
             self._serve_file(dash, 'text/html')
         elif self.path == '/mobile':
             mobile_path = Path(__file__).parent / 'mobile.html'
