@@ -669,6 +669,8 @@ body::before {
 .layer-opt.active .l-name { color: #f0d0d0; }
 .layer-opt .l-desc { font-family: var(--mono); font-size: 10px; color: var(--red-bright); font-weight: 700; }
 .layer-opt.active .l-desc { color: var(--red-bright); }
+.mode-desc { font-family: var(--mono); font-size: 9px; color: var(--red-bright); font-weight: 700; margin-left: 6px; }
+.tone-btn.active .mode-desc { color: #ffb0b0; }
 
 .sidebar-footer {
   margin-top: auto;
@@ -2019,9 +2021,9 @@ body::before {
     <div class="sidebar-section" id="mode-section">
       <div class="sidebar-section-title">Mode <span class="section-note" id="mode-note"></span></div>
       <div class="tone-stack">
-        <button class="tone-btn mode-btn" data-mode="RAW">RAW</button>
-        <button class="tone-btn mode-btn" data-mode="FAST">FAST</button>
-        <button class="tone-btn mode-btn" data-mode="SAFE">SAFE</button>
+        <button class="tone-btn mode-btn" data-mode="RAW">RAW <span class="mode-desc">paste as-is</span></button>
+        <button class="tone-btn mode-btn" data-mode="FAST">FAST <span class="mode-desc">skip validation</span></button>
+        <button class="tone-btn mode-btn" data-mode="SAFE">SAFE <span class="mode-desc">+ Falcon check</span></button>
       </div>
     </div>
 

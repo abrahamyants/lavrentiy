@@ -5268,6 +5268,10 @@ def set_layer(layer):
         profile["preferences"]["layer"] = current_layer
         save_profile(profile)
         log(f"Layer: {current_layer} ({LAYER_NAMES[current_layer]})", "info")
+        # Layer 4 (Stutter) needs prosodic for severity scaling
+        if layer == 4 and not prosodic_enabled:
+            set_prosodic(True)
+            log("Prosodic auto-enabled for Layer 4 (stutter severity)", "info")
 
 def set_paralinguistic(enabled):
     global paralinguistic_enabled
