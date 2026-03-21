@@ -902,7 +902,7 @@ DEFAULT_PROFILE = {
     "candidate_corrections": {},
     "candidate_fillers": {},
     "candidate_vocabulary": {},
-    "preferences": {"tone": "casual", "layer": 2, "paralinguistic": False, "prosodic": False}
+    "preferences": {"tone": "casual", "layer": 2, "paralinguistic": False, "prosodic": False, "paralinguistic_transcribe": False}
 }
 
 def load_profile():
@@ -1700,6 +1700,7 @@ current_tone = profile["preferences"].get("tone", "casual")
 current_layer = profile["preferences"].get("layer", 2)
 current_mode = profile["preferences"].get("mode", MODE)
 paralinguistic_enabled = profile["preferences"].get("paralinguistic", False)
+paralinguistic_transcribe = profile["preferences"].get("paralinguistic_transcribe", False)
 prosodic_enabled = profile["preferences"].get("prosodic", False)
 
 # Migration: Layer 5 -> Layer 4 + toggles
@@ -4888,6 +4889,12 @@ def pipeline():
         flags_tag = f" flags:[{','.join(decision['risk_flags'])}]" if decision['risk_flags'] else ""
         log(f"[{decision['mode']}] {decision['decision']} | {timings['total_ms']}ms (asr:{timings['asr_ms']} recon:{timings['reconstruct_ms']} val:{timings['validate_ms']}){flags_tag}", "info")
 
+        # Inject paralinguistic tags into output if transcribe toggle is ON
+        if paralinguistic_transcribe and para_events:
+            tags = format_paralinguistic_tags(para_events)
+            if tags:
+                output = output.rstrip() + " " + " ".join(tags)
+
         # Paste or hold
         if decision["decision"] == "hold":
             log("HELD — high-risk output not pasted", "error")
@@ -5032,6 +5039,13 @@ def set_paralinguistic(enabled):
     save_profile(profile)
     log(f"Paralinguistic: {'ON' if paralinguistic_enabled else 'OFF'}", "info")
 
+def set_paralinguistic_transcribe(enabled):
+    global paralinguistic_transcribe
+    paralinguistic_transcribe = bool(enabled)
+    profile["preferences"]["paralinguistic_transcribe"] = paralinguistic_transcribe
+    save_profile(profile)
+    log(f"Paralinguistic transcribe: {'ON' if paralinguistic_transcribe else 'OFF'}", "info")
+
 def set_prosodic(enabled):
     global prosodic_enabled
     prosodic_enabled = bool(enabled)
@@ -5162,6 +5176,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'paralinguistic_events': _last_paralinguistic_events,
                 'speaker_state': _last_speaker_state,
                 'paralinguistic_enabled': paralinguistic_enabled,
+                'paralinguistic_transcribe': paralinguistic_transcribe,
                 'prosodic_enabled': prosodic_enabled,
             })
         elif self.path == '/api/profile':
@@ -5458,6 +5473,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if body and 'enabled' in body:
                 set_paralinguistic(body['enabled'])
             self._json({'paralinguistic_enabled': paralinguistic_enabled})
+        elif self.path == '/api/paralinguistic_transcribe':
+            if body and 'enabled' in body:
+                set_paralinguistic_transcribe(body['enabled'])
+            self._json({'paralinguistic_transcribe': paralinguistic_transcribe})
         elif self.path == '/api/prosodic':
             if body and 'enabled' in body:
                 set_prosodic(body['enabled'])

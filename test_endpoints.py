@@ -183,6 +183,7 @@ ns['_block_count'] = 0
 ns['_redo_count'] = 0
 ns['_decay_counter'] = 0
 ns['paralinguistic_enabled'] = False
+ns['paralinguistic_transcribe'] = False
 ns['prosodic_enabled'] = False
 ns['_daf_active'] = False
 ns['_daf_delay_ms'] = 100
@@ -245,7 +246,7 @@ target_funcs = [
     'predict_triggers_in_text', 'compute_wer',
     'check_redo', 'prep_text',
     'set_tone', 'set_layer', 'set_mode', 'set_situation',
-    'set_paralinguistic', 'set_prosodic',
+    'set_paralinguistic', 'set_paralinguistic_transcribe', 'set_prosodic',
     '_dedupe_list', '_norm_corrections',
     'calibration_status', 'calibration_next_prompt',
     'augment_status', 'compute_severity_score',
@@ -281,6 +282,7 @@ TEST_PORT = 18787
 server = ThreadingHTTPServer(('127.0.0.1', TEST_PORT), ns['DashboardHandler'])
 server_thread = threading.Thread(target=server.serve_forever, daemon=True)
 server_thread.start()
+import time; time.sleep(0.3)  # Wait for server socket to bind
 BASE = f'http://127.0.0.1:{TEST_PORT}'
 
 passed = 0
@@ -469,6 +471,36 @@ try:
     post('/api/mode', {'mode': 'SAFE'})
 except Exception as e:
     check(f'POST /api/mode failed: {e}', False)
+
+print()
+print('=== POST /api/paralinguistic ===')
+try:
+    r = post('/api/paralinguistic', {'enabled': True})
+    check('paralinguistic enabled', r['paralinguistic_enabled'] == True)
+    r = post('/api/paralinguistic', {'enabled': False})
+    check('paralinguistic disabled', r['paralinguistic_enabled'] == False)
+except Exception as e:
+    check(f'POST /api/paralinguistic failed: {e}', False)
+
+print()
+print('=== POST /api/paralinguistic_transcribe ===')
+try:
+    r = post('/api/paralinguistic_transcribe', {'enabled': True})
+    check('para transcribe enabled', r['paralinguistic_transcribe'] == True)
+    r = post('/api/paralinguistic_transcribe', {'enabled': False})
+    check('para transcribe disabled', r['paralinguistic_transcribe'] == False)
+except Exception as e:
+    check(f'POST /api/paralinguistic_transcribe failed: {e}', False)
+
+print()
+print('=== POST /api/prosodic ===')
+try:
+    r = post('/api/prosodic', {'enabled': True})
+    check('prosodic enabled', r['prosodic_enabled'] == True)
+    r = post('/api/prosodic', {'enabled': False})
+    check('prosodic disabled', r['prosodic_enabled'] == False)
+except Exception as e:
+    check(f'POST /api/prosodic failed: {e}', False)
 
 print()
 print('=== POST /api/situation ===')

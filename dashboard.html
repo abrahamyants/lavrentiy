@@ -1976,6 +1976,7 @@ body::before {
     <div class="sidebar-section">
       <div class="sidebar-section-title">Enhancements</div>
       <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-paralinguistic"><span class="toggle-slider"></span></label><span class="toggle-label">Paralinguistic</span><span class="toggle-hint">cough / laugh</span></div>
+      <div class="toggle-row toggle-sub" id="para-transcribe-row" style="padding-left:40px;display:none"><label class="toggle-switch"><input type="checkbox" id="toggle-para-transcribe"><span class="toggle-slider"></span></label><span class="toggle-label" style="font-size:10px">Transcribe</span><span class="toggle-hint">add [Cough] tags</span></div>
       <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-prosodic"><span class="toggle-slider"></span></label><span class="toggle-label">Prosodic</span><span class="toggle-hint">pitch / energy / rate</span></div>
     </div>
 
@@ -2383,6 +2384,9 @@ function updateUI(){
   const paraToggle=document.getElementById('toggle-paralinguistic');
   const prosToggle=document.getElementById('toggle-prosodic');
   if(paraToggle)paraToggle.checked=!!state.paralinguistic_enabled;
+  const paraTransToggle=document.getElementById('toggle-para-transcribe');
+  if(paraTransToggle)paraTransToggle.checked=!!state.paralinguistic_transcribe;
+  document.getElementById('para-transcribe-row').style.display=state.paralinguistic_enabled?'flex':'none';
   if(prosToggle)prosToggle.checked=!!state.prosodic_enabled;
   // Speech metrics sidebar (#11)
   const sm=state.speech_metrics||{};
@@ -3024,7 +3028,8 @@ document.querySelectorAll('.mode-btn').forEach(btn=>{btn.addEventListener('click
 document.querySelectorAll('.sit-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/situation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({situation:btn.dataset.situation})});}catch(e){}});});
 
 // ─── ENHANCEMENT TOGGLES ─────────────────────────
-document.getElementById('toggle-paralinguistic').addEventListener('change',async(e)=>{try{await fetch(API+'/api/paralinguistic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}});
+document.getElementById('toggle-paralinguistic').addEventListener('change',async(e)=>{try{await fetch(API+'/api/paralinguistic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}document.getElementById('para-transcribe-row').style.display=e.target.checked?'flex':'none';});
+document.getElementById('toggle-para-transcribe').addEventListener('change',async(e)=>{try{await fetch(API+'/api/paralinguistic_transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}});
 document.getElementById('toggle-prosodic').addEventListener('change',async(e)=>{try{await fetch(API+'/api/prosodic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}});
 
 // ─── SCRIPT PREP ─────────────────────────────────
