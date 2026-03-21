@@ -1897,7 +1897,7 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
     if prof.get("filler_words"):
         parts.append(f"\nStrip these fillers: {', '.join(prof['filler_words'][:25])}")
 
-    if layer >= 2 and prof:
+    if layer >= 3 and prof:
         ctx = []
         if prof.get("vocabulary"):
             ctx.append(f"Preferred terms: {', '.join(prof['vocabulary'][:20])}")
@@ -2773,7 +2773,7 @@ def compute_substitution_fingerprint(prof):
 
 
 # -- Auto-Learn ──────────────────────────────────────────────────
-LEARN_EVERY = 3  # run learner every N sessions (Layer 2+)
+LEARN_EVERY = 3  # run learner every N sessions (Layer 3+)
 DECAY_EVERY = 30             # run decay sweep every N sessions
 DECAY_STALE_SESSIONS = 100   # corrections unused for this many sessions → demote to candidate
 DECAY_DEAD_SESSIONS = 200    # candidates not re-seen for this many sessions → prune entirely
@@ -4942,9 +4942,9 @@ def pipeline():
                 ), daemon=True
             ).start()
 
-        # Step 6: Auto-learn (async, Layer 2+ only)
+        # Step 6: Auto-learn (async, Layer 3+ only)
         # Also: track profile relevance (zero cost) and run decay sweep periodically
-        if current_layer >= 2:
+        if current_layer >= 3:
             # Track which profile entries were relevant to this session
             track_profile_relevance(profile, raw_text)
 
