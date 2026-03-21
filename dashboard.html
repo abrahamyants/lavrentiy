@@ -571,7 +571,7 @@ body::before {
   50% { box-shadow: 0 0 6px rgba(212,165,116,1), 0 0 16px rgba(212,165,116,0.7), 0 0 28px rgba(184,133,90,0.3), inset 0 -1px 1px rgba(0,0,0,0.25); }
 }
 /* Dim tone section when on Layer 1 (no LLM) */
-#tone-section.inactive { opacity: 0.35; pointer-events: none; }
+#tone-section.inactive, #mode-section.inactive { opacity: 0.35; pointer-events: none; }
 .section-note { font-size: 0.7em; font-weight: 400; color: var(--text-muted); font-style: italic; }
 
 .layer-opt {
@@ -1979,8 +1979,8 @@ body::before {
       <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-prosodic"><span class="toggle-slider"></span></label><span class="toggle-label">Prosodic</span><span class="toggle-hint">pitch / energy / rate</span></div>
     </div>
 
-    <div class="sidebar-section">
-      <div class="sidebar-section-title">Mode</div>
+    <div class="sidebar-section" id="mode-section">
+      <div class="sidebar-section-title">Mode <span class="section-note" id="mode-note"></span></div>
       <div class="tone-stack">
         <button class="tone-btn mode-btn" data-mode="RAW">RAW</button>
         <button class="tone-btn mode-btn" data-mode="FAST">FAST</button>
@@ -2347,6 +2347,14 @@ function updateUI(){
     const noLLM=state.layer===1;
     toneSec.classList.toggle('inactive',noLLM);
     if(toneNote)toneNote.textContent=noLLM?'(needs L2+)':'';
+  }
+  // Dim mode section on Layer 1 (all modes produce same result)
+  const modeSec=document.getElementById('mode-section');
+  const modeNote=document.getElementById('mode-note');
+  if(modeSec){
+    const noLLM2=state.layer===1;
+    modeSec.classList.toggle('inactive',noLLM2);
+    if(modeNote)modeNote.textContent=noLLM2?'(needs L2+)':'';
   }
   document.querySelectorAll('.layer-opt').forEach(b=>b.classList.toggle('active',parseInt(b.dataset.layer)===state.layer));
   document.querySelectorAll('.mode-btn').forEach(b=>b.classList.toggle('active',b.dataset.mode===state.mode));
