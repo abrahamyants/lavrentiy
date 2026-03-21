@@ -2337,6 +2337,7 @@ const API='';
 let state={state:'idle',tone:'casual',layer:2,layer_name:'reconstruct',situation:'default',stats:{words:0,sessions:0,chars:0,start_time:Date.now()/1000,api_calls:0,falcon_rejects:0}};
 let profile={trigger_words:[],filler_words:[],vocabulary:[],corrections:{}};
 let sessions=[];let lastSessionCount=-1;let connected=true;let failCount=0;
+let _toggleCooldown={};
 let lastLogId=0;let logLines=[];
 let learnData={status:{},events:[],totals:{corrections:0,fillers:0,vocabulary:0}};
 let lastLearnEventCount=0;let lastLogFetch=0;let lastLearnFetch=0;let lastPreviewFetch=0;
@@ -2417,13 +2418,14 @@ function updateUI(){
   const mtToggle=document.getElementById('multitemp-toggle');
   if(mtToggle)mtToggle.classList.toggle('on',!!state.whisper_multi_temp);
   // Enhancement toggles
+  const now=Date.now();
   const paraToggle=document.getElementById('toggle-paralinguistic');
   const prosToggle=document.getElementById('toggle-prosodic');
-  if(paraToggle)paraToggle.checked=!!state.paralinguistic_enabled;
+  if(paraToggle&&!(_toggleCooldown.para>now))paraToggle.checked=!!state.paralinguistic_enabled;
   const paraTransToggle=document.getElementById('toggle-para-transcribe');
-  if(paraTransToggle)paraTransToggle.checked=!!state.paralinguistic_transcribe;
+  if(paraTransToggle&&!(_toggleCooldown.paraTrans>now))paraTransToggle.checked=!!state.paralinguistic_transcribe;
   document.getElementById('para-transcribe-row').style.display=state.paralinguistic_enabled?'flex':'none';
-  if(prosToggle)prosToggle.checked=!!state.prosodic_enabled;
+  if(prosToggle&&!(_toggleCooldown.pros>now))prosToggle.checked=!!state.prosodic_enabled;
   // Speech metrics sidebar (#11)
   const sm=state.speech_metrics||{};
   const pauseEl=document.getElementById('speech-pause');
@@ -3064,9 +3066,9 @@ document.querySelectorAll('.mode-btn').forEach(btn=>{btn.addEventListener('click
 document.querySelectorAll('.sit-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/situation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({situation:btn.dataset.situation})});}catch(e){}});});
 
 // ─── ENHANCEMENT TOGGLES ─────────────────────────
-document.getElementById('toggle-paralinguistic').addEventListener('change',async(e)=>{try{await fetch(API+'/api/paralinguistic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}document.getElementById('para-transcribe-row').style.display=e.target.checked?'flex':'none';});
-document.getElementById('toggle-para-transcribe').addEventListener('change',async(e)=>{try{await fetch(API+'/api/paralinguistic_transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}});
-document.getElementById('toggle-prosodic').addEventListener('change',async(e)=>{try{await fetch(API+'/api/prosodic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}});
+document.getElementById('toggle-paralinguistic').addEventListener('change',async(e)=>{_toggleCooldown.para=Date.now()+2000;try{await fetch(API+'/api/paralinguistic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}document.getElementById('para-transcribe-row').style.display=e.target.checked?'flex':'none';});
+document.getElementById('toggle-para-transcribe').addEventListener('change',async(e)=>{_toggleCooldown.paraTrans=Date.now()+2000;try{await fetch(API+'/api/paralinguistic_transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}});
+document.getElementById('toggle-prosodic').addEventListener('change',async(e)=>{_toggleCooldown.pros=Date.now()+2000;try{await fetch(API+'/api/prosodic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}});
 
 // ─── SCRIPT PREP ─────────────────────────────────
 async function runPrep(){
