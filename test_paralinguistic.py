@@ -30,11 +30,24 @@ para_consts = [
     '_MIN_EVENT_DURATION_S', '_MIN_LAUGHTER_DURATION_S', '_CONFIDENCE_FLOOR',
     '_EVENT_WINDOW_S', '_LAUGHTER_SD_RATIO', '_INSERTION_RATIO',
     '_last_paralinguistic_events',
+    '_MIN_YAWNING_DURATION_S', '_MIN_CRYING_DURATION_S',
+    '_MIN_SNIFF_DURATION_S', '_MIN_GASP_DURATION_S',
+    '_ENERGY_FLOOR_DB', '_GUPTA_T0', '_GUPTA_T1',
+    '_ZCR_LOW_THRESHOLD', '_ZCR_NASAL_THRESHOLD',
 ]
 for const_name in para_consts:
     try:
         idx = next(i for i, l in enumerate(lines) if l.startswith(const_name + ' = '))
-        exec(lines[idx], ns)
+        # Handle multi-line constants (e.g., PARALINGUISTIC_TAGS = [\n...\n])
+        const_lines = [lines[idx]]
+        if '[' in lines[idx] and ']' not in lines[idx]:
+            j = idx + 1
+            while j < len(lines) and ']' not in lines[j]:
+                const_lines.append(lines[j])
+                j += 1
+            if j < len(lines):
+                const_lines.append(lines[j])
+        exec('\n'.join(const_lines), ns)
     except (StopIteration, Exception):
         pass
 
@@ -74,8 +87,10 @@ exec('\n'.join(lines[hf_start:hf_end]), ns)
 
 # Extract target functions
 testable_funcs = [
-    'compute_hnr', '_classify_from_error_patterns', 'detect_paralinguistic_events',
-    'format_paralinguistic_tags', 'predict_phonetic_risk', '_extract_onset',
+    'compute_hnr', 'compute_zcr', 'compute_log_energy',
+    '_classify_from_error_patterns', 'detect_paralinguistic_events',
+    'format_paralinguistic_tags', 'inject_paralinguistic_tags_tsa',
+    'predict_phonetic_risk', '_extract_onset',
 ]
 for node in ast.walk(tree):
     if isinstance(node, ast.FunctionDef) and node.name in testable_funcs:
@@ -315,7 +330,7 @@ if detect:
 
     # 3d. Events have required fields
     if result_laugh:
-        required = {'type', 'start_s', 'end_s', 'confidence', 'detection_method', 'hnr_db'}
+        required = {'type', 'start_s', 'end_s', 'confidence', 'detection_method', 'hnr_db', 'zcr_hz', 'energy_db', 'committed'}
         check('events have all required fields',
               all(required.issubset(e.keys()) for e in result_laugh))
     else:

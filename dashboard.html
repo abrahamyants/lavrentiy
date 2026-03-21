@@ -510,6 +510,32 @@ body::before {
 .toggle-switch input:checked + .toggle-slider { background: var(--red-bright); border-color: var(--red-bright); }
 .toggle-switch input:checked + .toggle-slider:before { transform: translateX(14px); }
 
+/* Sub-toggle: smaller switch with L-shaped connector line */
+.toggle-sub {
+  position: relative;
+  padding-left: 36px !important;
+  margin-left: 6px;
+  margin-top: -2px;
+  padding-bottom: 6px;
+}
+.toggle-sub::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: -4px;
+  width: 12px;
+  height: 14px;
+  border-left: 1.5px solid var(--text-dim);
+  border-bottom: 1.5px solid var(--text-dim);
+  border-radius: 0 0 0 3px;
+}
+.toggle-sub .toggle-switch { width: 26px; height: 14px; }
+.toggle-sub .toggle-slider:before { height: 9px; width: 9px; left: 1.5px; bottom: 1.5px; }
+.toggle-sub .toggle-switch input:checked + .toggle-slider:before { transform: translateX(11px); }
+.toggle-sub .toggle-switch input:checked + .toggle-slider { background: var(--amber, #c8a04e); border-color: var(--amber, #c8a04e); }
+.toggle-sub .toggle-label { font-size: 9.5px !important; color: var(--text-dim); letter-spacing: 0.3px; }
+.toggle-sub .toggle-hint { font-size: 8px; }
+
 .tone-btn {
   padding: 5px 12px;
   background: linear-gradient(180deg, var(--raised-hi) 0%, var(--raised) 50%, #b8b8bd 100%);
@@ -1976,7 +2002,7 @@ body::before {
     <div class="sidebar-section">
       <div class="sidebar-section-title">Enhancements</div>
       <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-paralinguistic"><span class="toggle-slider"></span></label><span class="toggle-label">Paralinguistic</span><span class="toggle-hint">cough / laugh</span></div>
-      <div class="toggle-row toggle-sub" id="para-transcribe-row" style="padding-left:40px;display:none"><label class="toggle-switch"><input type="checkbox" id="toggle-para-transcribe"><span class="toggle-slider"></span></label><span class="toggle-label" style="font-size:10px">Transcribe</span><span class="toggle-hint">add [Cough] tags</span></div>
+      <div class="toggle-row toggle-sub" id="para-transcribe-row" style="display:none"><label class="toggle-switch"><input type="checkbox" id="toggle-para-transcribe"><span class="toggle-slider"></span></label><span class="toggle-label">Transcribe</span><span class="toggle-hint">inject [tags] in text</span></div>
       <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-prosodic"><span class="toggle-slider"></span></label><span class="toggle-label">Prosodic</span><span class="toggle-hint">pitch / energy / rate</span></div>
     </div>
 

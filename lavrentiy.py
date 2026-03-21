@@ -4014,23 +4014,42 @@ def analyze_speech_rate(audio_data, sample_rate=16000):
 # candidate windows, then classifies via HNR + error-type signatures.
 # No new dependencies beyond numpy/scipy.
 
-# Phase 1 tags only — prosodic/attitudinal tags come later
-PARALINGUISTIC_TAGS = ["Laughter", "Cough", "Sigh", "Pause", "Throat-clearing", "Breathing"]
+# Phase 1 tags — covers all detectable paralinguistic events
+# NVS-38K taxonomy + Trouvain's conversational NVVs
+PARALINGUISTIC_TAGS = [
+    "Laughter", "Cough", "Sigh", "Pause", "Throat-clearing", "Breathing",
+    "Sneezing", "Yawning", "Crying", "Sniff", "Gasp"
+]
 
-# Detection thresholds (derived from Gupta et al. + Zhang)
+# Detection thresholds (derived from Gupta et al. + Zhang + NVS-38K)
 _HNR_SPEECH_THRESHOLD = 4.0       # dB — below this = paralinguistic, not speech
 _HNR_CERTAIN_THRESHOLD = 2.0      # dB — below this = high-confidence paralinguistic event
-_MIN_EVENT_DURATION_S = 0.5       # VAD rule: discard events shorter than 500ms
+_MIN_EVENT_DURATION_S = 0.3       # NVS-38K: discard events shorter than 300ms
 _MIN_LAUGHTER_DURATION_S = 1.0    # Laughter requires 1000ms sustained evidence
+_MIN_YAWNING_DURATION_S = 1.5    # Yawning is long and breathy (1.5s+)
+_MIN_CRYING_DURATION_S = 1.0     # Crying needs sustained irregular pattern
+_MIN_SNIFF_DURATION_S = 0.3      # Sniff is very short nasal burst
+_MIN_GASP_DURATION_S = 0.3       # Gasp is sudden, short intake
 _CONFIDENCE_FLOOR = 0.15          # Discard candidates below this combined score
-_EVENT_WINDOW_S = 1.0             # ±1s around error clusters (Zhang's temporal error zone)
+_EVENT_WINDOW_S = 1.0             # +-1s around error clusters (Zhang's temporal error zone)
+_ENERGY_FLOOR_DB = -35.0          # NVS-38K: discard events below -35 dB
+
+# Gupta probability masking thresholds (Interspeech 2013)
+# T0: aggressive suppression — if event prob drops below this, zero it out
+# T1: confirmation threshold — only commit event if prob exceeds this
+_GUPTA_T0 = 0.02
+_GUPTA_T1 = 0.98
+
+# ZCR thresholds (Zhang: insertion-prone events have low ZCR)
+_ZCR_LOW_THRESHOLD = 1500.0      # Below this = aperiodic noise (sigh, throat-clear)
+_ZCR_NASAL_THRESHOLD = 1000.0    # Very low ZCR + short = nasal event (sniff)
 
 # Error-type-to-event mapping (Zhang: "Composition of error types by event type")
-# Laughter: 48.9% substitutions, 39.1% deletions → S+D dominant
+# Laughter: 48.9% substitutions, 39.1% deletions -> S+D dominant
 # Sigh: 50% before-event errors, insertions 10.57x more likely than laughter
 # Throat-clearing: 46.7% during-event errors, 40% insertions, 5.86x more likely
-_LAUGHTER_SD_RATIO = 0.6    # S+D must be ≥60% of errors in window for laughter
-_INSERTION_RATIO = 0.35      # Insertions ≥35% of errors → sigh or throat-clearing
+_LAUGHTER_SD_RATIO = 0.6    # S+D must be >=60% of errors in window for laughter
+_INSERTION_RATIO = 0.35      # Insertions >=35% of errors -> sigh or throat-clearing
 
 # Cached paralinguistic events from last pipeline run (for dashboard)
 _last_paralinguistic_events = []
@@ -4101,6 +4120,66 @@ def compute_hnr(audio_segment, sample_rate=16000):
     import math
     hnr = 10.0 * math.log10(r_peak / (1.0 - r_peak))
     return round(hnr, 2)
+
+
+def compute_zcr(audio_segment, sample_rate=16000):
+    """Compute Zero-Crossing Rate from raw audio waveform.
+
+    ZCR counts how often the waveform crosses zero per second (Hz).
+    Matches the Praat PointProcess(zeroes) methodology from Zhang et al.
+
+    Speech has moderate ZCR (~1500-3000 Hz). Sighs and throat-clearing
+    have LOW ZCR (<1500 Hz) because they're aperiodic broadband noise
+    without rapid oscillation. Laughter has higher ZCR due to harmonic
+    structure. This distinguishes insertion-prone events (sigh/throat-clear)
+    from substitution-prone events (laughter).
+
+    Returns ZCR in Hz. Returns 2000.0 (safe default = "assume speech")
+    for degenerate inputs.
+    """
+    import numpy as np
+
+    if len(audio_segment) < 100:
+        return 2000.0  # Too short to analyze
+
+    # Remove DC offset
+    segment = audio_segment - np.mean(audio_segment)
+
+    # Count sign changes in the waveform
+    signs = np.sign(segment)
+    # Remove zeros (treat as positive to avoid double-counting)
+    signs[signs == 0] = 1
+    crossings = np.sum(np.abs(np.diff(signs)) > 0)
+
+    duration = len(audio_segment) / sample_rate
+    if duration <= 0:
+        return 2000.0
+
+    zcr = crossings / duration
+    return round(zcr, 1)
+
+
+def compute_log_energy(audio_segment):
+    """Compute log energy of audio segment in dB.
+
+    Used for Gupta-style energy-based filtering: discard events
+    below -35 dB (too quiet to be meaningful paralinguistic events).
+    Also discriminates high-energy events (gasp, sneeze) from
+    low-energy events (sigh, breathing).
+
+    Returns energy in dB. Returns -60.0 for silence.
+    """
+    import numpy as np
+
+    if len(audio_segment) < 10:
+        return -60.0
+
+    rms = float(np.sqrt(np.mean(audio_segment.astype(float) ** 2)))
+    if rms < 1e-10:
+        return -60.0
+
+    import math
+    return round(20.0 * math.log10(rms), 1)
 
 
 def _classify_from_error_patterns(whisper_low_conf, whisper_disagreements,
@@ -4251,7 +4330,7 @@ def detect_paralinguistic_events(audio_data, sample_rate, whisper_segments,
         if cand.get("text") and segment_times:
             for seg, (seg_start, seg_end) in zip(whisper_segments, segment_times):
                 if cand["text"] in seg.get("text", ""):
-                    # Apply ±1s window (Zhang's temporal error zone)
+                    # Apply +-1s window (Zhang's temporal error zone)
                     window_start_s = max(0, seg_start - _EVENT_WINDOW_S)
                     window_end_s = min(total_duration, seg_end + _EVENT_WINDOW_S)
                     break
@@ -4264,32 +4343,84 @@ def detect_paralinguistic_events(audio_data, sample_rate, whisper_segments,
 
         audio_window = audio_data[start_sample:end_sample]
 
-        # Compute HNR on the window
+        # Compute acoustic features on the window
         hnr = compute_hnr(audio_window, sample_rate)
+        zcr = compute_zcr(audio_window, sample_rate)
+        energy_db = compute_log_energy(audio_window)
+
+        # NVS-38K energy floor: discard events below -35 dB
+        if energy_db < _ENERGY_FLOOR_DB:
+            continue
+
+        event_duration = window_end_s - window_start_s
 
         # Decision: HNR < 4.0 dB confirms paralinguistic event
         if hnr < _HNR_SPEECH_THRESHOLD:
             # Boost confidence based on how low the HNR is
             hnr_boost = min(0.3, (_HNR_SPEECH_THRESHOLD - hnr) * 0.05)
-            final_confidence = min(0.95, cand["confidence"] + hnr_boost)
+            # Boost from ZCR agreement: low ZCR + insertion errors = strong signal
+            zcr_boost = 0.0
+            if zcr < _ZCR_LOW_THRESHOLD and cand["detection_method"] in ("error_pattern_ins", "error_pattern_ins_high"):
+                zcr_boost = 0.15  # ZCR confirms the insertion-based classification
+            final_confidence = min(0.95, cand["confidence"] + hnr_boost + zcr_boost)
 
+            # Gupta masking: aggressive suppression below T0
+            if final_confidence < _GUPTA_T0:
+                continue
             if final_confidence < _CONFIDENCE_FLOOR:
                 continue
 
-            # If candidate type is "unknown" (from disagreement cluster), classify by HNR
+            # Classify unknown candidates using HNR + ZCR + energy + duration
             event_type = cand["type"]
             if event_type == "unknown":
-                if hnr < _HNR_CERTAIN_THRESHOLD:
-                    event_type = "Cough"  # Very low HNR = impulsive noise
-                else:
-                    event_type = "Sigh"   # Moderate low HNR = breathy noise
+                rms = float(np.sqrt(np.mean(audio_window.astype(float) ** 2)))
 
-            # Apply duration gate
-            event_duration = window_end_s - window_start_s
+                if hnr < _HNR_CERTAIN_THRESHOLD and zcr > _ZCR_LOW_THRESHOLD:
+                    # Very low HNR + high ZCR = impulsive voiced noise
+                    if rms > 0.15:
+                        event_type = "Sneezing"
+                    else:
+                        event_type = "Cough"
+                elif hnr < _HNR_CERTAIN_THRESHOLD and zcr < _ZCR_NASAL_THRESHOLD and event_duration < 0.8:
+                    # Very low HNR + very low ZCR + short = nasal burst
+                    event_type = "Sniff"
+                elif energy_db > -15.0 and event_duration < 0.6 and zcr > 2000:
+                    # Sudden high energy + short + high ZCR = gasp (sudden air intake)
+                    event_type = "Gasp"
+                elif event_duration >= _MIN_YAWNING_DURATION_S and rms < 0.03:
+                    # Long, breathy, low energy = yawning
+                    event_type = "Yawning"
+                elif hnr >= 2.5 and hnr < _HNR_SPEECH_THRESHOLD and rms > 0.05:
+                    # Partially voiced + moderate energy + irregular = crying
+                    event_type = "Crying"
+                elif zcr < _ZCR_LOW_THRESHOLD:
+                    # Low ZCR = aperiodic broadband = sigh
+                    event_type = "Sigh"
+                else:
+                    event_type = "Sigh"  # Default fallback for unclassifiable low-HNR
+
+            # Refine existing classifications using ZCR
+            # If error patterns said "Sigh" but ZCR is very low + short duration = could be Sniff
+            if event_type == "Sigh" and zcr < _ZCR_NASAL_THRESHOLD and event_duration < 0.8:
+                event_type = "Sniff"
+
+            # Apply duration gates
             if event_type == "Laughter" and event_duration < _MIN_LAUGHTER_DURATION_S:
+                continue
+            elif event_type == "Yawning" and event_duration < _MIN_YAWNING_DURATION_S:
+                continue
+            elif event_type == "Crying" and event_duration < _MIN_CRYING_DURATION_S:
+                continue
+            elif event_type == "Sniff" and event_duration < _MIN_SNIFF_DURATION_S:
+                continue
+            elif event_type == "Gasp" and event_duration < _MIN_GASP_DURATION_S:
                 continue
             elif event_duration < _MIN_EVENT_DURATION_S:
                 continue
+
+            # Gupta T1 gate: only commit high-confidence events to transcript
+            # Events between T0 and T1 are logged but not tagged
+            committed = final_confidence >= _GUPTA_T1
 
             events.append({
                 "type": event_type,
@@ -4298,6 +4429,9 @@ def detect_paralinguistic_events(audio_data, sample_rate, whisper_segments,
                 "confidence": round(final_confidence, 2),
                 "detection_method": cand["detection_method"],
                 "hnr_db": hnr,
+                "zcr_hz": zcr,
+                "energy_db": energy_db,
+                "committed": committed,
             })
         elif hnr >= _HNR_SPEECH_THRESHOLD and cand["type"] in ("Pause", "Breathing"):
             # Pause/Breathing can still be valid even with higher HNR
@@ -4320,14 +4454,119 @@ def detect_paralinguistic_events(audio_data, sample_rate, whisper_segments,
 def format_paralinguistic_tags(events):
     """Format detected events as inline transcript tags.
 
-    Phase 1 format: [Laughter], [Cough], [Sigh], [Pause], [Throat-clearing], [Breathing]
-    Sorted by start time. Only includes events with valid Phase 1 tag types.
+    Sorted by start time. Only includes events with valid tag types.
+    Only includes committed events (passed Gupta T1 threshold).
     """
     tags = []
     for ev in sorted(events, key=lambda e: e.get("start_s", 0)):
         if ev["type"] in PARALINGUISTIC_TAGS:
             tags.append(f"[{ev['type']}]")
     return tags
+
+
+def inject_paralinguistic_tags_tsa(text, events, whisper_segments):
+    """Temporal-Semantic Alignment (TSA) tag injection.
+
+    Instead of appending tags at the end of the transcript, this function
+    injects each paralinguistic tag at the correct word boundary based on
+    timestamp alignment between the event and Whisper's word-level output.
+
+    Algorithm (from NVSpeech-38K / TSA method):
+    1. Build a word-timestamp map from Whisper segments
+    2. For each committed paralinguistic event, find the nearest word
+       boundary by comparing event start_s to word timestamps
+    3. Insert the tag after the nearest preceding word
+    4. If event is >1.0s from any word boundary, discard it (noise)
+
+    Also applies regex cleanup for fused tokens (Trouvain speech-laugh
+    artifact): if Whisper produced "yeah[Laughter]" as one token, split
+    it into "yeah [Laughter]".
+
+    Args:
+        text: the transcript string to inject tags into
+        events: list of detected paralinguistic events (from detect_paralinguistic_events)
+        whisper_segments: Whisper verbose JSON segments with word timestamps
+
+    Returns:
+        text with tags injected at correct positions, or original text if
+        no committed events or no timestamp data available.
+    """
+    import re
+
+    # Filter to committed events only (passed Gupta T1 threshold)
+    committed = [e for e in events if e.get("committed", False) and e["type"] in PARALINGUISTIC_TAGS]
+    if not committed:
+        return text
+
+    # Build word-timestamp list from Whisper segments
+    word_times = []
+    if whisper_segments:
+        for seg in whisper_segments:
+            words = seg.get("words", [])
+            for w in words:
+                word_times.append({
+                    "word": w.get("word", "").strip(),
+                    "start": w.get("start", 0),
+                    "end": w.get("end", 0),
+                })
+
+    # If no word-level timestamps, fall back to end-append
+    if not word_times:
+        tags = [f"[{e['type']}]" for e in sorted(committed, key=lambda e: e.get("start_s", 0))]
+        return text.rstrip() + " " + " ".join(tags) if tags else text
+
+    # Split text into words, preserving positions for reconstruction
+    text_words = text.split()
+    if not text_words:
+        return text
+
+    # For each committed event, find the insertion point
+    # Sort events by start time to process in order
+    insertions = {}  # word_index -> list of tags to insert after it
+    for ev in sorted(committed, key=lambda e: e.get("start_s", 0)):
+        ev_start = ev.get("start_s", 0)
+        tag = f"[{ev['type']}]"
+
+        # Find the nearest word boundary
+        best_idx = -1
+        best_dist = float('inf')
+        for i, wt in enumerate(word_times):
+            # Distance from event start to word end (insert after the word)
+            dist = abs(ev_start - wt["end"])
+            if dist < best_dist:
+                best_dist = dist
+                best_idx = i
+
+        # 1-second discard rule: if event is too far from any word, skip
+        if best_dist > 1.0:
+            continue
+
+        # Map word_times index to text_words index
+        # word_times and text_words should be roughly aligned
+        insert_after = min(best_idx, len(text_words) - 1)
+        if insert_after not in insertions:
+            insertions[insert_after] = []
+        insertions[insert_after].append(tag)
+
+    # Reconstruct text with injected tags
+    if not insertions:
+        return text
+
+    result_parts = []
+    for i, word in enumerate(text_words):
+        result_parts.append(word)
+        if i in insertions:
+            result_parts.extend(insertions[i])
+
+    result = " ".join(result_parts)
+
+    # Regex cleanup for fused tokens (Trouvain speech-laugh artifact)
+    # e.g., "yeah[Laughter]" -> "yeah [Laughter]"
+    result = re.sub(r'(\w)(\[(?:' + '|'.join(PARALINGUISTIC_TAGS) + r')\])', r'\1 \2', result)
+    # e.g., "[Laughter]yeah" -> "[Laughter] yeah"
+    result = re.sub(r'(\[(?:' + '|'.join(PARALINGUISTIC_TAGS) + r')\])(\w)', r'\1 \2', result)
+
+    return result
 
 
 # -- Layer 5.5: Prosodic Bridging ────────────────────────────────
@@ -4891,9 +5130,7 @@ def pipeline():
 
         # Inject paralinguistic tags into output if transcribe toggle is ON
         if paralinguistic_transcribe and para_events:
-            tags = format_paralinguistic_tags(para_events)
-            if tags:
-                output = output.rstrip() + " " + " ".join(tags)
+            output = inject_paralinguistic_tags_tsa(output, para_events, whisper_segments)
 
         # Paste or hold
         if decision["decision"] == "hold":
