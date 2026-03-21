@@ -86,7 +86,8 @@ exec('\n'.join(lines[dp_start:dp_end]), ns)
 for l in lines:
     for prefix in ('MAX_INSIGHTS', 'LEARN_EVERY', 'LEARN_PROMOTION_THRESHOLD',
                    'MAX_PROFILE_ITEMS', 'DECAY_STALE_SESSIONS', 'DECAY_DEAD_SESSIONS',
-                   'DECAY_EVERY'):
+                   'DECAY_EVERY', 'DAF_MIN_DELAY_MS', 'DAF_MAX_DELAY_MS',
+                   'AUGMENT_VARIANTS'):
         if l.startswith(prefix):
             exec(l, ns)
 
@@ -104,6 +105,15 @@ for target in ('LAYER_NAMES', 'TONES', 'LAYERS', 'MODES'):
                 end += 1
                 depth += lines[end].count('{') + lines[end].count('[') - lines[end].count('}') - lines[end].count(']')
         exec('\n'.join(lines[idx:end + 1]), ns)
+
+# Load CALIBRATION_PROMPTS
+cp_start = next(i for i, l in enumerate(lines) if l.startswith('CALIBRATION_PROMPTS = '))
+cp_end = cp_start + 1
+brace_depth = 1
+while cp_end < len(lines) and brace_depth > 0:
+    brace_depth += lines[cp_end].count('[') - lines[cp_end].count(']')
+    cp_end += 1
+exec('\n'.join(lines[cp_start:cp_end]), ns)
 
 ln = next(l for l in lines if l.startswith('SITUATIONS = '))
 exec(ln, ns)
@@ -169,8 +179,11 @@ ns['_last_avg_logprob'] = 0.0
 ns['_last_paralinguistic_events'] = []
 ns['_last_prosodic_features'] = []
 ns['_last_speaker_state'] = ''
+ns['_block_count'] = 0
 ns['_redo_count'] = 0
 ns['_decay_counter'] = 0
+ns['paralinguistic_enabled'] = False
+ns['prosodic_enabled'] = False
 ns['_daf_active'] = False
 ns['_daf_delay_ms'] = 100
 ns['_clipboard_predictor'] = None
@@ -197,6 +210,12 @@ ns['_augment_state'] = {
     "errors": 0, "last_run": None,
 }
 ns['DAF_DEFAULT_DELAY_MS'] = 100
+# Temp dirs for calibration/augment (no real audio files)
+import tempfile as _tmpmod
+_test_cal_dir = Path(_tmpmod.mkdtemp())
+ns['CALIBRATION_DIR'] = _test_cal_dir
+ns['AUGMENT_DIR'] = _test_cal_dir / "augmented"
+ns['PROFILE_DIR'] = _test_cal_dir.parent
 
 # Stubs
 ns['log'] = lambda msg, level='info': None
@@ -204,9 +223,15 @@ ns['stats_inc'] = lambda key, n=1: None
 ns['save_profile'] = lambda prof: None
 ns['db_session_count'] = lambda: 50
 ns['db_get_sessions'] = lambda limit=50: []
-ns['daf_start'] = lambda ms=None: None
-ns['daf_stop'] = lambda: None
+def _stub_daf_start(ms=None):
+    ns['_daf_active'] = True
+    if ms: ns['_daf_delay_ms'] = ms
+def _stub_daf_stop():
+    ns['_daf_active'] = False
+ns['daf_start'] = _stub_daf_start
+ns['daf_stop'] = _stub_daf_stop
 ns['daf_set_delay'] = lambda ms: None
+ns['augment_calibration_data'] = lambda: None
 
 # Extract functions the handler calls
 target_funcs = [
@@ -220,6 +245,7 @@ target_funcs = [
     'predict_triggers_in_text', 'compute_wer',
     'check_redo', 'prep_text',
     'set_tone', 'set_layer', 'set_mode', 'set_situation',
+    'set_paralinguistic', 'set_prosodic',
     '_dedupe_list', '_norm_corrections',
     'calibration_status', 'calibration_next_prompt',
     'augment_status', 'compute_severity_score',
@@ -594,6 +620,198 @@ except urllib.error.HTTPError as e:
 except Exception as e:
     check(f'404 check failed: {e}', False)
 
+
+# ============================================================
+# GAP: DAF endpoints
+# ============================================================
+print()
+print('=== GET /api/daf ===')
+try:
+    r = get('/api/daf')
+    check('returns dict', isinstance(r, dict))
+    check('has active', 'active' in r)
+    check('has delay_ms', 'delay_ms' in r)
+    check('has min', 'min' in r)
+    check('has max', 'max' in r)
+    check('active is bool', isinstance(r['active'], bool))
+    check('delay_ms is int', isinstance(r['delay_ms'], int))
+except Exception as e:
+    check(f'GET /api/daf failed: {e}', False)
+
+print()
+print('=== POST /api/daf (activate) ===')
+try:
+    r = post('/api/daf', {'active': True, 'delay_ms': 120})
+    check('returns dict', isinstance(r, dict))
+    check('has active field', 'active' in r)
+    check('has delay_ms field', 'delay_ms' in r)
+    # Deactivate
+    r = post('/api/daf', {'active': False})
+    check('deactivate returns dict', isinstance(r, dict))
+    # Set delay only
+    r = post('/api/daf', {'delay_ms': 80})
+    check('delay-only returns dict', isinstance(r, dict))
+    # Empty body
+    r = post('/api/daf', {})
+    check('empty body returns state', 'active' in r)
+except Exception as e:
+    check(f'POST /api/daf failed: {e}', False)
+
+# ============================================================
+# GAP: Calibration flow
+# ============================================================
+print()
+print('=== GET /api/calibration ===')
+try:
+    r = get('/api/calibration')
+    check('returns dict', isinstance(r, dict))
+    check('has active', 'active' in r)
+    check('has total_prompts', 'total_prompts' in r)
+    check('has completed', 'completed' in r)
+    check('has skipped', 'skipped' in r)
+    check('has remaining', 'remaining' in r)
+    check('has pct', 'pct' in r)
+    check('has categories', 'categories' in r)
+    check('has next_prompt', 'next_prompt' in r)
+    check('total_prompts > 0', r['total_prompts'] > 0)
+    check('remaining = total - done - skipped',
+          r['remaining'] == r['total_prompts'] - r['completed'] - r['skipped'])
+except Exception as e:
+    check(f'GET /api/calibration failed: {e}', False)
+
+print()
+print('=== GET /api/calibration/prompts ===')
+try:
+    r = get('/api/calibration/prompts')
+    check('returns list', isinstance(r, list))
+    check('has prompts', len(r) > 0)
+    check('prompt has id', 'id' in r[0])
+    check('prompt has category', 'category' in r[0])
+    check('prompt has text', 'text' in r[0])
+except Exception as e:
+    check(f'GET /api/calibration/prompts failed: {e}', False)
+
+print()
+print('=== POST /api/calibration/start ===')
+try:
+    r = post('/api/calibration/start', {})
+    check('returns dict', isinstance(r, dict))
+    check('started = True', r.get('started') == True)
+    check('has next_prompt', 'next_prompt' in r)
+    check('has status', 'status' in r)
+    check('status.active = True', r['status']['active'] == True)
+except Exception as e:
+    check(f'POST /api/calibration/start failed: {e}', False)
+
+print()
+print('=== POST /api/calibration/skip ===')
+try:
+    r = post('/api/calibration/skip', {'prompt_id': 1})
+    check('returns dict', isinstance(r, dict))
+    check('skipped = 1', r.get('skipped') == 1)
+    check('has next_prompt', 'next_prompt' in r)
+    check('has status', 'status' in r)
+    check('skipped count incremented', r['status']['skipped'] >= 1)
+    # Missing prompt_id
+    r = post('/api/calibration/skip', {})
+    check('missing prompt_id -> error', 'error' in r)
+except Exception as e:
+    check(f'POST /api/calibration/skip failed: {e}', False)
+
+print()
+print('=== POST /api/calibration/record (error paths) ===')
+try:
+    # Missing fields
+    r = post('/api/calibration/record', {})
+    check('missing fields -> error', 'error' in r)
+    r = post('/api/calibration/record', {'prompt_id': 1})
+    check('missing audio -> error', 'error' in r)
+except Exception as e:
+    check(f'POST /api/calibration/record failed: {e}', False)
+
+print()
+print('=== POST /api/calibration/stop ===')
+try:
+    r = post('/api/calibration/stop', {})
+    check('returns dict', isinstance(r, dict))
+    check('stopped = True', r.get('stopped') == True)
+    check('has status', 'status' in r)
+    check('status.active = False', r['status']['active'] == False)
+except Exception as e:
+    check(f'POST /api/calibration/stop failed: {e}', False)
+
+# ============================================================
+# GAP: Augment endpoints
+# ============================================================
+print()
+print('=== GET /api/augment ===')
+try:
+    r = get('/api/augment')
+    check('returns dict', isinstance(r, dict))
+    check('has running', 'running' in r)
+    check('has augmented_samples', 'augmented_samples' in r)
+    check('has real_samples', 'real_samples' in r)
+    check('has potential_total', 'potential_total' in r)
+    check('has size_mb', 'size_mb' in r)
+    check('has errors', 'errors' in r)
+    check('has ready', 'ready' in r)
+    check('running is False', r['running'] == False)
+except Exception as e:
+    check(f'GET /api/augment failed: {e}', False)
+
+print()
+print('=== POST /api/augment (start) ===')
+try:
+    r = post('/api/augment', {})
+    check('returns dict', isinstance(r, dict))
+    check('started = True', r.get('started') == True)
+    check('has status', 'status' in r)
+    # Second call while "running" should error (race depends on timing, so just check shape)
+except Exception as e:
+    check(f'POST /api/augment failed: {e}', False)
+
+# ============================================================
+# GAP: Toggle state mutation after set_situation
+# ============================================================
+print()
+print('=== Situation toggle auto-enable ===')
+try:
+    # Reset state
+    ns['paralinguistic_enabled'] = False
+    ns['prosodic_enabled'] = False
+    ns['current_situation'] = 'default'
+    ns['current_layer'] = 2
+    # Switch to phone -> should auto-enable paralinguistic + prosodic
+    r = post('/api/situation', {'situation': 'phone'})
+    check('phone: paralinguistic auto-enabled', ns['paralinguistic_enabled'] == True)
+    check('phone: prosodic auto-enabled', ns['prosodic_enabled'] == True)
+    check('phone: layer auto-set to 4', ns['current_layer'] == 4)
+    # Switch to interview -> same auto-enables
+    ns['paralinguistic_enabled'] = False
+    ns['prosodic_enabled'] = False
+    r = post('/api/situation', {'situation': 'interview'})
+    check('interview: paralinguistic auto-enabled', ns['paralinguistic_enabled'] == True)
+    check('interview: prosodic auto-enabled', ns['prosodic_enabled'] == True)
+    # Switch to presentation
+    ns['paralinguistic_enabled'] = False
+    ns['prosodic_enabled'] = False
+    r = post('/api/situation', {'situation': 'presentation'})
+    check('presentation: paralinguistic auto-enabled', ns['paralinguistic_enabled'] == True)
+    check('presentation: prosodic auto-enabled', ns['prosodic_enabled'] == True)
+    # Switch to casual -> no auto-enable (no preset)
+    ns['paralinguistic_enabled'] = False
+    ns['prosodic_enabled'] = False
+    r = post('/api/situation', {'situation': 'casual'})
+    check('casual: paralinguistic stays off', ns['paralinguistic_enabled'] == False)
+    check('casual: prosodic stays off', ns['prosodic_enabled'] == False)
+    # Switch to reading -> no para/prosodic in preset
+    r = post('/api/situation', {'situation': 'reading'})
+    check('reading: paralinguistic stays off', ns['paralinguistic_enabled'] == False)
+    check('reading: prosodic stays off', ns['prosodic_enabled'] == False)
+    # Restore
+    post('/api/situation', {'situation': 'default'})
+except Exception as e:
+    check(f'Situation toggle auto-enable failed: {e}', False)
 
 # ============================================================
 # Shutdown
