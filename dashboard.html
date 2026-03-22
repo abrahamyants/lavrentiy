@@ -1089,7 +1089,7 @@ body::before {
 .tab-panel.active .log-line .log-ts { color: #907878; }
 .tab-panel.active .log-line.kind-raw { color: #a08888; }
 .tab-panel.active .log-line.kind-out { color: #e8d8d8; }
-.tab-panel.active .learn-event { background: #4a2020; border-color: rgba(255,200,200,0.1); }
+.tab-panel.active .learn-event { background: transparent; border-color: rgba(255,200,200,0.15); }
 .tab-panel.active .le-time { color: #a08888; }
 .tab-panel.active .le-value { color: #e8d8d8; }
 .tab-panel.active .insight-card { background: #4a2020; border-color: rgba(255,200,200,0.1); }
@@ -1184,15 +1184,15 @@ body::before {
 .learn-event {
   display: flex; align-items: center; gap: 12px;
   padding: 12px 18px;
-  background: var(--raised);
+  background: transparent;
   border: 1px solid var(--border);
   border-radius: 10px;
   margin-bottom: 6px;
-  box-shadow: var(--shadow-raised);
+  box-shadow: none;
   animation: logfade 0.3s;
   transition: all 0.2s;
 }
-.learn-event:hover { transform: translateY(-1px); box-shadow: var(--shadow-elevated); border-color: var(--border-hi); }
+.learn-event:hover { transform: translateY(-1px); box-shadow: var(--shadow-elevated); border-color: var(--border-hi); background: rgba(74,32,32,0.1); }
 .learn-event .le-type {
   font-family: var(--mono); font-size: 8px; padding: 4px 10px;
   border-radius: 6px; letter-spacing: 2px; text-transform: uppercase;
@@ -2662,7 +2662,7 @@ function renderLearn(){
   const feed=document.getElementById('learn-feed');const events=learnData.events||[];
   if(!events.length){feed.innerHTML='<div class="learn-empty">No patterns learned yet. Keep talking.</div>';return;}
   feed.innerHTML=[...events].reverse().map(e=>{
-    const d=new Date(e.ts);const time=d.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit'});
+    const d=new Date(e.ts);const time=d.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit'});
     const tc='le-type-'+e.type;const tl={correction:'CORR',filler:'FILLER',vocab:'VOCAB',trigger:'TRIGGER',candidate:'CAND',decay:'DECAY'}[e.type]||e.type;
     return `<div class="learn-event"><span class="le-type ${tc}">${tl}</span><span class="le-value">${esc(e.value)}</span><span class="le-time">${time}</span></div>`;
   }).join('');
