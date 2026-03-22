@@ -2349,7 +2349,7 @@ function updateUI(){
   document.getElementById('app').className='app st-'+s+(isCompact?' compact':'');
   document.getElementById('state-label').textContent=s;
   const elapsed=Math.floor(Date.now()/1000-state.stats.start_time);
-  document.getElementById('uptime').textContent=String(Math.floor(elapsed/60)).padStart(2,'0')+':'+String(elapsed%60).padStart(2,'0');
+  if(!(_toggleCooldown.timer>Date.now()))document.getElementById('uptime').textContent=String(Math.floor(elapsed/60)).padStart(2,'0')+':'+String(elapsed%60).padStart(2,'0');
   document.querySelectorAll('.tone-btn:not(.mode-btn):not(.sit-btn)').forEach(b=>b.classList.toggle('active',b.dataset.tone===state.tone));
   // Collapse tone section on Layer 1 (no LLM rewriting)
   const toneSec=document.getElementById('tone-section');
@@ -3043,10 +3043,11 @@ document.querySelectorAll('.sit-btn').forEach(btn=>{btn.addEventListener('click'
 
 // ─── TIMER RESET ─────────────────────────
 document.getElementById('uptime').addEventListener('click',async()=>{
+  _toggleCooldown.timer=Date.now()+2000;
   const el=document.getElementById('uptime');
   el.textContent='00:00';el.style.color='var(--green)';
   setTimeout(()=>{el.style.color='';},1500);
-  try{await fetch(API+'/api/reset_timer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});}catch(e){console.error('reset_timer failed',e);}
+  try{await fetch(API+'/api/reset_timer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});}catch(e){}
 });
 // ─── ENHANCEMENT TOGGLES ─────────────────────────
 document.getElementById('toggle-paralinguistic').addEventListener('change',async(e)=>{_toggleCooldown.para=Date.now()+3000;try{await fetch(API+'/api/paralinguistic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}document.getElementById('para-transcribe-row').style.display=e.target.checked?'flex':'none';});
