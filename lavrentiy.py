@@ -4976,10 +4976,12 @@ def pipeline():
     #    in Whisper's mel spectrogram from peak transients
     audio_data = numpy.tanh(1.2 * audio_data).astype(numpy.float32)
 
-    # Step 0: Speech rate & pause analysis (pure numpy, zero cost)
-    speech_metrics = analyze_speech_rate(audio_data, TARGET_RATE)
-    if speech_metrics["severity_modifier"] > 0:
-        log(f"Speech: pause_ratio={speech_metrics['pause_ratio']:.0%} rate={speech_metrics['speaking_rate_sps']:.1f}syl/s → severity +{speech_metrics['severity_modifier']}", "info")
+    # Step 0: Speech rate & pause analysis — only when prosodic is ON or L4+ (feeds severity modifier)
+    speech_metrics = {"pause_ratio": 0, "speaking_rate_sps": 0, "severity_modifier": 0}
+    if prosodic_enabled or current_layer >= 4:
+        speech_metrics = analyze_speech_rate(audio_data, TARGET_RATE)
+        if speech_metrics["severity_modifier"] > 0:
+            log(f"Speech: pause_ratio={speech_metrics['pause_ratio']:.0%} rate={speech_metrics['speaking_rate_sps']:.1f}syl/s → severity +{speech_metrics['severity_modifier']}", "info")
 
     tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
     sf.write(tmp.name, audio_data, TARGET_RATE)
@@ -5060,11 +5062,12 @@ def pipeline():
         # At L2+: pre-cleans Whisper output before sending to GPT
         filtered_text = strip_disfluencies(raw_text)
 
-        # L1 enhancements: profile corrections + block hallucination removal (zero cost)
-        # These use data that's already computed but was previously only consumed at L4
+        # Block hallucination removal: strip phantom words Whisper invents during blocks
         if current_layer == 1:
-            filtered_text = apply_profile_corrections(filtered_text, profile)
             filtered_text = strip_block_hallucinations(filtered_text, whisper_low_conf)
+        # Profile corrections (vocabulary/corrections map): L3+ only
+        if current_layer >= 3:
+            filtered_text = apply_profile_corrections(filtered_text, profile)
 
         if filtered_text != raw_text and current_layer == 1:
             log(f"Filter: \"{raw_text}\" → \"{filtered_text}\"", "info")
@@ -5078,9 +5081,9 @@ def pipeline():
             try:
                 clean_text = reconstruct(
                     filtered_text, current_tone, current_layer, profile, current_situation,
-                    whisper_low_conf=whisper_low_conf,
-                    whisper_disagreements=whisper_disagreements,
-                    speech_severity_mod=speech_metrics["severity_modifier"],
+                    whisper_low_conf=whisper_low_conf if current_layer >= 4 else None,
+                    whisper_disagreements=whisper_disagreements if current_layer >= 4 else None,
+                    speech_severity_mod=speech_metrics["severity_modifier"] if current_layer >= 4 else 0,
                     paralinguistic_events=para_events if paralinguistic_enabled else None,
                     prosodic_context=prosodic_ctx if prosodic_enabled else None
                 )
@@ -5140,29 +5143,34 @@ def pipeline():
             stats_inc("chars", len(output))
             stats_inc("sessions")
             paste(output)
-        disf_counts = count_disfluencies(raw_text)
-        if disf_counts.get("total", 0) > 0:
-            log(f"Disfluencies: {disf_counts}", "info")
-        exposure = compute_exposure_difficulty(raw_text, current_situation, disf_counts, profile)
-        edit_dist = compute_editorial_distance(raw_text, output)
-        if exposure["score"] >= 0.4:
-            log(f"Exposure: {exposure['band']} ({exposure['score']}) — triggers used: {exposure['components'].get('trigger_words_used', [])}", "info")
-        # Redo detection (anti-compulsion)
-        redo_n = check_redo(output)
-        if redo_n >= REDO_NUDGE_THRESHOLD:
-            log(f"Redo x{redo_n} — consider accepting this version and moving on", "info")
-        # Shadow utterance (#12): generate "what you meant to say" (L4 only)
-        # Must run BEFORE covert avoidance, which consumes _last_prep_text
+        # Stutter analytics: L4+ only — these are clinical metrics, not needed for basic transcription/rewrite
+        disf_counts = {}
+        exposure = {"score": 0, "band": "none", "components": {}}
+        edit_dist = {}
         shadow_result = None
+        covert_pairs = []
         if current_layer >= 4:
+            disf_counts = count_disfluencies(raw_text)
+            if disf_counts.get("total", 0) > 0:
+                log(f"Disfluencies: {disf_counts}", "info")
+            exposure = compute_exposure_difficulty(raw_text, current_situation, disf_counts, profile)
+            if exposure["score"] >= 0.4:
+                log(f"Exposure: {exposure['band']} ({exposure['score']}) — triggers used: {exposure['components'].get('trigger_words_used', [])}", "info")
+            # Redo detection (anti-compulsion)
+            redo_n = check_redo(output)
+            if redo_n >= REDO_NUDGE_THRESHOLD:
+                log(f"Redo x{redo_n} — consider accepting this version and moving on", "info")
+            # Shadow utterance: generate "what you meant to say"
             shadow_result = generate_shadow_utterance(raw_text, profile)
-
-        # Covert avoidance detection (Script Prep vs actual speech)
-        covert_pairs = detect_covert_avoidance(raw_text, profile)
-        if covert_pairs:
-            update_covert_profile(profile, covert_pairs, current_situation)
-            for cp in covert_pairs:
-                log(f"Covert avoidance: \"{cp['intended']}\" → \"{cp['said']}\" (avoided /{cp['onset_avoided']}/)", "info")
+            # Covert avoidance detection (Script Prep vs actual speech)
+            covert_pairs = detect_covert_avoidance(raw_text, profile)
+            if covert_pairs:
+                update_covert_profile(profile, covert_pairs, current_situation)
+                for cp in covert_pairs:
+                    log(f"Covert avoidance: \"{cp['intended']}\" → \"{cp['said']}\" (avoided /{cp['onset_avoided']}/)", "info")
+        # Editorial distance: L3+ (meaningful when profile/rewrite changes text)
+        if current_layer >= 3:
+            edit_dist = compute_editorial_distance(raw_text, output)
         # Detect dominant language for this session (majority vote on words)
         _cyr_count = sum(1 for ch in raw_text if '\u0400' <= ch <= '\u04ff')
         _lat_count = sum(1 for ch in raw_text if ch.isalpha() and not ('\u0400' <= ch <= '\u04ff'))
