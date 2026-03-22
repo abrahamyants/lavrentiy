@@ -39,8 +39,8 @@ Mic → Whisper (Script Prep seed | verbose JSON | multi-temp voting)
 | Layer | Name | What it does |
 |-------|------|-------------|
 | 1 | Transcribe | Enhanced Whisper (Script Prep seeding, block preservation, verbose JSON) + disfluency post-filter |
-| 2 | Reconstruct | LLM cleans grammar, strips fillers, restructures |
-| 3 | Profile | + your learned vocabulary, corrections, preferred terms |
+| 2 | Reconstruct | LLM cleans grammar, strips fillers, restructures (generic — no personal data) |
+| 3 | Profile | + your learned vocabulary, corrections, preferred terms (vocabulary/corrections injected at L3+, not L2) |
 | 4 | Stutter | + disfluency detection, trigger word tracking, clinical insights, personalized onset weighting, per-user phoneme context in prompt, covert avoidance reversal |
 | 5 | Paralinguistic | + non-verbal event detection (laughter, cough, sigh, breathing, throat-clearing, pauses) via HNR analysis + Whisper error patterns. Detected events injected into reconstruction prompt to prevent hallucination near non-speech audio. + Prosodic bridging: per-segment F0/energy/rate extraction, speaker state inference, stutter-specific prosodic rules. Rich acoustic context injected into GPT prompt to recover information Whisper's text decoder destroys |
 
@@ -56,14 +56,11 @@ Mic → Whisper (Script Prep seed | verbose JSON | multi-temp voting)
 
 | Situation | Severity | Effect |
 |-----------|----------|--------|
-| default | 1.0x | Standard reconstruction |
-| casual | 0.6x | Lighter cleanup — friends/family, low pressure |
-| phone | 1.5x | Aggressive disfluency stripping — phone calls heavily exacerbate stuttering |
-| presentation | 1.4x | Heavy cleanup, formal output — authority + audience + time pressure |
-| interview | 1.6x | Maximum reconstruction aggressiveness — authority + judgment + time pressure |
-| reading | 0.3x | Minimal cleanup — reading aloud is near-fluent for most PWS |
+| Default | 1.0x | Standard reconstruction — everyday use |
+| High Stress | 1.5x | Auto-L4 + DAF + all toggles ON — full assist for phone, presentation, interview |
+| Reading | 0.3x | Light touch — reading aloud is near-fluent for most PWS |
 
-Situation is tracked per session in the history database and displayed as a tag on session cards in the dashboard.
+Collapsed from 6 situations to 3 (phone/presentation/interview merged into High Stress, casual merged into Default). Old situation names (`phone`, `interview`, `presentation`, `casual`) still work via back-compat aliases. Situation is tracked per session in the history database and displayed as a tag on session cards in the dashboard.
 
 ## Tones
 
@@ -258,7 +255,7 @@ Background daemon thread that pre-builds Whisper `initial_prompt` bias from clip
 **How it works:**
 1. Polls clipboard every 4 seconds
 2. Scores all words locally via `compute_brown_scores()` (instant, no API call)
-3. If ≥2 words exceed 0.55 risk AND situation is high-pressure (phone/interview/presentation) → fires an async LLM call for fluency-friendly synonyms
+3. If ≥2 words exceed 0.55 risk AND situation is high-pressure (high_stress) → fires an async LLM call for fluency-friendly synonyms
 4. Caches the result as Whisper `initial_prompt` bias (5-minute TTL)
 5. When you record, `_build_whisper_prompt()` checks the cache — if bias exists, Whisper gets it for free
 
@@ -278,14 +275,12 @@ Known trigger words from the profile are forced to 1.0 (always red). Gives the s
 
 ## Situation Pre-Warm
 
-When you switch situations (phone, interview, presentation, reading), Lavrentiy auto-configures the full stack:
+When you switch situations, Lavrentiy auto-configures the full stack:
 
-| Situation | DAF | Layer | Prep Text |
-|-----------|-----|-------|-----------|
-| Phone | 100ms | L4 | "Hello this is speaking. Can you repeat that? I'm calling about" |
-| Interview | 80ms | L4 | "Thank you for having me. Great question. To summarize" |
-| Presentation | Off | L4 | "Next slide. As you can see. In conclusion. Thank you" |
-| Reading | Off | L3 | (none) |
+| Situation | DAF | Layer | Toggles | Prep Text |
+|-----------|-----|-------|---------|-----------|
+| High Stress | 100ms | L4 | Paralinguistic ON, Prosodic ON | "Hello this is speaking. Thank you for having me. Next slide." |
+| Reading | Off | L3 | (unchanged) | (none) |
 
 Prep text is loaded automatically as Script Prep, which means Whisper decoder seeding is instant — you don't have to type anything. Clipboard predictor cache also invalidates on situation change for immediate re-scoring.
 
@@ -446,24 +441,29 @@ Built for English/Russian bilingual speakers. Filler detection covers both langu
 
 Single HTML file served by the engine's embedded HTTP server:
 
-- Real-time state indicator (recording / processing / idle)
-- Tone, layer, mode, and situation controls (with pre-warm indicators)
+- Real-time state indicator (recording / processing / idle) with clickable timer reset
+- Hardware boot-up sequence animation on load (panels fade in, numbers count up)
+- Tone, layer, mode, and situation controls with inline descriptions
+- Layer-aware UI: Tone and Mode sections collapse when on Layer 1 (Transcribe) with "select Reconstruct +" hint
+- Paralinguistic toggle with Transcribe sub-toggle (inject [tags] in text) — L-connector visual
+- Prosodic toggle — auto-enables on Layer 4 (Stutter)
 - DAF toggle and delay slider
 - Live preview bar with risk-colored trigger warnings
-- Session stats and estimated API cost
-- Live console log
-- Session history (SQLite-backed, unlimited) with exposure bands and edit distance
-- Fluency trend sparkline
-- Learning event feed with progress tracking and edit distance chart
-- Clinical stutter insights with therapeutic techniques (Layer 4)
+- Session stats (words, sessions, API calls, cost) with clickable stat cards
+- Live console log (color-coded: white=speech, green=status, yellow=analytics, red=prosodic alerts, brown=block suspects)
+- Session history with transparent hover-to-opaque cards, exposure bands, edit distance
+- Learning event feed with solid tag badges (TRIGGER, CAND, VOCAB, FILLER)
+- Clinical stutter insights with transparent card treatment (Layer 4)
 - Script Prep with swap-in-place synonym replacement (Ctrl+Enter)
-- Weekly clinical report generation (📊 button)
-- Calibration mode (60 prompts, WER tracking, progress bar, WER sparkline)
+- Weekly clinical report generation
+- Calibration mode (60 prompts, WER tracking, WER trend chart)
 - Data augmentation controls (synthetic disfluent speech generation)
 - Stuttering Foundation tips reference (56 entries, 8 categories)
 - Profile editor (triggers, fillers, vocabulary, corrections, covert pairs management)
-- Compact mode (minimized bar for always-on-top use)
+- Compact mode (minimized always-on-top bar with essential controls)
 - Customizable hotkeys (F1–F12 rebinding via sidebar editor)
+- Interactive help manual (accordion-style, searchable, matching dashboard aesthetic)
+- Situations collapsed to 3 (Default, High Stress, Reading) from original 6
 
 ## API Endpoints
 
@@ -501,6 +501,9 @@ Single HTML file served by the engine's embedded HTTP server:
 | POST | `/api/calibration/stop` | End calibration session |
 | POST | `/api/augment` | Trigger augmentation generation |
 | GET  | `/api/calibration/prompts` | List all calibration prompts |
+| POST | `/api/paralinguistic` | Toggle paralinguistic detection |
+| POST | `/api/paralinguistic_transcribe` | Toggle tag injection into pasted text |
+| POST | `/api/prosodic` | Toggle prosodic analysis |
 | POST | `/api/transcribe` | Mobile transcription endpoint (base64 WAV in, text out) |
 
 ## Data Safety
@@ -535,31 +538,48 @@ The 5-feature phonetic risk model was verified against the original 1945 paper: 
 
 Key finding from Brown: rank-order correlation between factor count and stuttering frequency was **.99 ± .003** (Table 4, p. 186). Only 5.3% of 5,136 stutterings could not be accounted for by at least one factor.
 
-## Test Coverage — Updated 2026-03-15
+## Test Coverage — Updated 2026-03-21
 
-**943 assertions passing across 14 test suites.**
+**1034 assertions passing across 14 test suites.**
 
 | Suite | Assertions | Coverage |
 |-------|-----------|----------|
-| `test_core.py` | 42 | `_extract_onset`, `learn_onset_weights`, `predict_phonetic_risk`, `SITUATION_SEVERITY`, `compute_wer`, `compute_risk_flags`, `make_decision` |
-| `test_clinical.py` | 95 | `compute_exposure_difficulty`, `compute_editorial_distance`, `detect_covert_avoidance`, `compute_substitution_fingerprint`, `check_redo`, `track_profile_relevance`, `decay_stale_profile_entries`, `update_covert_profile` |
+| `test_core.py` | 39 | `_extract_onset`, `learn_onset_weights`, `predict_phonetic_risk`, `SITUATION_SEVERITY` (3 situations), `compute_wer`, `compute_risk_flags`, `make_decision` |
+| `test_clinical.py` | 94 | `compute_exposure_difficulty`, `compute_editorial_distance`, `detect_covert_avoidance`, `compute_substitution_fingerprint`, `check_redo`, `track_profile_relevance`, `decay_stale_profile_entries`, `update_covert_profile` |
 | `test_integration.py` | 53 | `strip_disfluencies`, `count_disfluencies`, `detect_ocd_loops`, database round-trip, profile schema migration, bilingual filler detection |
 | `test_pending.py` | 127 | `detect_word_language`, `detect_onset_anomalies`, `compute_brown_scores`, `predict_triggers_in_text`, `generate_shadow_utterance`, `compute_avoidance_trend`, `_build_whisper_prompt`, `learn_from_sessions`, `build_stutter_insights` |
-| `test_pipeline.py` | 97 | Pipeline stage chaining, L1/L2/L4 data flow, mode×layer decision matrix, critical token retention, disfluency→exposure→editorial chain, trigger detection chain, profile corrections |
-| `test_endpoints.py` | 93 | All GET/POST HTTP endpoints, JSON response shape, state mutations, CORS headers, error handling, `/api/covert/remove` edge cases |
+| `test_pipeline.py` | 96 | Pipeline stage chaining, L1/L2/L4 data flow, mode×layer decision matrix, critical token retention, disfluency→exposure→editorial chain, trigger detection chain, profile corrections, situation severity ordering (high_stress > default > reading) |
+| `test_endpoints.py` | 170 | All GET/POST HTTP endpoints, JSON response shape, state mutations, CORS headers, error handling, `/api/covert/remove` edge cases, DAF endpoints, calibration flow, augmentation flow, paralinguistic/prosodic toggle endpoints, paralinguistic_transcribe toggle, situation alias back-compat (phone→high_stress, casual→default), toggle auto-enable on high-stress |
 | `test_threads.py` | 22 | Concurrent `_shadow_history` writes, trend reads during writes, `stats_inc` atomicity, `preview_state` updates, `learn_events` writes + snapshots, onset anomaly detection |
 | `test_fuzz.py` | 23 | 36,000+ random inputs (ASCII, Unicode, CJK, emoji, null bytes, massive) across 12 functions — invariant verification: scores in [0,1], no crashes, valid return types |
-| `test_perf.py` | 19 | Timing thresholds for 12 functions — prevents silent slowdowns (e.g. `predict_phonetic_risk` < 1ms, `strip_disfluencies` 7.4KB < 100ms, `brown_scores` 13KB < 500ms) |
+| `test_perf.py` | 18 | Timing thresholds for 12 functions — prevents silent slowdowns (e.g. `predict_phonetic_risk` < 1ms, `strip_disfluencies` 7.4KB < 100ms, `brown_scores` 13KB < 500ms) |
 | `test_whisper_voting.py` | 43 | Multi-temperature voting: agreement, word-level disagreement detection, `<END>` sentinel, total disagreement, empty transcription, low-confidence segment extraction, block suspect flagging |
 | `test_clipboard.py` | 31 | `ClipboardPredictor` cache TTL, `invalidate()`, situation filtering, `compute_brown_scores` integration, prep > clipboard > fallback priority chain, `_build_bias` structure, min triggers threshold |
 | `test_paralinguistic.py` | 49 | `compute_hnr` (synthetic ground truth: pure tone, noise, mixed, thresholds, degenerate inputs), `_classify_from_error_patterns` (S/D/I mapping, no_speech_prob, disagreement clusters), `detect_paralinguistic_events` (integration: noisy + clean audio, HNR exemption, duration gates), `format_paralinguistic_tags`, LAYERS/LAYER_NAMES constants |
 | `test_prosodic.py` | 51 | `extract_f0` (synthetic pitch detection), `extract_prosodic_features` (per-segment F0/energy/rate), `compute_speaker_baseline` (historical averages), `infer_speaker_state` (stress/fatigue/calm/tension), `build_prosodic_context` (prompt formatting with stutter rules), `compute_prosodic_summary` (session-level aggregation) |
 | `test_adversarial.py` | 198 | Stress/boundary/Unicode tests for all clinical features (run locally, not in CI) |
-| **Total** | **943** | **All passing** |
+| **Total** | **1034** | **All passing** |
 
 **Not yet tested** (require live API or audio hardware): Whisper transcription, LLM reconstruction, Falcon validation, DAF audio streaming.
 
 ## Changelog
+
+### 2026-03-21 — Dashboard UX overhaul + architecture cleanup
+
+- **Changed**: Situations collapsed from 6 to 3 (Default, High Stress, Reading). Phone/Presentation/Interview merged into High Stress. Casual merged into Default. Old names work via `_SITUATION_ALIASES` back-compat map.
+- **Changed**: Layer 2 (Reconstruct) no longer injects vocabulary/corrections — that's now Layer 3 (Profile) only. L2 = generic LLM cleanup, L3 = personalized with your speech data.
+- **Added**: Paralinguistic Transcribe sub-toggle — when ON, detected events ([Laughter], [Cough], etc.) are injected into pasted text. When OFF, events still logged but text stays clean.
+- **Added**: Layer-aware UI — Tone and Mode sections collapse with "select Reconstruct +" hint when Layer 1 is active. No more clicking buttons that do nothing.
+- **Added**: Inline descriptions for all layers, modes, and situations in the sidebar.
+- **Added**: Interactive help manual overlay (accordion-style, matching dashboard aesthetic, pulsing ? button).
+- **Added**: Hardware boot-up animation on dashboard load (panels fade in, numbers count up).
+- **Added**: Compact mode redesign — minimal floating bar with essential controls.
+- **Added**: Clickable timer reset on the main dial.
+- **Added**: Toggle cooldown system — prevents 750ms poll cycle from snapping toggles back (2-second guard).
+- **Added**: Hover-to-opaque card treatment across Sessions, Learning, Calibrate, and Insights tabs.
+- **Fixed**: `test_endpoints.py` — 5 broken assertions fixed, 77 new assertions added (DAF, calibration, augment, toggle auto-enable, situation aliases). Total endpoint assertions: 170.
+- **Fixed**: CRLF line endings preserved in dashboard.html.
+- **Tests**: 1034 assertions passing across 14 test suites (up from 943).
 
 ### 2026-03-15 — Layer 5.5: Prosodic Bridging
 
