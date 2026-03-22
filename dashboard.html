@@ -494,7 +494,7 @@ body::before {
 /* Enhancement toggles */
 .toggle-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
 .toggle-label { font-family: var(--font); font-size: 11px; color: var(--text); font-weight: 500; }
-.toggle-hint { font-family: var(--mono); font-size: 8px; color: var(--red-bright); margin-left: 6px; white-space: nowrap; font-weight: 700; }
+.toggle-hint { font-family: var(--mono); font-size: 8px; color: var(--red-bright); margin-left: 3px; white-space: nowrap; font-weight: 700; }
 .toggle-switch { position: relative; display: inline-block; width: 32px; height: 18px; flex-shrink: 0; }
 .toggle-switch input { opacity: 0; width: 0; height: 0; }
 .toggle-slider {
@@ -2167,21 +2167,21 @@ body::before {
     <div class="sidebar-section">
       <div class="sidebar-section-title">Layer</div>
       <div class="layer-stack">
-        <div class="layer-opt" data-layer="1"><div class="l-info"><div class="l-name">Transcribe</div><div class="l-desc">Whisper only</div></div></div>
-        <div class="layer-opt" data-layer="2"><div class="l-info"><div class="l-name">Reconstruct</div><div class="l-desc">LLM + tone</div></div></div>
-        <div class="layer-opt" data-layer="3"><div class="l-info"><div class="l-name">Profile</div><div class="l-desc">+ vocabulary</div></div></div>
-        <div class="layer-opt" data-layer="4"><div class="l-info"><div class="l-name">Stutter</div><div class="l-desc">+ disfluency</div></div></div>
+        <div class="layer-opt" data-layer="1"><div class="l-info"><div class="l-name">I. Transcribe</div><div class="l-desc">Whisper only</div></div></div>
+        <div class="layer-opt" data-layer="2"><div class="l-info"><div class="l-name">II. Reconstruct</div><div class="l-desc">LLM + tone</div></div></div>
+        <div class="layer-opt" data-layer="3"><div class="l-info"><div class="l-name">III. Profile</div><div class="l-desc">+ vocabulary</div></div></div>
+        <div class="layer-opt" data-layer="4"><div class="l-info"><div class="l-name">IV. Stutter</div><div class="l-desc">+ disfluency</div></div></div>
       </div>
     </div>
 
     <div class="sidebar-section">
       <div class="sidebar-section-title">Enhancements</div>
       <div class="engine-section-card">
-        <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-paralinguistic"><span class="toggle-slider"></span></label><span class="toggle-label">Paralinguistic</span><span class="toggle-hint">cough / laugh</span></div>
+        <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-paralinguistic"><span class="toggle-slider"></span></label><span class="toggle-label">Paralinguistic</span><span class="toggle-hint">cough/laugh</span></div>
         <div class="toggle-row toggle-sub" id="para-transcribe-row" style="display:none"><label class="toggle-switch"><input type="checkbox" id="toggle-para-transcribe"><span class="toggle-slider"></span></label><span class="toggle-label">Transcribe</span><span class="toggle-hint">inject [tags] in text</span></div>
       </div>
       <div class="engine-section-card">
-        <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-prosodic"><span class="toggle-slider"></span></label><span class="toggle-label">Prosodic</span><span class="toggle-hint">pitch / energy / rate</span></div>
+        <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-prosodic"><span class="toggle-slider"></span></label><span class="toggle-label">Prosodic</span><span class="toggle-hint">pitch/energy/rate</span></div>
       </div>
     </div>
 
