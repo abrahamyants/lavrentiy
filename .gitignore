@@ -6,3 +6,5 @@ api_key.txt
 install_log.txt
 test_install.bat
 lavrentiy_preview.png
+portable/
+build_portable.py

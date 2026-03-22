@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python test_endpoints.py)"
+      "Bash(python test_endpoints.py)",
+      "mcp__d4adff8e-9002-4440-9c73-18a209960366__gmail_create_draft"
     ]
   }
 }
