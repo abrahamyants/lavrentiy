@@ -1081,8 +1081,8 @@ body::before {
 .tab-panel.active .console-empty,
 .tab-panel.active .feed-empty,
 .tab-panel.active .learn-empty { color: #a08888; }
-.tab-panel.active .session-card { background: #4a2020; border-color: rgba(255,200,200,0.1); }
-.tab-panel.active .session-card::before { background: linear-gradient(90deg, transparent 10%, rgba(255,200,200,0.06), transparent 90%); }
+.tab-panel.active .session-card { background: rgba(74,32,32,0.55); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-color: rgba(255,200,200,0.08); }
+.tab-panel.active .session-card::before { background: linear-gradient(90deg, transparent 10%, rgba(255,200,200,0.04), transparent 90%); }
 .tab-panel.active .session-time { color: #a08888; }
 .tab-panel.active .session-raw { color: #a08888; border-left-color: rgba(255,200,200,0.1); }
 .tab-panel.active .session-out { color: #e8d8d8; }
@@ -1129,7 +1129,8 @@ body::before {
 /* ─── SESSIONS ─────────────────────────────────── */
 .sessions-wrap { padding: 16px 24px; }
 .session-card {
-  background: var(--raised);
+  background: rgba(180,180,185,0.45);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 18px 22px;
@@ -1146,9 +1147,10 @@ body::before {
   background: linear-gradient(90deg, transparent 10%, rgba(255,255,255,0.06), transparent 90%);
 }
 .session-card:hover {
-  border-color: var(--border-hi);
+  border-color: rgba(255,200,200,0.15);
   transform: translateY(-2px);
   box-shadow: var(--shadow-elevated);
+  background: rgba(74,32,32,0.65);
 }
 @keyframes cardslide {
   from { opacity: 0; transform: translateY(-10px) scale(0.98); }
