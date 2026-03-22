@@ -1225,6 +1225,11 @@ body::before {
   transition: all 0.25s;
 }
 .insight-card:hover { border-color: var(--border-hi); transform: translateY(-2px); box-shadow: var(--shadow-elevated); background: var(--raised); }
+#tab-insights { font-size: 150%; }
+#tab-insights .insights-wrap { font-size: 100%; }
+#tab-insights [style*="font-size:9px"] { font-size: 14px !important; }
+#tab-insights [style*="font-size:11px"] { font-size: 16px !important; }
+#tab-insights [style*="font-size:8px"] { font-size: 12px !important; }
 .insight-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .insight-title { font-weight: 700; color: var(--text-bright); font-size: 13px; }
 .insight-severity {
@@ -1371,8 +1376,8 @@ body::before {
 }
 .tab-panel.active .cal-card { border-color: rgba(255,200,200,0.15); }
 .tab-panel.active .cal-card:hover { background: rgba(74,32,32,0.55); }
-.cal-title { font-family: var(--mono); font-size: 13px; font-weight: 700; letter-spacing: 2px; color: var(--text); margin-bottom: 6px; }
-.cal-subtitle { font-size: 12px; color: var(--text-muted); line-height: 1.5; margin-bottom: 16px; }
+.cal-title { font-family: var(--mono); font-size: 13px; font-weight: 700; letter-spacing: 2px; color: var(--red-bright); margin-bottom: 6px; }
+.cal-subtitle { font-size: 12px; color: var(--text-bright); line-height: 1.5; margin-bottom: 16px; }
 .cal-progress-bar {
   height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-bottom: 6px;
 }
@@ -1446,8 +1451,8 @@ body::before {
 
 /* Augmentation section */
 .aug-section { margin-top: 0; padding-top: 0; }
-.aug-title { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 2px; color: var(--text); margin-bottom: 6px; }
-.aug-subtitle { font-size: 11px; color: var(--text-muted); line-height: 1.5; margin-bottom: 16px; }
+.aug-title { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 2px; color: var(--red-bright); margin-bottom: 6px; }
+.aug-subtitle { font-size: 11px; color: var(--text-bright); line-height: 1.5; margin-bottom: 16px; }
 .aug-stats { font-family: var(--mono); font-size: 10px; color: var(--text-muted); line-height: 1.8; margin-bottom: 12px; }
 .aug-stats strong { color: var(--text); }
 .aug-btn {
@@ -1928,6 +1933,49 @@ body::before {
   box-shadow: 0 2px 6px rgba(185,28,28,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
 }
 
+/* ─── BOOT SEQUENCE ───── */
+.boot-overlay {
+  position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999;
+  background: #0a0a0a;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  transition: opacity 0.6s ease;
+}
+.boot-overlay.fade-out { opacity: 0; pointer-events: none; }
+.boot-brand {
+  font-family: 'Playfair Display', serif; font-size: 32px; font-weight: 900;
+  color: #d4a574; letter-spacing: 8px; margin-bottom: 8px;
+  opacity: 0; animation: boot-glow 0.8s ease forwards 0.3s;
+}
+.boot-sub {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 6px; color: #555;
+  margin-bottom: 40px; opacity: 0; animation: boot-fade 0.5s ease forwards 0.6s;
+}
+.boot-log {
+  font-family: var(--mono); font-size: 10px; color: #333; letter-spacing: 1px;
+  line-height: 2.2; text-align: left; width: 320px;
+}
+.boot-line {
+  opacity: 0; color: #444;
+  animation: boot-line-in 0.15s ease forwards;
+}
+.boot-line .bl-ok { color: #16a34a; font-weight: 700; }
+.boot-line .bl-val { color: #d4a574; }
+.boot-line .bl-sys { color: #555; }
+.boot-bar {
+  width: 320px; height: 2px; background: #1a1a1a; margin-top: 24px; border-radius: 1px;
+  overflow: hidden; opacity: 0; animation: boot-fade 0.3s ease forwards 1.0s;
+}
+.boot-bar-fill {
+  height: 100%; width: 0; background: linear-gradient(90deg, #b91c1c, #dc2626);
+  border-radius: 1px; transition: width 0.1s linear;
+}
+@keyframes boot-glow {
+  0% { opacity: 0; text-shadow: none; transform: scale(0.95); }
+  100% { opacity: 1; text-shadow: 0 0 30px rgba(212,165,116,0.3); transform: scale(1); }
+}
+@keyframes boot-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes boot-line-in { from { opacity: 0; transform: translateX(-5px); } to { opacity: 1; transform: translateX(0); } }
+
 /* ─── HELP OVERLAY ───── */
 .help-btn {
   width: 22px; height: 22px; border: 1px solid var(--border-hi); border-radius: 4px;
@@ -2048,6 +2096,13 @@ body::before {
 </style>
 </head>
 <body>
+
+<div class="boot-overlay" id="boot-overlay">
+  <div class="boot-brand">&#1051;&#1072;&#1074;&#1088;&#1077;&#1085;&#1090;&#1080;&#1081;</div>
+  <div class="boot-sub">VOICE RECONSTRUCTION ENGINE</div>
+  <div class="boot-log" id="boot-log"></div>
+  <div class="boot-bar"><div class="boot-bar-fill" id="boot-bar-fill"></div></div>
+</div>
 
 <div class="disconnected" id="disconnected">
   <div class="msg">Connection Lost</div>
@@ -3718,10 +3773,52 @@ function updateCompactBar() {
 }
 
 async function init(){
+  await runBootSequence();
   applyCompact();
   await Promise.all([fetchProfile(),fetchSessions(),fetchLearn(),fetchDAF(),fetchHotkeys(),fetchFluencyData()]);
   pollState();
 }
+
+async function runBootSequence(){
+  const log=document.getElementById('boot-log');
+  const bar=document.getElementById('boot-bar-fill');
+  const overlay=document.getElementById('boot-overlay');
+  if(!log||!overlay)return;
+
+  const lines=[
+    {t:'BIOS',m:'Lavrentiy v4.2',d:120},
+    {t:'SYS',m:'Python 3.14 / Windows 11',d:100},
+    {t:'OK',m:'Whisper model loaded',d:200},
+    {t:'OK',m:'GPT-4o endpoint verified',d:150},
+    {t:'OK',m:'Falcon validator online',d:100},
+    {t:'OK',m:'Profile loaded ('+Math.floor(Math.random()*30+5)+' corrections)',d:120},
+    {t:'OK',m:'Keyboard hooks registered (F9-F12)',d:100},
+    {t:'OK',m:'DAF audio pipeline ready',d:80},
+    {t:'OK',m:'Paralinguistic analyzer armed',d:100},
+    {t:'OK',m:'Prosodic F0 tracker initialized',d:80},
+    {t:'SYS',m:'Dashboard server :7865',d:100},
+    {t:'OK',m:'All systems nominal',d:150},
+  ];
+
+  let progress=0;
+  for(let i=0;i<lines.length;i++){
+    const l=lines[i];
+    await new Promise(r=>setTimeout(r,l.d));
+    const cls=l.t==='OK'?'bl-ok':l.t==='SYS'?'bl-sys':'bl-val';
+    const el=document.createElement('div');
+    el.className='boot-line';
+    el.innerHTML='<span class="'+cls+'">['+l.t+']</span> '+l.m;
+    log.appendChild(el);
+    progress=Math.round(((i+1)/lines.length)*100);
+    bar.style.width=progress+'%';
+    log.scrollTop=log.scrollHeight;
+  }
+  await new Promise(r=>setTimeout(r,400));
+  overlay.classList.add('fade-out');
+  await new Promise(r=>setTimeout(r,600));
+  overlay.remove();
+}
+
 init();
 
 // ─── HELP OVERLAY ─────────────────────────
