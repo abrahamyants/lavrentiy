@@ -1082,6 +1082,7 @@ body::before {
 .tab-panel.active .feed-empty,
 .tab-panel.active .learn-empty { color: #a08888; }
 .tab-panel.active .session-card { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; border-color: rgba(255,200,200,0.15); }
+.tab-panel.active .session-card:hover { background: rgba(74,32,32,0.55); border-color: rgba(255,200,200,0.25); }
 .tab-panel.active .session-card::before { background: linear-gradient(90deg, transparent 10%, rgba(255,200,200,0.04), transparent 90%); }
 .tab-panel.active .session-time { color: #a08888; }
 .tab-panel.active .session-raw { color: #a08888; border-left-color: rgba(255,200,200,0.1); }
@@ -1090,6 +1091,7 @@ body::before {
 .tab-panel.active .log-line.kind-raw { color: #a08888; }
 .tab-panel.active .log-line.kind-out { color: #e8d8d8; }
 .tab-panel.active .learn-event { background: transparent; border-color: rgba(255,200,200,0.15); }
+.tab-panel.active .learn-event:hover { background: rgba(74,32,32,0.55); border-color: rgba(255,200,200,0.25); }
 .tab-panel.active .le-time { color: #a08888; }
 .tab-panel.active .le-value { color: #e8d8d8; }
 .tab-panel.active .insight-card { background: transparent; border-color: rgba(255,200,200,0.15); }
@@ -1359,6 +1361,16 @@ body::before {
 
 /* ─── CALIBRATION ─────────────────────────────── */
 .cal-wrap { padding: 24px 32px; max-width: 640px; margin: 0 auto; }
+.cal-card {
+  background: transparent; border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 18px 22px; margin-bottom: 12px; transition: all 0.25s;
+}
+.cal-card:hover {
+  background: rgba(74,32,32,0.55); border-color: rgba(255,200,200,0.2);
+  transform: translateY(-2px); box-shadow: var(--shadow-elevated);
+}
+.tab-panel.active .cal-card { border-color: rgba(255,200,200,0.15); }
+.tab-panel.active .cal-card:hover { background: rgba(74,32,32,0.55); }
 .cal-title { font-family: var(--mono); font-size: 13px; font-weight: 700; letter-spacing: 2px; color: var(--text); margin-bottom: 6px; }
 .cal-subtitle { font-size: 12px; color: var(--text-muted); line-height: 1.5; margin-bottom: 16px; }
 .cal-progress-bar {
@@ -1433,7 +1445,7 @@ body::before {
 @keyframes trigger-pulse { 50% { opacity: 0.7; background: rgba(255,68,68,0.25); } }
 
 /* Augmentation section */
-.aug-section { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border); }
+.aug-section { margin-top: 0; padding-top: 0; }
 .aug-title { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 2px; color: var(--text); margin-bottom: 6px; }
 .aug-subtitle { font-size: 11px; color: var(--text-muted); line-height: 1.5; margin-bottom: 16px; }
 .aug-stats { font-family: var(--mono); font-size: 10px; color: var(--text-muted); line-height: 1.8; margin-bottom: 12px; }
@@ -2337,36 +2349,35 @@ body::before {
 
       <div class="tab-panel" id="tab-calibrate">
         <div class="cal-wrap">
-          <div class="cal-header">
+          <div class="cal-card">
             <div class="cal-title">WHISPER CALIBRATION</div>
             <div class="cal-subtitle">Read 60 prompts aloud. Each recording becomes a training sample for personalized speech recognition.</div>
             <div class="cal-progress-bar">
               <div class="cal-progress-fill" id="cal-progress-fill" style="width:0%"></div>
             </div>
             <div class="cal-stats" id="cal-stats">0 / 60 — 0%</div>
-          </div>
-          <div class="cal-controls" id="cal-controls">
-            <button class="cal-start-btn" id="cal-start-btn" onclick="calStart()">BEGIN CALIBRATION</button>
-          </div>
-          <div class="cal-prompt-area" id="cal-prompt-area" style="display:none">
-            <div class="cal-category" id="cal-category"></div>
-            <div class="cal-prompt-text" id="cal-prompt-text"></div>
-            <div class="cal-instruction">Read this sentence aloud, naturally. Don't try to hide your stutter.</div>
-            <div class="cal-rec-controls">
-              <button class="cal-rec-btn" id="cal-rec-btn" onclick="calToggleRecord()">
-                <span class="cal-rec-dot"></span> RECORD
-              </button>
-              <button class="cal-skip-btn" onclick="calSkip()">SKIP</button>
+            <div class="cal-controls" id="cal-controls">
+              <button class="cal-start-btn" id="cal-start-btn" onclick="calStart()">BEGIN CALIBRATION</button>
             </div>
-            <div class="cal-feedback" id="cal-feedback"></div>
-          </div>
-          <div class="cal-wer-summary" id="cal-wer-summary" style="display:none">
-            <div class="cal-wer-title">Calibration WER Summary</div>
-            <div class="cal-wer-body" id="cal-wer-body"></div>
+            <div class="cal-prompt-area" id="cal-prompt-area" style="display:none">
+              <div class="cal-category" id="cal-category"></div>
+              <div class="cal-prompt-text" id="cal-prompt-text"></div>
+              <div class="cal-instruction">Read this sentence aloud, naturally. Don't try to hide your stutter.</div>
+              <div class="cal-rec-controls">
+                <button class="cal-rec-btn" id="cal-rec-btn" onclick="calToggleRecord()">
+                  <span class="cal-rec-dot"></span> RECORD
+                </button>
+                <button class="cal-skip-btn" onclick="calSkip()">SKIP</button>
+              </div>
+              <div class="cal-feedback" id="cal-feedback"></div>
+            </div>
+            <div class="cal-wer-summary" id="cal-wer-summary" style="display:none">
+              <div class="cal-wer-title">Calibration WER Summary</div>
+              <div class="cal-wer-body" id="cal-wer-body"></div>
+            </div>
           </div>
 
-          <!-- Augmentation section -->
-          <div class="aug-section">
+          <div class="cal-card">
             <div class="aug-title">DATA AUGMENTATION</div>
             <div class="aug-subtitle">Generate synthetic disfluent speech from calibration data via TTS. Multiplies your training dataset 5x with word repetitions, phrase repetitions, and interjection insertions.</div>
             <div class="aug-stats" id="aug-stats">Loading...</div>
@@ -2379,8 +2390,7 @@ body::before {
             </div>
           </div>
 
-          <!-- WER Trend -->
-          <div class="aug-section" style="margin-top:16px">
+          <div class="cal-card">
             <div class="aug-title">WER TREND</div>
             <div class="aug-subtitle">Word Error Rate across recent sessions — lower is better. Shows how well Whisper transcribes your speech over time.</div>
             <div id="wer-trend-chart" style="display:flex;align-items:flex-end;gap:2px;height:48px;margin:12px 0"></div>
