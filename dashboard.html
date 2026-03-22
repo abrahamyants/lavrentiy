@@ -1918,6 +1918,13 @@ body::before {
   display: flex; align-items: center; justify-content: center; transition: all 0.15s;
   font-family: 'Playfair Display', serif; font-weight: 700; line-height: 1; padding: 0;
   z-index: 20; position: absolute; top: 6px; right: 6px;
+  animation: help-nudge 3s ease-in-out infinite;
+}
+@keyframes help-nudge {
+  0%, 85% { opacity: 0.6; }
+  90% { opacity: 1; border-color: rgba(185,28,28,0.4); color: var(--red-bright); }
+  95% { opacity: 0.6; }
+  100% { opacity: 0.6; }
 }
 .help-btn:hover { background: var(--elevated); color: var(--red-bright); border-color: rgba(185,28,28,0.4); }
 
