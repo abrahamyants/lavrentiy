@@ -1828,8 +1828,8 @@ body::before {
   border-bottom: 1px solid rgba(0,0,0,0.08);
 }
 .compact-row-bottom {
-  display: flex; align-items: center; gap: 6px; padding: 5px 14px;
-  overflow-x: auto; scrollbar-width: none;
+  display: flex; align-items: center; gap: 6px; padding: 4px 14px 6px;
+  overflow-x: auto; scrollbar-width: none; flex-shrink: 0; min-height: 24px;
 }
 .compact-row-bottom::-webkit-scrollbar { display: none; }
 
@@ -3042,7 +3042,12 @@ document.querySelectorAll('.mode-btn').forEach(btn=>{btn.addEventListener('click
 document.querySelectorAll('.sit-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/situation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({situation:btn.dataset.situation})});}catch(e){}});});
 
 // ─── TIMER RESET ─────────────────────────
-document.getElementById('uptime').addEventListener('click',async()=>{try{await fetch(API+'/api/reset_timer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});}catch(e){}});
+document.getElementById('uptime').addEventListener('click',async()=>{
+  const el=document.getElementById('uptime');
+  el.textContent='00:00';el.style.color='var(--green)';
+  setTimeout(()=>{el.style.color='';},1500);
+  try{await fetch(API+'/api/reset_timer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});}catch(e){console.error('reset_timer failed',e);}
+});
 // ─── ENHANCEMENT TOGGLES ─────────────────────────
 document.getElementById('toggle-paralinguistic').addEventListener('change',async(e)=>{_toggleCooldown.para=Date.now()+3000;try{await fetch(API+'/api/paralinguistic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}document.getElementById('para-transcribe-row').style.display=e.target.checked?'flex':'none';});
 document.getElementById('toggle-para-transcribe').addEventListener('change',async(e)=>{_toggleCooldown.paraTrans=Date.now()+3000;try{await fetch(API+'/api/paralinguistic_transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}});
@@ -3507,7 +3512,7 @@ function applyCompact() {
   if (isCompact) {
     app.classList.add('compact');
     // Try to resize window smaller (works in --app mode)
-    try { window.resizeTo(720, 90); } catch(e) {}
+    try { window.resizeTo(780, 120); } catch(e) {}
   } else {
     app.classList.remove('compact');
     try { window.resizeTo(1140, 820); } catch(e) {}
