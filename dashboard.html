@@ -789,6 +789,7 @@ body::before {
   margin: 0 3px;
   border-radius: 6px;
   transition: all 0.25s;
+  cursor: pointer;
   position: relative;
   cursor: pointer;
   overflow: hidden;
@@ -871,6 +872,7 @@ body::before {
   border-radius: 5px;
   overflow: hidden;
   position: relative;
+  cursor: pointer;
   background:
     radial-gradient(ellipse at 50% 40%, rgba(238,90,36,0.05) 0%, transparent 60%),
     linear-gradient(180deg, #0c0c0e 0%, #141418 30%, #111115 70%, #0a0a0e 100%);
@@ -2414,14 +2416,24 @@ let learnData={status:{},events:[],totals:{corrections:0,fillers:0,vocabulary:0}
 let lastLearnEventCount=0;let lastLogFetch=0;let lastLearnFetch=0;let lastPreviewFetch=0;
 const FIELD_MAP={trigger:'trigger_words',filler:'filler_words',vocab:'vocabulary'};
 
+function switchToTab(name){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  const btn=document.querySelector('.tab-btn[data-tab="'+name+'"]');
+  if(btn)btn.classList.add('active');
+  const panel=document.getElementById('tab-'+name);
+  if(panel)panel.classList.add('active');
+}
 document.querySelectorAll('.tab-btn').forEach(btn=>{
-  btn.addEventListener('click',()=>{
-    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
-    document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById('tab-'+btn.dataset.tab).classList.add('active');
-  });
+  btn.addEventListener('click',()=>switchToTab(btn.dataset.tab));
 });
+// Stat bar clicks → jump to relevant tab
+document.getElementById('s-words').parentElement.addEventListener('click',()=>switchToTab('sessions'));
+document.getElementById('s-sessions').parentElement.addEventListener('click',()=>switchToTab('sessions'));
+document.getElementById('s-api').parentElement.addEventListener('click',()=>switchToTab('console'));
+document.getElementById('s-cost').parentElement.addEventListener('click',()=>switchToTab('console'));
+// Learn bar clicks → jump to learning tab
+document.querySelectorAll('.learn-cell').forEach(c=>c.addEventListener('click',()=>switchToTab('learning')));
 
 async function pollState(){
   const now=Date.now();
@@ -3860,6 +3872,36 @@ function filterHelp(q){
         <strong>Severity Mod</strong> &#8212; Prosodic stress modifier added to base severity.<br>
         <strong>Severity formula:</strong> <code>base + speech_mod = total</code><br>
         Labels: MILD (&lt;0.5) &#8594; LOW (0.5-1.2) &#8594; MODERATE (1.2-1.8) &#8594; HIGH (&gt;1.8)
+      </div>
+    </div>
+  </div>
+
+  <div class="help-section">
+    <div class="help-section-title">Stats Bar (clickable)</div>
+    <div class="help-item">
+      <div class="help-item-desc">
+        The top bar shows session-level stats. <strong>Click any cell to jump to its detail tab.</strong><br><br>
+        <strong>Words</strong> &#8212; Total words transcribed this session. Click &#8594; Sessions tab.<br>
+        <strong>Sessions</strong> &#8212; Number of F9 recordings this session. Click &#8594; Sessions tab.<br>
+        <strong>WPM</strong> &#8212; Words per minute average across the session.<br>
+        <strong>API Calls</strong> &#8212; Total GPT/Falcon API calls made. Click &#8594; Console tab.<br>
+        <strong>Avg Difficulty</strong> &#8212; Average exposure difficulty from recent sessions (L4 only).<br>
+        <strong>Est. Cost</strong> &#8212; Estimated API cost at ~$0.0032/session. Click &#8594; Console tab.
+      </div>
+    </div>
+  </div>
+
+  <div class="help-section">
+    <div class="help-section-title">Learn Bar (clickable)</div>
+    <div class="help-item">
+      <div class="help-item-desc">
+        The second bar tracks what the engine has learned. <strong>Click any cell &#8594; Learning tab.</strong><br><br>
+        <strong>Corrections</strong> &#8212; Words the engine learned to auto-correct (e.g. Duncan &#8594; Dankesch&#246;n).<br>
+        <strong>Fillers</strong> &#8212; Filler words identified in your speech (um, uh, like, you know).<br>
+        <strong>Vocabulary</strong> &#8212; Preferred terms added to your profile.<br>
+        <strong>Triggers</strong> &#8212; Words that consistently cause speech blocks.<br>
+        <strong>Edit Dist</strong> &#8212; Average edit distance between Whisper output and GPT rewrite. Higher = more cleanup needed.<br>
+        <strong>Redos</strong> &#8212; Times Whisper re-ran a segment due to low confidence.
       </div>
     </div>
   </div>
