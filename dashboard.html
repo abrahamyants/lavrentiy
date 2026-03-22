@@ -1911,6 +1911,96 @@ body::before {
   box-shadow: 0 2px 6px rgba(185,28,28,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
 }
 
+/* ─── HELP OVERLAY ───── */
+.help-btn {
+  width: 22px; height: 22px; border: 1px solid var(--border-hi); border-radius: 4px;
+  background: var(--raised); color: var(--text-muted); font-size: 12px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: all 0.15s;
+  font-family: 'Playfair Display', serif; font-weight: 700; line-height: 1; padding: 0;
+  z-index: 20; position: absolute; top: 6px; right: 6px;
+}
+.help-btn:hover { background: var(--elevated); color: var(--red-bright); border-color: rgba(185,28,28,0.4); }
+
+.help-overlay {
+  position: fixed; top: 0; right: -480px; width: 460px; height: 100vh; z-index: 1000;
+  background: linear-gradient(180deg, #1a1a1a 0%, #111 100%);
+  border-left: 2px solid rgba(185,28,28,0.3);
+  box-shadow: -8px 0 40px rgba(0,0,0,0.6);
+  transition: right 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow-y: auto; overflow-x: hidden;
+  font-family: var(--font); color: #c8c8c8;
+  scrollbar-width: thin; scrollbar-color: #333 #1a1a1a;
+}
+.help-overlay.open { right: 0; }
+.help-overlay::-webkit-scrollbar { width: 6px; }
+.help-overlay::-webkit-scrollbar-track { background: #1a1a1a; }
+.help-overlay::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+
+.help-header {
+  position: sticky; top: 0; z-index: 2; padding: 16px 20px 12px;
+  background: linear-gradient(180deg, #1a1a1a 80%, transparent);
+  border-bottom: 1px solid rgba(185,28,28,0.2);
+  display: flex; align-items: center; gap: 12px;
+}
+.help-title {
+  font-family: 'Playfair Display', serif; font-size: 18px; font-weight: 900;
+  color: #d4a574; letter-spacing: 2px; flex: 1;
+}
+.help-close {
+  width: 28px; height: 28px; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px;
+  background: transparent; color: #888; font-size: 16px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: all 0.15s;
+}
+.help-close:hover { color: var(--red-bright); border-color: rgba(185,28,28,0.4); }
+
+.help-search {
+  margin: 0 20px 12px; padding: 8px 12px; width: calc(100% - 40px);
+  background: #222; border: 1px solid #333; border-radius: 6px;
+  color: #ddd; font-family: var(--mono); font-size: 11px; outline: none;
+}
+.help-search:focus { border-color: rgba(185,28,28,0.5); }
+.help-search::placeholder { color: #555; }
+
+.help-section {
+  padding: 0 20px 16px; border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.help-section-title {
+  font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 3px;
+  text-transform: uppercase; color: var(--red-bright); margin: 16px 0 10px; opacity: 0.8;
+}
+.help-item { margin-bottom: 14px; }
+.help-item-name {
+  font-family: var(--mono); font-size: 11px; font-weight: 700; color: #d4a574;
+  letter-spacing: 1px; margin-bottom: 3px;
+}
+.help-item-desc {
+  font-size: 11px; line-height: 1.5; color: #999;
+}
+.help-item-desc strong { color: #ccc; font-weight: 600; }
+.help-item-desc code {
+  font-family: var(--mono); font-size: 10px; background: #222; padding: 1px 5px;
+  border-radius: 3px; color: #d4a574; border: 1px solid #333;
+}
+.help-kbd {
+  display: inline-block; font-family: var(--mono); font-size: 9px; font-weight: 700;
+  background: linear-gradient(180deg, #333 0%, #222 100%); color: #d4a574;
+  padding: 2px 7px; border-radius: 3px; border: 1px solid #444;
+  box-shadow: 0 2px 0 #111; margin: 0 2px;
+}
+.help-example {
+  margin-top: 6px; padding: 8px 10px; background: #1e1e1e; border-radius: 4px;
+  border-left: 2px solid rgba(185,28,28,0.4); font-family: var(--mono); font-size: 10px;
+  color: #888; line-height: 1.6;
+}
+.help-example .he-in { color: #999; }
+.help-example .he-out { color: #7c7; }
+.help-example .he-tag { color: #d4a574; }
+.help-backdrop {
+  position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 999;
+  background: rgba(0,0,0,0.4); opacity: 0; pointer-events: none; transition: opacity 0.3s;
+}
+.help-backdrop.open { opacity: 1; pointer-events: auto; }
+
 </style>
 </head>
 <body>
@@ -1951,7 +2041,8 @@ body::before {
     </div>
 
     <div class="status-ring-wrap">
-      <button class="compact-toggle" onclick="toggleCompact()" title="Compact mode">⊟</button>
+      <button class="compact-toggle" onclick="toggleCompact()" title="Compact mode">&#8863;</button>
+      <button class="help-btn" onclick="toggleHelp()" title="Manual">?</button>
       <div class="status-ring-outer">
         <div class="status-ring-inner">
           <div class="ring-spinner"></div>
@@ -3578,6 +3669,234 @@ async function init(){
   pollState();
 }
 init();
+
+// ─── HELP OVERLAY ─────────────────────────
+function toggleHelp(){
+  document.getElementById('help-overlay').classList.toggle('open');
+  document.getElementById('help-backdrop').classList.toggle('open');
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeHelp();});
+function closeHelp(){
+  document.getElementById('help-overlay').classList.remove('open');
+  document.getElementById('help-backdrop').classList.remove('open');
+}
+function filterHelp(q){
+  const items=document.querySelectorAll('.help-item');
+  const sections=document.querySelectorAll('.help-section');
+  q=q.toLowerCase().trim();
+  items.forEach(i=>{
+    const text=(i.textContent||'').toLowerCase();
+    i.style.display=(!q||text.includes(q))?'block':'none';
+  });
+  sections.forEach(s=>{
+    const visible=[...s.querySelectorAll('.help-item')].some(i=>i.style.display!=='none');
+    s.style.display=visible?'block':'none';
+  });
+}
 </script>
+
+<div class="help-backdrop" id="help-backdrop" onclick="closeHelp()"></div>
+<div class="help-overlay" id="help-overlay">
+  <div class="help-header">
+    <div class="help-title">Manual</div>
+    <button class="help-close" onclick="closeHelp()">&#10005;</button>
+  </div>
+  <input class="help-search" type="text" placeholder="Search..." oninput="filterHelp(this.value)">
+
+  <div class="help-section">
+    <div class="help-section-title">Layers</div>
+    <div class="help-item">
+      <div class="help-item-name">L1 &#8212; Transcribe</div>
+      <div class="help-item-desc">
+        <strong>Whisper only.</strong> Your voice goes in, raw text comes out. No AI cleanup, no rewriting. What Whisper heard is what gets pasted. Fastest option &#8212; pure speech-to-text.
+        <div class="help-example">
+          <span class="he-in">You say:</span> "So uh basically the the thing is um working"<br>
+          <span class="he-out">Output:</span> "So uh basically the the thing is um working"
+        </div>
+      </div>
+    </div>
+    <div class="help-item">
+      <div class="help-item-name">L2 &#8212; Reconstruct</div>
+      <div class="help-item-desc">
+        <strong>LLM + tone.</strong> Whisper transcribes, then GPT rewrites using your selected tone (casual, professional, etc.). Strips fillers, fixes grammar, cleans up disfluencies. ~1-2s slower than L1.
+        <div class="help-example">
+          <span class="he-in">You say:</span> "So uh basically the the thing is um working"<br>
+          <span class="he-out">Output:</span> "The thing is working."
+        </div>
+      </div>
+    </div>
+    <div class="help-item">
+      <div class="help-item-name">L3 &#8212; Profile</div>
+      <div class="help-item-desc">
+        <strong>+ vocabulary.</strong> Same as L2, but GPT also gets your personal vocabulary and correction map. Knows your preferred terms (e.g. "Lavrentiy" not "Lavrenty") and learned corrections (e.g. "Duncan" &#8594; "Dankesch&#246;n"). Gets smarter over time as it learns from your sessions.
+      </div>
+    </div>
+    <div class="help-item">
+      <div class="help-item-name">L4 &#8212; Stutter</div>
+      <div class="help-item-desc">
+        <strong>+ disfluency analysis.</strong> Full clinical mode. Tracks speech blocks, avoidance patterns, exposure scoring. GPT rewrite intensity scales with your real-time severity score. Auto-enables prosodic analysis.
+      </div>
+    </div>
+  </div>
+
+  <div class="help-section">
+    <div class="help-section-title">Tone</div>
+    <div class="help-item">
+      <div class="help-item-desc">
+        Controls how GPT rewrites your speech on <strong>L2+</strong>. Has no effect on L1.<br><br>
+        <strong>Casual</strong> &#8212; Conversational. Contractions, simple words.<br>
+        <strong>Professional</strong> &#8212; Business-ready. Clean, precise language.<br>
+        <strong>Friend</strong> &#8212; Relaxed. Like texting a friend.<br>
+        <strong>Formal</strong> &#8212; Academic/legal. No contractions, precise.
+        <div class="help-example">
+          <span class="he-in">You say:</span> "Yeah so like I think we should probably do it"<br>
+          <span class="he-out">Casual:</span> "Yeah, I think we should do it."<br>
+          <span class="he-out">Formal:</span> "I believe we should proceed with this."
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="help-section">
+    <div class="help-section-title">Mode</div>
+    <div class="help-item">
+      <div class="help-item-desc">
+        Controls which pipeline steps run on <strong>L2+</strong>. All three produce identical output on L1.<br><br>
+        <strong>RAW</strong> &#8212; <code>paste as-is</code> GPT still runs (for analytics), but the engine pastes Whisper's original text. Use when you want tracking but don't trust the rewrite.<br><br>
+        <strong>FAST</strong> &#8212; <code>skip validation</code> GPT rewrites, engine trusts it, pastes immediately. Best speed-to-quality ratio.<br><br>
+        <strong>SAFE</strong> &#8212; <code>+ Falcon check</code> GPT rewrites, then a second AI call (Falcon) verifies your meaning wasn't changed. Slowest, most accurate.
+      </div>
+    </div>
+  </div>
+
+  <div class="help-section">
+    <div class="help-section-title">Enhancements</div>
+    <div class="help-item">
+      <div class="help-item-name">Paralinguistic</div>
+      <div class="help-item-desc">
+        Detects non-speech sounds: <strong>cough, laugh, sigh, throat-clear, breathing, pause</strong>. Independent of layer &#8212; works on any layer. Events show in the console and analytics.<br><br>
+        <strong>Transcribe sub-toggle:</strong> When ON, detected events get injected into your pasted text as tags (e.g. <code>[Laughter]</code>, <code>[Cough]</code>). When OFF, events are logged but don't appear in text.
+      </div>
+    </div>
+    <div class="help-item">
+      <div class="help-item-name">Prosodic</div>
+      <div class="help-item-desc">
+        Tracks <strong>pitch (F0), energy, speaking rate</strong> in real-time. Feeds the severity modifier on L4 &#8212; higher stress = more aggressive GPT rewrite. Auto-enables on L4 and High Stress situation. Analytics only &#8212; doesn't change your pasted text.
+        <div class="help-example">
+          <span class="he-out">Console:</span> "Speech: pause_ratio=47% rate=3.4syl/s &#8594; severity +0.4"<br>
+          <span class="he-out">Console:</span> "Prosodic: Vocal tension (erratic pitch in 100%)"
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="help-section">
+    <div class="help-section-title">Situation</div>
+    <div class="help-item">
+      <div class="help-item-desc">
+        One-click presets that configure the engine for your context.<br><br>
+        <strong>Default</strong> &#8212; Everyday dictation. Base severity 1.0. No auto-toggles.<br><br>
+        <strong>High Stress</strong> &#8212; Phone calls, interviews, presentations. Auto-enables L4, DAF (100ms), paralinguistic, and prosodic. Severity 1.5.<br><br>
+        <strong>Reading</strong> &#8212; Reading aloud. Near-fluent for most PWS. Severity 0.3, light L3 touch.
+      </div>
+    </div>
+  </div>
+
+  <div class="help-section">
+    <div class="help-section-title">DAF (Delayed Auditory Feedback)</div>
+    <div class="help-item">
+      <div class="help-item-desc">
+        Plays your own voice back through headphones with a slight delay. The delay tricks the brain into slowing down, improving fluency. Independent of all other settings.<br><br>
+        <strong>Toggle:</strong> ON/OFF<br>
+        <strong>Dial:</strong> Controls delay in milliseconds. Default 100ms. More delay = stronger effect but more disorienting.
+      </div>
+    </div>
+  </div>
+
+  <div class="help-section">
+    <div class="help-section-title">Whisper Diagnostics</div>
+    <div class="help-item">
+      <div class="help-item-name">Multi-Temp</div>
+      <div class="help-item-desc">
+        Runs Whisper at multiple temperature settings and compares results. If all agree &#8212; high confidence. If they disagree &#8212; word is flagged as uncertain. Slower (3x Whisper passes) but catches more errors. Best for important calls.
+      </div>
+    </div>
+    <div class="help-item">
+      <div class="help-item-name">Blocks</div>
+      <div class="help-item-desc">
+        Number of speech blocks detected. Moments where you froze and Whisper hallucinated words over the silence. Clinical tracking data &#8212; lower count over time = improving fluency.
+      </div>
+    </div>
+    <div class="help-item">
+      <div class="help-item-name">No Speech Threshold</div>
+      <div class="help-item-desc">
+        The slider controls how sensitive block detection is.<br>
+        <strong>&#9664; Sensitive (low)</strong> &#8212; catches more blocks, more false alarms.<br>
+        <strong>Tolerant (high) &#9654;</strong> &#8212; fewer flags, might miss real blocks.<br>
+        Default: 15%.
+      </div>
+    </div>
+    <div class="help-item">
+      <div class="help-item-name">Avg LogProb</div>
+      <div class="help-item-desc">
+        Whisper's average confidence. More negative = less sure. Above <code>-0.4</code> = good. Below <code>-0.7</code> = Whisper was guessing.
+      </div>
+    </div>
+  </div>
+
+  <div class="help-section">
+    <div class="help-section-title">Speech Analytics</div>
+    <div class="help-item">
+      <div class="help-item-desc">
+        <strong>Pause Ratio</strong> &#8212; % of speaking time spent in silence. Lower = more fluent.<br>
+        <strong>Words/Min</strong> &#8212; Speaking rate in syllables/second. Normal conversation: 3-5 syl/s.<br>
+        <strong>Severity Mod</strong> &#8212; Prosodic stress modifier added to base severity.<br>
+        <strong>Severity formula:</strong> <code>base + speech_mod = total</code><br>
+        Labels: MILD (&lt;0.5) &#8594; LOW (0.5-1.2) &#8594; MODERATE (1.2-1.8) &#8594; HIGH (&gt;1.8)
+      </div>
+    </div>
+  </div>
+
+  <div class="help-section">
+    <div class="help-section-title">Hotkeys</div>
+    <div class="help-item">
+      <div class="help-item-desc">
+        <span class="help-kbd">F9</span> Start/stop recording<br>
+        <span class="help-kbd">F10</span> Cycle through tones<br>
+        <span class="help-kbd">F11</span> Cycle through layers<br>
+        <span class="help-kbd">F12</span> Print stats to console<br>
+        <span class="help-kbd">F3</span> &#215;3 Quit engine (press 3 times)<br><br>
+        All hotkeys are rebindable from the Shortcuts section at the bottom of the sidebar.
+      </div>
+    </div>
+  </div>
+
+  <div class="help-section">
+    <div class="help-section-title">Console Colors</div>
+    <div class="help-item">
+      <div class="help-item-desc">
+        <strong style="color:#fff">White</strong> &#8212; Your transcribed speech (quoted, with word count)<br>
+        <strong style="color:#4ade80">Green</strong> &#8212; Pipeline status: recording, processing, paste timing<br>
+        <strong style="color:#facc15">Yellow</strong> &#8212; Speech analytics and Whisper diagnostics<br>
+        <strong style="color:#f87171">Red/Orange</strong> &#8212; Prosodic alerts (vocal tension, erratic pitch)<br>
+        <strong style="color:#a78048">Brown</strong> &#8212; Block suspect warnings (Whisper hallucinated over silence)
+      </div>
+    </div>
+  </div>
+
+  <div class="help-section" style="border-bottom:none;padding-bottom:40px">
+    <div class="help-section-title">Tips</div>
+    <div class="help-item">
+      <div class="help-item-desc">
+        &#8226; Click the <strong>timer</strong> in the status ring to reset it.<br>
+        &#8226; Use the <strong>compact toggle</strong> (top-left &#8863;) to collapse to a minimal bar.<br>
+        &#8226; In compact mode, click chips to change settings without expanding.<br>
+        &#8226; Tone and Mode auto-hide when on L1 (they have no effect).<br>
+        &#8226; High Stress situation auto-enables L4 + DAF + all toggles in one click.
+      </div>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
