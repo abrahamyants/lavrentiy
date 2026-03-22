@@ -2039,9 +2039,9 @@ body::before {
     <div class="sidebar-section">
       <div class="sidebar-section-title">Situation</div>
       <div class="tone-stack">
-        <button class="tone-btn sit-btn" data-situation="default">Default <span class="layer-desc">everyday use</span></button>
-        <button class="tone-btn sit-btn" data-situation="high_stress">High Stress 🔥 <span class="layer-desc">auto L4 + DAF + full assist</span></button>
-        <button class="tone-btn sit-btn" data-situation="reading">Reading <span class="layer-desc">light touch, near-fluent</span></button>
+        <div class="layer-opt sit-btn" data-situation="default"><div class="l-info"><div class="l-name">Default</div><div class="l-desc">everyday use</div></div></div>
+        <div class="layer-opt sit-btn" data-situation="high_stress"><div class="l-info"><div class="l-name">High Stress 🔥</div><div class="l-desc">full assist</div></div></div>
+        <div class="layer-opt sit-btn" data-situation="reading"><div class="l-info"><div class="l-name">Reading</div><div class="l-desc">near-fluent</div></div></div>
       </div>
     </div>
 
@@ -2403,7 +2403,7 @@ function updateUI(){
     modeSec.classList.toggle('inactive',noLLM2);
     if(modeNote)modeNote.innerHTML=noLLM2?'select Reconstruct +':'';
   }
-  document.querySelectorAll('.layer-opt').forEach(b=>b.classList.toggle('active',parseInt(b.dataset.layer)===state.layer));
+  document.querySelectorAll('.layer-opt:not(.sit-btn)').forEach(b=>b.classList.toggle('active',parseInt(b.dataset.layer)===state.layer));
   document.querySelectorAll('.mode-btn').forEach(b=>b.classList.toggle('active',b.dataset.mode===state.mode));
   document.querySelectorAll('.sit-btn').forEach(b=>b.classList.toggle('active',b.dataset.situation===(state.situation||'default')));
   const st=state.stats;
@@ -3073,7 +3073,7 @@ async function updateNST(val){
 async function fetchDAF(){try{const r=await fetch(API+'/api/daf');const d=await r.json();dafActive=d.active;updateDAFUI(d);}catch(e){}}
 
 document.querySelectorAll('.tone-btn:not(.mode-btn):not(.sit-btn)').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/tone',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tone:btn.dataset.tone})});}catch(e){}});});
-document.querySelectorAll('.layer-opt').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/layer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layer:parseInt(btn.dataset.layer)})});}catch(e){}});});
+document.querySelectorAll('.layer-opt:not(.sit-btn)').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/layer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layer:parseInt(btn.dataset.layer)})});}catch(e){}});});
 document.querySelectorAll('.mode-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:btn.dataset.mode})});}catch(e){}});});
 document.querySelectorAll('.sit-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/situation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({situation:btn.dataset.situation})});}catch(e){}});});
 
