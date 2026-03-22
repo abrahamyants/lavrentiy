@@ -3283,17 +3283,16 @@ document.querySelectorAll('.stat-cell').forEach(c=>{
 document.querySelectorAll('.learn-cell').forEach(c=>{
   c.addEventListener('mouseenter',()=>{const lv=c.querySelector('.lv');if(lv&&!lv._animating)animateCountUp(lv,1500);});
 });
-// Progress bar hover animation
-const lpCell=document.querySelector('.learn-progress-cell');
-if(lpCell){
-  lpCell.addEventListener('mouseenter',()=>{
-    const fill=document.getElementById('lp-fill');
+// Progress bar hover animation (Next cycle + Decay)
+document.querySelectorAll('.learn-progress-cell').forEach(cell=>{
+  cell.addEventListener('mouseenter',()=>{
+    const fill=cell.querySelector('.lp-fill');
     if(!fill)return;
-    const curWidth=fill.style.width;
-    fill.style.transition='width 0.3s';fill.style.width='0%';
-    setTimeout(()=>{fill.style.transition='width 2s cubic-bezier(0.22,1,0.36,1)';fill.style.width=curWidth;},50);
+    const curWidth=fill.style.width||'0%';
+    fill.style.transition='width 0.15s';fill.style.width='0%';
+    setTimeout(()=>{fill.style.transition='width 2s cubic-bezier(0.22,1,0.36,1)';fill.style.width=curWidth;},100);
   });
-}
+});
 // ─── ENHANCEMENT TOGGLES ─────────────────────────
 document.getElementById('toggle-paralinguistic').addEventListener('change',async(e)=>{_toggleCooldown.para=Date.now()+3000;try{await fetch(API+'/api/paralinguistic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}document.getElementById('para-transcribe-row').style.display=e.target.checked?'flex':'none';});
 document.getElementById('toggle-para-transcribe').addEventListener('change',async(e)=>{_toggleCooldown.paraTrans=Date.now()+3000;try{await fetch(API+'/api/paralinguistic_transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}});
