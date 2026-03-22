@@ -5748,6 +5748,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     'prep_loaded': bool(preset.get('prep')),
                 } if preset else None,
             })
+        elif self.path == '/api/reset_timer':
+            stats["start_time"] = time.time()
+            log("Timer reset", "info")
+            self._json({'start_time': stats["start_time"]})
         elif self.path == '/api/profile':
             if body and isinstance(body, dict):
                 for key in ('trigger_words', 'filler_words', 'vocabulary'):

@@ -1994,7 +1994,7 @@ body::before {
           <div class="ring-glow"></div>
           <div class="ring-center">
             <div class="ring-label" id="state-label">idle</div>
-            <div class="ring-time" id="uptime">00:00</div>
+            <div class="ring-time" id="uptime" style="cursor:pointer" title="Click to reset timer">00:00</div>
           </div>
         </div>
       </div>
@@ -2015,7 +2015,7 @@ body::before {
       <div class="layer-stack">
         <div class="layer-opt" data-layer="1"><div class="l-info"><div class="l-name">Transcribe</div><div class="l-desc">Whisper only</div></div></div>
         <div class="layer-opt" data-layer="2"><div class="l-info"><div class="l-name">Reconstruct</div><div class="l-desc">LLM + tone</div></div></div>
-        <div class="layer-opt" data-layer="3"><div class="l-info"><div class="l-name">Profile</div><div class="l-desc">+ learns your speech</div></div></div>
+        <div class="layer-opt" data-layer="3"><div class="l-info"><div class="l-name">Profile</div><div class="l-desc">+ vocabulary</div></div></div>
         <div class="layer-opt" data-layer="4"><div class="l-info"><div class="l-name">Stutter</div><div class="l-desc">+ disfluency</div></div></div>
       </div>
     </div>
@@ -3077,6 +3077,8 @@ document.querySelectorAll('.layer-opt:not(.sit-btn)').forEach(btn=>{btn.addEvent
 document.querySelectorAll('.mode-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:btn.dataset.mode})});}catch(e){}});});
 document.querySelectorAll('.sit-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/situation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({situation:btn.dataset.situation})});}catch(e){}});});
 
+// ─── TIMER RESET ─────────────────────────
+document.getElementById('uptime').addEventListener('click',async()=>{try{await fetch(API+'/api/reset_timer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});}catch(e){}});
 // ─── ENHANCEMENT TOGGLES ─────────────────────────
 document.getElementById('toggle-paralinguistic').addEventListener('change',async(e)=>{_toggleCooldown.para=Date.now()+3000;try{await fetch(API+'/api/paralinguistic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}document.getElementById('para-transcribe-row').style.display=e.target.checked?'flex':'none';});
 document.getElementById('toggle-para-transcribe').addEventListener('change',async(e)=>{_toggleCooldown.paraTrans=Date.now()+3000;try{await fetch(API+'/api/paralinguistic_transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}});
