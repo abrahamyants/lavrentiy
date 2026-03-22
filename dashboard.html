@@ -1092,7 +1092,8 @@ body::before {
 .tab-panel.active .learn-event { background: transparent; border-color: rgba(255,200,200,0.15); }
 .tab-panel.active .le-time { color: #a08888; }
 .tab-panel.active .le-value { color: #e8d8d8; }
-.tab-panel.active .insight-card { background: #4a2020; border-color: rgba(255,200,200,0.1); }
+.tab-panel.active .insight-card { background: transparent; border-color: rgba(255,200,200,0.15); }
+.tab-panel.active .insight-card:hover { background: rgba(74,32,32,0.6); }
 .tab-panel.active .insight-title { color: #f0e0e0; }
 .tab-panel.active .insight-body { color: #d8c8c8; }
 .tab-panel.active .insight-source { color: #a08888; }
@@ -1147,10 +1148,10 @@ body::before {
   background: linear-gradient(90deg, transparent 10%, rgba(255,255,255,0.06), transparent 90%);
 }
 .session-card:hover {
-  border-color: rgba(255,200,200,0.15);
+  border-color: rgba(255,200,200,0.2);
   transform: translateY(-2px);
   box-shadow: var(--shadow-elevated);
-  background: rgba(74,32,32,0.1);
+  background: rgba(74,32,32,0.55);
 }
 @keyframes cardslide {
   from { opacity: 0; transform: translateY(-10px) scale(0.98); }
@@ -1192,7 +1193,7 @@ body::before {
   animation: logfade 0.3s;
   transition: all 0.2s;
 }
-.learn-event:hover { transform: translateY(-1px); box-shadow: var(--shadow-elevated); border-color: var(--border-hi); background: rgba(74,32,32,0.1); }
+.learn-event:hover { transform: translateY(-1px); box-shadow: var(--shadow-elevated); border-color: rgba(255,200,200,0.2); background: rgba(74,32,32,0.55); }
 .learn-event .le-type {
   font-family: var(--mono); font-size: 8px; padding: 4px 10px;
   border-radius: 6px; letter-spacing: 2px; text-transform: uppercase;
@@ -1212,16 +1213,16 @@ body::before {
 /* ─── INSIGHTS ────────────────────────────────── */
 .insights-wrap { padding: 16px 24px; }
 .insight-card {
-  background: var(--raised);
+  background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 18px 22px;
   margin-bottom: 10px;
-  box-shadow: var(--shadow-raised);
+  box-shadow: none;
   animation: cardslide 0.35s cubic-bezier(0.4,0,0.2,1);
   transition: all 0.25s;
 }
-.insight-card:hover { border-color: var(--border-hi); transform: translateY(-2px); box-shadow: var(--shadow-elevated); }
+.insight-card:hover { border-color: var(--border-hi); transform: translateY(-2px); box-shadow: var(--shadow-elevated); background: var(--raised); }
 .insight-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .insight-title { font-weight: 700; color: var(--text-bright); font-size: 13px; }
 .insight-severity {
@@ -2682,10 +2683,12 @@ function updateLearnProgress(){
   if(decayCount)decayCount.textContent=decayD+'/'+sweepEvery;
 }
 
+let _lastInsightHash='';
 function renderInsights(){
   const el=document.getElementById('insights');if(!el)return;
-  if(!learnData.insights_enabled){el.innerHTML='<div class="learn-empty">Switch to Layer 4 to view stuttering insights.</div>';return;}
+  if(!learnData.insights_enabled){if(_lastInsightHash!=='disabled'){_lastInsightHash='disabled';el.innerHTML='<div class="learn-empty">Switch to Layer 4 to view stuttering insights.</div>';}return;}
   const items=learnData.insights||[];
+  const hash=JSON.stringify(items);if(hash===_lastInsightHash)return;_lastInsightHash=hash;
   if(!items.length){el.innerHTML='<div class="learn-empty">Not enough data yet. Keep using Layer 4.</div>';return;}
   el.innerHTML=items.map(item=>{
     const ev=item.evidence?esc(JSON.stringify(item.evidence,null,2)):'';
