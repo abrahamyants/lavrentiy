@@ -3507,7 +3507,7 @@ function applyCompact() {
   if (isCompact) {
     app.classList.add('compact');
     // Try to resize window smaller (works in --app mode)
-    try { window.resizeTo(680, 100); } catch(e) {}
+    try { window.resizeTo(720, 90); } catch(e) {}
   } else {
     app.classList.remove('compact');
     try { window.resizeTo(1140, 820); } catch(e) {}
@@ -3516,24 +3516,54 @@ function applyCompact() {
 
 function updateCompactBar() {
   if (!isCompact) return;
-  const toneMap = {casual:'CAS',professional:'PRO',friend:'FRD',formal:'FRM'};
   document.getElementById('compact-state').textContent = state.state;
   const elapsed = Math.floor(Date.now()/1000 - state.stats.start_time);
   document.getElementById('compact-time').textContent =
     String(Math.floor(elapsed/60)).padStart(2,'0') + ':' + String(elapsed%60).padStart(2,'0');
-  let layerTag = 'L' + state.layer;
-  if(state.paralinguistic_enabled) layerTag += '+P';
-  if(state.prosodic_enabled) layerTag += '+F0';
-  document.getElementById('compact-layer').textContent = layerTag;
-  document.getElementById('compact-tone').textContent = toneMap[state.tone] || state.tone;
-  document.getElementById('compact-mode').textContent = state.mode || 'RAW';
-  const sitMap={default:'DEF',casual:'CAS',phone:'PHN',presentation:'PRS',interview:'INT',reading:'RDG'};
-  document.getElementById('compact-sit').textContent = sitMap[state.situation||'default']||'DEF';
-  // Show last console output
+  // Last output (no ticker, just ellipsis)
   if (logLines.length > 0) {
     const last = logLines[logLines.length - 1];
-    if (last && last.text) document.getElementById('compact-preview').innerHTML = '<span>'+last.text.replace(/</g,'&lt;')+'</span>';
+    if (last && last.text) document.getElementById('compact-output').textContent = last.text;
   }
+  // Build chips
+  const layers = [{v:1,l:'L1'},{v:2,l:'L2'},{v:3,l:'L3'},{v:4,l:'L4'}];
+  const tones = ['casual','professional','friend','formal'];
+  const modes = ['RAW','FAST','SAFE'];
+  const sits = [{v:'default',l:'Default'},{v:'high_stress',l:'Stress'},{v:'reading',l:'Reading'}];
+  let html = '';
+  // Layers
+  layers.forEach(x => {
+    html += '<span class="compact-chip'+(state.layer===x.v?' active':'')+'" data-cc="layer" data-cv="'+x.v+'">'+x.l+'</span>';
+  });
+  html += '<span class="compact-sep">|</span>';
+  // Tones (only if layer > 1)
+  if (state.layer > 1) {
+    tones.forEach(t => {
+      html += '<span class="compact-chip'+(state.tone===t?' active':'')+'" data-cc="tone" data-cv="'+t+'">'+t.slice(0,3).toUpperCase()+'</span>';
+    });
+    html += '<span class="compact-sep">|</span>';
+  }
+  // Modes (only if layer > 1)
+  if (state.layer > 1) {
+    modes.forEach(m => {
+      html += '<span class="compact-chip'+((state.mode||'RAW')===m?' active':'')+'" data-cc="mode" data-cv="'+m+'">'+m+'</span>';
+    });
+    html += '<span class="compact-sep">|</span>';
+  }
+  // Situations
+  sits.forEach(s => {
+    html += '<span class="compact-chip'+((state.situation||'default')===s.v?' active':'')+'" data-cc="situation" data-cv="'+s.v+'">'+s.l+'</span>';
+  });
+  const container = document.getElementById('compact-chips');
+  container.innerHTML = html;
+  container.querySelectorAll('.compact-chip').forEach(chip => {
+    chip.addEventListener('click', async () => {
+      const cc = chip.dataset.cc;
+      const cv = chip.dataset.cv;
+      const payload = cc === 'layer' ? {layer: parseInt(cv)} : cc === 'tone' ? {tone: cv} : cc === 'mode' ? {mode: cv} : {situation: cv};
+      try { await fetch(API + '/api/' + cc, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)}); } catch(e) {}
+    });
+  });
 }
 
 async function init(){
