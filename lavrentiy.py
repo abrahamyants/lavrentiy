@@ -281,14 +281,16 @@ LAYERS = [1, 2, 3, 4]
 LAYER_NAMES = {1: "transcribe", 2: "reconstruct", 3: "profile", 4: "stutter"}
 
 # -- Situational context (affects reconstruction aggressiveness) ──
-SITUATIONS = ["default", "phone", "presentation", "interview", "casual", "reading"]
+SITUATIONS = ["default", "high_stress", "reading"]
 SITUATION_SEVERITY = {
     "default":      1.0,
-    "phone":        1.5,   # phone calls heavily exacerbate stuttering
-    "presentation": 1.4,   # authority + audience + time pressure
-    "interview":    1.6,   # max stress: authority + judgment + time pressure
-    "casual":       0.6,   # friends/family, low pressure
+    "high_stress":  1.5,   # phone, presentation, interview — max assist
     "reading":      0.3,   # reading aloud = near-fluent for most PWS
+}
+# Back-compat: old situation names map to new ones
+_SITUATION_ALIASES = {
+    "phone": "high_stress", "presentation": "high_stress",
+    "interview": "high_stress", "casual": "default",
 }
 current_situation = "default"
 
@@ -725,7 +727,7 @@ _CLIPBOARD_CACHE_TTL = 300         # 5 minutes — cached bias validity
 _CLIPBOARD_RISK_THRESHOLD = 0.55   # min avg risk to trigger LLM synonym call
 _CLIPBOARD_TOP_N = 6               # top-N riskiest words sent to LLM
 _CLIPBOARD_MIN_TRIGGERS = 2        # need at least this many high-risk words
-_CLIPBOARD_HIGH_PRESSURE = {"phone", "interview", "presentation"}
+_CLIPBOARD_HIGH_PRESSURE = {"high_stress"}
 
 
 class ClipboardPredictor:
@@ -5312,17 +5314,15 @@ def set_mode(mode):
 
 # Situation pre-warm presets: auto-configure DAF, layer, and prep text
 SITUATION_PRESETS = {
-    "phone": {"daf_ms": 100, "layer": 4, "paralinguistic": True, "prosodic": True,
-              "prep": "Hello this is speaking. Can you repeat that? I'm calling about"},
-    "interview": {"daf_ms": 80, "layer": 4, "paralinguistic": True, "prosodic": True,
-                  "prep": "Thank you for having me. Great question. To summarize"},
-    "presentation": {"daf_ms": 0, "layer": 4, "paralinguistic": True, "prosodic": True,
-                     "prep": "Next slide. As you can see. In conclusion. Thank you"},
+    "high_stress": {"daf_ms": 100, "layer": 4, "paralinguistic": True, "prosodic": True,
+                    "prep": "Hello this is speaking. Thank you for having me. Next slide."},
     "reading": {"daf_ms": 0, "layer": 3, "prep": ""},
 }
 
 def set_situation(situation):
     global current_situation, current_layer
+    # Resolve aliases from old 6-situation system
+    situation = _SITUATION_ALIASES.get(situation, situation)
     if situation in SITUATIONS:
         current_situation = situation
         severity = SITUATION_SEVERITY[situation]

@@ -505,14 +505,19 @@ except Exception as e:
 print()
 print('=== POST /api/situation ===')
 try:
-    r = post('/api/situation', {'situation': 'phone'})
-    check('situation changed', r['situation'] == 'phone')
+    r = post('/api/situation', {'situation': 'high_stress'})
+    check('situation changed', r['situation'] == 'high_stress')
     check('has severity', 'severity' in r)
-    check('phone severity = 1.5', r['severity'] == 1.5)
+    check('high_stress severity = 1.5', r['severity'] == 1.5)
     check('has situations list', 'situations' in r)
     check('has preset_applied', 'preset_applied' in r)
     if r['preset_applied']:
         check('preset has daf_ms', 'daf_ms' in r['preset_applied'])
+    # Test alias back-compat: old names resolve to new ones
+    r2 = post('/api/situation', {'situation': 'phone'})
+    check('phone alias -> high_stress', r2['situation'] == 'high_stress')
+    r3 = post('/api/situation', {'situation': 'casual'})
+    check('casual alias -> default', r3['situation'] == 'default')
     # Restore
     post('/api/situation', {'situation': 'default'})
 except Exception as e:

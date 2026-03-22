@@ -163,8 +163,7 @@ if predict:
 print()
 print('=== TEST 4: SITUATION_SEVERITY ===')
 sev = ns.get('SITUATION_SEVERITY', {})
-for sit, expected in [('default', 1.0), ('phone', 1.5), ('presentation', 1.4),
-                      ('interview', 1.6), ('casual', 0.6), ('reading', 0.3)]:
+for sit, expected in [('default', 1.0), ('high_stress', 1.5), ('reading', 0.3)]:
     check(f'{sit} = {expected}', sev.get(sit) == expected, f'got {sev.get(sit)}')
 
 # ============================================================

@@ -670,7 +670,7 @@ if count_fn and exposure_fn and edit_fn:
     check(f'minimal edit (got {ed2})', ed2 < ed)
 
     # Situation severity ordering
-    for sit_high, sit_low in [('phone', 'casual'), ('interview', 'default'), ('presentation', 'reading')]:
+    for sit_high, sit_low in [('high_stress', 'default'), ('default', 'reading')]:
         e_high = exposure_fn(raw_heavy, sit_high, disf, prof)
         e_low = exposure_fn(raw_heavy, sit_low, disf, prof)
         check(f'{sit_high} > {sit_low} ({e_high["score"]:.2f} > {e_low["score"]:.2f})',
