@@ -1815,24 +1815,23 @@ body::before {
 /* ─── Compact bar — shown only in compact mode ───── */
 .compact-bar {
   display: none;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
+  flex-direction: column;
   background:
-    repeating-linear-gradient(
-      90deg,
-      rgba(255,255,255,0.0) 0px,
-      rgba(255,255,255,0.04) 1px,
-      rgba(0,0,0,0.02) 2px,
-      transparent 3px,
-      transparent 6px
-    ),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.0) 0px, rgba(255,255,255,0.04) 1px, rgba(0,0,0,0.02) 2px, transparent 3px, transparent 6px),
     linear-gradient(180deg, #ccccd0 0%, #c4c4c8 50%, #bcbcc0 100%);
   border-bottom: 1px solid rgba(0,0,0,0.2);
-  min-height: 44px;
   grid-column: 1 / -1;
   box-shadow: 0 2px 12px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.1);
 }
+.compact-row-top {
+  display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+}
+.compact-row-bottom {
+  display: flex; align-items: center; gap: 6px; padding: 5px 14px;
+  overflow-x: auto; scrollbar-width: none;
+}
+.compact-row-bottom::-webkit-scrollbar { display: none; }
 
 .app.compact {
   grid-template-columns: 1fr !important;
@@ -1848,26 +1847,21 @@ body::before {
 .compact-brand {
   font-family: 'Playfair Display', serif;
   font-weight: 900;
-  font-size: 13px;
-  letter-spacing: 4px;
+  font-size: 12px;
+  letter-spacing: 3px;
   color: #d4a574;
   flex-shrink: 0;
-  padding: 2px 10px;
+  padding: 2px 8px;
   border-radius: 3px;
   background: #1a1a1a;
 }
 
 .compact-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
+  display: flex; align-items: center; gap: 6px; flex-shrink: 0;
 }
 
 .compact-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
+  width: 7px; height: 7px; border-radius: 50%;
   background: var(--green);
   box-shadow: 0 0 6px var(--green-glow), inset 0 -1px 1px rgba(0,0,0,0.3);
   transition: all 0.5s;
@@ -1883,65 +1877,38 @@ body::before {
 }
 
 .compact-state {
-  font-family: var(--mono);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  color: var(--text-dim);
+  font-family: var(--mono); font-size: 9px; font-weight: 600;
+  letter-spacing: 2px; text-transform: uppercase; color: var(--text-dim);
 }
 
 .compact-time {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-muted);
-  flex-shrink: 0;
+  font-family: var(--mono); font-size: 11px; color: var(--text-muted); flex-shrink: 0;
 }
 
 .compact-sep {
-  color: var(--border-hi);
-  font-size: 14px;
-  flex-shrink: 0;
-  user-select: none;
+  color: var(--border-hi); font-size: 14px; flex-shrink: 0; user-select: none;
 }
 
-.compact-preview {
-  flex: 1;
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--text-dim);
-  white-space: nowrap;
-  overflow: hidden;
-  min-width: 0;
-  opacity: 0.7;
-  position: relative;
-}
-.compact-preview span {
-  display: inline-block;
-  animation: ticker 12s linear infinite;
-}
-@keyframes ticker {
-  0%   { transform: translateX(100%); }
-  100% { transform: translateX(-100%); }
+.compact-output {
+  flex: 1; font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
 }
 
-.compact-tags {
-  display: flex;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.compact-tag {
-  font-family: var(--mono);
-  font-size: 8px;
-  font-weight: 600;
-  letter-spacing: 1px;
-  padding: 2px 6px;
-  border-radius: 3px;
-  background: var(--raised-hi);
-  color: var(--text-muted);
+.compact-chip {
+  font-family: var(--mono); font-size: 8px; font-weight: 600; letter-spacing: 1px;
+  padding: 3px 8px; border-radius: 3px; cursor: pointer; flex-shrink: 0;
+  background: var(--raised-hi); color: var(--text-muted);
   border: 1px solid var(--border);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 1px 2px rgba(0,0,0,0.08);
+  transition: all 0.1s; user-select: none;
+}
+.compact-chip:hover {
+  background: var(--elevated); color: var(--text-bright); border-color: rgba(0,0,0,0.2);
+}
+.compact-chip.active {
+  background: linear-gradient(180deg, #b91c1c 0%, #991b1b 100%);
+  color: #fff; border-color: rgba(0,0,0,0.3);
+  box-shadow: 0 2px 6px rgba(185,28,28,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
 }
 
 </style>
@@ -1957,21 +1924,18 @@ body::before {
 
   <!-- ═══ COMPACT BAR — visible only in compact mode ═══ -->
   <div class="compact-bar" id="compact-bar">
-    <button class="compact-toggle" onclick="toggleCompact()" title="Expand">⊞</button>
-    <div class="compact-brand">Лаврентий</div>
-    <div class="compact-status">
-      <div class="compact-dot" id="compact-dot"></div>
-      <div class="compact-state" id="compact-state">idle</div>
+    <div class="compact-row-top">
+      <button class="compact-toggle" onclick="toggleCompact()" title="Expand" style="position:static">&#8862;</button>
+      <div class="compact-brand">&#1051;&#1072;&#1074;&#1088;&#1077;&#1085;&#1090;&#1080;&#1081;</div>
+      <div class="compact-status">
+        <div class="compact-dot" id="compact-dot"></div>
+        <div class="compact-state" id="compact-state">idle</div>
+      </div>
+      <div class="compact-time" id="compact-time">00:00</div>
+      <div class="compact-sep">|</div>
+      <div class="compact-output" id="compact-output"></div>
     </div>
-    <div class="compact-time" id="compact-time">00:00</div>
-    <div class="compact-sep">│</div>
-    <div class="compact-preview" id="compact-preview"></div>
-    <div class="compact-tags">
-      <span class="compact-tag" id="compact-layer">L2</span>
-      <span class="compact-tag" id="compact-tone">CAS</span>
-      <span class="compact-tag" id="compact-mode">RAW</span>
-      <span class="compact-tag" id="compact-sit">DEF</span>
-    </div>
+    <div class="compact-row-bottom" id="compact-chips"></div>
   </div>
 
   <div class="sidebar">
