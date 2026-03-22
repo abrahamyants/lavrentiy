@@ -3749,28 +3749,172 @@ function filterHelp(q){
       <div class="ha-chevron">&#9654;</div>
     </div>
     <div class="ha-body"><div class="ha-content">
-    <div class="help-item">
-      <div class="help-item-name">L1 &#8212; Transcribe</div>
-      <div class="help-item-desc">
-        <strong>Whisper only.</strong> Your voice goes in, raw text comes out. No AI cleanup, no rewriting. What Whisper heard is what gets pasted. Fastest option &#8212; pure speech-to-text.
-        <div class="help-example">
-          <span class="he-in">You say:</span> "So uh basically the the thing is um working"<br>
-          <span class="he-out">Output:</span> "So uh basically the the thing is um working"
-        </div>
+      <strong>L1 Transcribe</strong> &#8212; Whisper only. Raw speech-to-text, no AI cleanup. Fastest.<br>
+      <strong>L2 Reconstruct</strong> &#8212; GPT rewrites using your tone. Strips fillers, fixes grammar. ~1-2s slower.<br>
+      <strong>L3 Profile</strong> &#8212; Same as L2 + your personal vocabulary and corrections map.<br>
+      <strong>L4 Stutter</strong> &#8212; Full clinical mode. Disfluency tracking, exposure scoring, severity-scaled rewrites.
+      <div class="ha-example">
+        <span class="he-in">You say:</span> "So uh basically the the thing is um working"<br>
+        <span class="he-out">L1:</span> "So uh basically the the thing is um working"<br>
+        <span class="he-out">L2:</span> "The thing is working."
       </div>
+    </div></div>
+  </div>
+
+  <div class="ha-row" data-ha>
+    <div class="ha-header" onclick="toggleHa(this)">
+      <div class="ha-icon">&#9836;</div>
+      <div class="ha-info"><div class="ha-name">Tone</div><div class="ha-sub">How GPT rewrites your speech (L2+)</div></div>
+      <div class="ha-chevron">&#9654;</div>
     </div>
-    <div class="help-item">
-      <div class="help-item-name">L2 &#8212; Reconstruct</div>
-      <div class="help-item-desc">
-        <strong>LLM + tone.</strong> Whisper transcribes, then GPT rewrites using your selected tone (casual, professional, etc.). Strips fillers, fixes grammar, cleans up disfluencies. ~1-2s slower than L1.
-        <div class="help-example">
-          <span class="he-in">You say:</span> "So uh basically the the thing is um working"<br>
-          <span class="he-out">Output:</span> "The thing is working."
-        </div>
+    <div class="ha-body"><div class="ha-content">
+      <strong>Casual</strong> &#8212; Conversational. Contractions, simple words.<br>
+      <strong>Professional</strong> &#8212; Business-ready. Clean, precise language.<br>
+      <strong>Friend</strong> &#8212; Relaxed. Like texting a friend.<br>
+      <strong>Formal</strong> &#8212; Academic/legal. No contractions, precise.<br><br>
+      Has no effect on L1 (collapses when L1 is selected).
+    </div></div>
+  </div>
+
+  <div class="ha-row" data-ha>
+    <div class="ha-header" onclick="toggleHa(this)">
+      <div class="ha-icon">&#9881;</div>
+      <div class="ha-info"><div class="ha-name">Mode</div><div class="ha-sub">Pipeline steps: RAW, FAST, SAFE</div></div>
+      <div class="ha-chevron">&#9654;</div>
+    </div>
+    <div class="ha-body"><div class="ha-content">
+      <strong>RAW</strong> <code>paste as-is</code> &#8212; GPT runs for analytics but pastes Whisper's original text.<br>
+      <strong>FAST</strong> <code>skip validation</code> &#8212; GPT rewrites, trust it, paste. Best speed/quality.<br>
+      <strong>SAFE</strong> <code>+ Falcon check</code> &#8212; GPT rewrites, Falcon verifies meaning preserved. Slowest, safest.<br><br>
+      All three produce identical output on L1. Collapses when L1 is selected.
+    </div></div>
+  </div>
+
+  <div class="ha-row" data-ha>
+    <div class="ha-header" onclick="toggleHa(this)">
+      <div class="ha-icon">&#9202;</div>
+      <div class="ha-info"><div class="ha-name">Enhancements</div><div class="ha-sub">Paralinguistic + Prosodic analysis</div></div>
+      <div class="ha-chevron">&#9654;</div>
+    </div>
+    <div class="ha-body"><div class="ha-content">
+      <strong>Paralinguistic</strong> &#8212; Detects cough, laugh, sigh, throat-clear, breathing, pause. Independent of layer.<br>
+      &nbsp;&nbsp;&#8226; <strong>Transcribe sub-toggle:</strong> ON = tags injected in text (<code>[Laughter]</code>). OFF = logged only.<br><br>
+      <strong>Prosodic</strong> &#8212; Tracks pitch (F0), energy, speaking rate. Feeds severity modifier on L4. Auto-enables on L4 and High Stress.
+      <div class="ha-example">
+        <span class="he-out">Console:</span> "Speech: pause_ratio=47% rate=3.4syl/s &#8594; severity +0.4"<br>
+        <span class="he-out">Console:</span> "Prosodic: Vocal tension (erratic pitch in 100%)"
       </div>
+    </div></div>
+  </div>
+
+  <div class="ha-row" data-ha>
+    <div class="ha-header" onclick="toggleHa(this)">
+      <div class="ha-icon">&#9733;</div>
+      <div class="ha-info"><div class="ha-name">Situation</div><div class="ha-sub">One-click engine presets</div></div>
+      <div class="ha-chevron">&#9654;</div>
     </div>
-    <div class="help-item">
-      <div class="help-item-name">L3 &#8212; Profile</div>
+    <div class="ha-body"><div class="ha-content">
+      <strong>Default</strong> &#8212; Everyday dictation. Severity 1.0. No auto-toggles.<br>
+      <strong>High Stress</strong> &#8212; Phone, interview, presentation. Auto-enables L4, DAF 100ms, all toggles. Severity 1.5.<br>
+      <strong>Reading</strong> &#8212; Reading aloud. Near-fluent. Severity 0.3, light L3 touch.
+    </div></div>
+  </div>
+
+  <div class="ha-row" data-ha>
+    <div class="ha-header" onclick="toggleHa(this)">
+      <div class="ha-icon">&#9834;</div>
+      <div class="ha-info"><div class="ha-name">DAF</div><div class="ha-sub">Delayed Auditory Feedback for fluency</div></div>
+      <div class="ha-chevron">&#9654;</div>
+    </div>
+    <div class="ha-body"><div class="ha-content">
+      Plays your voice back through headphones with a slight delay. The delay tricks the brain into slowing down, improving fluency. Independent of all other settings.<br><br>
+      <strong>Toggle:</strong> ON/OFF &nbsp; <strong>Dial:</strong> Delay in milliseconds (default 100ms). More = stronger effect.
+    </div></div>
+  </div>
+
+  <div class="ha-row" data-ha>
+    <div class="ha-header" onclick="toggleHa(this)">
+      <div class="ha-icon">&#9783;</div>
+      <div class="ha-info"><div class="ha-name">Whisper Diagnostics</div><div class="ha-sub">Multi-temp, blocks, confidence</div></div>
+      <div class="ha-chevron">&#9654;</div>
+    </div>
+    <div class="ha-body"><div class="ha-content">
+      <strong>Multi-Temp</strong> &#8212; Runs Whisper at multiple temperatures. Agreement = confident. Disagreement = flagged. 3x slower.<br>
+      <strong>Blocks</strong> &#8212; Speech blocks detected (Whisper hallucinated over silence).<br>
+      <strong>No Speech slider</strong> &#8212; &#9664; Sensitive (catches more) vs. Tolerant &#9654; (fewer false alarms). Default: 15%.<br>
+      <strong>Avg LogProb</strong> &#8212; Whisper confidence. Above <code>-0.4</code> = good. Below <code>-0.7</code> = guessing.
+    </div></div>
+  </div>
+
+  <div class="ha-row" data-ha>
+    <div class="ha-header" onclick="toggleHa(this)">
+      <div class="ha-icon">&#9636;</div>
+      <div class="ha-info"><div class="ha-name">Stats &#38; Learn Bars</div><div class="ha-sub">Clickable &#8212; jump to detail tabs</div></div>
+      <div class="ha-chevron">&#9654;</div>
+    </div>
+    <div class="ha-body"><div class="ha-content">
+      <strong>Words / Sessions</strong> &#8212; Click &#8594; Sessions tab.<br>
+      <strong>API Calls / Est. Cost</strong> &#8212; Click &#8594; Console tab. Cost ~$0.0032/session.<br>
+      <strong>Corrections</strong> &#8212; Auto-corrections learned (e.g. Duncan &#8594; Dankesch&#246;n). Click &#8594; Learning tab.<br>
+      <strong>Fillers</strong> &#8212; Filler words identified (um, uh, like). Click &#8594; Learning tab.<br>
+      <strong>Vocabulary</strong> &#8212; Preferred terms in your profile. Click &#8594; Learning tab.<br>
+      <strong>Triggers</strong> &#8212; Words that cause speech blocks. Click &#8594; Learning tab.
+    </div></div>
+  </div>
+
+  <div class="ha-row" data-ha>
+    <div class="ha-header" onclick="toggleHa(this)">
+      <div class="ha-icon">&#9000;</div>
+      <div class="ha-info"><div class="ha-name">Hotkeys</div><div class="ha-sub">Keyboard shortcuts (rebindable)</div></div>
+      <div class="ha-chevron">&#9654;</div>
+    </div>
+    <div class="ha-body"><div class="ha-content">
+      <span class="ha-kbd">F9</span> Start/stop recording &nbsp;
+      <span class="ha-kbd">F10</span> Cycle tones &nbsp;
+      <span class="ha-kbd">F11</span> Cycle layers &nbsp;
+      <span class="ha-kbd">F12</span> Print stats &nbsp;
+      <span class="ha-kbd">F3</span> &#215;3 Quit<br><br>
+      All rebindable from the Shortcuts section at the bottom of the sidebar.
+    </div></div>
+  </div>
+
+  <div class="ha-row" data-ha>
+    <div class="ha-header" onclick="toggleHa(this)">
+      <div class="ha-icon">&#9724;</div>
+      <div class="ha-info"><div class="ha-name">Console Colors</div><div class="ha-sub">What the colored text means</div></div>
+      <div class="ha-chevron">&#9654;</div>
+    </div>
+    <div class="ha-body"><div class="ha-content">
+      <strong style="color:#fff">White</strong> &#8212; Your transcribed speech (with word count)<br>
+      <strong style="color:#4ade80">Green</strong> &#8212; Pipeline status, recording, paste timing<br>
+      <strong style="color:#facc15">Yellow</strong> &#8212; Speech analytics and Whisper diagnostics<br>
+      <strong style="color:#f87171">Red</strong> &#8212; Prosodic alerts (vocal tension, erratic pitch)<br>
+      <strong style="color:#a78048">Brown</strong> &#8212; Block suspect (Whisper hallucinated over silence)
+    </div></div>
+  </div>
+
+  <div class="ha-row" data-ha style="border-bottom:none">
+    <div class="ha-header" onclick="toggleHa(this)">
+      <div class="ha-icon">&#9889;</div>
+      <div class="ha-info"><div class="ha-name">Tips</div><div class="ha-sub">Power user tricks</div></div>
+      <div class="ha-chevron">&#9654;</div>
+    </div>
+    <div class="ha-body"><div class="ha-content" style="padding-bottom:40px">
+      &#8226; Click the <strong>timer</strong> in the status ring to reset it.<br>
+      &#8226; <strong>Compact toggle</strong> (top-left) collapses to a minimal bar with clickable chips.<br>
+      &#8226; Tone and Mode <strong>auto-collapse</strong> on L1 (they have no effect).<br>
+      &#8226; <strong>High Stress</strong> situation is a one-click panic button: L4 + DAF + all toggles.<br>
+      &#8226; Click any <strong>stat/learn bar cell</strong> to jump to its detail tab.
+    </div></div>
+  </div>
+
+</div>
+
+</body>
+</html>
+<!-- OLD HELP CONTENT REMOVED -->
+<!-- DEAD CODE BELOW - DO NOT RENDER -->
+<template>
       <div class="help-item-desc">
         <strong>+ vocabulary.</strong> Same as L2, but GPT also gets your personal vocabulary and correction map. Knows your preferred terms (e.g. "Lavrentiy" not "Lavrenty") and learned corrections (e.g. "Duncan" &#8594; "Dankesch&#246;n"). Gets smarter over time as it learns from your sessions.
       </div>
