@@ -34,6 +34,43 @@ Mic → Whisper (Script Prep seed | verbose JSON | multi-temp voting)
 - **Audio Archive** (`~/.lavrentiy/audio_archive/`): Session WAV + metadata pairs for future Whisper fine-tuning
 - **Augmented Data** (`~/.lavrentiy/calibration/augmented/`): Synthetic disfluent speech via TTS for dataset multiplication
 
+## What I Meant (WIM) — Consumer Mobile App
+
+Standalone PWA in `wim/` — the consumer face of the Лаврентий engine. Voice-to-Intent for everyone.
+
+**Category**: Voice-to-Intent (new product category — coined here)
+**Architecture**: Record → Whisper (device or API) → Reconstruction API (GPT-4o-mini) → clean text + confidence score (γ)
+
+```
+wim/
+  index.html       # Complete standalone PWA (tone selector, reconstruction, γ scoring)
+  manifest.json    # PWA manifest ("What I Meant" / WiM)
+  sw.js            # Service worker (app shell caching)
+  api/
+    reconstruct.py # Standalone reconstruction brain (extracted from lavrentiy.py)
+    main.py        # GCP Cloud Function HTTP handler
+    requirements.txt
+```
+
+**Features**:
+- Tone selector: Casual / Professional / Formal / Friend
+- Two-stage pipeline: Whisper transcription → GPT reconstruction
+- Intent confidence score (γ): auto-commit (>0.8), silent repair (0.6–0.8), micro-clarification (<0.6)
+- Session history in localStorage (last 50)
+- Web Share API for Android native share sheet
+- Auto-copy to clipboard toggle
+- Reconstruction toggle (on/off)
+
+**Reconstruction API** (`wim/api/reconstruct.py`):
+- `reconstruct_intent()` — main entry point. Raw text + tone + profile → clean text + γ
+- `build_prompt()` — constructs the system prompt (L2–L4, situation-aware, bilingual)
+- `falcon_validate()` — binary meaning check (SAFE mode)
+- `compute_confidence()` — intent confidence scoring
+- `strip_disfluencies()` — zero-cost rule-based cleanup
+- Deployable as GCP Cloud Function or any Python HTTP endpoint
+
+**Mobile path**: PWA → TWA (Trusted Web Activity) → Play Store listing. Same code, same look.
+
 ## Layers
 
 | Layer | Name | What it does |
@@ -82,7 +119,7 @@ Collapsed from 6 situations to 3 (phone/presentation/interview merged into High 
 
 - Python 3.10+
 - Windows (uses Win32 APIs for focus management and single-instance mutex)
-- `OPENAI_API_KEY` environment variable
+- OpenAI API key: reads from `api_key.txt` (gitignored) first, falls back to `OPENAI_API_KEY` env var
 
 ### Install dependencies
 
@@ -572,6 +609,17 @@ Key finding from Brown: rank-order correlation between factor count and stutteri
 **Not yet tested** (require live API or audio hardware): Whisper transcription, LLM reconstruction, Falcon validation, DAF audio streaming.
 
 ## Changelog
+
+### 2026-03-23 — "What I Meant" (WIM) consumer app + security hardening
+
+- **Added**: `wim/` — standalone consumer PWA with Whisper transcription + GPT reconstruction + confidence scoring (γ). Tone selector (Casual/Pro/Formal/Friend), session history, Web Share API, auto-copy. Same brushed-metal design DNA as Лаврентий but simplified for consumers.
+- **Added**: `wim/api/reconstruct.py` — standalone reconstruction brain extracted from `lavrentiy.py`. `reconstruct_intent()` takes raw text + tone + profile → returns clean text + confidence score. Zero dependencies on the desktop engine. Deployable as GCP Cloud Function.
+- **Added**: `wim/api/main.py` — Cloud Function HTTP handler (POST `/reconstruct`).
+- **Added**: Intent confidence score (γ) — computed from Falcon validation, length ratio, layer, and input complexity. Three tiers: auto-commit (>0.8), silent repair (0.6–0.8), micro-clarification (<0.6).
+- **Changed**: API key now reads from `api_key.txt` (gitignored) first, falls back to `OPENAI_API_KEY` env var. Prevents key exposure in public repos.
+- **Fixed**: CORS locked down from `*` to `http://localhost:7878` — prevents cross-origin API abuse from malicious webpages.
+- **Fixed**: Temp file cleanup now exception-safe in calibration and mobile transcribe HTTP handlers (try/finally with os.unlink).
+- **Fixed**: `edit_dist` parameter in `log_session()` now serialized via `json.dumps()` before SQLite insertion (was passing raw dict → `ProgrammingError`).
 
 ### 2026-03-22 — Multi-user profiles, EN/RU localization, thread safety hardening
 
