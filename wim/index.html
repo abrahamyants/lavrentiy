@@ -555,6 +555,55 @@ body::before {
 }
 .settings-save:active { transform: scale(0.98); }
 
+/* ─── Tone selector ─── */
+.tone-bar {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  padding: 0 24px 12px;
+}
+.tone-pill {
+  padding: 6px 14px;
+  border: 1px solid var(--border-hi);
+  border-radius: 20px;
+  background: rgba(255,255,255,0.3);
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.tone-pill:active { transform: scale(0.95); }
+.tone-pill.active {
+  background: var(--red);
+  color: white;
+  border-color: var(--red);
+}
+
+/* ─── Confidence indicator ─── */
+.conf-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.conf-high { background: var(--green); box-shadow: 0 0 6px var(--green-glow); }
+.conf-med { background: var(--yellow); box-shadow: 0 0 6px rgba(202,138,4,0.4); }
+.conf-low { background: var(--red-bright); box-shadow: 0 0 6px var(--red-glow); }
+
+.result-raw {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  margin-top: 8px;
+  font-family: var(--mono);
+  word-break: break-word;
+}
+
 /* ═══ Utilities ═══ */
 @media (min-width: 480px) {
   .results { padding: 20px 24px 32px; }
@@ -597,6 +646,13 @@ body::before {
     <div class="rec-label" id="rec-label">TAP TO RECORD</div>
   </div>
 
+  <div class="tone-bar" id="tone-bar">
+    <button class="tone-pill active" onclick="setTone('casual',this)">Casual</button>
+    <button class="tone-pill" onclick="setTone('professional',this)">Pro</button>
+    <button class="tone-pill" onclick="setTone('formal',this)">Formal</button>
+    <button class="tone-pill" onclick="setTone('friend',this)">Friend</button>
+  </div>
+
   <div class="results" id="results">
     <div class="empty">Tap the button and speak.<br>Your transcription appears here.</div>
   </div>
@@ -616,8 +672,14 @@ body::before {
     </div>
     <div class="settings-row">
       <label class="settings-toggle">
+        <input type="checkbox" id="settings-reconstruct">
+        <span>Reconstruct intent (L2)</span>
+      </label>
+    </div>
+    <div class="settings-row">
+      <label class="settings-toggle">
         <input type="checkbox" id="settings-autocopy">
-        <span>Auto-copy transcription</span>
+        <span>Auto-copy to clipboard</span>
       </label>
     </div>
     <button class="settings-danger" onclick="clearHistory()">Clear History</button>
@@ -634,6 +696,8 @@ body::before {
 // ─── State ───
 let apiKey = localStorage.getItem('wim_api_key') || '';
 let autoCopy = localStorage.getItem('wim_autocopy') !== 'false';
+let tone = localStorage.getItem('wim_tone') || 'casual';
+let reconstruct = localStorage.getItem('wim_reconstruct') !== 'false';
 let history = JSON.parse(localStorage.getItem('wim_history') || '[]');
 let recording = false;
 let processing = false;
@@ -770,6 +834,89 @@ function stopRecTimer() {
   }
 }
 
+// ─── Tone selector ───
+function setTone(t, el) {
+  tone = t;
+  localStorage.setItem('wim_tone', t);
+  document.querySelectorAll('.tone-pill').forEach(p => p.classList.remove('active'));
+  if (el) el.classList.add('active');
+}
+
+// Restore active tone pill on load
+(function restoreTone() {
+  const pills = document.querySelectorAll('.tone-pill');
+  pills.forEach(p => {
+    if (p.textContent.toLowerCase().startsWith(tone.substring(0, 3))) {
+      p.classList.add('active');
+    } else {
+      p.classList.remove('active');
+    }
+  });
+})();
+
+// ─── Reconstruction engine (client-side L2) ───
+const TONE_RULES = {
+  formal: "Use complete sentences. No contractions. No slang. Proper grammar. Only fix disfluencies and grammar errors.",
+  professional: "Clean business language. Fix grammar, strip fillers. Minor rephrasing for clarity OK.",
+  casual: "Natural spoken rhythm. Contractions OK. Strip fillers, fix obvious errors. Keep natural voice.",
+  friend: "Conversational, relaxed. Contractions expected. Fragments OK. Strip fillers, preserve personality."
+};
+const TONE_TEMP = { formal: 0.1, professional: 0.15, casual: 0.35, friend: 0.4 };
+
+async function reconstructText(rawText) {
+  const hasCyrillic = /[\u0400-\u04ff]/.test(rawText);
+  const langNote = hasCyrillic ? " Speaker is bilingual (English/Russian)." : "";
+  const toneRule = TONE_RULES[tone] || TONE_RULES.casual;
+
+  const systemPrompt = [
+    `Rebuild this raw voice transcription into clean ${tone} text.${langNote}`,
+    toneRule,
+    "Strip filler words (including non-English fillers like э, ну, ээ).",
+    "Preserve FULL meaning. Do not summarize or add information.",
+    "Output ONLY the reconstructed text.",
+    "",
+    "The input is a voice transcription and may contain ASR artifacts:",
+    "- Repeated words or phrases from natural speech hesitation",
+    "- Filler sounds transcribed as real words",
+    "- Phantom words inserted during pauses",
+    "- Phonetically similar but semantically wrong words",
+    "When a word doesn't fit the context, prefer the contextually correct interpretation.",
+  ].join("\n");
+
+  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + apiKey,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: rawText }
+      ],
+      max_tokens: 1000,
+      temperature: TONE_TEMP[tone] || 0.3
+    })
+  });
+
+  if (!r.ok) throw new Error('Reconstruction failed: ' + r.status);
+  const data = await r.json();
+  return (data.choices[0].message.content || '').trim();
+}
+
+function computeConfidence(rawText, cleanText) {
+  const rawWords = rawText.split(/\s+/).length;
+  const cleanWords = cleanText.split(/\s+/).length;
+  if (rawWords === 0) return 0.5;
+  let gamma = 0.85;
+  const ratio = cleanWords / rawWords;
+  if (ratio < 0.3) gamma -= 0.15;
+  else if (ratio > 1.5) gamma -= 0.2;
+  if (rawWords < 4) gamma -= 0.1;
+  return Math.round(Math.max(0.1, Math.min(1.0, gamma)) * 100) / 100;
+}
+
 // ─── Whisper API ───
 async function processAudio() {
   const t0 = Date.now();
@@ -811,18 +958,40 @@ async function processAudio() {
       return;
     }
 
+    // Reconstruction step (L2+)
+    let cleanText = text;
+    let confidence = 0.95;
+    let reconMs = 0;
+    if (reconstruct) {
+      try {
+        document.getElementById('rec-label').textContent = 'RECONSTRUCTING...';
+        const t1 = Date.now();
+        cleanText = await reconstructText(text);
+        reconMs = Date.now() - t1;
+        confidence = computeConfidence(text, cleanText);
+      } catch (e) {
+        cleanText = text;
+        confidence = 0.5;
+      }
+    }
+
+    const totalMs = ms + reconMs;
+
     // Add to history
     history.unshift({
-      text: text,
-      ms: ms,
+      text: cleanText,
+      raw: text !== cleanText ? text : null,
+      confidence: confidence,
+      tone: tone,
+      ms: totalMs,
       ts: new Date().toISOString()
     });
     if (history.length > 50) history.pop();
     localStorage.setItem('wim_history', JSON.stringify(history));
 
-    // Auto-copy
+    // Auto-copy clean text
     if (autoCopy) {
-      try { await navigator.clipboard.writeText(text); } catch(e) {}
+      try { await navigator.clipboard.writeText(cleanText); } catch(e) {}
     }
 
     renderResults();
@@ -851,12 +1020,28 @@ function renderResults() {
 
   let html = '';
   const latest = history[0];
-  const latestMs = latest.ms;
+
+  // Confidence dot class
+  function confClass(g) {
+    if (g >= 0.8) return 'conf-high';
+    if (g >= 0.6) return 'conf-med';
+    return 'conf-low';
+  }
 
   // Latest result card
   html += '<div class="result-card">';
   html += '<div class="result-text">' + esc(latest.text) + '</div>';
-  html += '<div class="result-meta">' + formatTime(latest.ts) + ' &bull; ' + latestMs + 'ms</div>';
+  if (latest.raw) {
+    html += '<div class="result-raw">' + esc(latest.raw) + '</div>';
+  }
+  html += '<div class="result-meta">';
+  if (latest.confidence != null) {
+    html += '<span class="conf-dot ' + confClass(latest.confidence) + '"></span>';
+    html += '\u03B3' + latest.confidence + ' &bull; ';
+  }
+  html += formatTime(latest.ts) + ' &bull; ' + latest.ms + 'ms';
+  if (latest.tone) html += ' &bull; ' + latest.tone.toUpperCase();
+  html += '</div>';
   html += '<div class="result-actions">';
   html += '<button onclick="copyItem(0, this)">COPY</button>';
   if (navigator.share) {
@@ -953,6 +1138,7 @@ async function shareItem(idx) {
 function openSettings() {
   document.getElementById('settings-key').value = apiKey;
   document.getElementById('settings-autocopy').checked = autoCopy;
+  document.getElementById('settings-reconstruct').checked = reconstruct;
   document.getElementById('settings-overlay').classList.add('open');
 }
 
@@ -972,6 +1158,8 @@ function saveSettings() {
   }
   autoCopy = document.getElementById('settings-autocopy').checked;
   localStorage.setItem('wim_autocopy', autoCopy ? 'true' : 'false');
+  reconstruct = document.getElementById('settings-reconstruct').checked;
+  localStorage.setItem('wim_reconstruct', reconstruct ? 'true' : 'false');
   closeSettings();
   renderResults();
 }
