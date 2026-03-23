@@ -55,11 +55,16 @@ except Exception:
     user32.SetProcessDPIAware()
 
 # -- Configuration ────────────────────────────────────────────────
-API_KEY = os.environ.get("OPENAI_API_KEY", "")
+API_KEY = ""
+_key_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "api_key.txt")
+if os.path.exists(_key_file):
+    API_KEY = open(_key_file, "r").read().strip()
 if not API_KEY:
-    print("ERROR: Set OPENAI_API_KEY environment variable.")
-    print("  setx OPENAI_API_KEY sk-proj-...")
-    print("  (then open a new terminal)")
+    API_KEY = os.environ.get("OPENAI_API_KEY", "")
+if not API_KEY:
+    print("ERROR: No API key found.")
+    print("  Option 1: Put your key in api_key.txt (same folder as lavrentiy.py)")
+    print("  Option 2: setx OPENAI_API_KEY sk-proj-...")
     os._exit(1)
 
 LANGUAGE = "en"
@@ -1216,7 +1221,7 @@ def log_session(prof, raw, output, tone, layer, decision=None, timings=None,
              sit,
              json.dumps(disf_counts) if disf_counts else None,
              json.dumps(exposure) if exposure else None,
-             edit_dist,
+             json.dumps(edit_dist) if edit_dist else None,
              json.dumps(speech_metrics) if speech_metrics else None,
              lang or 'en',
              json.dumps(paralinguistic_events) if paralinguistic_events else None,
@@ -5484,7 +5489,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Origin', 'http://localhost:7878')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
@@ -5990,6 +5995,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             # Receives base64-encoded WAV audio for a specific prompt
             if body and 'prompt_id' in body and 'audio_b64' in body:
                 import base64
+                tmp = None
                 try:
                     audio_bytes = base64.b64decode(body['audio_b64'])
                     # Write to temp file, read back as numpy array
@@ -5997,7 +6003,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     tmp.write(audio_bytes)
                     tmp.close()
                     audio_data, sr = sf.read(tmp.name)
-                    os.unlink(tmp.name)
                     result = calibration_save_audio(int(body['prompt_id']), audio_data, sr)
                     result["next_prompt"] = calibration_next_prompt()
                     result["status"] = calibration_status()
@@ -6005,6 +6010,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 except Exception as e:
                     log(f"Calibration record failed: {e}", "error")
                     self._json({"error": str(e)})
+                finally:
+                    if tmp:
+                        try: os.unlink(tmp.name)
+                        except OSError: pass
             else:
                 self._json({"error": "Send {\"prompt_id\": N, \"audio_b64\": \"...\"}"})
         elif self.path == '/api/calibration/skip':
@@ -6053,13 +6062,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json({"error": "Send {\"audio_b64\": \"...\"}"})
                 return
             import base64
+            tmp = None
+            tmp2 = None
             try:
                 audio_bytes = base64.b64decode(body['audio_b64'])
                 tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
                 tmp.write(audio_bytes)
                 tmp.close()
                 audio_data, sr = sf.read(tmp.name)
-                os.unlink(tmp.name)
                 # Resample if needed
                 if sr != TARGET_RATE:
                     from scipy.signal import resample_poly
@@ -6090,7 +6100,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 whisper_result = whisper_transcribe(tmp2.name)
                 raw_text = whisper_result["text"].strip()
                 t_asr = time.time()
-                os.unlink(tmp2.name)
                 if not raw_text:
                     self._json({"error": "No speech detected", "raw": "", "clean": ""})
                     return
@@ -6132,6 +6141,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 log(f"Mobile transcribe failed: {e}", "error")
                 self._json({"error": str(e)})
+            finally:
+                for f in (tmp, tmp2):
+                    if f:
+                        try: os.unlink(f.name)
+                        except OSError: pass
         elif self.path == '/api/augment':
             if _augment_state["running"]:
                 self._json({"error": "augmentation already running", "status": augment_status()})
@@ -6159,7 +6173,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         body = json.dumps(data).encode('utf-8')
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Origin', 'http://localhost:7878')
         self.send_header('Content-Length', len(body))
         self.end_headers()
         self.wfile.write(body)
