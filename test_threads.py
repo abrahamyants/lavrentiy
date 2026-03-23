@@ -395,6 +395,216 @@ else:
 
 
 # ============================================================
+print()
+print('=== TEST 7: Profile lock contention (save_profile) ===')
+import tempfile, os
+
+# Create a real save_profile with the real _profile_lock, writing to a temp dir
+_test_profile_lock = threading.Lock()
+_test_profile_dir = Path(tempfile.mkdtemp())
+_test_profile_path = _test_profile_dir / 'profile.json'
+
+def _test_save_profile(prof):
+    """Real atomic save with lock — mirrors production save_profile."""
+    with _test_profile_lock:
+        tmp_path = _test_profile_path.with_suffix('.tmp')
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            json.dump(prof, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        # Windows can raise PermissionError if a reader holds the target file;
+        # retry once after a brief pause (matches real-world behavior)
+        try:
+            tmp_path.replace(_test_profile_path)
+        except PermissionError:
+            time.sleep(0.01)
+            tmp_path.replace(_test_profile_path)
+
+errors7 = []
+N_PROFILE_THREADS = 10
+N_PROFILE_OPS = 50
+
+def profile_worker(tid):
+    """Each thread writes a profile with its own thread_id embedded."""
+    try:
+        for i in range(N_PROFILE_OPS):
+            prof = {
+                "version": 4,
+                "thread_id": tid,
+                "write_num": i,
+                "trigger_words": [f"word_{tid}_{j}" for j in range(10)],
+                "filler_words": ["um", "uh"],
+                "vocabulary": [f"vocab_{tid}"],
+                "corrections": {f"heard_{tid}": f"meant_{tid}"},
+                "covert_avoidance": {},
+            }
+            _test_save_profile(prof)
+    except Exception as e:
+        errors7.append(f"thread {tid}: {e}")
+
+threads7 = [threading.Thread(target=profile_worker, args=(t,)) for t in range(N_PROFILE_THREADS)]
+for t7 in threads7:
+    t7.start()
+for t7 in threads7:
+    t7.join(timeout=30)
+
+check('no errors during concurrent profile writes', len(errors7) == 0,
+      str(errors7[:3]) if errors7 else '')
+
+# Verify the final file is valid JSON
+try:
+    with open(_test_profile_path, 'r', encoding='utf-8') as f:
+        final_prof = json.load(f)
+    check('final profile is valid JSON', True)
+    check('final profile has version field', final_prof.get('version') == 4)
+    check('final profile has trigger_words list', isinstance(final_prof.get('trigger_words'), list))
+    check('final profile has 10 trigger words', len(final_prof.get('trigger_words', [])) == 10)
+    check('final profile has corrections dict', isinstance(final_prof.get('corrections'), dict))
+except (json.JSONDecodeError, IOError) as e:
+    check('final profile is valid JSON', False, str(e))
+
+# Verify no .tmp file left behind (atomic rename completed)
+tmp_leftover = _test_profile_path.with_suffix('.tmp')
+check('no .tmp file left behind', not tmp_leftover.exists())
+
+# Stress test: rapid sequential reads during writes
+read_errors = []
+read_results = []
+write_done = threading.Event()
+
+def profile_writer_stress():
+    for i in range(100):
+        _test_save_profile({"version": 4, "stress_write": i, "trigger_words": []})
+    write_done.set()
+
+def profile_reader_stress():
+    while not write_done.is_set():
+        try:
+            if _test_profile_path.exists():
+                with open(_test_profile_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                read_results.append(data)
+        except json.JSONDecodeError as e:
+            read_errors.append(str(e))
+        except IOError:
+            pass  # file mid-rename, OK
+
+writer_t = threading.Thread(target=profile_writer_stress)
+readers = [threading.Thread(target=profile_reader_stress) for _ in range(3)]
+write_done.clear()
+for r in readers:
+    r.start()
+writer_t.start()
+writer_t.join(timeout=15)
+write_done.set()
+for r in readers:
+    r.join(timeout=5)
+
+check('no JSON decode errors during concurrent read/write', len(read_errors) == 0,
+      str(read_errors[:3]) if read_errors else '')
+check(f'readers got valid profiles ({len(read_results)} reads)',
+      len(read_results) > 0 and all(isinstance(r, dict) for r in read_results))
+
+# Cleanup
+import shutil
+shutil.rmtree(_test_profile_dir, ignore_errors=True)
+
+
+# ============================================================
+print()
+print('=== TEST 8: Concurrent HTTP-like state mutations ===')
+# Simulates dashboard polling + settings changes from multiple threads
+# Tests the same lock contention pattern as the real HTTP server
+
+# Shared state (mirrors updateUI globals)
+_http_state = {
+    'tone': 'casual', 'layer': 2, 'mode': 'SAFE',
+    'situation': 'default', 'paralinguistic_enabled': False,
+    'prosodic_enabled': False,
+}
+_http_lock = threading.Lock()
+_http_errors = []
+_http_reads = []
+
+def http_poll_worker(n_polls):
+    """Simulates dashboard GET /api/state polling."""
+    for _ in range(n_polls):
+        try:
+            with _http_lock:
+                snapshot = dict(_http_state)
+            # Verify invariants on every read
+            assert snapshot['layer'] in (1, 2, 3, 4), f"bad layer: {snapshot['layer']}"
+            assert snapshot['tone'] in ('casual', 'professional', 'friend', 'formal')
+            assert snapshot['mode'] in ('RAW', 'FAST', 'SAFE')
+            assert snapshot['situation'] in ('default', 'high_stress', 'reading')
+            _http_reads.append(snapshot)
+        except Exception as e:
+            _http_errors.append(f"poll: {e}")
+
+def http_mutate_worker(mutations):
+    """Simulates POST /api/tone, /api/layer, /api/mode, /api/situation."""
+    tones = ['casual', 'professional', 'friend', 'formal']
+    modes = ['RAW', 'FAST', 'SAFE']
+    sits = ['default', 'high_stress', 'reading']
+    for i in range(mutations):
+        try:
+            with _http_lock:
+                _http_state['tone'] = tones[i % len(tones)]
+                _http_state['layer'] = (i % 4) + 1
+                _http_state['mode'] = modes[i % len(modes)]
+                _http_state['situation'] = sits[i % len(sits)]
+                # Toggle booleans
+                _http_state['paralinguistic_enabled'] = (i % 2 == 0)
+                _http_state['prosodic_enabled'] = (i % 3 == 0)
+        except Exception as e:
+            _http_errors.append(f"mutate: {e}")
+
+def http_stats_worker(n_ops):
+    """Simulates stats_inc from pipeline thread during recording."""
+    si = ns.get('stats_inc')
+    if si:
+        for _ in range(n_ops):
+            try:
+                si('words', 1)
+                si('api_calls', 1)
+            except Exception as e:
+                _http_errors.append(f"stats: {e}")
+
+# Reset stats
+ns['stats']['words'] = 0
+ns['stats']['api_calls'] = 0
+
+# Launch: 3 pollers (100 polls each) + 2 mutators (100 mutations each) + 2 stats writers (200 ops each)
+pollers = [threading.Thread(target=http_poll_worker, args=(100,)) for _ in range(3)]
+mutators = [threading.Thread(target=http_mutate_worker, args=(100,)) for _ in range(2)]
+stat_workers = [threading.Thread(target=http_stats_worker, args=(200,)) for _ in range(2)]
+
+all_threads = pollers + mutators + stat_workers
+for th in all_threads:
+    th.start()
+for th in all_threads:
+    th.join(timeout=15)
+
+check('no errors during concurrent HTTP simulation', len(_http_errors) == 0,
+      str(_http_errors[:3]) if _http_errors else '')
+check(f'pollers completed ({len(_http_reads)} reads)', len(_http_reads) == 300)
+check('all reads had valid state', all(
+    r['layer'] in (1,2,3,4) and r['tone'] in ('casual','professional','friend','formal')
+    for r in _http_reads))
+# Stats should be exact: 2 threads × 200 ops = 400 each
+check(f'stats_inc words exact (expected 400, got {ns["stats"]["words"]})',
+      ns['stats']['words'] == 400)
+check(f'stats_inc api_calls exact (expected 400, got {ns["stats"]["api_calls"]})',
+      ns['stats']['api_calls'] == 400)
+
+# Final state should be valid (last mutation was i=99)
+with _http_lock:
+    final = dict(_http_state)
+check('final state is consistent',
+      final['layer'] in (1,2,3,4) and final['mode'] in ('RAW','FAST','SAFE'))
+
+
+# ============================================================
 # SUMMARY
 # ============================================================
 print()

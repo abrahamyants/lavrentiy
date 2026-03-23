@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#b91c1c">
+<link rel="manifest" href="manifest.json">
+<title>What I Meant</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231a1a1a'/%3E%3Ctext x='50%25' y='56%25' dominant-baseline='middle' text-anchor='middle' font-family='sans-serif' font-weight='800' font-size='28' fill='%23e8e8ec'%3EWiM%3C/text%3E%3C/svg%3E">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #d8d8dc;
+  --surface: #c8c8cc;
+  --raised: #bfbfc4;
+  --raised-hi: #b5b5ba;
+  --card: rgba(255,255,255,0.55);
+  --card-border: rgba(255,255,255,0.35);
+  --border: rgba(0,0,0,0.1);
+  --border-hi: rgba(0,0,0,0.18);
+  --text: #2a2a30;
+  --text-dim: #55555e;
+  --text-muted: #888890;
+  --red: #b91c1c;
+  --red-bright: #dc2626;
+  --red-hot: #ef4444;
+  --red-glow: rgba(185,28,28,0.5);
+  --green: #16a34a;
+  --green-glow: rgba(22,163,74,0.4);
+  --yellow: #ca8a04;
+  --font: 'Outfit', sans-serif;
+  --mono: 'JetBrains Mono', monospace;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(90deg,
+    rgba(255,255,255,0.0) 0px, rgba(255,255,255,0.025) 1px,
+    rgba(0,0,0,0.015) 2px, transparent 3px, transparent 5px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ═══ SCREENS ═══ */
+.screen {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+}
+.screen.hidden { display: none; }
+
+/* ═══ SETUP SCREEN ═══ */
+.setup {
+  justify-content: center;
+  align-items: center;
+  padding: 24px;
+}
+.setup-card {
+  width: 100%;
+  max-width: 360px;
+  background: var(--card);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--card-border);
+  border-radius: 20px;
+  padding: 40px 28px 32px;
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.1), 0 2px 8px rgba(0,0,0,0.06);
+}
+.setup-card .brand {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  margin-bottom: 8px;
+}
+.setup-card .tagline {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 28px;
+}
+.setup-card .hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  font-family: var(--mono);
+  letter-spacing: 0.5px;
+}
+.setup-card input {
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--border-hi);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.6);
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.2s;
+}
+.setup-card input:focus {
+  border-color: var(--red);
+}
+.setup-card .btn-primary {
+  width: 100%;
+  padding: 14px;
+  margin-top: 16px;
+  border: none;
+  border-radius: 12px;
+  background: var(--red);
+  color: white;
+  font-family: var(--font);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+}
+.setup-card .btn-primary:active { transform: scale(0.98); }
+.setup-card .btn-primary:disabled {
+  background: var(--raised);
+  color: var(--text-muted);
+  cursor: default;
+}
+.setup-card .link {
+  display: inline-block;
+  margin-top: 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-decoration: none;
+  border-bottom: 1px solid var(--border);
+  transition: color 0.2s;
+}
+.setup-card .link:hover { color: var(--red); }
+.setup-card .err {
+  font-size: 12px;
+  color: var(--red-bright);
+  margin-top: 8px;
+  min-height: 18px;
+}
+
+/* ═══ MAIN SCREEN ═══ */
+.main {
+  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) 0;
+}
+
+/* ─── Header ─── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid rgba(0,0,0,0.12);
+  background:
+    repeating-linear-gradient(90deg,
+      rgba(255,255,255,0.0) 0px, rgba(255,255,255,0.04) 1px,
+      rgba(0,0,0,0.02) 2px, transparent 3px, transparent 6px),
+    linear-gradient(180deg, #ccccd0 0%, #c4c4c8 50%, #bcbcc0 100%);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.1);
+}
+.header .brand {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+}
+.header .gear {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+.header .gear:active { background: rgba(0,0,0,0.06); }
+
+/* ─── Record Area ─── */
+.rec-area {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 36px 24px 24px;
+}
+
+.rec-btn {
+  width: 130px;
+  height: 130px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  background:
+    conic-gradient(from 0deg,
+      rgba(255,255,255,0.06) 0deg, transparent 3deg, transparent 6deg,
+      rgba(255,255,255,0.06) 6deg, transparent 9deg, transparent 12deg,
+      rgba(255,255,255,0.06) 12deg, transparent 15deg, transparent 18deg,
+      rgba(255,255,255,0.06) 18deg, transparent 21deg, transparent 360deg),
+    radial-gradient(circle at 40% 35%, rgba(255,255,255,0.06) 0%, transparent 60%),
+    linear-gradient(145deg, #c0c0c5, #aaabb0);
+  box-shadow:
+    6px 6px 20px rgba(0,0,0,0.35),
+    -3px -3px 12px rgba(255,255,255,0.04),
+    inset 0 0 0 1px rgba(255,255,255,0.06),
+    inset 0 0 0 2px rgba(0,0,0,0.08);
+  transition: all 0.2s;
+  -webkit-tap-highlight-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.rec-btn:active {
+  transform: scale(0.96);
+  box-shadow:
+    2px 2px 8px rgba(0,0,0,0.4),
+    inset 2px 2px 8px rgba(0,0,0,0.3);
+}
+.rec-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--red);
+  transition: all 0.3s;
+  box-shadow: 0 2px 8px var(--red-glow);
+}
+
+/* Recording state */
+.rec-btn.recording .rec-icon {
+  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  background: var(--red-hot);
+  animation: rec-pulse 1s ease-in-out infinite;
+}
+@keyframes rec-pulse {
+  0%, 100% { box-shadow: 0 0 12px var(--red-glow); }
+  50% { box-shadow: 0 0 24px var(--red-glow), 0 0 48px rgba(239,68,68,0.2); }
+}
+
+/* Processing state */
+.rec-btn.processing {
+  pointer-events: none;
+}
+.rec-btn.processing .rec-icon {
+  border-radius: 50%;
+  width: 44px;
+  height: 44px;
+  background: conic-gradient(var(--yellow), var(--raised), var(--yellow));
+  animation: proc-spin 0.8s linear infinite;
+  box-shadow: 0 2px 8px rgba(202,138,4,0.3);
+}
+@keyframes proc-spin {
+  to { transform: rotate(360deg); }
+}
+
+.rec-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: 14px;
+  text-transform: uppercase;
+  min-height: 16px;
+}
+
+/* ─── Results Area ─── */
+.results {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px 16px 24px;
+}
+
+.empty {
+  text-align: center;
+  padding: 48px 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* Result card — latest transcription */
+.result-card {
+  background: var(--card);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
+}
+.result-text {
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--text);
+  word-break: break-word;
+}
+.result-meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 10px;
+  letter-spacing: 1px;
+}
+.result-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+.result-actions button {
+  flex: 1;
+  padding: 11px;
+  border: 1px solid var(--border-hi);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.5);
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.result-actions button:active {
+  transform: scale(0.97);
+  background: rgba(255,255,255,0.7);
+}
+.result-actions button.copied {
+  background: var(--green);
+  color: white;
+  border-color: var(--green);
+}
+
+/* History cards */
+.history-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  padding: 14px 4px 8px;
+}
+.history-card {
+  background: rgba(255,255,255,0.35);
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.history-card:active { background: rgba(255,255,255,0.5); }
+.hc-body { flex: 1; min-width: 0; }
+.hc-text {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.hc-meta {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  margin-top: 3px;
+  letter-spacing: 0.5px;
+}
+.hc-copy {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.4);
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  align-self: center;
+}
+.hc-copy:active { background: rgba(255,255,255,0.7); }
+.hc-copy.copied { background: var(--green); color: white; border-color: var(--green); }
+
+/* Error card */
+.error-card {
+  background: rgba(185,28,28,0.08);
+  border: 1px solid rgba(185,28,28,0.15);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.error-card .err-text {
+  font-size: 13px;
+  color: var(--red-bright);
+  line-height: 1.5;
+}
+
+/* ═══ SETTINGS OVERLAY ═══ */
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0,0,0,0.3);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+.settings-overlay.open {
+  opacity: 1;
+  pointer-events: all;
+}
+.settings-panel {
+  width: 100%;
+  max-width: 420px;
+  background: var(--bg);
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+  padding: 20px 24px 32px;
+  box-shadow: 0 -8px 32px rgba(0,0,0,0.15);
+  transform: translateY(100%);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.settings-overlay.open .settings-panel {
+  transform: translateY(0);
+}
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+.settings-header span {
+  font-size: 17px;
+  font-weight: 700;
+}
+.settings-close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: var(--raised);
+  color: var(--text-dim);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.settings-row {
+  margin-bottom: 16px;
+}
+.settings-row label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.settings-row input[type="password"],
+.settings-row input[type="text"] {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border-hi);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.5);
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  outline: none;
+}
+.settings-row input:focus { border-color: var(--red); }
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+.settings-toggle input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--red);
+}
+.settings-toggle span {
+  font-size: 14px;
+  color: var(--text);
+}
+.settings-danger {
+  margin-top: 8px;
+  padding: 11px;
+  width: 100%;
+  border: 1px solid rgba(185,28,28,0.2);
+  border-radius: 10px;
+  background: rgba(185,28,28,0.06);
+  color: var(--red-bright);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.settings-danger:active { background: rgba(185,28,28,0.12); }
+.settings-save {
+  margin-top: 16px;
+  padding: 13px;
+  width: 100%;
+  border: none;
+  border-radius: 12px;
+  background: var(--red);
+  color: white;
+  font-family: var(--font);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.settings-save:active { transform: scale(0.98); }
+
+/* ═══ Utilities ═══ */
+@media (min-width: 480px) {
+  .results { padding: 20px 24px 32px; }
+  .rec-area { padding: 44px 24px 28px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══ SETUP SCREEN ═══ -->
+<div class="screen setup" id="screen-setup">
+  <div class="setup-card">
+    <div class="brand">What I Meant</div>
+    <div class="tagline">Speak messy. Get clean text.</div>
+    <div class="hint">Your voice never leaves your device.<br>Only text reaches OpenAI.</div>
+    <input type="password" id="setup-key" placeholder="sk-..." autocomplete="off" spellcheck="false">
+    <div class="err" id="setup-err"></div>
+    <button class="btn-primary" id="setup-btn" onclick="saveSetupKey()" disabled>Get Started</button>
+    <a class="link" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get an API key</a>
+  </div>
+</div>
+
+<!-- ═══ MAIN SCREEN ═══ -->
+<div class="screen main hidden" id="screen-main">
+
+  <div class="header">
+    <div class="brand">What I Meant</div>
+    <button class="gear" onclick="openSettings()" aria-label="Settings">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="10" cy="10" r="3"/>
+        <path d="M10 1.5v2M10 16.5v2M3.4 3.4l1.4 1.4M15.2 15.2l1.4 1.4M1.5 10h2M16.5 10h2M3.4 16.6l1.4-1.4M15.2 4.8l1.4-1.4"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="rec-area">
+    <button class="rec-btn" id="rec-btn" onclick="toggleRecord()">
+      <div class="rec-icon" id="rec-icon"></div>
+    </button>
+    <div class="rec-label" id="rec-label">TAP TO RECORD</div>
+  </div>
+
+  <div class="results" id="results">
+    <div class="empty">Tap the button and speak.<br>Your transcription appears here.</div>
+  </div>
+
+</div>
+
+<!-- ═══ SETTINGS OVERLAY ═══ -->
+<div class="settings-overlay" id="settings-overlay" onclick="settingsOverlayClick(event)">
+  <div class="settings-panel">
+    <div class="settings-header">
+      <span>Settings</span>
+      <button class="settings-close" onclick="closeSettings()" aria-label="Close">&#x2715;</button>
+    </div>
+    <div class="settings-row">
+      <label>API Key</label>
+      <input type="password" id="settings-key" placeholder="sk-..." autocomplete="off" spellcheck="false">
+    </div>
+    <div class="settings-row">
+      <label class="settings-toggle">
+        <input type="checkbox" id="settings-autocopy">
+        <span>Auto-copy transcription</span>
+      </label>
+    </div>
+    <button class="settings-danger" onclick="clearHistory()">Clear History</button>
+    <button class="settings-save" onclick="saveSettings()">Save</button>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════
+   What I Meant — Standalone Voice-to-Text PWA
+   Speaks directly to OpenAI Whisper API. No server needed.
+   ═══════════════════════════════════════════════════════ */
+
+// ─── State ───
+let apiKey = localStorage.getItem('wim_api_key') || '';
+let autoCopy = localStorage.getItem('wim_autocopy') !== 'false';
+let history = JSON.parse(localStorage.getItem('wim_history') || '[]');
+let recording = false;
+let processing = false;
+let mediaRecorder = null;
+let chunks = [];
+let recTimerInterval = null;
+let recStartTime = 0;
+
+// ─── Init ───
+(function init() {
+  if (apiKey) showMain();
+  else showSetup();
+
+  // Enable setup button when key entered
+  const keyInput = document.getElementById('setup-key');
+  keyInput.addEventListener('input', () => {
+    document.getElementById('setup-btn').disabled = !keyInput.value.trim();
+    document.getElementById('setup-err').textContent = '';
+  });
+  keyInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && keyInput.value.trim()) saveSetupKey();
+  });
+})();
+
+function showSetup() {
+  document.getElementById('screen-setup').classList.remove('hidden');
+  document.getElementById('screen-main').classList.add('hidden');
+}
+
+function showMain() {
+  document.getElementById('screen-setup').classList.add('hidden');
+  document.getElementById('screen-main').classList.remove('hidden');
+  renderResults();
+}
+
+// ─── Setup ───
+async function saveSetupKey() {
+  const key = document.getElementById('setup-key').value.trim();
+  if (!key) return;
+
+  const btn = document.getElementById('setup-btn');
+  const err = document.getElementById('setup-err');
+  btn.disabled = true;
+  btn.textContent = 'Verifying...';
+  err.textContent = '';
+
+  // Quick validation: hit OpenAI models endpoint
+  try {
+    const r = await fetch('https://api.openai.com/v1/models/whisper-1', {
+      headers: { 'Authorization': 'Bearer ' + key }
+    });
+    if (!r.ok) {
+      err.textContent = r.status === 401 ? 'Invalid API key.' : 'Error ' + r.status;
+      btn.textContent = 'Get Started';
+      btn.disabled = false;
+      return;
+    }
+  } catch (e) {
+    err.textContent = 'Network error. Check your connection.';
+    btn.textContent = 'Get Started';
+    btn.disabled = false;
+    return;
+  }
+
+  apiKey = key;
+  localStorage.setItem('wim_api_key', key);
+  btn.textContent = 'Get Started';
+  showMain();
+}
+
+// ─── Recording ───
+async function toggleRecord() {
+  if (processing) return;
+  const btn = document.getElementById('rec-btn');
+  const label = document.getElementById('rec-label');
+
+  if (!recording) {
+    // Start
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      chunks = [];
+      const options = {};
+      // Prefer webm (Chrome/Android) or mp4 (Safari/iOS)
+      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+        options.mimeType = 'audio/webm;codecs=opus';
+      } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+        options.mimeType = 'audio/mp4';
+      }
+      mediaRecorder = new MediaRecorder(stream, options);
+      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        processAudio();
+      };
+      mediaRecorder.start();
+      recording = true;
+      recStartTime = Date.now();
+      startRecTimer();
+      btn.classList.add('recording');
+      label.textContent = '00:00';
+      try { navigator.vibrate(50); } catch(e) {}
+    } catch (e) {
+      label.textContent = 'MIC ACCESS DENIED';
+      setTimeout(() => { label.textContent = 'TAP TO RECORD'; }, 2500);
+    }
+  } else {
+    // Stop
+    recording = false;
+    stopRecTimer();
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop();
+    }
+    btn.classList.remove('recording');
+    btn.classList.add('processing');
+    label.textContent = 'TRANSCRIBING...';
+    processing = true;
+    try { navigator.vibrate(30); } catch(e) {}
+  }
+}
+
+function startRecTimer() {
+  recTimerInterval = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - recStartTime) / 1000);
+    const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+    const s = String(elapsed % 60).padStart(2, '0');
+    document.getElementById('rec-label').textContent = m + ':' + s;
+  }, 250);
+}
+
+function stopRecTimer() {
+  if (recTimerInterval) {
+    clearInterval(recTimerInterval);
+    recTimerInterval = null;
+  }
+}
+
+// ─── Whisper API ───
+async function processAudio() {
+  const t0 = Date.now();
+  const mimeType = mediaRecorder.mimeType || 'audio/webm';
+  const blob = new Blob(chunks, { type: mimeType });
+  const ext = mimeType.includes('mp4') ? 'm4a' : mimeType.includes('ogg') ? 'ogg' : 'webm';
+
+  const formData = new FormData();
+  formData.append('file', new File([blob], 'audio.' + ext, { type: mimeType }));
+  formData.append('model', 'whisper-1');
+
+  try {
+    const r = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + apiKey },
+      body: formData
+    });
+
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      if (r.status === 401) {
+        showError('Invalid API key. Check Settings.');
+      } else if (r.status === 429) {
+        showError('Rate limited. Wait a moment and try again.');
+      } else {
+        showError(body.error?.message || 'API error ' + r.status);
+      }
+      resetRecBtn();
+      return;
+    }
+
+    const data = await r.json();
+    const ms = Date.now() - t0;
+    const text = (data.text || '').trim();
+
+    if (!text) {
+      showError('No speech detected. Try again.');
+      resetRecBtn();
+      return;
+    }
+
+    // Add to history
+    history.unshift({
+      text: text,
+      ms: ms,
+      ts: new Date().toISOString()
+    });
+    if (history.length > 50) history.pop();
+    localStorage.setItem('wim_history', JSON.stringify(history));
+
+    // Auto-copy
+    if (autoCopy) {
+      try { await navigator.clipboard.writeText(text); } catch(e) {}
+    }
+
+    renderResults();
+  } catch (e) {
+    showError('Network error. Check your connection.');
+  }
+
+  resetRecBtn();
+}
+
+function resetRecBtn() {
+  processing = false;
+  const btn = document.getElementById('rec-btn');
+  const label = document.getElementById('rec-label');
+  btn.classList.remove('recording', 'processing');
+  label.textContent = 'TAP TO RECORD';
+}
+
+// ─── Rendering ───
+function renderResults() {
+  const container = document.getElementById('results');
+  if (!history.length) {
+    container.innerHTML = '<div class="empty">Tap the button and speak.<br>Your transcription appears here.</div>';
+    return;
+  }
+
+  let html = '';
+  const latest = history[0];
+  const latestMs = latest.ms;
+
+  // Latest result card
+  html += '<div class="result-card">';
+  html += '<div class="result-text">' + esc(latest.text) + '</div>';
+  html += '<div class="result-meta">' + formatTime(latest.ts) + ' &bull; ' + latestMs + 'ms</div>';
+  html += '<div class="result-actions">';
+  html += '<button onclick="copyItem(0, this)">COPY</button>';
+  if (navigator.share) {
+    html += '<button onclick="shareItem(0)">SHARE</button>';
+  }
+  html += '</div>';
+  if (autoCopy) {
+    html += '<div class="result-meta" style="margin-top:6px;color:var(--green)">auto-copied</div>';
+  }
+  html += '</div>';
+
+  // History
+  if (history.length > 1) {
+    html += '<div class="history-label">History</div>';
+    for (let i = 1; i < history.length; i++) {
+      const h = history[i];
+      html += '<div class="history-card" onclick="copyItem(' + i + ', this.querySelector(\'.hc-copy\'))">';
+      html += '<div class="hc-body">';
+      html += '<div class="hc-text">' + esc(h.text) + '</div>';
+      html += '<div class="hc-meta">' + formatTime(h.ts) + ' &bull; ' + h.ms + 'ms</div>';
+      html += '</div>';
+      html += '<button class="hc-copy" onclick="event.stopPropagation();copyItem(' + i + ', this)" aria-label="Copy">';
+      html += '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M3 10.5V3a1.5 1.5 0 011.5-1.5H11"/></svg>';
+      html += '</button>';
+      html += '</div>';
+    }
+  }
+
+  container.innerHTML = html;
+}
+
+function showError(msg) {
+  const container = document.getElementById('results');
+  let html = '<div class="error-card"><div class="err-text">' + esc(msg) + '</div></div>';
+  // Keep existing history below
+  if (history.length) {
+    html += '<div class="history-label">History</div>';
+    for (let i = 0; i < history.length; i++) {
+      const h = history[i];
+      html += '<div class="history-card" onclick="copyItem(' + i + ', this.querySelector(\'.hc-copy\'))">';
+      html += '<div class="hc-body">';
+      html += '<div class="hc-text">' + esc(h.text) + '</div>';
+      html += '<div class="hc-meta">' + formatTime(h.ts) + ' &bull; ' + h.ms + 'ms</div>';
+      html += '</div>';
+      html += '<button class="hc-copy" onclick="event.stopPropagation();copyItem(' + i + ', this)" aria-label="Copy">';
+      html += '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M3 10.5V3a1.5 1.5 0 011.5-1.5H11"/></svg>';
+      html += '</button>';
+      html += '</div>';
+    }
+  }
+  container.innerHTML = html;
+}
+
+// ─── Actions ───
+async function copyItem(idx, btnEl) {
+  const item = history[idx];
+  if (!item) return;
+  try {
+    await navigator.clipboard.writeText(item.text);
+  } catch (e) {
+    // Fallback
+    const ta = document.createElement('textarea');
+    ta.value = item.text;
+    ta.style.cssText = 'position:fixed;left:-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+  if (btnEl) {
+    const isMain = btnEl.closest('.result-actions');
+    btnEl.classList.add('copied');
+    const origText = btnEl.textContent;
+    if (isMain) btnEl.textContent = 'COPIED';
+    setTimeout(() => {
+      btnEl.classList.remove('copied');
+      if (isMain) btnEl.textContent = origText;
+    }, 1200);
+  }
+}
+
+async function shareItem(idx) {
+  const item = history[idx];
+  if (!item) return;
+  try {
+    await navigator.share({ text: item.text });
+  } catch (e) {
+    // User cancelled or not supported — fall back to copy
+    copyItem(idx, null);
+  }
+}
+
+// ─── Settings ───
+function openSettings() {
+  document.getElementById('settings-key').value = apiKey;
+  document.getElementById('settings-autocopy').checked = autoCopy;
+  document.getElementById('settings-overlay').classList.add('open');
+}
+
+function closeSettings() {
+  document.getElementById('settings-overlay').classList.remove('open');
+}
+
+function settingsOverlayClick(e) {
+  if (e.target === document.getElementById('settings-overlay')) closeSettings();
+}
+
+function saveSettings() {
+  const key = document.getElementById('settings-key').value.trim();
+  if (key) {
+    apiKey = key;
+    localStorage.setItem('wim_api_key', key);
+  }
+  autoCopy = document.getElementById('settings-autocopy').checked;
+  localStorage.setItem('wim_autocopy', autoCopy ? 'true' : 'false');
+  closeSettings();
+  renderResults();
+}
+
+function clearHistory() {
+  if (!history.length) return;
+  history = [];
+  localStorage.removeItem('wim_history');
+  closeSettings();
+  renderResults();
+}
+
+// ─── Helpers ───
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+function formatTime(isoStr) {
+  try {
+    const d = new Date(isoStr);
+    return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+  } catch (e) {
+    return '';
+  }
+}
+
+// ─── Service Worker ───
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>

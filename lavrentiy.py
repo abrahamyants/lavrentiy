@@ -77,11 +77,35 @@ WHISPER_NO_SPEECH_THRESHOLD = 0.15   # Post-hoc filter: segments with no_speech_
                                      # using verbose_json no_speech_prob. Lower = preserve more blocks.
 WHISPER_MULTI_TEMP = False           # Multi-temperature voting: OFF by default (3x cost, avg_logprob catches same artifacts)
 WHISPER_MULTI_TEMPS = [0.0, 0.2, 0.4]  # Temperature schedule for voting passes
-PROFILE_DIR = Path.home() / ".lavrentiy"
-PROFILE_PATH = PROFILE_DIR / "profile.json"
+LAVRENTIY_DIR = Path.home() / ".lavrentiy"
+PROFILES_ROOT = LAVRENTIY_DIR / "profiles"
+ACTIVE_FILE = LAVRENTIY_DIR / "active_profile"
+DEFAULT_PROFILE_NAME = "Default"
 DASHBOARD_PORT = 7878
-DB_PATH = PROFILE_DIR / "history.db"
-DASHBOARD_PATH = PROFILE_DIR / "dashboard.html"
+
+def _read_active_profile_name():
+    """Read active profile name from disk, or return default."""
+    try:
+        if ACTIVE_FILE.exists():
+            name = ACTIVE_FILE.read_text(encoding='utf-8').strip()
+            if name:
+                return name
+    except (IOError, OSError):
+        pass
+    return DEFAULT_PROFILE_NAME
+
+def _write_active_profile_name(name):
+    LAVRENTIY_DIR.mkdir(exist_ok=True)
+    ACTIVE_FILE.write_text(name, encoding='utf-8')
+
+def _resolve_profile_paths(name):
+    """Return (PROFILE_DIR, PROFILE_PATH, DB_PATH, BACKUP_DIR) for a given profile name."""
+    pdir = PROFILES_ROOT / name
+    return pdir, pdir / "profile.json", pdir / "history.db", pdir / "backups"
+
+_active_profile_name = _read_active_profile_name()
+PROFILE_DIR, PROFILE_PATH, DB_PATH, BACKUP_DIR = _resolve_profile_paths(_active_profile_name)
+DASHBOARD_PATH = LAVRENTIY_DIR / "dashboard.html"
 
 # -- Phase 2 config ──────────────────────────────────────────────
 MODE = "SAFE"                     # RAW | FAST | SAFE (default)
@@ -89,8 +113,26 @@ MODES = ["RAW", "FAST", "SAFE"]
 LEARN_PROMOTION_THRESHOLD = 2     # candidate recurrences before promotion
 MAX_PROFILE_ITEMS = 200           # cap per profile section
 HOLD_ON_HIGH_RISK = False         # True = skip paste when risk_flags present
-BACKUP_DIR = PROFILE_DIR / "backups"
 PROFILE_VERSION = 4
+
+# -- One-time migration: flat layout → profiles/<Default>/ ──────
+if not PROFILES_ROOT.exists():
+    _old_profile = LAVRENTIY_DIR / "profile.json"
+    _old_db = LAVRENTIY_DIR / "history.db"
+    _old_backups = LAVRENTIY_DIR / "backups"
+    if _old_profile.exists() or _old_db.exists():
+        PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+        if _old_profile.exists():
+            shutil.move(str(_old_profile), str(PROFILE_PATH))
+        if _old_db.exists():
+            shutil.move(str(_old_db), str(DB_PATH))
+        if _old_backups.exists():
+            shutil.move(str(_old_backups), str(BACKUP_DIR))
+        _write_active_profile_name(DEFAULT_PROFILE_NAME)
+        try:
+            print(f"Migrated profile to profiles/{DEFAULT_PROFILE_NAME}/")
+        except Exception:
+            pass
 
 # -- Live preview config ─────────────────────────────────────────
 LIVE_PREVIEW_ENABLED = False      # True = stream interim transcripts
@@ -939,14 +981,18 @@ def migrate_fillers(prof):
         save_profile(prof)
     return added
 
+_profile_lock = threading.Lock()
+
 def save_profile(prof):
-    PROFILE_DIR.mkdir(exist_ok=True)
-    tmp_path = PROFILE_PATH.with_suffix('.tmp')
-    with open(tmp_path, 'w', encoding='utf-8') as f:
-        json.dump(prof, f, indent=2, ensure_ascii=False)
-        f.flush()
-        os.fsync(f.fileno())
-    tmp_path.replace(PROFILE_PATH)
+    """Thread-safe atomic profile write. Lock prevents concurrent .tmp corruption."""
+    with _profile_lock:
+        PROFILE_DIR.mkdir(exist_ok=True)
+        tmp_path = PROFILE_PATH.with_suffix('.tmp')
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            json.dump(prof, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        tmp_path.replace(PROFILE_PATH)
 
 def _snapshot_profile(prof):
     """Save timestamped backup. Keep last 5."""
@@ -957,6 +1003,100 @@ def _snapshot_profile(prof):
         json.dump(prof, f, indent=2, ensure_ascii=False)
     for old in sorted(BACKUP_DIR.glob("profile_*.json"))[:-5]:
         old.unlink()
+
+def list_profiles():
+    """Return sorted list of available profile names."""
+    PROFILES_ROOT.mkdir(parents=True, exist_ok=True)
+    names = []
+    for d in sorted(PROFILES_ROOT.iterdir()):
+        if d.is_dir() and (d / "profile.json").exists():
+            names.append(d.name)
+    if not names:
+        names.append(DEFAULT_PROFILE_NAME)
+    return names
+
+def switch_profile(name):
+    """Switch to a different user profile. Saves current, closes DB, loads new."""
+    global _active_profile_name, PROFILE_DIR, PROFILE_PATH, DB_PATH, BACKUP_DIR
+    global profile, _db
+    global _shadow_history, _onset_anomalies, _personal_onset_weights
+    global _personal_onset_weights_by_lang, _personal_dominant_onsets
+    global _last_speech_metrics, _last_low_conf_segments, _last_avg_logprob
+    global _last_paralinguistic_events, _last_speaker_state
+    global _redo_count, _block_count, _decay_counter
+    global learn_events, learn_status
+
+    name = name.strip()
+    if not name or '/' in name or '\\' in name or '..' in name:
+        raise ValueError(f"Invalid profile name: {name}")
+
+    # Save current profile before switching
+    with _profile_lock:
+        save_profile(profile)
+
+    # Close current DB
+    with _db_lock:
+        try:
+            _db.close()
+        except Exception:
+            pass
+
+    # Update paths
+    _active_profile_name = name
+    PROFILE_DIR, PROFILE_PATH, DB_PATH, BACKUP_DIR = _resolve_profile_paths(name)
+    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    _write_active_profile_name(name)
+
+    # Load new profile
+    profile = load_profile()
+    profile = migrate_profile(profile)
+    if normalize_profile(profile):
+        save_profile(profile)
+    migrate_fillers(profile)
+    learn_onset_weights(profile.get("trigger_words", []))
+
+    # Reinitialize DB
+    _db = _init_db(DB_PATH)
+
+    # Reset transient state
+    _shadow_history.clear() if isinstance(_shadow_history, list) else None
+    _onset_anomalies.clear() if isinstance(_onset_anomalies, list) else None
+    _last_low_conf_segments.clear() if isinstance(_last_low_conf_segments, list) else None
+    _last_paralinguistic_events.clear() if isinstance(_last_paralinguistic_events, list) else None
+    _last_speech_metrics.clear() if isinstance(_last_speech_metrics, dict) else None
+    _last_avg_logprob = 0.0
+    _last_speaker_state = ""
+    _redo_count = 0
+    _block_count = 0
+    _decay_counter = 0
+    learn_events.clear() if isinstance(learn_events, list) else None
+    learn_status.clear() if isinstance(learn_status, dict) else None
+
+    try:
+        print(f"Switched to profile: {name}")
+    except Exception:
+        pass
+    return name
+
+def create_profile(name):
+    """Create a new blank profile. Does NOT switch to it."""
+    name = name.strip()
+    if not name or '/' in name or '\\' in name or '..' in name:
+        raise ValueError(f"Invalid profile name: {name}")
+    pdir = PROFILES_ROOT / name
+    if pdir.exists():
+        raise ValueError(f"Profile '{name}' already exists")
+    pdir.mkdir(parents=True, exist_ok=True)
+    p = dict(DEFAULT_PROFILE)
+    p["created"] = datetime.now().isoformat()
+    p["corrections"] = {}
+    p["trigger_words"] = list(DEFAULT_PROFILE["trigger_words"])
+    p["filler_words"] = list(DEFAULT_PROFILE["filler_words"])
+    p["vocabulary"] = list(DEFAULT_PROFILE["vocabulary"])
+    p["preferences"] = dict(DEFAULT_PROFILE["preferences"])
+    with open(pdir / "profile.json", 'w', encoding='utf-8') as f:
+        json.dump(p, f, indent=2, ensure_ascii=False)
+    return name
 
 def _norm_str(s, max_len=100):
     """Strip whitespace, cap length."""
@@ -1551,67 +1691,45 @@ _clipboard_predictor = ClipboardPredictor()
 _clipboard_predictor.start()
 
 # -- SQLite session history ───────────────────────────────────────
-PROFILE_DIR.mkdir(exist_ok=True)
-_db = sqlite3.connect(str(DB_PATH), check_same_thread=False)
-_db.execute("PRAGMA journal_mode=WAL")
-_db.execute("PRAGMA synchronous=NORMAL")
-_db.execute("""
-    CREATE TABLE IF NOT EXISTS sessions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        ts TEXT NOT NULL,
-        raw TEXT NOT NULL,
-        out TEXT NOT NULL,
-        tone TEXT NOT NULL,
-        layer INTEGER NOT NULL,
-        words INTEGER NOT NULL,
-        falcon INTEGER NOT NULL DEFAULT 1,
-        decision TEXT,
-        timings TEXT,
-        situation TEXT DEFAULT 'default'
-    )
-""")
-_db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_ts ON sessions(ts)")
-# Migration: add situation column to existing DBs
-try:
-    _db.execute("ALTER TABLE sessions ADD COLUMN situation TEXT DEFAULT 'default'")
-except sqlite3.OperationalError:
-    pass  # column already exists
-# Migration: add disfluency_counts column
-try:
-    _db.execute("ALTER TABLE sessions ADD COLUMN disfluency_counts TEXT")
-except sqlite3.OperationalError:
-    pass  # column already exists
-# Migration: add exposure_difficulty and editorial_distance columns
-try:
-    _db.execute("ALTER TABLE sessions ADD COLUMN exposure_difficulty TEXT")
-except sqlite3.OperationalError:
-    pass
-try:
-    _db.execute("ALTER TABLE sessions ADD COLUMN editorial_distance REAL")
-except sqlite3.OperationalError:
-    pass
-# Migration: add speech_metrics column (pause_ratio, rate, severity_modifier per session)
-try:
-    _db.execute("ALTER TABLE sessions ADD COLUMN speech_metrics TEXT")
-except sqlite3.OperationalError:
-    pass
-# Migration: add dominant language per session
-try:
-    _db.execute("ALTER TABLE sessions ADD COLUMN lang TEXT DEFAULT 'en'")
-except sqlite3.OperationalError:
-    pass
-# Migration: add paralinguistic events column (Layer 5)
-try:
-    _db.execute("ALTER TABLE sessions ADD COLUMN paralinguistic_events TEXT")
-except sqlite3.OperationalError:
-    pass
-# Migration: add prosodic summary column (Layer 5.5)
-try:
-    _db.execute("ALTER TABLE sessions ADD COLUMN prosodic_summary TEXT")
-except sqlite3.OperationalError:
-    pass
-_db.commit()
 _db_lock = threading.Lock()
+
+def _init_db(db_path=None):
+    """Initialize (or reinitialize) the SQLite database connection. Thread-safe."""
+    if db_path is None:
+        db_path = DB_PATH
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(str(db_path), check_same_thread=False)
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA synchronous=NORMAL")
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts TEXT NOT NULL, raw TEXT NOT NULL, out TEXT NOT NULL,
+            tone TEXT NOT NULL, layer INTEGER NOT NULL,
+            words INTEGER NOT NULL, falcon INTEGER NOT NULL DEFAULT 1,
+            decision TEXT, timings TEXT, situation TEXT DEFAULT 'default'
+        )
+    """)
+    db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_ts ON sessions(ts)")
+    for col_sql in [
+        "ALTER TABLE sessions ADD COLUMN situation TEXT DEFAULT 'default'",
+        "ALTER TABLE sessions ADD COLUMN disfluency_counts TEXT",
+        "ALTER TABLE sessions ADD COLUMN exposure_difficulty TEXT",
+        "ALTER TABLE sessions ADD COLUMN editorial_distance REAL",
+        "ALTER TABLE sessions ADD COLUMN speech_metrics TEXT",
+        "ALTER TABLE sessions ADD COLUMN lang TEXT DEFAULT 'en'",
+        "ALTER TABLE sessions ADD COLUMN paralinguistic_events TEXT",
+        "ALTER TABLE sessions ADD COLUMN prosodic_summary TEXT",
+    ]:
+        try:
+            db.execute(col_sql)
+        except sqlite3.OperationalError:
+            pass
+    db.commit()
+    return db
+
+PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+_db = _init_db(DB_PATH)
 
 # One-time migration: move sessions from profile.json into SQLite
 _migrated_path = PROFILE_DIR / ".sessions_migrated"
@@ -5427,6 +5545,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'paralinguistic_enabled': paralinguistic_enabled,
                 'paralinguistic_transcribe': paralinguistic_transcribe,
                 'prosodic_enabled': prosodic_enabled,
+                'profile_name': _active_profile_name,
+            })
+        elif self.path == '/api/profiles':
+            self._json({
+                'profiles': list_profiles(),
+                'active': _active_profile_name,
             })
         elif self.path == '/api/profile':
             self._json(profile)
@@ -5748,6 +5872,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     'prep_loaded': bool(preset.get('prep')),
                 } if preset else None,
             })
+        elif self.path == '/api/profiles/switch':
+            if body and isinstance(body.get('name'), str):
+                try:
+                    switched = switch_profile(body['name'])
+                    self._json({'ok': True, 'active': switched, 'profiles': list_profiles()})
+                except ValueError as e:
+                    self._json({'ok': False, 'error': str(e)})
+            else:
+                self._json({'ok': False, 'error': 'Missing name'})
+        elif self.path == '/api/profiles/create':
+            if body and isinstance(body.get('name'), str):
+                try:
+                    created = create_profile(body['name'])
+                    self._json({'ok': True, 'name': created, 'profiles': list_profiles()})
+                except ValueError as e:
+                    self._json({'ok': False, 'error': str(e)})
+            else:
+                self._json({'ok': False, 'error': 'Missing name'})
         elif self.path == '/api/reset_timer':
             stats["start_time"] = time.time()
             log("Timer reset", "info")

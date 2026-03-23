@@ -1993,6 +1993,73 @@ body::before {
 }
 .help-btn:hover { background: var(--elevated); color: var(--red-bright); border-color: rgba(185,28,28,0.4); }
 
+/* ─── LANGUAGE TOGGLE ───── */
+.lang-toggle {
+  position: absolute; top: 6px; right: 32px; display: flex; z-index: 20;
+}
+.lang-btn {
+  padding: 2px 5px; font-family: var(--mono); font-size: 9px; font-weight: 600;
+  letter-spacing: 0.5px; border: 1px solid var(--border-hi); background: var(--raised);
+  color: var(--text-muted); cursor: pointer; transition: all 0.15s; line-height: 1;
+}
+.lang-btn:first-child { border-radius: 3px 0 0 3px; }
+.lang-btn:last-child { border-radius: 0 3px 3px 0; border-left: none; }
+.lang-btn.active { background: rgba(185,28,28,0.15); color: var(--red-bright); border-color: rgba(185,28,28,0.3); }
+.lang-btn:hover:not(.active) { color: var(--text-bright); }
+
+/* ─── PROFILE SELECTOR ───── */
+.profile-selector {
+  padding: 0 16px 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 6px;
+}
+.profile-select {
+  flex: 1; padding: 4px 8px; font-family: var(--mono); font-size: 10px;
+  background: var(--raised); border: 1px solid var(--border-hi); border-radius: 4px;
+  color: var(--text); cursor: pointer; outline: none; letter-spacing: 0.5px;
+}
+.profile-select:focus { border-color: rgba(185,28,28,0.4); }
+.profile-add-btn {
+  width: 22px; height: 22px; border: 1px solid var(--border-hi); border-radius: 4px;
+  background: var(--raised); color: var(--text-muted); font-size: 14px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: all 0.15s;
+  font-family: var(--mono); line-height: 1; padding: 0;
+}
+.profile-add-btn:hover { color: var(--red-bright); border-color: rgba(185,28,28,0.4); }
+/* New profile modal */
+.profile-modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2000;
+  display: none; align-items: center; justify-content: center;
+}
+.profile-modal-backdrop.open { display: flex; }
+.profile-modal {
+  background: linear-gradient(180deg, #ccccd0 0%, #bcbcc0 100%);
+  border: 1px solid rgba(0,0,0,0.2); border-radius: 8px; padding: 20px 24px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.3); min-width: 280px;
+}
+.profile-modal-title {
+  font-family: 'Playfair Display', serif; font-size: 14px; font-weight: 900;
+  color: var(--text-bright); letter-spacing: 1px; margin-bottom: 12px;
+}
+.profile-modal-input {
+  width: 100%; padding: 8px 10px; font-family: var(--mono); font-size: 12px;
+  background: var(--raised); border: 1px solid var(--border-hi); border-radius: 4px;
+  color: var(--text); outline: none; margin-bottom: 12px;
+}
+.profile-modal-input:focus { border-color: rgba(185,28,28,0.4); }
+.profile-modal-btns { display: flex; gap: 8px; justify-content: flex-end; }
+.profile-modal-btns button {
+  padding: 6px 14px; font-family: var(--mono); font-size: 10px; font-weight: 600;
+  border-radius: 4px; cursor: pointer; transition: all 0.15s; letter-spacing: 1px;
+}
+.profile-modal-cancel {
+  background: var(--raised); border: 1px solid var(--border-hi); color: var(--text-muted);
+}
+.profile-modal-create {
+  background: rgba(185,28,28,0.15); border: 1px solid rgba(185,28,28,0.3); color: var(--red-bright);
+}
+.profile-modal-create:hover { background: rgba(185,28,28,0.25); }
+
 .help-overlay {
   position: fixed; top: 0; right: -480px; width: 460px; height: 100vh; z-index: 1000;
   background:
@@ -2139,8 +2206,14 @@ body::before {
       </div>
     </div>
 
+    <div class="profile-selector">
+      <select class="profile-select" id="profile-select" onchange="switchProfile(this.value)"></select>
+      <button class="profile-add-btn" onclick="openProfileModal()" title="New profile">+</button>
+    </div>
+
     <div class="status-ring-wrap">
       <button class="compact-toggle" onclick="toggleCompact()" title="Compact mode">&#8863;</button>
+      <div class="lang-toggle"><button class="lang-btn active" data-lang="en" onclick="setLang('en')">EN</button><button class="lang-btn" data-lang="ru" onclick="setLang('ru')">RU</button></div>
       <button class="help-btn" onclick="toggleHelp()" title="Manual">?</button>
       <div class="status-ring-outer">
         <div class="status-ring-inner">
@@ -2508,6 +2581,425 @@ let learnData={status:{},events:[],totals:{corrections:0,fillers:0,vocabulary:0}
 let lastLearnEventCount=0;let lastLogFetch=0;let lastLearnFetch=0;let lastPreviewFetch=0;
 const FIELD_MAP={trigger:'trigger_words',filler:'filler_words',vocab:'vocabulary'};
 
+// ─── i18n ──────────────────────────────────────────────
+let currentLang=localStorage.getItem('lavrentiy-lang')||'en';
+const I18N={
+  // Boot
+  boot_sub:{en:'VOICE RECONSTRUCTION ENGINE',ru:'СИСТЕМА ВОССТАНОВЛЕНИЯ РЕЧИ'},
+  conn_lost:{en:'Connection Lost',ru:'Соединение потеряно'},
+  conn_sub:{en:'Lavrentiy engine is not running',ru:'Движок Лаврентий не запущен'},
+  // Sidebar sections
+  sec_tone:{en:'Tone ',ru:'Тон '},
+  sec_layer:{en:'Layer',ru:'Уровень'},
+  sec_enhance:{en:'Enhancements',ru:'Улучшения'},
+  sec_mode:{en:'Mode ',ru:'Режим '},
+  sec_situation:{en:'Situation',ru:'Ситуация'},
+  // Tones
+  tone_casual:{en:'Casual',ru:'Обычный'},
+  tone_pro:{en:'Professional',ru:'Деловой'},
+  tone_friend:{en:'Friend',ru:'Дружеский'},
+  tone_formal:{en:'Formal',ru:'Формальный'},
+  // Layers
+  layer1:{en:'I. Transcribe',ru:'I. Транскрипция'},layer1d:{en:'Whisper only',ru:'Только Whisper'},
+  layer2:{en:'II. Reconstruct',ru:'II. Реконструкция'},layer2d:{en:'LLM + tone',ru:'LLM + тон'},
+  layer3:{en:'III. Profile',ru:'III. Профиль'},layer3d:{en:'+ vocabulary',ru:'+ словарь'},
+  layer4:{en:'IV. Stutter',ru:'IV. Заикание'},layer4d:{en:'+ disfluency',ru:'+ дисфлюенция'},
+  // Enhancement toggles
+  lbl_para:{en:'Paralinguistic',ru:'Паралингвистика'},hint_para:{en:'cough/laugh',ru:'кашель/смех'},
+  lbl_transcribe:{en:'Transcribe',ru:'Транскрипция'},hint_transcribe:{en:'inject [tags] in text',ru:'вставить [теги] в текст'},
+  lbl_prosodic:{en:'Prosodic',ru:'Просодика'},hint_prosodic:{en:'pitch/energy/rate',ru:'тон/энергия/темп'},
+  // Mode descs
+  mode_raw:{en:'paste as-is',ru:'вставить как есть'},mode_fast:{en:'skip validation',ru:'без проверки'},mode_safe:{en:'+ Falcon check',ru:'+ проверка Falcon'},
+  // Situations
+  sit_default:{en:'Default',ru:'Обычная'},sit_default_d:{en:'+ everyday use',ru:'+ повседневное'},
+  sit_stress:{en:'High Stress',ru:'Стресс'},sit_stress_d:{en:'+ full assist',ru:'+ полная помощь'},
+  sit_reading:{en:'Reading',ru:'Чтение'},sit_reading_d:{en:'+ near-fluent',ru:'+ уверенный'},
+  // Engine panel
+  lbl_multitemp:{en:'Multi-Temp',ru:'Мульти-Темп'},lbl_prepseed:{en:'Prep Seed',ru:'Затравка'},
+  lbl_blocks:{en:'Blocks',ru:'Блоки'},lbl_redos_eng:{en:'Redos',ru:'Повторы'},
+  lbl_nospeech:{en:'No Speech',ru:'Тишина'},lbl_logprob:{en:'Avg LogProb',ru:'Ср. LogProb'},
+  lbl_sensitive:{en:'\u25C4 sensitive',ru:'\u25C4 чувствительно'},lbl_tolerant:{en:'tolerant \u25BA',ru:'толерантно \u25BA'},
+  lbl_speech:{en:'SPEECH',ru:'РЕЧЬ'},
+  lbl_pause:{en:'Pause Ratio',ru:'Доля пауз'},lbl_wpm_eng:{en:'Words/Min',ru:'Слов/Мин'},
+  lbl_sevmod:{en:'Severity Mod',ru:'Мод. тяжести'},lbl_para2:{en:'Paralinguistic',ru:'Паралингвистика'},
+  lbl_speaker:{en:'Speaker State',ru:'Состояние'},
+  lbl_base:{en:'base',ru:'база'},lbl_speech2:{en:'speech',ru:'речь'},
+  // Shortcuts
+  sec_shortcuts:{en:'Shortcuts ',ru:'Горячие клавиши '},
+  hk_record:{en:'Record',ru:'Запись'},hk_tone:{en:'Cycle Tone',ru:'Сменить тон'},
+  hk_layer:{en:'Cycle Layer',ru:'Сменить уровень'},hk_stats:{en:'Print Stats',ru:'Статистика'},
+  hk_quit:{en:'Quit (×3)',ru:'Выход (×3)'},
+  hk_press:{en:'Press any key...',ru:'Нажмите любую клавишу...'},
+  hk_save:{en:'Save to Engine',ru:'Сохранить'},
+  // Stats bar
+  sl_words:{en:'Words',ru:'Слова'},sl_sessions:{en:'Sessions',ru:'Сессии'},
+  sl_wpm:{en:'WPM',ru:'Сл/Мин'},sl_api:{en:'API Calls',ru:'API-запросы'},
+  sl_difficulty:{en:'Avg Difficulty',ru:'Ср. сложность'},sl_cost:{en:'Est. Cost',ru:'Ст-ть'},
+  // Learn bar
+  ll_corrections:{en:'Corrections',ru:'Коррекции'},ll_fillers:{en:'Fillers',ru:'Слова-паразиты'},
+  ll_vocab:{en:'Vocabulary',ru:'Словарь'},ll_triggers:{en:'Triggers',ru:'Триггеры'},
+  ll_editdist:{en:'Edit Dist',ru:'Ред. расст.'},ll_redos:{en:'Redos',ru:'Повторы'},
+  lp_next:{en:'Next cycle',ru:'Сл. цикл'},lp_decay:{en:'Decay',ru:'Затухание'},
+  // Tabs
+  tab_console:{en:'Console',ru:'Консоль'},tab_sessions:{en:'Sessions',ru:'Сессии'},
+  tab_learning:{en:'Learning',ru:'Обучение'},tab_insights:{en:'Insights',ru:'Анализ'},
+  tab_prep:{en:'Prep',ru:'Подготовка'},tab_calibrate:{en:'Calibrate',ru:'Калибровка'},
+  tab_tips:{en:'Tips',ru:'Подсказки'},tab_profile:{en:'The File',ru:'Профиль'},
+  // Tab empties & labels
+  console_empty:{en:'Waiting for input...',ru:'Ожидание ввода...'},
+  learn_empty:{en:'No patterns learned yet. Keep talking.',ru:'Паттерны ещё не найдены. Продолжайте говорить.'},
+  learn_report:{en:'\uD83D\uDCCA WEEKLY REPORT',ru:'\uD83D\uDCCA НЕДЕЛЬНЫЙ ОТЧЁТ'},
+  insights_empty:{en:'Switch to Layer 4 to view stuttering insights.',ru:'Переключитесь на уровень 4 для анализа заикания.'},
+  insights_nodata:{en:'Not enough data yet. Keep using Layer 4.',ru:'Недостаточно данных. Продолжайте использовать уровень 4.'},
+  sessions_empty:{en:'Start dictating. Sessions appear here.',ru:'Начните диктовку. Сессии появятся здесь.'},
+  // Insights section titles
+  phoneme_title:{en:'PHONEME DIFFICULTY MAP',ru:'КАРТА СЛОЖНОСТИ ФОНЕМ'},
+  covert_title:{en:'COVERT AVOIDANCE PATTERNS',ru:'СКРЫТЫЕ ПАТТЕРНЫ ИЗБЕГАНИЯ'},
+  onset_title:{en:'ONSET ANOMALIES',ru:'АНОМАЛИИ НАЧАЛА СЛОВ'},
+  onset_sub:{en:'(onsets you avoid)',ru:'(начала, которых вы избегаете)'},
+  lang_onset_title:{en:'PER-LANGUAGE ONSET WEIGHTS',ru:'ВЕСА НАЧАЛ СЛОВ ПО ЯЗЫКАМ'},
+  fingerprint_title:{en:'SUBSTITUTION FINGERPRINT',ru:'ОТПЕЧАТОК ЗАМЕН'},
+  shadow_title:{en:'AVOIDANCE DRIFT',ru:'ДРЕЙФ ИЗБЕГАНИЯ'},
+  lowconf_title:{en:'LOW CONFIDENCE SEGMENTS',ru:'СЕГМЕНТЫ С НИЗКОЙ УВЕРЕННОСТЬЮ'},
+  lowconf_sub:{en:'(last session \u2014 Whisper uncertainty near Brown risk positions)',ru:'(последняя сессия \u2014 неуверенность Whisper рядом с зонами риска)'},
+  fluency_title:{en:'FLUENCY TREND',ru:'ТРЕНД ПЛАВНОСТИ'},
+  fl_pause:{en:'AVG PAUSE',ru:'СР. ПАУЗА'},fl_rate:{en:'AVG RATE',ru:'СР. ТЕМП'},
+  fl_sev:{en:'AVG SEV+',ru:'СР. ТЯЖ+'},fl_sessions:{en:'SESSIONS',ru:'СЕССИИ'},
+  // Prep tab
+  prep_ph:{en:'Paste your script, talking points, or email here. Lavrentiy will flag words you might stutter on and suggest safer alternatives.',ru:'Вставьте текст, тезисы или письмо. Лаврентий найдёт слова, на которых вы можете заикаться, и предложит замены.'},
+  prep_btn:{en:'PREP',ru:'АНАЛИЗ'},prep_scanning:{en:'SCANNING...',ru:'СКАНИРОВАНИЕ...'},
+  prep_safe:{en:'SAFE',ru:'БЕЗОПАСНО'},prep_risky:{en:'RISKY',ru:'РИСКОВАННО'},prep_trigger:{en:'KNOWN TRIGGER',ru:'ИЗВЕСТНЫЙ ТРИГГЕР'},
+  prep_seed:{en:'\u26A1 WHISPER SEEDED \u2014 decoder will use this text as context',ru:'\u26A1 WHISPER ПОДГОТОВЛЕН \u2014 декодер использует этот текст как контекст'},
+  prep_empty:{en:'Type or paste what you\'re about to say. Hit PREP to scan.',ru:'Введите или вставьте то, что собираетесь сказать. Нажмите АНАЛИЗ.'},
+  prep_nothing:{en:'Nothing to prep.',ru:'Нечего анализировать.'},
+  prep_analyzing:{en:'Analyzing text and generating alternatives...',ru:'Анализ текста и генерация альтернатив...'},
+  // Calibrate tab
+  cal_title:{en:'WHISPER CALIBRATION',ru:'КАЛИБРОВКА WHISPER'},
+  cal_sub:{en:'Read 60 prompts aloud. Each recording becomes a training sample for personalized speech recognition.',ru:'Прочитайте 60 фраз вслух. Каждая запись станет обучающим образцом для персонализированного распознавания речи.'},
+  cal_start:{en:'BEGIN CALIBRATION',ru:'НАЧАТЬ КАЛИБРОВКУ'},cal_resume:{en:'RESUME CALIBRATION',ru:'ПРОДОЛЖИТЬ КАЛИБРОВКУ'},
+  cal_record:{en:'RECORD',ru:'ЗАПИСЬ'},cal_stop:{en:'STOP',ru:'СТОП'},cal_saving:{en:'SAVING...',ru:'СОХРАНЕНИЕ...'},
+  cal_skip:{en:'SKIP',ru:'ПРОПУСТИТЬ'},
+  cal_instruction:{en:'Read this sentence aloud, naturally. Don\'t try to hide your stutter.',ru:'Прочитайте это предложение вслух, естественно. Не пытайтесь скрыть заикание.'},
+  cal_complete:{en:'CALIBRATION COMPLETE',ru:'КАЛИБРОВКА ЗАВЕРШЕНА'},
+  cal_wer_title:{en:'Calibration WER Summary',ru:'Результаты калибровки WER'},
+  aug_title:{en:'DATA AUGMENTATION',ru:'АУГМЕНТАЦИЯ ДАННЫХ'},
+  aug_sub:{en:'Generate synthetic disfluent speech from calibration data via TTS. Multiplies your training dataset 5x with word repetitions, phrase repetitions, and interjection insertions.',ru:'Генерация синтетической речи с дисфлюенциями из данных калибровки через TTS. Увеличивает набор данных в 5 раз с повторами слов, фраз и вставками междометий.'},
+  aug_btn:{en:'GENERATE AUGMENTED DATA',ru:'СГЕНЕРИРОВАТЬ ДАННЫЕ'},
+  aug_regen:{en:'REGENERATE AUGMENTED DATA',ru:'ПЕРЕСГЕНЕРИРОВАТЬ ДАННЫЕ'},
+  aug_generating:{en:'GENERATING...',ru:'ГЕНЕРАЦИЯ...'},aug_starting:{en:'STARTING...',ru:'ЗАПУСК...'},
+  wer_title:{en:'WER TREND',ru:'ТРЕНД WER'},
+  wer_sub:{en:'Word Error Rate across recent sessions \u2014 lower is better. Shows how well Whisper transcribes your speech over time.',ru:'Процент ошибок распознавания за последние сессии \u2014 чем ниже, тем лучше.'},
+  wer_avg:{en:'AVG WER',ru:'СР. WER'},wer_recent:{en:'RECENT',ru:'НЕДАВНО'},wer_samples:{en:'SAMPLES',ru:'ОБРАЗЦЫ'},
+  // Profile (The File)
+  prof_triggers:{en:'Trigger Words',ru:'Триггерные слова'},prof_fillers:{en:'Filler Words',ru:'Слова-паразиты'},
+  prof_vocab:{en:'Vocabulary',ru:'Словарь'},prof_corrections:{en:'Corrections',ru:'Коррекции'},
+  prof_covert:{en:'Covert Avoidance Pairs',ru:'Пары скрытого избегания'},
+  prof_add_trigger:{en:'Add trigger word...',ru:'Добавить триггер...'},
+  prof_add_filler:{en:'Add filler word...',ru:'Добавить паразит...'},
+  prof_add_vocab:{en:'Add preferred term...',ru:'Добавить термин...'},
+  prof_heard:{en:'Heard as...',ru:'Слышится как...'},
+  prof_should:{en:'Should be...',ru:'Должно быть...'},
+  // Bottom
+  disclaimer:{en:'\u201C\u041B\u0430\u0432\u0440\u0435\u043D\u0442\u0438\u0439 does his best. Check your work before you wreck your work.\u201D',ru:'\u00AB\u041B\u0430\u0432\u0440\u0435\u043D\u0442\u0438\u0439 \u0434\u0435\u043B\u0430\u0435\u0442 \u0432\u0441\u0451, \u0447\u0442\u043E \u043C\u043E\u0436\u0435\u0442. \u041F\u0440\u043E\u0432\u0435\u0440\u044F\u0439\u0442\u0435, \u043F\u0440\u0435\u0436\u0434\u0435 \u0447\u0435\u043C \u043E\u0442\u043F\u0440\u0430\u0432\u043B\u044F\u0442\u044C.\u00BB'},
+  // Profiles
+  prof_new_title:{en:'New Profile',ru:'Новый профиль'},
+  prof_cancel:{en:'Cancel',ru:'Отмена'},
+  prof_create:{en:'Create',ru:'Создать'},
+  prof_name_ph:{en:'Name',ru:'Имя'},
+  // Dynamic states
+  st_idle:{en:'idle',ru:'ожидание'},st_recording:{en:'recording',ru:'запись'},st_processing:{en:'processing',ru:'обработка'},
+  // Notes
+  note_select:{en:'select Reconstruct +',ru:'выберите Реконструкция +'},
+  // Help overlay
+  help_title:{en:'Guide',ru:'Руководство'},help_sub:{en:'OPERATIONS MANUAL',ru:'РУКОВОДСТВО ПОЛЬЗОВАТЕЛЯ'},
+  help_search:{en:'Search...',ru:'Поиск...'},
+  // Help sections
+  ha_layers:{en:'Layers',ru:'Уровни'},ha_layers_sub:{en:'L1 Transcribe through L4 Stutter',ru:'L1 Транскрипция \u2014 L4 Заикание'},
+  ha_layers_body:{en:'<strong>L1 Transcribe</strong> \u2014 Whisper only. Raw speech-to-text, no AI cleanup. Fastest.<br><strong>L2 Reconstruct</strong> \u2014 GPT rewrites using your tone. Strips fillers, fixes grammar. ~1-2s slower.<br><strong>L3 Profile</strong> \u2014 Same as L2 + your personal vocabulary and corrections map.<br><strong>L4 Stutter</strong> \u2014 Full clinical mode. Disfluency tracking, exposure scoring, severity-scaled rewrites.<div class="ha-example"><span class="he-in">You say:</span> "So uh basically the the thing is um working"<br><span class="he-out">L1:</span> "So uh basically the the thing is um working"<br><span class="he-out">L2:</span> "The thing is working."</div>',ru:'<strong>L1 Транскрипция</strong> \u2014 Только Whisper. Сырой текст, без ИИ-обработки. Самый быстрый.<br><strong>L2 Реконструкция</strong> \u2014 GPT переписывает в вашем тоне. Убирает паразиты, исправляет грамматику. На ~1-2с медленнее.<br><strong>L3 Профиль</strong> \u2014 L2 + ваш личный словарь и карта коррекций.<br><strong>L4 Заикание</strong> \u2014 Клинический режим. Отслеживание дисфлюенций, оценка экспозиции, масштабированные правки.<div class="ha-example"><span class="he-in">Вы говорите:</span> "Ну э-э в общем-то это это вещь э-э работает"<br><span class="he-out">L1:</span> "Ну э-э в общем-то это это вещь э-э работает"<br><span class="he-out">L2:</span> "Эта вещь работает."</div>'},
+  ha_tone:{en:'Tone',ru:'Тон'},ha_tone_sub:{en:'How GPT rewrites your speech (L2+)',ru:'Как GPT переписывает вашу речь (L2+)'},
+  ha_tone_body:{en:'<strong>Casual</strong> \u2014 Conversational. Contractions, simple words.<br><strong>Professional</strong> \u2014 Business-ready. Clean, precise language.<br><strong>Friend</strong> \u2014 Relaxed. Like texting a friend.<br><strong>Formal</strong> \u2014 Academic/legal. No contractions, precise.<br><br>Has no effect on L1 (collapses when L1 is selected).',ru:'<strong>Обычный</strong> \u2014 Разговорный стиль. Простые слова, сокращения.<br><strong>Деловой</strong> \u2014 Для бизнеса. Чистый, точный язык.<br><strong>Дружеский</strong> \u2014 Расслабленный. Как переписка с другом.<br><strong>Формальный</strong> \u2014 Академический/юридический. Без сокращений, точный.<br><br>Не влияет на L1 (сворачивается при выборе L1).'},
+  ha_mode:{en:'Mode',ru:'Режим'},ha_mode_sub:{en:'Pipeline steps: RAW, FAST, SAFE',ru:'Шаги конвейера: RAW, FAST, SAFE'},
+  ha_mode_body:{en:'<strong>RAW</strong> <code>paste as-is</code> \u2014 GPT runs for analytics but pastes Whisper\'s original text.<br><strong>FAST</strong> <code>skip validation</code> \u2014 GPT rewrites, trust it, paste. Best speed/quality.<br><strong>SAFE</strong> <code>+ Falcon check</code> \u2014 GPT rewrites, Falcon verifies meaning preserved. Slowest, safest.<br><br>All three produce identical output on L1. Collapses when L1 is selected.',ru:'<strong>RAW</strong> <code>вставить как есть</code> \u2014 GPT работает для аналитики, но вставляет оригинальный текст Whisper.<br><strong>FAST</strong> <code>без проверки</code> \u2014 GPT переписывает, доверяем, вставляем. Лучший баланс скорости/качества.<br><strong>SAFE</strong> <code>+ проверка Falcon</code> \u2014 GPT переписывает, Falcon проверяет сохранение смысла. Медленнее, но безопаснее.<br><br>Все три дают одинаковый результат на L1. Сворачивается при выборе L1.'},
+  ha_enhance:{en:'Enhancements',ru:'Улучшения'},ha_enhance_sub:{en:'Paralinguistic + Prosodic analysis',ru:'Паралингвистический + просодический анализ'},
+  ha_enhance_body:{en:'<strong>Paralinguistic</strong> \u2014 Detects cough, laugh, sigh, throat-clear, breathing, pause. Independent of layer.<br>&nbsp;&nbsp;\u2022 <strong>Transcribe sub-toggle:</strong> ON = tags injected in text (<code>[Laughter]</code>). OFF = logged only.<br><br><strong>Prosodic</strong> \u2014 Tracks pitch (F0), energy, speaking rate. Feeds severity modifier on L4. Auto-enables on L4 and High Stress.<div class="ha-example"><span class="he-out">Console:</span> "Speech: pause_ratio=47% rate=3.4syl/s \u2192 severity +0.4"<br><span class="he-out">Console:</span> "Prosodic: Vocal tension (erratic pitch in 100%)"</div>',ru:'<strong>Паралингвистика</strong> \u2014 Определяет кашель, смех, вздох, прочистку горла, дыхание, паузу. Независимо от уровня.<br>&nbsp;&nbsp;\u2022 <strong>Транскрипция:</strong> ВКЛ = теги в тексте (<code>[Смех]</code>). ВЫКЛ = только в логе.<br><br><strong>Просодика</strong> \u2014 Отслеживает тон (F0), энергию, темп речи. Влияет на модификатор тяжести на L4. Авто-включается на L4 и при Стрессе.<div class="ha-example"><span class="he-out">Консоль:</span> "Речь: pause_ratio=47% rate=3.4syl/s \u2192 severity +0.4"<br><span class="he-out">Консоль:</span> "Просодика: Вокальное напряжение (хаотичный тон в 100%)"</div>'},
+  ha_situation:{en:'Situation',ru:'Ситуация'},ha_situation_sub:{en:'One-click engine presets',ru:'Пресеты движка в одно нажатие'},
+  ha_situation_body:{en:'<strong>Default</strong> \u2014 Everyday dictation. Severity 1.0. No auto-toggles.<br><strong>High Stress</strong> \u2014 Phone, interview, presentation. Auto-enables L4, DAF 100ms, all toggles. Severity 1.5.<br><strong>Reading</strong> \u2014 Reading aloud. Near-fluent. Severity 0.3, light L3 touch.',ru:'<strong>Обычная</strong> \u2014 Повседневная диктовка. Тяжесть 1.0. Без авто-переключений.<br><strong>Стресс</strong> \u2014 Телефон, собеседование, презентация. Авто-включает L4, DAF 100мс, все переключатели. Тяжесть 1.5.<br><strong>Чтение</strong> \u2014 Чтение вслух. Уверенная речь. Тяжесть 0.3, лёгкий L3.'},
+  ha_daf:{en:'DAF',ru:'DAF'},ha_daf_sub:{en:'Delayed Auditory Feedback for fluency',ru:'Задержанная слуховая обратная связь'},
+  ha_daf_body:{en:'Plays your voice back through headphones with a slight delay. The delay tricks the brain into slowing down, improving fluency. Independent of all other settings.<br><br><strong>Toggle:</strong> ON/OFF &nbsp; <strong>Dial:</strong> Delay in milliseconds (default 100ms). More = stronger effect.',ru:'Воспроизводит ваш голос через наушники с небольшой задержкой. Задержка заставляет мозг замедлиться, улучшая плавность речи. Независимо от других настроек.<br><br><strong>Переключатель:</strong> ВКЛ/ВЫКЛ &nbsp; <strong>Регулятор:</strong> Задержка в миллисекундах (по умолчанию 100мс). Больше = сильнее эффект.'},
+  ha_whisper:{en:'Whisper Diagnostics',ru:'Диагностика Whisper'},ha_whisper_sub:{en:'Multi-temp, blocks, confidence',ru:'Мульти-темп, блоки, уверенность'},
+  ha_whisper_body:{en:'<strong>Multi-Temp</strong> \u2014 Runs Whisper at multiple temperatures. Agreement = confident. Disagreement = flagged. 3x slower.<br><strong>Blocks</strong> \u2014 Speech blocks detected (Whisper hallucinated over silence).<br><strong>No Speech slider</strong> \u2014 \u25C4 Sensitive (catches more) vs. Tolerant \u25BA (fewer false alarms). Default: 15%.<br><strong>Avg LogProb</strong> \u2014 Whisper confidence. Above <code>-0.4</code> = good. Below <code>-0.7</code> = guessing.',ru:'<strong>Мульти-Темп</strong> \u2014 Запускает Whisper при разных температурах. Совпадение = уверенность. Расхождение = флаг. В 3 раза медленнее.<br><strong>Блоки</strong> \u2014 Обнаруженные блоки речи (Whisper галлюцинировал в тишине).<br><strong>Ползунок тишины</strong> \u2014 \u25C4 Чувствительно (ловит больше) vs. Толерантно \u25BA (меньше ложных тревог). По умолчанию: 15%.<br><strong>Ср. LogProb</strong> \u2014 Уверенность Whisper. Выше <code>-0.4</code> = хорошо. Ниже <code>-0.7</code> = угадывает.'},
+  ha_stats:{en:'Stats & Learn Bars',ru:'Статистика и обучение'},ha_stats_sub:{en:'Clickable \u2014 jump to detail tabs',ru:'Кликабельно \u2014 переход к вкладкам'},
+  ha_stats_body:{en:'<strong>Words / Sessions</strong> \u2014 Click \u2192 Sessions tab.<br><strong>API Calls / Est. Cost</strong> \u2014 Click \u2192 Console tab. Cost ~$0.0032/session.<br><strong>Corrections</strong> \u2014 Auto-corrections learned (e.g. Duncan \u2192 Dankesch\u00F6n). Click \u2192 Learning tab.<br><strong>Fillers</strong> \u2014 Filler words identified (um, uh, like). Click \u2192 Learning tab.<br><strong>Vocabulary</strong> \u2014 Preferred terms in your profile. Click \u2192 Learning tab.<br><strong>Triggers</strong> \u2014 Words that cause speech blocks. Click \u2192 Learning tab.',ru:'<strong>Слова / Сессии</strong> \u2014 Клик \u2192 вкладка Сессии.<br><strong>API-запросы / Стоимость</strong> \u2014 Клик \u2192 вкладка Консоль. Стоимость ~$0.0032/сессию.<br><strong>Коррекции</strong> \u2014 Автокоррекции (напр. Duncan \u2192 Dankesch\u00F6n). Клик \u2192 вкладка Обучение.<br><strong>Паразиты</strong> \u2014 Слова-паразиты (ну, э-э, типа). Клик \u2192 вкладка Обучение.<br><strong>Словарь</strong> \u2014 Предпочтительные термины в профиле. Клик \u2192 вкладка Обучение.<br><strong>Триггеры</strong> \u2014 Слова, вызывающие блоки речи. Клик \u2192 вкладка Обучение.'},
+  ha_hotkeys:{en:'Hotkeys',ru:'Горячие клавиши'},ha_hotkeys_sub:{en:'Keyboard shortcuts (rebindable)',ru:'Клавиатурные сокращения (переназначаемые)'},
+  ha_hotkeys_body:{en:'<span class="ha-kbd">F9</span> Start/stop recording &nbsp;<span class="ha-kbd">F10</span> Cycle tones &nbsp;<span class="ha-kbd">F11</span> Cycle layers &nbsp;<span class="ha-kbd">F12</span> Print stats &nbsp;<span class="ha-kbd">F3</span> \u00D73 Quit<br><br>All rebindable from the Shortcuts section at the bottom of the sidebar.',ru:'<span class="ha-kbd">F9</span> Запись/стоп &nbsp;<span class="ha-kbd">F10</span> Сменить тон &nbsp;<span class="ha-kbd">F11</span> Сменить уровень &nbsp;<span class="ha-kbd">F12</span> Статистика &nbsp;<span class="ha-kbd">F3</span> \u00D73 Выход<br><br>Все переназначаемы в разделе Горячие клавиши внизу боковой панели.'},
+  ha_colors:{en:'Console Colors',ru:'Цвета консоли'},ha_colors_sub:{en:'What the colored text means',ru:'Значение цветного текста'},
+  ha_colors_body:{en:'<strong style="color:#222">White</strong> \u2014 Your transcribed speech (with word count)<br><strong style="color:#16a34a">Green</strong> \u2014 Pipeline status, recording, paste timing<br><strong style="color:#a16207">Yellow</strong> \u2014 Speech analytics and Whisper diagnostics<br><strong style="color:#dc2626">Red</strong> \u2014 Prosodic alerts (vocal tension, erratic pitch)<br><strong style="color:#92400e">Brown</strong> \u2014 Block suspect (Whisper hallucinated over silence)',ru:'<strong style="color:#222">Белый</strong> \u2014 Ваша транскрибированная речь (с количеством слов)<br><strong style="color:#16a34a">Зелёный</strong> \u2014 Статус конвейера, запись, время вставки<br><strong style="color:#a16207">Жёлтый</strong> \u2014 Аналитика речи и диагностика Whisper<br><strong style="color:#dc2626">Красный</strong> \u2014 Просодические предупреждения (голосовое напряжение, хаотичный тон)<br><strong style="color:#92400e">Коричневый</strong> \u2014 Подозрение на блок (Whisper галлюцинировал в тишине)'},
+  ha_tips:{en:'Tips',ru:'Подсказки'},ha_tips_sub:{en:'Power user tricks',ru:'Трюки для продвинутых'},
+  ha_tips_body:{en:'\u2022 Click the <strong>timer</strong> in the status ring to reset it.<br>\u2022 <strong>Compact toggle</strong> (top-left) collapses to a minimal bar with clickable chips.<br>\u2022 Tone and Mode <strong>auto-collapse</strong> on L1 (they have no effect).<br>\u2022 <strong>High Stress</strong> situation is a one-click panic button: L4 + DAF + all toggles.<br>\u2022 Click any <strong>stat/learn bar cell</strong> to jump to its detail tab.',ru:'\u2022 Нажмите на <strong>таймер</strong> в кольце статуса для сброса.<br>\u2022 <strong>Компактный режим</strong> (вверху слева) сворачивает в минимальную полосу с кликабельными чипами.<br>\u2022 Тон и Режим <strong>автоматически сворачиваются</strong> на L1 (они не влияют).<br>\u2022 <strong>Стресс</strong> \u2014 кнопка паники в одно нажатие: L4 + DAF + все переключатели.<br>\u2022 Нажмите на любую <strong>ячейку статистики/обучения</strong> для перехода к вкладке.'},
+};
+function t(key){return I18N[key]?.[currentLang]||I18N[key]?.en||key;}
+function _setFirstText(el,text){for(const n of el.childNodes){if(n.nodeType===3&&n.textContent.trim()){n.textContent=text;return;}}el.prepend(document.createTextNode(text));}
+function setLang(lang){
+  currentLang=lang;localStorage.setItem('lavrentiy-lang',lang);
+  document.querySelectorAll('.lang-btn').forEach(b=>b.classList.toggle('active',b.dataset.lang===lang));
+  document.documentElement.lang=lang;
+  applyI18n();
+}
+function applyI18n(){
+  const L=currentLang;
+  // ── Static text by selector ──
+  const txt=[
+    ['.boot-sub','boot_sub'],['.disconnected .msg','conn_lost'],['.disconnected .sub','conn_sub'],
+    ['.disclaimer','disclaimer'],
+    // Stat labels (sibling of id'd value elements)
+    ['#s-words~.sl','sl_words'],['#s-sessions~.sl','sl_sessions'],['#s-wpm~.sl','sl_wpm'],
+    ['#s-api~.sl','sl_api'],['#s-difficulty~.sl','sl_difficulty'],['#s-cost~.sl','sl_cost'],
+    // Learn labels
+    ['#l-corrections~.ll','ll_corrections'],['#l-fillers~.ll','ll_fillers'],
+    ['#l-vocab~.ll','ll_vocab'],['#l-triggers~.ll','ll_triggers'],
+    ['#l-editdist~.ll','ll_editdist'],['#l-redos~.ll','ll_redos'],
+    // Tabs
+    ['.tab-btn[data-tab="console"]','tab_console'],['.tab-btn[data-tab="sessions"]','tab_sessions'],
+    ['.tab-btn[data-tab="learning"]','tab_learning'],['.tab-btn[data-tab="insights"]','tab_insights'],
+    ['.tab-btn[data-tab="prep"]','tab_prep'],['.tab-btn[data-tab="calibrate"]','tab_calibrate'],
+    ['.tab-btn[data-tab="tips"]','tab_tips'],['.tab-btn[data-tab="profile"]','tab_profile'],
+    // Tone buttons
+    ['.tone-btn[data-tone="casual"]','tone_casual'],['.tone-btn[data-tone="professional"]','tone_pro'],
+    ['.tone-btn[data-tone="friend"]','tone_friend'],['.tone-btn[data-tone="formal"]','tone_formal'],
+    // Layer names/descs
+    ['.layer-opt[data-layer="1"] .l-name','layer1'],['.layer-opt[data-layer="1"] .l-desc','layer1d'],
+    ['.layer-opt[data-layer="2"] .l-name','layer2'],['.layer-opt[data-layer="2"] .l-desc','layer2d'],
+    ['.layer-opt[data-layer="3"] .l-name','layer3'],['.layer-opt[data-layer="3"] .l-desc','layer3d'],
+    ['.layer-opt[data-layer="4"] .l-name','layer4'],['.layer-opt[data-layer="4"] .l-desc','layer4d'],
+    // Situation names/descs
+    ['.sit-btn[data-situation="default"] .l-name','sit_default'],['.sit-btn[data-situation="default"] .l-desc','sit_default_d'],
+    ['.sit-btn[data-situation="high_stress"] .l-name','sit_stress'],['.sit-btn[data-situation="high_stress"] .l-desc','sit_stress_d'],
+    ['.sit-btn[data-situation="reading"] .l-name','sit_reading'],['.sit-btn[data-situation="reading"] .l-desc','sit_reading_d'],
+    // Calibrate
+    ['.cal-title','cal_title'],['.cal-subtitle','cal_sub'],['.cal-instruction','cal_instruction'],
+    ['.cal-wer-title','cal_wer_title'],
+    // Augmentation
+    ['.aug-title','aug_title'],['.aug-subtitle','aug_sub'],
+    // Profile section titles
+    ['#sec-trigger .ph-title','prof_triggers'],['#sec-filler .ph-title','prof_fillers'],
+    ['#sec-vocab .ph-title','prof_vocab'],['#sec-corrections .ph-title','prof_corrections'],
+    ['#sec-covert .ph-title','prof_covert'],
+    // Help overlay
+    ['.help-title','help_title'],
+  ];
+  txt.forEach(([sel,key])=>{const el=document.querySelector(sel);if(el)el.textContent=t(key);});
+  // ── Section titles with child spans (set first text node) ──
+  const firstText=[
+    ['#tone-section .sidebar-section-title','sec_tone'],
+    ['#mode-section .sidebar-section-title','sec_mode'],
+  ];
+  firstText.forEach(([sel,key])=>{const el=document.querySelector(sel);if(el)_setFirstText(el,t(key));});
+  // Section titles without child elements
+  const plainSections=document.querySelectorAll('.sidebar-section-title');
+  plainSections.forEach(el=>{
+    const text=el.textContent.trim();
+    if(text==='Layer'||text==='Уровень')el.textContent=t('sec_layer');
+    else if(text==='Enhancements'||text==='Улучшения')el.textContent=t('sec_enhance');
+    else if(text==='Situation'||text==='Ситуация')el.textContent=t('sec_situation');
+  });
+  // Shortcuts title (has arrow child)
+  const shortcutTitle=document.querySelector('.sidebar-section-title[onclick="toggleHotkeyEditor()"]');
+  if(shortcutTitle)_setFirstText(shortcutTitle,t('sec_shortcuts'));
+  // ── Enhancement toggle labels/hints ──
+  const toggleLabels=document.querySelectorAll('.toggle-label');
+  const toggleHints=document.querySelectorAll('.toggle-hint');
+  const tMap=[['Paralinguistic','Паралингвистика','lbl_para'],['Transcribe','Транскрипция','lbl_transcribe'],['Prosodic','Просодика','lbl_prosodic']];
+  const hMap=[['cough/laugh','кашель/смех','hint_para'],['inject [tags] in text','вставить [теги] в текст','hint_transcribe'],['pitch/energy/rate','тон/энергия/темп','hint_prosodic']];
+  toggleLabels.forEach(el=>{const m=tMap.find(([en,ru])=>el.textContent===en||el.textContent===ru);if(m)el.textContent=t(m[2]);});
+  toggleHints.forEach(el=>{const m=hMap.find(([en,ru])=>el.textContent===en||el.textContent===ru);if(m)el.textContent=t(m[2]);});
+  // ── Mode button descriptions ──
+  document.querySelectorAll('.mode-btn').forEach(b=>{
+    const desc=b.querySelector('.mode-desc');if(!desc)return;
+    if(b.dataset.mode==='RAW')desc.textContent=t('mode_raw');
+    else if(b.dataset.mode==='FAST')desc.textContent=t('mode_fast');
+    else if(b.dataset.mode==='SAFE')desc.textContent=t('mode_safe');
+  });
+  // ── Engine panel labels ──
+  const engineRows=document.querySelectorAll('.engine-row');
+  const eMap={
+    'Multi-Temp':'lbl_multitemp','Мульти-Темп':'lbl_multitemp',
+    'Prep Seed':'lbl_prepseed','Затравка':'lbl_prepseed',
+    'Blocks':'lbl_blocks','Блоки':'lbl_blocks',
+    'Redos':'lbl_redos_eng','Повторы':'lbl_redos_eng',
+    'No Speech':'lbl_nospeech','Тишина':'lbl_nospeech',
+    'Avg LogProb':'lbl_logprob','Ср. LogProb':'lbl_logprob',
+    'Pause Ratio':'lbl_pause','Доля пауз':'lbl_pause',
+    'Words/Min':'lbl_wpm_eng','Слов/Мин':'lbl_wpm_eng',
+    'Severity Mod':'lbl_sevmod','Мод. тяжести':'lbl_sevmod',
+    'Paralinguistic':'lbl_para2','Паралингвистика':'lbl_para2',
+    'Speaker State':'lbl_speaker','Состояние':'lbl_speaker',
+  };
+  engineRows.forEach(row=>{
+    const label=row.querySelector('span:first-child');
+    if(label&&eMap[label.textContent])label.textContent=t(eMap[label.textContent]);
+  });
+  // Engine group labels
+  document.querySelectorAll('.engine-group-label').forEach(el=>{
+    if(el.textContent==='SPEECH'||el.textContent==='РЕЧЬ')el.textContent=t('lbl_speech');
+  });
+  // Sensitive/tolerant labels
+  const nstLabels=document.querySelectorAll('#nst-slider~div span');
+  if(nstLabels.length>=3){nstLabels[0].textContent=t('lbl_sensitive');nstLabels[2].textContent=t('lbl_tolerant');}
+  // Severity breakdown labels
+  const sevBase=document.querySelector('#sev-base~span');
+  const sevSpeech=document.querySelector('#sev-speech-mod~span');
+  if(sevBase&&sevBase.textContent.trim()==='base'||sevBase&&sevBase.textContent.trim()==='база')sevBase.textContent=' '+t('lbl_base');
+  if(sevSpeech&&sevSpeech.textContent.trim()==='speech'||sevSpeech&&sevSpeech.textContent.trim()==='речь')sevSpeech.textContent=' '+t('lbl_speech2');
+  // ── Hotkey labels ──
+  const hkLabels=document.querySelectorAll('.hk-label');
+  const hkMap={Record:'hk_record',Запись:'hk_record','Cycle Tone':'hk_tone','Сменить тон':'hk_tone','Cycle Layer':'hk_layer','Сменить уровень':'hk_layer','Print Stats':'hk_stats','Статистика':'hk_stats','Quit (×3)':'hk_quit','Выход (×3)':'hk_quit'};
+  hkLabels.forEach(el=>{if(hkMap[el.textContent])el.textContent=t(hkMap[el.textContent]);});
+  document.getElementById('rebind-prompt').textContent=t('hk_press');
+  const saveBtn=document.querySelector('.hk-save-btn');
+  if(saveBtn&&(saveBtn.textContent==='Save to Engine'||saveBtn.textContent==='Сохранить'))saveBtn.textContent=t('hk_save');
+  // ── Learn progress labels ──
+  document.querySelectorAll('.lp-label').forEach(el=>{
+    if(el.textContent==='Next cycle'||el.textContent==='Сл. цикл')el.textContent=t('lp_next');
+    else if(el.textContent==='Decay'||el.textContent==='Затухание')el.textContent=t('lp_decay');
+  });
+  // ── Placeholders ──
+  const phMap=[
+    ['#prep-input','prep_ph'],['#input-trigger','prof_add_trigger'],['#input-filler','prof_add_filler'],
+    ['#input-vocab','prof_add_vocab'],['#input-corr-from','prof_heard'],['#input-corr-to','prof_should'],
+    ['.help-search','help_search'],
+  ];
+  phMap.forEach(([sel,key])=>{const el=document.querySelector(sel);if(el)el.placeholder=t(key);});
+  // ── HTML content ──
+  const helpSub=document.querySelector('.help-overlay .help-header div[style]');
+  if(helpSub)helpSub.textContent=t('help_sub');
+  // Help accordion sections
+  const haRows=document.querySelectorAll('.ha-row[data-ha]');
+  const haKeys=['ha_layers','ha_tone','ha_mode','ha_enhance','ha_situation','ha_daf','ha_whisper','ha_stats','ha_hotkeys','ha_colors','ha_tips'];
+  haRows.forEach((row,i)=>{
+    if(!haKeys[i])return;
+    const name=row.querySelector('.ha-name');
+    const sub=row.querySelector('.ha-sub');
+    const content=row.querySelector('.ha-content');
+    if(name)name.textContent=t(haKeys[i]);
+    if(sub)sub.textContent=t(haKeys[i]+'_sub');
+    if(content)content.innerHTML=t(haKeys[i]+'_body');
+  });
+  // ── Empties (re-render if currently showing) ──
+  const consoleEmpty=document.querySelector('.console-empty');
+  if(consoleEmpty)consoleEmpty.textContent=t('console_empty');
+  const learnEmpty=document.querySelector('#learn-feed .learn-empty');
+  if(learnEmpty)learnEmpty.textContent=t('learn_empty');
+  const insightsEmpty=document.querySelector('#insights .learn-empty');
+  if(insightsEmpty)insightsEmpty.textContent=t(insightsEmpty.textContent.includes('Layer 4')||insightsEmpty.textContent.includes('уровень 4')?'insights_empty':'insights_nodata');
+  const feedEmpty=document.querySelector('.feed-empty');
+  if(feedEmpty)feedEmpty.textContent=t('sessions_empty');
+  const prepEmpty=document.querySelector('#prep-results .learn-empty');
+  if(prepEmpty)prepEmpty.textContent=t('prep_empty');
+  // Prep legend
+  const prepLegend=document.querySelectorAll('.prep-legend span');
+  if(prepLegend.length>=3){
+    const setText=(el,key)=>{const dot=el.querySelector('.prep-legend-dot');el.textContent='';if(dot)el.prepend(dot);el.append(t(key));};
+    setText(prepLegend[0],'prep_safe');setText(prepLegend[1],'prep_risky');setText(prepLegend[2],'prep_trigger');
+  }
+  // Prep button (if not mid-scan)
+  const prepBtn=document.getElementById('prep-btn');
+  if(prepBtn&&!prepBtn.disabled)prepBtn.textContent=t('prep_btn');
+  // Prep seed badge
+  const seedBadge=document.getElementById('prep-seed-badge');
+  if(seedBadge)seedBadge.textContent=t('prep_seed');
+  // Cal start button
+  const calStartBtn=document.getElementById('cal-start-btn');
+  if(calStartBtn){
+    if(calStartBtn.textContent==='BEGIN CALIBRATION'||calStartBtn.textContent==='НАЧАТЬ КАЛИБРОВКУ')calStartBtn.textContent=t('cal_start');
+    else if(calStartBtn.textContent==='RESUME CALIBRATION'||calStartBtn.textContent==='ПРОДОЛЖИТЬ КАЛИБРОВКУ')calStartBtn.textContent=t('cal_resume');
+  }
+  // Cal skip button
+  const calSkipBtn=document.querySelector('.cal-skip-btn');
+  if(calSkipBtn)calSkipBtn.textContent=t('cal_skip');
+  // Cal record button (if not mid-recording)
+  const calRecBtn=document.getElementById('cal-rec-btn');
+  if(calRecBtn&&!calRecBtn.disabled&&!calRecBtn.classList.contains('recording')){
+    calRecBtn.innerHTML='<span class="cal-rec-dot"></span> '+t('cal_record');
+  }
+  // Aug button
+  const augBtn=document.getElementById('aug-btn');
+  if(augBtn&&!augBtn.disabled){
+    if(augBtn.textContent.includes('REGENERATE')||augBtn.textContent.includes('ПЕРЕСГЕНЕРИРОВАТЬ'))augBtn.textContent=t('aug_regen');
+    else augBtn.textContent=t('aug_btn');
+  }
+  // Report button
+  const reportBtn=document.getElementById('report-btn');
+  if(reportBtn)reportBtn.textContent=t('learn_report');
+  // Insights section titles
+  const iMap=[
+    ['#phoneme-map','phoneme_title'],['#covert-section','covert_title'],
+    ['#anomaly-section','onset_title'],['#lang-onset-section','lang_onset_title'],
+    ['#fingerprint-section','fingerprint_title'],['#shadow-section','shadow_title'],
+    ['#low-conf-section','lowconf_title'],['#fluency-trend-section','fluency_title'],
+  ];
+  iMap.forEach(([sel,key])=>{
+    const sec=document.querySelector(sel);
+    if(sec){const titleEl=sec.querySelector('div[style*="letter-spacing"]');if(titleEl)_setFirstText(titleEl,t(key)+' ');}
+  });
+  // Onset subtitle
+  const onsetSub=document.querySelector('#anomaly-section span[style*="font-size:8px"]');
+  if(onsetSub)onsetSub.textContent=t('onset_sub');
+  const lowconfSub=document.querySelector('#low-conf-section span[style*="font-size:8px"]');
+  if(lowconfSub)lowconfSub.textContent=t('lowconf_sub');
+  // Fluency stats labels
+  const flLabels=document.querySelectorAll('#fluency-trend-section div[style*="font-size:9px"]');
+  const flMap={
+    'AVG PAUSE':'fl_pause','СР. ПАУЗА':'fl_pause',
+    'AVG RATE':'fl_rate','СР. ТЕМП':'fl_rate',
+    'AVG SEV+':'fl_sev','СР. ТЯЖ+':'fl_sev',
+    'SESSIONS':'fl_sessions','СЕССИИ':'fl_sessions',
+  };
+  flLabels.forEach(el=>{
+    const span=el.querySelector('span');
+    const labelText=el.childNodes[0]?.textContent?.trim();
+    if(labelText&&flMap[labelText]){el.childNodes[0].textContent=t(flMap[labelText])+' ';}
+  });
+  // WER section labels
+  const werLabels=document.querySelectorAll('#tab-calibrate div[style*="font-size:9px"]');
+  werLabels.forEach(el=>{
+    const labelText=el.childNodes[0]?.textContent?.trim();
+    if(labelText==='AVG WER'||labelText==='СР. WER'){el.childNodes[0].textContent=t('wer_avg')+' ';}
+    else if(labelText==='RECENT'||labelText==='НЕДАВНО'){el.childNodes[0].textContent=t('wer_recent')+' ';}
+    else if(labelText==='SAMPLES'||labelText==='ОБРАЗЦЫ'){el.childNodes[0].textContent=t('wer_samples')+' ';}
+  });
+  // WER trend titles
+  const werTitles=document.querySelectorAll('.aug-title');
+  werTitles.forEach(el=>{
+    if(el.textContent==='DATA AUGMENTATION'||el.textContent==='АУГМЕНТАЦИЯ ДАННЫХ')el.textContent=t('aug_title');
+    else if(el.textContent==='WER TREND'||el.textContent==='ТРЕНД WER')el.textContent=t('wer_title');
+  });
+  const werSubs=document.querySelectorAll('.aug-subtitle');
+  werSubs.forEach(el=>{
+    if(el.textContent.includes('synthetic')||el.textContent.includes('синтетической'))el.textContent=t('aug_sub');
+    else if(el.textContent.includes('Word Error')||el.textContent.includes('ошибок'))el.textContent=t('wer_sub');
+  });
+  // Profile modal
+  const profTitle=document.querySelector('.profile-modal-title');
+  if(profTitle)profTitle.textContent=t('prof_new_title');
+  const profCancel=document.querySelector('.profile-modal-cancel');
+  if(profCancel)profCancel.textContent=t('prof_cancel');
+  const profCreate=document.querySelector('.profile-modal-create');
+  if(profCreate)profCreate.textContent=t('prof_create');
+  const profInput=document.getElementById('profile-name-input');
+  if(profInput)profInput.placeholder=t('prof_name_ph');
+  // State label translation
+  const stateLabel=document.getElementById('state-label');
+  if(stateLabel){
+    const stateKey='st_'+state.state;
+    if(I18N[stateKey])stateLabel.textContent=t(stateKey);
+  }
+  const compactState=document.getElementById('compact-state');
+  if(compactState){
+    const stateKey='st_'+state.state;
+    if(I18N[stateKey])compactState.textContent=t(stateKey);
+  }
+}
+
 function switchToTab(name){
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
@@ -2533,6 +3025,7 @@ async function pollState(){
     const r=await fetch(API+'/api/state');const d=await r.json();state=d;failCount=0;
     if(!connected){connected=true;document.getElementById('disconnected').classList.remove('show');}
     updateUI();
+    _checkProfileSync();
     if(d.stats.sessions!==lastSessionCount){lastSessionCount=d.stats.sessions;fetchSessions();}
     if(now-lastLogFetch>=1000){lastLogFetch=now;fetchLog();}
     if(now-lastLearnFetch>=3000){lastLearnFetch=now;fetchLearn();}
@@ -2549,7 +3042,7 @@ async function fetchLearn(){try{const r=await fetch(API+'/api/learn');learnData=
 function updateUI(){
   const s=state.state;
   document.getElementById('app').className='app st-'+s+(isCompact?' compact':'');
-  document.getElementById('state-label').textContent=s;
+  const stateKey='st_'+s;document.getElementById('state-label').textContent=I18N[stateKey]?t(stateKey):s;
   const elapsed=Math.floor(Date.now()/1000-state.stats.start_time);
   if(!(_toggleCooldown.timer>Date.now()))document.getElementById('uptime').textContent=String(Math.floor(elapsed/60)).padStart(2,'0')+':'+String(elapsed%60).padStart(2,'0');
   document.querySelectorAll('.tone-btn:not(.mode-btn):not(.sit-btn)').forEach(b=>b.classList.toggle('active',b.dataset.tone===state.tone));
@@ -2559,7 +3052,7 @@ function updateUI(){
   if(toneSec){
     const noLLM=state.layer===1;
     toneSec.classList.toggle('inactive',noLLM);
-    if(toneNote)toneNote.innerHTML=noLLM?'select Reconstruct +':'';
+    if(toneNote)toneNote.innerHTML=noLLM?t('note_select'):'';
   }
   // Collapse mode section on Layer 1 (all modes produce same result)
   const modeSec=document.getElementById('mode-section');
@@ -2567,7 +3060,7 @@ function updateUI(){
   if(modeSec){
     const noLLM2=state.layer===1;
     modeSec.classList.toggle('inactive',noLLM2);
-    if(modeNote)modeNote.innerHTML=noLLM2?'select Reconstruct +':'';
+    if(modeNote)modeNote.innerHTML=noLLM2?t('note_select'):'';
   }
   document.querySelectorAll('.layer-opt:not(.sit-btn)').forEach(b=>b.classList.toggle('active',parseInt(b.dataset.layer)===state.layer));
   document.querySelectorAll('.mode-btn').forEach(b=>b.classList.toggle('active',b.dataset.mode===state.mode));
@@ -2680,7 +3173,7 @@ function updateUI(){
 
 function renderSessions(){
   const feed=document.getElementById('feed');
-  if(!sessions.length){feed.innerHTML='<div class="feed-empty">Start dictating. Sessions appear here.</div>';return;}
+  if(!sessions.length){feed.innerHTML='<div class="feed-empty">'+esc(t('sessions_empty'))+'</div>';return;}
   feed.innerHTML=sessions.map(s=>{
     const t=new Date(s.ts);const time=t.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
     const ts={casual:'CAS',professional:'PRO',friend:'FRD',formal:'FRM'}[s.tone]||s.tone;
@@ -2730,7 +3223,7 @@ function renderLearn(){
     rdEl.style.color=rc>=3?'var(--red-bright)':rc>=1?'var(--yellow)':'';
   }
   const feed=document.getElementById('learn-feed');const events=learnData.events||[];
-  if(!events.length){feed.innerHTML='<div class="learn-empty">No patterns learned yet. Keep talking.</div>';return;}
+  if(!events.length){feed.innerHTML='<div class="learn-empty">'+esc(t('learn_empty'))+'</div>';return;}
   feed.innerHTML=[...events].reverse().map(e=>{
     const d=new Date(e.ts);const time=d.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit'});
     const tc='le-type-'+e.type;const tl={correction:'CORR',filler:'FILLER',vocab:'VOCAB',trigger:'TRIGGER',candidate:'CAND',decay:'DECAY'}[e.type]||e.type;
@@ -2755,10 +3248,10 @@ function updateLearnProgress(){
 let _lastInsightHash='';
 function renderInsights(){
   const el=document.getElementById('insights');if(!el)return;
-  if(!learnData.insights_enabled){if(_lastInsightHash!=='disabled'){_lastInsightHash='disabled';el.innerHTML='<div class="learn-empty">Switch to Layer 4 to view stuttering insights.</div>';}return;}
+  if(!learnData.insights_enabled){if(_lastInsightHash!=='disabled'){_lastInsightHash='disabled';el.innerHTML='<div class="learn-empty">'+esc(t('insights_empty'))+'</div>';}return;}
   const items=learnData.insights||[];
   const hash=JSON.stringify(items);if(hash===_lastInsightHash)return;_lastInsightHash=hash;
-  if(!items.length){el.innerHTML='<div class="learn-empty">Not enough data yet. Keep using Layer 4.</div>';return;}
+  if(!items.length){el.innerHTML='<div class="learn-empty">'+esc(t('insights_nodata'))+'</div>';return;}
   el.innerHTML=items.map(item=>{
     const ev=item.evidence?esc(JSON.stringify(item.evidence,null,2)):'';
     return `<div class="insight-card"><div class="insight-head"><div class="insight-title">${esc(item.title)}</div><div class="insight-severity sev-${item.severity||'low'}">${esc(item.severity||'low')}</div></div><div class="insight-body">${esc(item.body)}</div><div class="insight-source">${esc(item.source||'')}</div>${ev?`<div class="insight-evidence">${ev}</div>`:''}</div>`;
@@ -3305,9 +3798,9 @@ async function runPrep(){
   const results=document.getElementById('prep-results');
   const status=document.getElementById('prep-status');
   const text=input.value.trim();
-  if(!text){status.textContent='Nothing to prep.';return;}
-  btn.disabled=true;btn.textContent='SCANNING...';
-  status.textContent='Analyzing text and generating alternatives...';
+  if(!text){status.textContent=t('prep_nothing');return;}
+  btn.disabled=true;btn.textContent=t('prep_scanning');
+  status.textContent=t('prep_analyzing');
   results.innerHTML='';
   try{
     const r=await fetch(API+'/api/prep',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text})});
@@ -3350,7 +3843,7 @@ async function runPrep(){
   }catch(e){
     status.textContent='Prep failed: '+e.message;
   }finally{
-    btn.disabled=false;btn.textContent='PREP';
+    btn.disabled=false;btn.textContent=t('prep_btn');
   }
 }
 function prepSwap(el,alt){
@@ -3381,7 +3874,7 @@ async function calStart(){
   try{
     const r=await fetch(API+'/api/calibration/start',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
     const d=await r.json();
-    document.getElementById('cal-start-btn').textContent='RESUME CALIBRATION';
+    document.getElementById('cal-start-btn').textContent=t('cal_resume');
     calShowPrompt(d.next_prompt);
     calUpdateStats(d.status);
     document.getElementById('cal-prompt-area').style.display='block';
@@ -3391,7 +3884,7 @@ async function calStart(){
 function calShowPrompt(p){
   if(!p){
     document.getElementById('cal-prompt-area').style.display='none';
-    document.getElementById('cal-controls').innerHTML='<div class="cal-complete-msg">CALIBRATION COMPLETE</div>';
+    document.getElementById('cal-controls').innerHTML='<div class="cal-complete-msg">'+t('cal_complete')+'</div>';
     calShowSummary();
     return;
   }
@@ -3403,7 +3896,7 @@ function calShowPrompt(p){
   // Reset record button
   const btn=document.getElementById('cal-rec-btn');
   btn.classList.remove('recording');
-  btn.innerHTML='<span class="cal-rec-dot"></span> RECORD';
+  btn.innerHTML='<span class="cal-rec-dot"></span> '+t('cal_record');
   calRecording=false;
 }
 
@@ -3424,7 +3917,7 @@ async function calToggleRecord(){
       calMediaRecorder.start();
       calRecording=true;
       btn.classList.add('recording');
-      btn.innerHTML='<span class="cal-rec-dot"></span> STOP';
+      btn.innerHTML='<span class="cal-rec-dot"></span> '+t('cal_stop');
     }catch(e){
       console.error('Mic access failed:',e);
       const fb=document.getElementById('cal-feedback');
@@ -3437,7 +3930,7 @@ async function calToggleRecord(){
       calMediaRecorder.stop();
     }
     btn.classList.remove('recording');
-    btn.innerHTML='<span class="cal-rec-dot"></span> SAVING...';
+    btn.innerHTML='<span class="cal-rec-dot"></span> '+t('cal_saving');
     btn.disabled=true;
   }
 }
@@ -3574,7 +4067,7 @@ document.querySelector('[data-tab="calibrate"]').addEventListener('click',async(
     const d=await r.json();
     calUpdateStats(d);
     if(d.completed>0){
-      document.getElementById('cal-start-btn').textContent='RESUME CALIBRATION';
+      document.getElementById('cal-start-btn').textContent=t('cal_resume');
     }
   }catch(e){}
   augRefresh();
@@ -3628,7 +4121,7 @@ async function augRefresh(){
       +(d.last_run?` · Last run: ${new Date(d.last_run).toLocaleString()}`:'');
     const btn=document.getElementById('aug-btn');
     if(d.running){
-      btn.textContent='GENERATING...';
+      btn.textContent=t('aug_generating');
       btn.classList.add('running');
       btn.disabled=true;
       const prog=document.getElementById('aug-progress');
@@ -3638,7 +4131,7 @@ async function augRefresh(){
       document.getElementById('aug-progress-fill').style.width=pct+'%';
       if(!augPolling) augPolling=setInterval(augRefresh,3000);
     }else{
-      btn.textContent=d.augmented_samples>0?'REGENERATE AUGMENTED DATA':'GENERATE AUGMENTED DATA';
+      btn.textContent=d.augmented_samples>0?t('aug_regen'):t('aug_btn');
       btn.classList.remove('running');
       btn.disabled=d.real_samples<1;
       document.getElementById('aug-progress').style.display='none';
@@ -3651,21 +4144,21 @@ async function augRefresh(){
 
 async function augStart(){
   const btn=document.getElementById('aug-btn');
-  btn.textContent='STARTING...';
+  btn.textContent=t('aug_starting');
   btn.disabled=true;
   try{
     const r=await fetch(API+'/api/augment',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
     const d=await r.json();
     if(d.error){
       btn.textContent=d.error.toUpperCase();
-      setTimeout(()=>{btn.textContent='GENERATE AUGMENTED DATA';btn.disabled=false;},3000);
+      setTimeout(()=>{btn.textContent=t('aug_btn');btn.disabled=false;},3000);
     }else{
       augPolling=setInterval(augRefresh,3000);
       augRefresh();
     }
   }catch(e){
     btn.textContent='FAILED';
-    setTimeout(()=>{btn.textContent='GENERATE AUGMENTED DATA';btn.disabled=false;},3000);
+    setTimeout(()=>{btn.textContent=t('aug_btn');btn.disabled=false;},3000);
   }
 }
 
@@ -3735,8 +4228,8 @@ function updateHotkeyFooter(){
 async function saveHotkeys(){
   try{
     const r=await fetch(API+'/api/hotkeys',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(hotkeys)});
-    if(r.ok){const btn=document.querySelector('.hk-save-btn');btn.textContent='SAVED ✓';setTimeout(()=>{btn.textContent='Save to Engine';},2000);}
-  }catch(e){const btn=document.querySelector('.hk-save-btn');btn.textContent='ENGINE OFFLINE';setTimeout(()=>{btn.textContent='Save to Engine';},2000);}
+    if(r.ok){const btn=document.querySelector('.hk-save-btn');btn.textContent=currentLang==='ru'?'СОХРАНЕНО ✓':'SAVED ✓';setTimeout(()=>{btn.textContent=t('hk_save');},2000);}
+  }catch(e){const btn=document.querySelector('.hk-save-btn');btn.textContent=currentLang==='ru'?'ДВИЖОК ОФФЛАЙН':'ENGINE OFFLINE';setTimeout(()=>{btn.textContent=t('hk_save');},2000);}
 }
 async function fetchHotkeys(){
   try{const r=await fetch(API+'/api/hotkeys');if(r.ok){const d=await r.json();Object.assign(hotkeys,d);for(const[k,v]of Object.entries(hotkeys)){const el=document.getElementById('hk-'+k);if(el)el.textContent=v;}updateHotkeyFooter();}}catch(e){}
@@ -3766,7 +4259,7 @@ function applyCompact() {
 
 function updateCompactBar() {
   if (!isCompact) return;
-  document.getElementById('compact-state').textContent = state.state;
+  const csk='st_'+state.state;document.getElementById('compact-state').textContent=I18N[csk]?t(csk):state.state;
   const elapsed = Math.floor(Date.now()/1000 - state.stats.start_time);
   document.getElementById('compact-time').textContent =
     String(Math.floor(elapsed/60)).padStart(2,'0') + ':' + String(elapsed%60).padStart(2,'0');
@@ -3819,7 +4312,11 @@ function updateCompactBar() {
 async function init(){
   await runBootSequence();
   applyCompact();
-  await Promise.all([fetchProfile(),fetchSessions(),fetchLearn(),fetchDAF(),fetchHotkeys(),fetchFluencyData()]);
+  // Apply saved language preference
+  document.querySelectorAll('.lang-btn').forEach(b=>b.classList.toggle('active',b.dataset.lang===currentLang));
+  document.documentElement.lang=currentLang;
+  await Promise.all([fetchProfiles(),fetchProfile(),fetchSessions(),fetchLearn(),fetchDAF(),fetchHotkeys(),fetchFluencyData()]);
+  applyI18n();
   pollState();
 }
 
@@ -3893,6 +4390,90 @@ function filterHelp(q){
     if(match&&q)r.classList.add('open'); else if(q)r.classList.remove('open');
   });
   if(!q)rows.forEach(r=>r.classList.remove('open'));
+}
+
+// ─── PROFILE MANAGEMENT ──────────────────────
+let _currentProfileName = '';
+
+async function fetchProfiles(){
+  try{
+    const r=await fetch(API+'/api/profiles');
+    const d=await r.json();
+    const sel=document.getElementById('profile-select');
+    const current=d.active||'Default';
+    _currentProfileName=current;
+    sel.innerHTML=d.profiles.map(p=>
+      `<option value="${esc(p)}"${p===current?' selected':''}>${esc(p)}</option>`
+    ).join('');
+  }catch(e){}
+}
+
+async function switchProfile(name){
+  if(name===_currentProfileName)return;
+  const sel=document.getElementById('profile-select');
+  sel.disabled=true;
+  try{
+    const r=await fetch(API+'/api/profiles/switch',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:name})
+    });
+    const d=await r.json();
+    if(d.ok){
+      _currentProfileName=name;
+      // Reload everything for the new profile
+      await Promise.all([fetchProfile(),fetchSessions(),fetchLearn(),fetchFluencyData()]);
+      applyI18n();
+    }else{
+      // Revert selection
+      sel.value=_currentProfileName;
+    }
+  }catch(e){
+    sel.value=_currentProfileName;
+  }finally{
+    sel.disabled=false;
+  }
+}
+
+function openProfileModal(){
+  document.getElementById('profile-modal-backdrop').classList.add('open');
+  const input=document.getElementById('profile-name-input');
+  input.value='';
+  input.focus();
+}
+
+function closeProfileModal(){
+  document.getElementById('profile-modal-backdrop').classList.remove('open');
+}
+
+async function createProfileFromModal(){
+  const input=document.getElementById('profile-name-input');
+  const name=input.value.trim();
+  if(!name)return;
+  try{
+    const r=await fetch(API+'/api/profiles/create',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:name})
+    });
+    const d=await r.json();
+    if(d.ok){
+      closeProfileModal();
+      await fetchProfiles();
+      // Auto-switch to the new profile
+      await switchProfile(name);
+    }else{
+      input.style.borderColor='var(--red-bright)';
+      setTimeout(()=>{input.style.borderColor='';},1500);
+    }
+  }catch(e){}
+}
+
+// Detect external profile switch (e.g., from another dashboard tab)
+function _checkProfileSync(){
+  if(state.profile_name&&state.profile_name!==_currentProfileName){
+    _currentProfileName=state.profile_name;
+    fetchProfiles();
+    fetchProfile();fetchSessions();fetchLearn();
+  }
 }
 </script>
 
@@ -4071,6 +4652,18 @@ function filterHelp(q){
     </div></div>
   </div>
 
+</div>
+
+<div class="profile-modal-backdrop" id="profile-modal-backdrop" onclick="closeProfileModal()">
+  <div class="profile-modal" onclick="event.stopPropagation()">
+    <div class="profile-modal-title" data-i18n-profile-title>New Profile</div>
+    <input class="profile-modal-input" id="profile-name-input" type="text" placeholder="Name" maxlength="40"
+      onkeydown="if(event.key==='Enter')createProfileFromModal()">
+    <div class="profile-modal-btns">
+      <button class="profile-modal-cancel" onclick="closeProfileModal()">Cancel</button>
+      <button class="profile-modal-create" onclick="createProfileFromModal()">Create</button>
+    </div>
+  </div>
 </div>
 
 </body>

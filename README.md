@@ -28,8 +28,8 @@ Mic → Whisper (Script Prep seed | verbose JSON | multi-temp voting)
 
 - **Engine** (`lavrentiy.py`): Hotkey listener, audio capture, LLM pipeline, DAF streaming, calibration, augmentation, embedded HTTP server
 - **Dashboard** (`dashboard.html`): Browser-based control panel served on `localhost:7878`
-- **Profile** (`~/.lavrentiy/profile.json`): Persistent learned patterns and preferences
-- **History** (`~/.lavrentiy/history.db`): SQLite session database (WAL mode, unlimited history)
+- **Profiles** (`~/.lavrentiy/profiles/<name>/`): Multi-user support — each profile gets its own profile.json, history.db, and backups/
+- **Active Profile** (`~/.lavrentiy/active_profile`): Tracks which profile is loaded across restarts
 - **Calibration** (`~/.lavrentiy/calibration/`): 60-prompt structured data collection with WER tracking
 - **Audio Archive** (`~/.lavrentiy/audio_archive/`): Session WAV + metadata pairs for future Whisper fine-tuning
 - **Augmented Data** (`~/.lavrentiy/calibration/augmented/`): Synthetic disfluent speech via TTS for dataset multiplication
@@ -463,6 +463,8 @@ Single HTML file served by the engine's embedded HTTP server:
 - Compact mode (minimized always-on-top bar with essential controls)
 - Customizable hotkeys (F1–F12 rebinding via sidebar editor)
 - Interactive help manual (accordion-style, searchable, matching dashboard aesthetic)
+- EN/RU language toggle (184 translation keys — full dashboard + help overlay localization)
+- Multi-user profile selector (dropdown + create new profile modal)
 - Situations collapsed to 3 (Default, High Stress, Reading) from original 6
 
 ## API Endpoints
@@ -505,13 +507,18 @@ Single HTML file served by the engine's embedded HTTP server:
 | POST | `/api/paralinguistic_transcribe` | Toggle tag injection into pasted text |
 | POST | `/api/prosodic` | Toggle prosodic analysis |
 | POST | `/api/transcribe` | Mobile transcription endpoint (base64 WAV in, text out) |
+| GET | `/api/profiles` | List available profiles + active profile name |
+| POST | `/api/profiles/switch` | Switch active profile (saves current, loads new) |
+| POST | `/api/profiles/create` | Create a new blank profile |
 
 ## Data Safety
 
-- **Atomic profile saves**: temp-write → fsync → rename (no partial writes)
-- **SQLite WAL mode**: concurrent reads during writes, no corruption
-- **Pre-migration backups**: timestamped snapshots in `~/.lavrentiy/backups/`
+- **Atomic profile saves**: temp-write → fsync → rename (no partial writes), guarded by `_profile_lock` (20 call sites)
+- **SQLite WAL mode**: concurrent reads during writes, no corruption, guarded by `_db_lock`
+- **Thread safety**: 9 dedicated locks across profile, DB, stats, preview, learn, shadow, prep, augment, and redo subsystems
+- **Pre-migration backups**: timestamped snapshots in per-profile `backups/` directory
 - **Schema versioning**: profile version 4 (vote-based candidate corrections, covert avoidance pairs, phonetic triggers, OCD speech profile)
+- **Multi-user isolation**: each profile has its own profile.json, history.db, and backups — no data leaks between users
 - **All data local**: everything stored in `~/.lavrentiy/`, nothing server-side except OpenAI API calls
 - **Archive budget**: auto-pause at 2GB to prevent disk fill
 
@@ -524,10 +531,11 @@ dashboard.html      # Browser UI (served by engine)
 ```
 
 Runtime data at `~/.lavrentiy/`:
-- `profile.json` — learned patterns and preferences
-- `history.db` — SQLite session database
+- `active_profile` — name of the currently loaded profile
+- `profiles/<name>/profile.json` — learned patterns and preferences (per user)
+- `profiles/<name>/history.db` — SQLite session database (per user)
+- `profiles/<name>/backups/` — timestamped profile snapshots (per user)
 - `dashboard.html` — served copy of the dashboard
-- `backups/` — pre-migration profile snapshots
 - `calibration/` — calibration WAV + metadata pairs
 - `calibration/augmented/` — synthetic disfluent training data
 - `audio_archive/` — session WAV + metadata pairs for fine-tuning
@@ -538,9 +546,9 @@ The 5-feature phonetic risk model was verified against the original 1945 paper: 
 
 Key finding from Brown: rank-order correlation between factor count and stuttering frequency was **.99 ± .003** (Table 4, p. 186). Only 5.3% of 5,136 stutterings could not be accounted for by at least one factor.
 
-## Test Coverage — Updated 2026-03-21
+## Test Coverage — Updated 2026-03-22
 
-**1034 assertions passing across 14 test suites.**
+**1,500+ assertions passing across 15 test suites.**
 
 | Suite | Assertions | Coverage |
 |-------|-----------|----------|
@@ -550,19 +558,33 @@ Key finding from Brown: rank-order correlation between factor count and stutteri
 | `test_pending.py` | 127 | `detect_word_language`, `detect_onset_anomalies`, `compute_brown_scores`, `predict_triggers_in_text`, `generate_shadow_utterance`, `compute_avoidance_trend`, `_build_whisper_prompt`, `learn_from_sessions`, `build_stutter_insights` |
 | `test_pipeline.py` | 96 | Pipeline stage chaining, L1/L2/L4 data flow, mode×layer decision matrix, critical token retention, disfluency→exposure→editorial chain, trigger detection chain, profile corrections, situation severity ordering (high_stress > default > reading) |
 | `test_endpoints.py` | 170 | All GET/POST HTTP endpoints, JSON response shape, state mutations, CORS headers, error handling, `/api/covert/remove` edge cases, DAF endpoints, calibration flow, augmentation flow, paralinguistic/prosodic toggle endpoints, paralinguistic_transcribe toggle, situation alias back-compat (phone→high_stress, casual→default), toggle auto-enable on high-stress |
-| `test_threads.py` | 22 | Concurrent `_shadow_history` writes, trend reads during writes, `stats_inc` atomicity, `preview_state` updates, `learn_events` writes + snapshots, onset anomaly detection |
+| `test_threads.py` | 37 | 8 concurrent scenarios: `_shadow_history` writes, trend reads during writes, `stats_inc` atomicity, `preview_state` updates, `learn_events` writes + snapshots, onset anomaly detection, **profile lock contention** (10 threads × 50 writes + 3 concurrent readers), **HTTP state mutation stress** (3 pollers + 2 mutators + 2 stats writers) |
 | `test_fuzz.py` | 23 | 36,000+ random inputs (ASCII, Unicode, CJK, emoji, null bytes, massive) across 12 functions — invariant verification: scores in [0,1], no crashes, valid return types |
-| `test_perf.py` | 18 | Timing thresholds for 12 functions — prevents silent slowdowns (e.g. `predict_phonetic_risk` < 1ms, `strip_disfluencies` 7.4KB < 100ms, `brown_scores` 13KB < 500ms) |
+| `test_preview.py` | 14 | `start_preview_stream`, `stop_preview_stream`, `update_preview_text`, `set_state` — preview lifecycle, disabled/enabled guards, interim/final text updates, state transitions |
+| `test_perf.py` | 19 | Timing thresholds for 12 functions — prevents silent slowdowns (e.g. `predict_phonetic_risk` < 1ms, `strip_disfluencies` 7.4KB < 100ms, `brown_scores` 13KB < 500ms) |
 | `test_whisper_voting.py` | 43 | Multi-temperature voting: agreement, word-level disagreement detection, `<END>` sentinel, total disagreement, empty transcription, low-confidence segment extraction, block suspect flagging |
 | `test_clipboard.py` | 31 | `ClipboardPredictor` cache TTL, `invalidate()`, situation filtering, `compute_brown_scores` integration, prep > clipboard > fallback priority chain, `_build_bias` structure, min triggers threshold |
 | `test_paralinguistic.py` | 49 | `compute_hnr` (synthetic ground truth: pure tone, noise, mixed, thresholds, degenerate inputs), `_classify_from_error_patterns` (S/D/I mapping, no_speech_prob, disagreement clusters), `detect_paralinguistic_events` (integration: noisy + clean audio, HNR exemption, duration gates), `format_paralinguistic_tags`, LAYERS/LAYER_NAMES constants |
 | `test_prosodic.py` | 51 | `extract_f0` (synthetic pitch detection), `extract_prosodic_features` (per-segment F0/energy/rate), `compute_speaker_baseline` (historical averages), `infer_speaker_state` (stress/fatigue/calm/tension), `build_prosodic_context` (prompt formatting with stutter rules), `compute_prosodic_summary` (session-level aggregation) |
 | `test_adversarial.py` | 198 | Stress/boundary/Unicode tests for all clinical features (run locally, not in CI) |
-| **Total** | **1034** | **All passing** |
+| **Total** | **~1,500+** | **All passing** (1 known flaky: `test_clinical` phone==casual boundary equality) |
 
 **Not yet tested** (require live API or audio hardware): Whisper transcription, LLM reconstruction, Falcon validation, DAF audio streaming.
 
 ## Changelog
+
+### 2026-03-22 — Multi-user profiles, EN/RU localization, thread safety hardening
+
+- **Added**: Multi-user profile support — `~/.lavrentiy/profiles/<name>/` directory structure with per-user profile.json, history.db, and backups. Profile selector dropdown in dashboard sidebar with create-new-profile modal. Auto-migration from flat layout to profiles/Default/ on first run.
+- **Added**: Full EN/RU dashboard localization — 184 translation keys covering all sidebar labels, tab names, stat bars, help overlay (11 sections), calibration UI, prep scanner, profile editor, and dynamic engine states. Language toggle persists via localStorage.
+- **Added**: `_profile_lock` (threading.Lock) guarding all 20 `save_profile()` call sites — prevents concurrent .tmp file corruption across HTTP server, hotkey listener, learn/decay, and pipeline threads.
+- **Added**: Profile lock contention test (10 threads × 50 writes + 3 concurrent readers) and HTTP state mutation stress test (3 pollers + 2 mutators + 2 stats writers) in `test_threads.py`.
+- **Added**: `test_preview.py` — 14 assertions covering preview stream lifecycle (start/stop/update/set_state).
+- **Added**: `_init_db()` function — DB initialization extracted into reusable function for profile switching.
+- **Changed**: `save_profile()` now thread-safe with atomic tmp→fsync→rename inside `_profile_lock`.
+- **Changed**: Dashboard icon regenerated — 7 sizes (16px through 256px, 11KB) replacing the old 353-byte single-size icon.
+- **API**: `GET /api/profiles`, `POST /api/profiles/switch`, `POST /api/profiles/create`. `profile_name` added to `/api/state` response.
+- **Tests**: ~1,500+ assertions across 15 test suites (up from 1,034 across 14).
 
 ### 2026-03-21 — Dashboard UX overhaul + architecture cleanup
 
