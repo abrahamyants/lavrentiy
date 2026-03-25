@@ -667,7 +667,14 @@ body::before {
       <button class="settings-close" onclick="closeSettings()" aria-label="Close">&#x2715;</button>
     </div>
     <div class="settings-row">
-      <label>API Key</label>
+      <label>Speech Engine</label>
+      <div style="display:flex;gap:6px;margin-top:4px">
+        <button class="tone-pill" id="asr-device" onclick="setAsr('device')" style="flex:1;padding:10px 8px">Device (free)</button>
+        <button class="tone-pill" id="asr-whisper" onclick="setAsr('whisper')" style="flex:1;padding:10px 8px">Whisper (API)</button>
+      </div>
+    </div>
+    <div class="settings-row" id="settings-key-row">
+      <label>API Key (Whisper only)</label>
       <input type="password" id="settings-key" placeholder="sk-..." autocomplete="off" spellcheck="false">
     </div>
     <div class="settings-row">
@@ -698,17 +705,19 @@ let apiKey = localStorage.getItem('wim_api_key') || 'sk-proj-IR7C4UT5uTlopgSeU2X
 let autoCopy = localStorage.getItem('wim_autocopy') !== 'false';
 let tone = localStorage.getItem('wim_tone') || 'casual';
 let reconstruct = localStorage.getItem('wim_reconstruct') !== 'false';
+let asrEngine = localStorage.getItem('wim_asr') || 'device'; // 'device' or 'whisper'
 let history = JSON.parse(localStorage.getItem('wim_history') || '[]');
 let recording = false;
 let processing = false;
 let mediaRecorder = null;
+let speechRecognition = null;
 let chunks = [];
 let recTimerInterval = null;
 let recStartTime = 0;
 
 // ─── Init ───
 (function init() {
-  if (apiKey) showMain();
+  if (asrEngine === 'device' || apiKey) showMain();
   else showSetup();
 
   // Enable setup button when key entered
@@ -774,13 +783,135 @@ async function toggleRecord() {
   const btn = document.getElementById('rec-btn');
   const label = document.getElementById('rec-label');
 
+  if (asrEngine === 'device') {
+    toggleRecordDevice(btn, label);
+  } else {
+    toggleRecordWhisper(btn, label);
+  }
+}
+
+// ─── Device ASR (on-device, free, no API key) ───
+let deviceTranscript = '';
+
+function toggleRecordDevice(btn, label) {
   if (!recording) {
-    // Start
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      label.textContent = 'NOT SUPPORTED';
+      setTimeout(() => { label.textContent = 'TAP TO RECORD'; }, 2500);
+      return;
+    }
+    deviceTranscript = '';
+    speechRecognition = new SpeechRecognition();
+    speechRecognition.lang = 'en-US';
+    speechRecognition.interimResults = false;
+    speechRecognition.continuous = true;
+    speechRecognition.maxAlternatives = 1;
+
+    speechRecognition.onresult = (event) => {
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          deviceTranscript += (deviceTranscript ? ' ' : '') + event.results[i][0].transcript;
+        }
+      }
+    };
+    speechRecognition.onerror = (e) => {
+      if (e.error !== 'aborted') {
+        label.textContent = e.error === 'not-allowed' ? 'MIC ACCESS DENIED' : 'ASR ERROR';
+        setTimeout(() => { label.textContent = 'TAP TO RECORD'; }, 2500);
+        recording = false;
+        btn.classList.remove('recording');
+      }
+    };
+    speechRecognition.onend = () => {
+      if (recording) {
+        // Browser stopped recognition early — restart
+        try { speechRecognition.start(); } catch(e) {}
+      }
+    };
+
+    try {
+      speechRecognition.start();
+      recording = true;
+      recStartTime = Date.now();
+      startRecTimer();
+      btn.classList.add('recording');
+      label.textContent = '00:00';
+      try { navigator.vibrate(50); } catch(e) {}
+    } catch (e) {
+      label.textContent = 'MIC ACCESS DENIED';
+      setTimeout(() => { label.textContent = 'TAP TO RECORD'; }, 2500);
+    }
+  } else {
+    // Stop
+    recording = false;
+    stopRecTimer();
+    try { speechRecognition.stop(); } catch(e) {}
+    btn.classList.remove('recording');
+    btn.classList.add('processing');
+    label.textContent = 'PROCESSING...';
+    processing = true;
+    try { navigator.vibrate(30); } catch(e) {}
+
+    const text = deviceTranscript.trim();
+    if (!text) {
+      showError('No speech detected. Try again.');
+      resetRecBtn();
+      return;
+    }
+
+    // Go straight to reconstruction
+    processDeviceText(text);
+  }
+}
+
+async function processDeviceText(text) {
+  const t0 = Date.now();
+  let cleanText = text;
+  let confidence = 0.95;
+  let reconMs = 0;
+
+  if (reconstruct) {
+    try {
+      document.getElementById('rec-label').textContent = 'RECONSTRUCTING...';
+      const result = await reconstructText(text);
+      cleanText = result.clean || text;
+      confidence = result.confidence || computeConfidence(text, cleanText);
+      reconMs = result.ms || 0;
+    } catch (e) {
+      cleanText = text;
+      confidence = 0.5;
+    }
+  }
+
+  const totalMs = (Date.now() - t0);
+  history.unshift({
+    text: cleanText,
+    raw: text !== cleanText ? text : null,
+    confidence: confidence,
+    tone: tone,
+    ms: totalMs,
+    ts: new Date().toISOString()
+  });
+  if (history.length > 50) history.pop();
+  localStorage.setItem('wim_history', JSON.stringify(history));
+
+  if (autoCopy) {
+    try { await navigator.clipboard.writeText(cleanText); } catch(e) {}
+  }
+
+  renderResults();
+  resetRecBtn();
+}
+
+// ─── Whisper ASR (cloud, needs API key) ───
+function toggleRecordWhisper(btn, label) {
+  if (!recording) {
+    (async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       chunks = [];
       const options = {};
-      // Prefer webm (Chrome/Android) or mp4 (Safari/iOS)
       if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
         options.mimeType = 'audio/webm;codecs=opus';
       } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
@@ -803,8 +934,8 @@ async function toggleRecord() {
       label.textContent = 'MIC ACCESS DENIED';
       setTimeout(() => { label.textContent = 'TAP TO RECORD'; }, 2500);
     }
+    })();
   } else {
-    // Stop
     recording = false;
     stopRecTimer();
     if (mediaRecorder && mediaRecorder.state === 'recording') {
@@ -854,55 +985,25 @@ function setTone(t, el) {
   });
 })();
 
-// ─── Reconstruction engine (client-side L2) ───
-const TONE_RULES = {
-  formal: "Use complete sentences. No contractions. No slang. Proper grammar. Only fix disfluencies and grammar errors.",
-  professional: "Clean business language. Fix grammar, strip fillers. Minor rephrasing for clarity OK.",
-  casual: "Natural spoken rhythm. Contractions OK. Strip fillers, fix obvious errors. Keep natural voice.",
-  friend: "Conversational, relaxed. Contractions expected. Fragments OK. Strip fillers, preserve personality."
-};
-const TONE_TEMP = { formal: 0.1, professional: 0.15, casual: 0.35, friend: 0.4 };
+// ─── Reconstruction engine (Cloud API) ───
+const WIM_API = 'https://us-west1-bakers-agent.cloudfunctions.net/wim-reconstruct';
 
 async function reconstructText(rawText) {
-  const hasCyrillic = /[\u0400-\u04ff]/.test(rawText);
-  const langNote = hasCyrillic ? " Speaker is bilingual (English/Russian)." : "";
-  const toneRule = TONE_RULES[tone] || TONE_RULES.casual;
-
-  const systemPrompt = [
-    `Rebuild this raw voice transcription into clean ${tone} text.${langNote}`,
-    toneRule,
-    "Strip filler words (including non-English fillers like э, ну, ээ).",
-    "Preserve FULL meaning. Do not summarize or add information.",
-    "Output ONLY the reconstructed text.",
-    "",
-    "The input is a voice transcription and may contain ASR artifacts:",
-    "- Repeated words or phrases from natural speech hesitation",
-    "- Filler sounds transcribed as real words",
-    "- Phantom words inserted during pauses",
-    "- Phonetically similar but semantically wrong words",
-    "When a word doesn't fit the context, prefer the contextually correct interpretation.",
-  ].join("\n");
-
-  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+  const r = await fetch(WIM_API, {
     method: 'POST',
-    headers: {
-      'Authorization': 'Bearer ' + apiKey,
-      'Content-Type': 'application/json'
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: rawText }
-      ],
-      max_tokens: 1000,
-      temperature: TONE_TEMP[tone] || 0.3
+      raw: rawText,
+      tone: tone,
+      layer: 2,
+      mode: 'FAST'
     })
   });
 
   if (!r.ok) throw new Error('Reconstruction failed: ' + r.status);
   const data = await r.json();
-  return (data.choices[0].message.content || '').trim();
+  if (data.error) throw new Error(data.error);
+  return data;
 }
 
 function computeConfidence(rawText, cleanText) {
@@ -958,17 +1059,17 @@ async function processAudio() {
       return;
     }
 
-    // Reconstruction step (L2+)
+    // Reconstruction step (Cloud API)
     let cleanText = text;
     let confidence = 0.95;
     let reconMs = 0;
     if (reconstruct) {
       try {
         document.getElementById('rec-label').textContent = 'RECONSTRUCTING...';
-        const t1 = Date.now();
-        cleanText = await reconstructText(text);
-        reconMs = Date.now() - t1;
-        confidence = computeConfidence(text, cleanText);
+        const result = await reconstructText(text);
+        cleanText = result.clean || text;
+        confidence = result.confidence || computeConfidence(text, cleanText);
+        reconMs = result.ms || 0;
       } catch (e) {
         cleanText = text;
         confidence = 0.5;
@@ -1135,10 +1236,21 @@ async function shareItem(idx) {
 }
 
 // ─── Settings ───
+function setAsr(engine) {
+  asrEngine = engine;
+  localStorage.setItem('wim_asr', engine);
+  document.getElementById('asr-device').classList.toggle('active', engine === 'device');
+  document.getElementById('asr-whisper').classList.toggle('active', engine === 'whisper');
+  document.getElementById('settings-key-row').style.display = engine === 'whisper' ? '' : 'none';
+}
+
 function openSettings() {
   document.getElementById('settings-key').value = apiKey;
   document.getElementById('settings-autocopy').checked = autoCopy;
   document.getElementById('settings-reconstruct').checked = reconstruct;
+  document.getElementById('asr-device').classList.toggle('active', asrEngine === 'device');
+  document.getElementById('asr-whisper').classList.toggle('active', asrEngine === 'whisper');
+  document.getElementById('settings-key-row').style.display = asrEngine === 'whisper' ? '' : 'none';
   document.getElementById('settings-overlay').classList.add('open');
 }
 
