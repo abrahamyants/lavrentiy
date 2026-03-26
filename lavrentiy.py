@@ -42,12 +42,41 @@ user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
 
 # -- Single-instance enforcement ──────────────────────────────────
+def _check_existing_engine():
+    """Return True if a healthy engine is already serving on DASHBOARD_PORT."""
+    import urllib.request
+    try:
+        resp = urllib.request.urlopen(f"http://localhost:7878/api/state", timeout=2)
+        return resp.status == 200
+    except Exception:
+        return False
+
+def _kill_stale_pythonw():
+    """Kill all pythonw.exe processes (stale mutex holders)."""
+    import subprocess
+    try:
+        subprocess.run(["taskkill", "/IM", "pythonw.exe", "/F"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(1)
+    except Exception:
+        pass
+
 mutex_name = "Global\\LAVRENTIY_SINGLE_INSTANCE"
 mutex_handle = kernel32.CreateMutexW(None, True, mutex_name)
 if kernel32.GetLastError() == 183:
-    print("Lavrentiy is already running. Exiting.")
-    kernel32.CloseHandle(mutex_handle)
-    os._exit(0)
+    if _check_existing_engine():
+        print("Lavrentiy is already running. Exiting.")
+        kernel32.CloseHandle(mutex_handle)
+        os._exit(0)
+    else:
+        print("Stale mutex detected (no healthy engine). Cleaning up...")
+        kernel32.CloseHandle(mutex_handle)
+        _kill_stale_pythonw()
+        mutex_handle = kernel32.CreateMutexW(None, True, mutex_name)
+        if kernel32.GetLastError() == 183:
+            print("Could not reclaim mutex after cleanup. Exiting.")
+            kernel32.CloseHandle(mutex_handle)
+            os._exit(1)
 
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(1)
