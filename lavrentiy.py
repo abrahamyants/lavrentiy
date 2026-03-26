@@ -2550,7 +2550,8 @@ def compute_exposure_difficulty(raw_text, situation, disf_counts, prof):
     avg_risk = sum(risks) / len(risks) if risks else 0.2
     high_risk_count = sum(1 for r in risks if r >= 0.6)
 
-    # Component 2: Situational pressure
+    # Component 2: Situational pressure (resolve legacy aliases)
+    situation = _SITUATION_ALIASES.get(situation, situation) if situation else "default"
     sit_severity = SITUATION_SEVERITY.get(situation or "default", 1.0)
     sit_score = min((sit_severity - 0.6) / 1.2, 1.0)  # normalize 0.6-1.8 → 0.0-1.0
 

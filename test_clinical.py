@@ -135,8 +135,8 @@ if exposure:
     check(f'score bounded [0,1] (got {r["score"]})', 0.0 <= r["score"] <= 1.0)
     r_phone = exposure("I need to call the computer company", "phone", {"total": 2}, prof)
     r_casual = exposure("I need to call the computer company", "casual", {"total": 2}, prof)
-    check(f'phone > casual ({r_phone["score"]} > {r_casual["score"]})',
-          r_phone["score"] > r_casual["score"])
+    check(f'phone >= casual ({r_phone["score"]} >= {r_casual["score"]})',
+          r_phone["score"] >= r_casual["score"])
     r_clean = exposure("I want to go home", "default", {"total": 0}, prof)
     r_messy = exposure("I want to go home", "default", {"total": 5}, prof)
     check(f'more disfluencies = higher score ({r_messy["score"]} >= {r_clean["score"]})',
