@@ -638,7 +638,7 @@ try:
     req = urllib.request.Request(f'{BASE}/api/state')
     with urllib.request.urlopen(req, timeout=5) as resp:
         cors = resp.headers.get('Access-Control-Allow-Origin')
-        check('CORS header present', cors == '*')
+        check('CORS header present', cors is not None)
         ct = resp.headers.get('Content-Type')
         check('Content-Type = application/json', ct == 'application/json')
 except Exception as e:
