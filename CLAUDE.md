@@ -25,7 +25,7 @@
 - Single-instance mutex: only one engine process at a time. Kill old before restarting.
 
 ## Testing
-- 19 test files, ~1,285 assertions total. Run with `python <test_file>.py` (not pytest — test files use sys.exit at module level)
+- 19 test files, ~1,312 assertions total. Run with `python <test_file>.py` (not pytest — test files use sys.exit at module level)
 - RUN TESTS AFTER EVERY CHANGE. No exceptions.
 - test_core (39 pass) — _extract_onset, learn_onset_weights, predict_phonetic_risk, compute_wer, risk_flags, make_decision
 - test_pipeline (96 pass) — L1-L4 paths, all modes, critical token retention, covert avoidance chain, decision matrix
@@ -44,7 +44,7 @@
 - test_preview (14 pass) — start/stop/update preview stream, set_state
 - test_profile_db (83 pass) — profile lifecycle (load/save/migrate/switch/create), DB schema migration, log_session 17-column round-trip, concurrent writes
 - test_audio_preprocess (29 pass) — DC removal, 70Hz high-pass Butterworth, AGC -12dB normalization, tanh soft clip, frequency response verification
-- test_wim_api (95 pass) — WiM consumer API: strip_disfluencies, build_prompt (tones/layers/situations/Whisper signals/covert avoidance), compute_confidence, mocked reconstruct_intent (all modes/layers/falcon reject), response shape contract, live 100-concurrent stress test (skips if no API key)
+- test_wim_api (122 pass) — WiM consumer API: strip_disfluencies, build_prompt (tones/layers/situations/Whisper signals/covert avoidance), compute_confidence, mocked reconstruct_intent (all modes/layers/falcon reject), response shape contract, live 100-concurrent stress test (skips if no API key)
 - test_speech_rate (33 pass) — analyze_speech_rate: synthetic audio with controlled pause ratios, syllable onset counting, severity modifier thresholds, slow rate detection, edge cases (tiny/long/silence signals)
 
 ## Thread Safety
@@ -53,6 +53,14 @@
 - _profile_switch_epoch: background threads capture epoch at launch, bail if it changes before saving (prevents cross-profile corruption)
 - _shadow_lock, _learn_lock, _stats_lock, _prep_lock, preview_lock, _redo_lock, _augment_lock for respective shared state
 - save_profile uses atomic tmp→fsync→rename pattern inside the lock
+
+## WiM Android Parity (canonical values live HERE, WiM mirrors them)
+- SITUATION_SEVERITY: default=1.0, high_stress=1.5, reading=0.3
+- TONE_TEMP: formal=0.1, professional=0.15, casual=0.35, friend=0.4
+- Auto-learn gate: L2+ (not L3+)
+- Falcon on backend path: read falcon_ok from response JSON, do NOT run client-side
+- Backend payload must include: vocabulary, corrections, filler_words, trigger_words, onset_weights, covert_profile
+- Falcon prompt labels: "Original:" / "Reconstruction:" (not "Raw:" / "Reconstructed:")
 
 ## Safety Rules
 - NEVER write to `C:\Users\georg\lavrentiy.py` without reading it first

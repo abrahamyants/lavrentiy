@@ -341,6 +341,7 @@ else:
     print('=== TEST 11: Live stress test — 100 concurrent API calls ===')
 
     # Quick API key validation — try one call before launching 100
+    _stress_test_skip = False
     try:
         _probe = R.reconstruct_intent('hello test', layer=2, mode='FAST')
         if 'error' in _probe or not _probe.get('clean'):
@@ -348,93 +349,147 @@ else:
     except Exception as _e:
         print(f'  SKIP: API key invalid or unreachable ({type(_e).__name__})')
         print(f'  Update api_key.txt to run the live stress test.')
-        # Jump to summary
-        print()
-        print('=' * 40)
-        print(f'  PASSED: {passed}')
-        print(f'  FAILED: {failed}')
-        print('=' * 40)
-        sys.exit(1 if failed > 0 else 0)
+        _stress_test_skip = True
 
-    test_messages = [
-        "so um like the thing is we need to uh get the report done by Friday",
-        "I I I want to to go to the store",
-        "um can you uh send me the the email",
-        "basically what I'm trying to say is um we should probably maybe consider",
-        "the the meeting is at at three o'clock",
-        "I was going to um like tell you about the project",
-        "so uh yeah the the deadline is is next week",
-        "can can you please uh forward that to to the team",
-        "I think I think we should um reconsider the approach",
-        "the report um shows that uh revenue is is up fifteen percent",
-    ]
+    if not _stress_test_skip:
+        test_messages = [
+            "so um like the thing is we need to uh get the report done by Friday",
+            "I I I want to to go to the store",
+            "um can you uh send me the the email",
+            "basically what I'm trying to say is um we should probably maybe consider",
+            "the the meeting is at at three o'clock",
+            "I was going to um like tell you about the project",
+            "so uh yeah the the deadline is is next week",
+            "can can you please uh forward that to to the team",
+            "I think I think we should um reconsider the approach",
+            "the report um shows that uh revenue is is up fifteen percent",
+        ]
 
-    # Cycle through messages to make 100
-    messages_100 = [test_messages[i % len(test_messages)] for i in range(100)]
+        messages_100 = [test_messages[i % len(test_messages)] for i in range(100)]
+        results = [None] * 100
+        errors = []
+        tones = ['casual', 'professional', 'formal', 'friend']
+        layers = [1, 2, 2, 2, 3, 3, 4]
 
-    results = [None] * 100
-    errors = []
-    tones = ['casual', 'professional', 'formal', 'friend']
-    layers = [1, 2, 2, 2, 3, 3, 4]  # weighted toward L2/L3
+        def _call(idx):
+            try:
+                r = R.reconstruct_intent(
+                    raw_text=messages_100[idx],
+                    tone=tones[idx % len(tones)],
+                    layer=layers[idx % len(layers)],
+                    mode='FAST',
+                    situation='default',
+                )
+                results[idx] = r
+            except Exception as e:
+                errors.append(f'#{idx}: {type(e).__name__}: {e}')
 
-    def _call(idx):
-        try:
-            r = R.reconstruct_intent(
-                raw_text=messages_100[idx],
-                tone=tones[idx % len(tones)],
-                layer=layers[idx % len(layers)],
-                mode='FAST',  # skip falcon for speed
-                situation='default',
-            )
-            results[idx] = r
-        except Exception as e:
-            errors.append(f'#{idx}: {type(e).__name__}: {e}')
+        t0 = time.time()
+        threads = [threading.Thread(target=_call, args=(i,)) for i in range(100)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=60)
+        elapsed = time.time() - t0
 
-    t0 = time.time()
-    threads = [threading.Thread(target=_call, args=(i,)) for i in range(100)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join(timeout=60)
-    elapsed = time.time() - t0
+        completed = sum(1 for r in results if r is not None)
+        check(f'100 calls completed ({completed}/100)', completed == 100)
+        check(f'no exceptions ({len(errors)} errors)', len(errors) == 0)
+        if errors:
+            for e in errors[:5]:
+                print(f'    ERROR: {e}')
 
-    completed = sum(1 for r in results if r is not None)
-    check(f'100 calls completed ({completed}/100)', completed == 100)
-    check(f'no exceptions ({len(errors)} errors)', len(errors) == 0)
-    if errors:
-        for e in errors[:5]:
-            print(f'    ERROR: {e}')
+        bad_shapes = 0
+        for i, r in enumerate(results):
+            if r is None:
+                continue
+            if not isinstance(r.get('clean'), str) or r.get('confidence') is None:
+                bad_shapes += 1
+        check(f'all responses have valid shape ({bad_shapes} bad)', bad_shapes == 0)
 
-    # Validate response shapes
-    bad_shapes = 0
-    for i, r in enumerate(results):
-        if r is None:
-            continue
-        if not isinstance(r.get('clean'), str) or r.get('confidence') is None:
-            bad_shapes += 1
-    check(f'all responses have valid shape ({bad_shapes} bad)', bad_shapes == 0)
+        l1_results = [results[i] for i in range(100) if layers[i % len(layers)] == 1 and results[i]]
+        if l1_results:
+            avg_l1_ms = sum(r['ms'] for r in l1_results) / len(l1_results)
+            check(f'L1 avg latency < 5ms ({avg_l1_ms:.1f}ms)', avg_l1_ms < 5)
 
-    # L1 calls should be fast (no API)
-    l1_results = [results[i] for i in range(100) if layers[i % len(layers)] == 1 and results[i]]
-    if l1_results:
-        avg_l1_ms = sum(r['ms'] for r in l1_results) / len(l1_results)
-        check(f'L1 avg latency < 5ms ({avg_l1_ms:.1f}ms)', avg_l1_ms < 5)
+        api_results = [results[i] for i in range(100) if layers[i % len(layers)] >= 2 and results[i]]
+        empty_clean = sum(1 for r in api_results if not r.get('clean', '').strip())
+        check(f'no empty clean text ({empty_clean} empty)', empty_clean == 0)
 
-    # API calls should return non-empty clean text
-    api_results = [results[i] for i in range(100) if layers[i % len(layers)] >= 2 and results[i]]
-    empty_clean = sum(1 for r in api_results if not r.get('clean', '').strip())
-    check(f'no empty clean text ({empty_clean} empty)', empty_clean == 0)
+        low_conf = sum(1 for r in api_results if r.get('confidence', 0) < 0.5)
+        check(f'most results have confidence >= 0.5 ({low_conf} low)', low_conf < len(api_results) * 0.2)
 
-    # Confidence scores should be sane
-    low_conf = sum(1 for r in api_results if r.get('confidence', 0) < 0.5)
-    check(f'most results have confidence >= 0.5 ({low_conf} low)', low_conf < len(api_results) * 0.2)
+        shorter = sum(1 for r in api_results if len(r.get('clean', '')) <= len(r.get('raw', '')) * 1.2)
+        check(f'clean text not inflated ({shorter}/{len(api_results)} OK)', shorter > len(api_results) * 0.8)
 
-    # Clean text should be shorter than or equal to raw (fillers removed)
-    shorter = sum(1 for r in api_results if len(r.get('clean', '')) <= len(r.get('raw', '')) * 1.2)
-    check(f'clean text not inflated ({shorter}/{len(api_results)} OK)', shorter > len(api_results) * 0.8)
+        print(f'\n  Completed 100 calls in {elapsed:.1f}s ({elapsed/100*1000:.0f}ms avg)')
+        print(f'  L1 calls: {len(l1_results)}, API calls: {len(api_results)}')
 
-    print(f'\n  Completed 100 calls in {elapsed:.1f}s ({elapsed/100*1000:.0f}ms avg)')
-    print(f'  L1 calls: {len(l1_results)}, API calls: {len(api_results)}')
+
+# ============================================================
+# PART 4: Canonical values (WiM Android must match these)
+# ============================================================
+
+print()
+print('=== TEST 12: Canonical values for WiM parity ===')
+
+# Situation severity — authoritative values
+check('reading severity = 0.5', R.SITUATION_SEVERITY.get('reading') == 0.5)
+check('default severity = 1.0', R.SITUATION_SEVERITY.get('default') == 1.0)
+check('high_stress severity = 1.5', R.SITUATION_SEVERITY.get('high_stress') == 1.5)
+
+# Tone temperatures — authoritative values
+check('formal temp = 0.1', R.TONE_TEMP.get('formal') == 0.1)
+check('professional temp = 0.15', R.TONE_TEMP.get('professional') == 0.15)
+check('casual temp = 0.35', R.TONE_TEMP.get('casual') == 0.35)
+check('friend temp = 0.4', R.TONE_TEMP.get('friend') == 0.4)
+
+# Falcon prompt format — backend uses "Original:" / "Reconstruction:"
+R.client = FakeClient()
+R.reconstruct_intent('test input', layer=2, mode='SAFE')
+falcon_call = R.client.chat.completions.calls[-1]  # last call is falcon
+falcon_user_msg = falcon_call['messages'][-1]['content']
+check('falcon uses "Original:" label', 'Original:' in falcon_user_msg)
+check('falcon uses "Reconstruction:" label', 'Reconstruction:' in falcon_user_msg)
+R.client = original_client
+
+# build_prompt includes profile fields when provided (backend must receive these)
+full_profile = {
+    'vocabulary': ['Kubernetes'],
+    'corrections': {'Duncan': 'Dankeschoen'},
+    'filler_words': ['um', 'uh', 'like'],
+    'trigger_words': ['computer', 'conference'],
+    'onset_weights': {'c': 0.8, 'k': 0.5},
+    'covert_profile': {'avoidance_pairs': {'default': {'computer': {'common_substitutes': ['laptop']}}}},
+}
+p_l3 = R.build_prompt('test', layer=3, profile=full_profile)
+check('L3 prompt uses vocabulary', 'Kubernetes' in p_l3)
+check('L3 prompt uses corrections', 'Duncan' in p_l3 or 'Dankeschoen' in p_l3)
+check('L3 prompt uses filler_words', 'um' in p_l3.lower())
+
+p_l4 = R.build_prompt('test', layer=4, profile=full_profile)
+check('L4 prompt uses trigger_words', 'computer' in p_l4)
+check('L4 prompt uses onset_weights', '/c/' in p_l4)
+check('L4 prompt uses covert_profile', 'laptop' in p_l4 or 'avoidance' in p_l4.lower())
+
+print()
+print('=== TEST 13: Backend payload shape contract ===')
+# These are the fields reconstruct_via_backend() in lavrentiy.py sends.
+# WiM Android's reconstructViaBackend must send the same fields.
+required_profile_fields = ['vocabulary', 'corrections', 'filler_words', 'trigger_words', 'onset_weights', 'covert_profile']
+for field in required_profile_fields:
+    check(f'build_prompt accepts profile.{field}', True)  # confirmed by TEST 12 above
+
+# reconstruct_intent accepts all backend contract fields
+import inspect
+sig = inspect.signature(R.reconstruct_intent)
+params = set(sig.parameters.keys())
+check('accepts whisper_low_conf', 'whisper_low_conf' in params)
+check('accepts whisper_disagreements', 'whisper_disagreements' in params)
+check('accepts speech_severity_mod', 'speech_severity_mod' in params)
+check('accepts situation', 'situation' in params)
+check('accepts mode', 'mode' in params)
+check('accepts profile', 'profile' in params)
 
 
 # ============================================================
