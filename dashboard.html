@@ -2160,7 +2160,33 @@ body::before {
 }
 .help-backdrop.open { opacity: 1; pointer-events: auto; }
 
+/* ─── AUTH / SIGN-IN ───── */
+.auth-bar {
+  padding: 6px 16px 10px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono); font-size: 10px;
+}
+.auth-bar .auth-signed-out { display: flex; align-items: center; gap: 8px; }
+.auth-bar .auth-signed-in { display: flex; align-items: center; gap: 8px; }
+.auth-bar .auth-email { color: var(--text-muted); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.google-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 12px; border: 1px solid var(--border-hi); border-radius: 4px;
+  background: var(--raised); color: var(--text); font-family: var(--mono);
+  font-size: 10px; cursor: pointer; transition: all 0.15s; width: 100%;
+  justify-content: center; letter-spacing: 0.3px;
+}
+.google-btn:hover { border-color: rgba(185,28,28,0.4); background: var(--surface); }
+.google-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+.signout-btn {
+  padding: 3px 8px; border: 1px solid var(--border-hi); border-radius: 3px;
+  background: var(--raised); color: var(--text-muted); font-family: var(--mono);
+  font-size: 9px; cursor: pointer; transition: all 0.15s;
+}
+.signout-btn:hover { color: var(--red-bright); border-color: rgba(185,28,28,0.4); }
 </style>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 </head>
 <body>
 
@@ -2203,6 +2229,19 @@ body::before {
           <div class="brand-cyrillic">Лаврентий</div>
           <div class="brand-english">LAVRENTIY</div>
         </div>
+      </div>
+    </div>
+
+    <div class="auth-bar" id="auth-bar">
+      <div class="auth-signed-out" id="auth-signed-out">
+        <button class="google-btn" onclick="googleSignIn()">
+          <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+          Sign in with Google
+        </button>
+      </div>
+      <div class="auth-signed-in" id="auth-signed-in" style="display:none">
+        <span class="auth-email" id="auth-email"></span>
+        <button class="signout-btn" onclick="googleSignOut()">Sign out</button>
       </div>
     </div>
 
@@ -2575,6 +2614,69 @@ const API='';
 let state={state:'idle',tone:'casual',layer:2,layer_name:'reconstruct',situation:'default',stats:{words:0,sessions:0,chars:0,start_time:Date.now()/1000,api_calls:0,falcon_rejects:0}};
 let profile={trigger_words:[],filler_words:[],vocabulary:[],corrections:{}};
 let sessions=[];let lastSessionCount=-1;let connected=true;let failCount=0;
+
+// ─── Firebase Auth ────────────────────────────────────────
+const firebaseConfig={
+  apiKey:"AIzaSyD2fSjQZT76sJ5yYL6CRgXxE7ejlCP-Acg",
+  authDomain:"bakers-agent.firebaseapp.com",
+  projectId:"bakers-agent",
+  storageBucket:"bakers-agent.firebasestorage.app",
+  messagingSenderId:"787543109204",
+  appId:"1:787543109204:android:2f1e08fd7d0039022f07c1"
+};
+firebase.initializeApp(firebaseConfig);
+const auth=firebase.auth();
+const googleProvider=new firebase.auth.GoogleAuthProvider();
+
+async function googleSignIn(){
+  try{
+    const result=await auth.signInWithPopup(googleProvider);
+    const token=await result.user.getIdToken();
+    await fetch(API+'/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'sign_in',id_token:token,email:result.user.email,
+        displayName:result.user.displayName||'',uid:result.user.uid})});
+    updateAuthUI(result.user);
+  }catch(e){console.error('Sign-in failed:',e);}
+}
+
+async function googleSignOut(){
+  try{
+    await auth.signOut();
+    await fetch(API+'/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'sign_out'})});
+    updateAuthUI(null);
+  }catch(e){console.error('Sign-out failed:',e);}
+}
+
+function updateAuthUI(user){
+  const so=document.getElementById('auth-signed-out');
+  const si=document.getElementById('auth-signed-in');
+  const em=document.getElementById('auth-email');
+  if(user){
+    so.style.display='none';si.style.display='flex';
+    em.textContent=user.email||user.displayName||'Signed in';
+  }else{
+    so.style.display='flex';si.style.display='none';em.textContent='';
+  }
+}
+
+// Restore auth state on page load + refresh token for engine
+auth.onAuthStateChanged(async(user)=>{
+  if(user){
+    const token=await user.getIdToken(true);
+    await fetch(API+'/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'refresh',id_token:token,email:user.email,
+        displayName:user.displayName||'',uid:user.uid})});
+    updateAuthUI(user);
+    // Refresh token every 50 minutes (Firebase tokens expire in 60)
+    setInterval(async()=>{
+      const t=await user.getIdToken(true);
+      fetch(API+'/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'refresh',id_token:t})});
+    },50*60*1000);
+  }else{updateAuthUI(null);}
+});
+// ─── end Firebase Auth ────────────────────────────────────
 let _toggleCooldown={};
 let lastLogId=0;let logLines=[];
 let learnData={status:{},events:[],totals:{corrections:0,fillers:0,vocabulary:0}};

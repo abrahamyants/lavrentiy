@@ -91,10 +91,11 @@ if os.path.exists(_key_file):
 if not API_KEY:
     API_KEY = os.environ.get("OPENAI_API_KEY", "")
 if not API_KEY:
-    print("ERROR: No API key found.")
-    print("  Option 1: Put your key in api_key.txt (same folder as lavrentiy.py)")
-    print("  Option 2: setx OPENAI_API_KEY sk-proj-...")
-    os._exit(1)
+    try:
+        print("WARNING: No local API key found. Google Sign-In required for reconstruction.")
+        print("  Or: put your key in api_key.txt / set OPENAI_API_KEY env var")
+    except Exception:
+        pass
 
 LANGUAGE = "en"
 PREFERRED_MIC = "C930"
@@ -939,7 +940,61 @@ class ClipboardPredictor:
 
 _clipboard_predictor = None  # initialized after profile load
 
-client = openai.OpenAI(api_key=API_KEY)
+client = openai.OpenAI(api_key=API_KEY) if API_KEY else None
+
+# -- Google Sign-In / Backend reconstruction ─────────────────────
+BACKEND_URL = "https://us-central1-bakers-agent.cloudfunctions.net/wim-reconstruct"
+_firebase_id_token = None  # set by /api/auth when user signs in via Google
+_auth_user = None          # {uid, email, displayName} from dashboard
+
+def is_authenticated():
+    """Check if user is signed in via Google (has a Firebase ID token)."""
+    return _firebase_id_token is not None
+
+def reconstruct_via_backend(raw_text, tone, layer, prof, situation="default", mode="SAFE",
+                            whisper_low_conf=None, whisper_disagreements=None,
+                            speech_severity_mod=0.0):
+    """Reconstruct via Cloud Function backend (uses server-side API key).
+    Called when user is signed in via Google instead of using a local API key."""
+    import urllib.request
+    payload = {
+        "raw": raw_text,
+        "tone": tone,
+        "layer": layer,
+        "situation": situation,
+        "mode": mode,
+        "speech_severity_mod": speech_severity_mod,
+        "profile": {
+            "vocabulary": prof.get("vocabulary", [])[:20],
+            "corrections": dict(list(prof.get("corrections", {}).items())[:10]),
+            "filler_words": prof.get("filler_words", [])[:25],
+            "trigger_words": prof.get("trigger_words", [])[:30],
+            "onset_weights": prof.get("onset_weights", {}),
+            "covert_profile": prof.get("covert_profile", {}),
+        },
+    }
+    if whisper_low_conf:
+        payload["whisper_low_conf"] = whisper_low_conf[:5]
+    if whisper_disagreements:
+        payload["whisper_disagreements"] = whisper_disagreements[:5]
+
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        BACKEND_URL,
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {_firebase_id_token}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+        return result.get("clean", raw_text), result.get("falcon_ok", True), result
+    except Exception as e:
+        log(f"Backend reconstruct failed: {e}", "error")
+        return None, False, {"error": str(e)}
 
 # -- Mic selection ────────────────────────────────────────────────
 DEVICE = None
@@ -5268,14 +5323,30 @@ def pipeline():
             # Pass Whisper confidence data so L4 can target uncertain segments
             # Pass paralinguistic events so L5 can guide hallucination removal
             try:
-                clean_text = reconstruct(
-                    filtered_text, current_tone, current_layer, profile, current_situation,
-                    whisper_low_conf=whisper_low_conf if current_layer >= 4 else None,
-                    whisper_disagreements=whisper_disagreements if current_layer >= 4 else None,
-                    speech_severity_mod=speech_metrics["severity_modifier"] if current_layer >= 4 else 0,
-                    paralinguistic_events=para_events if paralinguistic_enabled else None,
-                    prosodic_context=prosodic_ctx if prosodic_enabled else None
-                )
+                if is_authenticated() and not API_KEY:
+                    # Signed in via Google — use backend proxy (server holds API key)
+                    clean_text, _backend_falcon, _backend_result = reconstruct_via_backend(
+                        filtered_text, current_tone, current_layer, profile,
+                        current_situation, current_mode,
+                        whisper_low_conf=whisper_low_conf if current_layer >= 4 else None,
+                        whisper_disagreements=whisper_disagreements if current_layer >= 4 else None,
+                        speech_severity_mod=speech_metrics["severity_modifier"] if current_layer >= 4 else 0,
+                    )
+                    if clean_text is None:
+                        log("Backend reconstruct returned None — using raw", "error")
+                        used_fallback = True
+                    elif current_mode == "SAFE":
+                        falcon_ok = _backend_falcon  # backend already ran Falcon
+                else:
+                    # Local API key — call OpenAI directly
+                    clean_text = reconstruct(
+                        filtered_text, current_tone, current_layer, profile, current_situation,
+                        whisper_low_conf=whisper_low_conf if current_layer >= 4 else None,
+                        whisper_disagreements=whisper_disagreements if current_layer >= 4 else None,
+                        speech_severity_mod=speech_metrics["severity_modifier"] if current_layer >= 4 else 0,
+                        paralinguistic_events=para_events if paralinguistic_enabled else None,
+                        prosodic_context=prosodic_ctx if prosodic_enabled else None
+                    )
             except Exception as e:
                 log(f"Reconstruct failed ({e}) -- using raw", "error")
                 used_fallback = True
@@ -5625,6 +5696,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'paralinguistic_transcribe': paralinguistic_transcribe,
                 'prosodic_enabled': prosodic_enabled,
                 'profile_name': _active_profile_name,
+                'auth': {
+                    'signed_in': is_authenticated(),
+                    'user': _auth_user,
+                    'has_local_key': bool(API_KEY),
+                },
             })
         elif self.path == '/api/profiles':
             self._json({
@@ -5910,7 +5986,28 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         body = self._read_body()
-        if self.path == '/api/tone':
+        if self.path == '/api/auth':
+            global _firebase_id_token, _auth_user
+            if body and body.get('action') == 'sign_in' and body.get('id_token'):
+                _firebase_id_token = body['id_token']
+                _auth_user = {
+                    'email': body.get('email', ''),
+                    'displayName': body.get('displayName', ''),
+                    'uid': body.get('uid', ''),
+                }
+                log(f"Google Sign-In: {_auth_user.get('email', 'unknown')}", "info")
+                self._json({'signed_in': True, 'user': _auth_user})
+            elif body and body.get('action') == 'sign_out':
+                _firebase_id_token = None
+                _auth_user = None
+                log("Google Sign-Out", "info")
+                self._json({'signed_in': False})
+            elif body and body.get('action') == 'refresh' and body.get('id_token'):
+                _firebase_id_token = body['id_token']
+                self._json({'signed_in': True, 'refreshed': True})
+            else:
+                self._json({'signed_in': is_authenticated(), 'user': _auth_user})
+        elif self.path == '/api/tone':
             if body and isinstance(body.get('tone'), str):
                 set_tone(body['tone'])
             self._json({'tone': current_tone})
