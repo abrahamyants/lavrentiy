@@ -24,7 +24,7 @@
 - Single-instance mutex: only one engine process at a time. Kill old before restarting.
 
 ## Testing
-- 17 test files, ~1,157 assertions total. Run with `python <test_file>.py` (not pytest — test files use sys.exit at module level)
+- 18 test files, ~1,252 assertions total. Run with `python <test_file>.py` (not pytest — test files use sys.exit at module level)
 - RUN TESTS AFTER EVERY CHANGE. No exceptions.
 - test_core (39 pass) — _extract_onset, learn_onset_weights, predict_phonetic_risk, compute_wer, risk_flags, make_decision
 - test_pipeline (96 pass) — L1-L4 paths, all modes, critical token retention, covert avoidance chain, decision matrix
@@ -43,6 +43,7 @@
 - test_preview (14 pass) — start/stop/update preview stream, set_state
 - test_profile_db (83 pass) — profile lifecycle (load/save/migrate/switch/create), DB schema migration, log_session 17-column round-trip, concurrent writes
 - test_audio_preprocess (29 pass) — DC removal, 70Hz high-pass Butterworth, AGC -12dB normalization, tanh soft clip, frequency response verification
+- test_wim_api (95 pass) — WiM consumer API: strip_disfluencies, build_prompt (tones/layers/situations/Whisper signals/covert avoidance), compute_confidence, mocked reconstruct_intent (all modes/layers/falcon reject), response shape contract, live 100-concurrent stress test (skips if no API key)
 
 ## Thread Safety
 - _profile_lock guards all save_profile() calls (20 call sites across HTTP, hotkey, learn, and pipeline threads)

@@ -606,7 +606,8 @@ Key finding from Brown: rank-order correlation between factor count and stutteri
 | `test_adversarial.py` | 198 | Stress/boundary/Unicode tests for all clinical features (run locally, not in CI) |
 | `test_profile_db.py` | 83 | Profile lifecycle: load/save round-trip, corrupt JSON recovery, normalize, migrate v1→v4, candidate corrections v2→v3, create_profile validation, `_init_db` schema migration (v1→current), `log_session` 17-column round-trip, `db_get_sessions` JSON field parsing, concurrent DB writes (20 threads), concurrent save_profile (5 threads × 10 writes), snapshot backup, migrate_fillers bilingual seeding |
 | `test_audio_preprocess.py` | 29 | Audio preprocessing: DC removal (offset + pure DC), 70Hz high-pass Butterworth (30/50Hz suppression, 200/1000/4000Hz passthrough), AGC -12dB normalization (quiet/loud convergence, silence guard), tanh soft clipping (bounded output, no hard artifacts), frequency response verification, edge cases (50ms signal, zeros, max amplitude) |
-| **Total** | **1,157** | **All passing** |
+| `test_wim_api.py` | 95 | WiM consumer API (`wim/api/reconstruct.py`): `strip_disfluencies` (EN+RU fillers, stutter fragments, phrase reps), `build_prompt` (4 tones, 4 layers, 3 situations, severity_mod, bilingual detection, Whisper low-conf/disagreements/block suspects, covert avoidance injection), `compute_confidence` (falcon pass/reject, compression/expansion penalties, layer/length adjustments, bounds), mocked `reconstruct_intent` (L1/L2/L3/L4, RAW/FAST/SAFE modes, falcon fallback, model selection, temperature per tone), response shape contract (5 scenarios), live 100-concurrent stress test (skips if no API key) |
+| **Total** | **1,252** | **All passing** |
 
 **Not yet tested** (require live API or audio hardware): Whisper transcription, LLM reconstruction, Falcon validation, DAF audio streaming.
 
