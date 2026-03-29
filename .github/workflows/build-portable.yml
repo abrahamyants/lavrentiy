@@ -1,0 +1,44 @@
+name: Build Portable
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build portable package
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Build portable
+        run: python build_portable.py
+
+      - name: Zip output
+        run: |
+          $version = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "dev" }
+          Compress-Archive -Path portable\* -DestinationPath "Lavrentiy-portable-$version.zip"
+          Write-Output "Built: Lavrentiy-portable-$version.zip"
+          Write-Output "Size: $((Get-Item "Lavrentiy-portable-$version.zip").Length / 1MB) MB"
+        shell: pwsh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lavrentiy-portable
+          path: Lavrentiy-portable-*.zip
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Lavrentiy-portable-*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

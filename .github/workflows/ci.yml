@@ -17,6 +17,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install test dependencies
+        run: pip install numpy scipy openai -q
+
       - name: Run core tests
         run: python test_core.py -v
 
@@ -55,3 +58,18 @@ jobs:
 
       - name: Run prosodic bridging tests
         run: python test_prosodic.py -v
+
+      - name: Run preview tests
+        run: python test_preview.py -v
+
+      - name: Run profile and database tests
+        run: python test_profile_db.py -v
+
+      - name: Run audio preprocessing tests
+        run: python test_audio_preprocess.py -v
+
+      - name: Run WiM API tests
+        run: python test_wim_api.py -v
+
+      - name: Run speech rate tests
+        run: python test_speech_rate.py -v
