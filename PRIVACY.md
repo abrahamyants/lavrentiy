@@ -11,7 +11,7 @@ The App is developed by George Abrahamyants ("we," "us," "our").
 
 ## What the App Does
 
-The App is a voice reconstruction tool designed for people who stutter. It captures speech via your device's microphone, transcribes it, reconstructs it into clean text, and pastes the result into the active application or text field. The goal is to preserve what you meant, not what the stutter produced.
+The App is a voice reconstruction tool that turns messy, real-world speech into clean, professional text. It captures speech via your device's microphone, transcribes it, reconstructs it into polished text matching your chosen tone, and pastes the result into the active application or text field. Whether you're dictating emails, taking meeting notes, or drafting messages on the go, the App delivers what you meant to say — not what the microphone heard.
 
 ---
 
