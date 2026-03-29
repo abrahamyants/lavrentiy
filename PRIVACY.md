@@ -13,6 +13,8 @@ The App is developed by George Abrahamyants ("we," "us," "our").
 
 The App is a voice reconstruction tool that turns messy, real-world speech into clean, professional text. It captures speech via your device's microphone, transcribes it, reconstructs it into polished text matching your chosen tone, and pastes the result into the active application or text field. Whether you're dictating emails, taking meeting notes, or drafting messages on the go, the App delivers what you meant to say — not what the microphone heard.
 
+The App includes advanced speech accessibility features — including disfluency detection, clinical reconstruction layers, and personalized learning informed by established speech science research (Brown, 1945; Ghai & Mueller, ASSETS 2021) — that make it particularly effective for users with speech disfluencies.
+
 ---
 
 ## What Data We Collect
