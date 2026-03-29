@@ -203,8 +203,22 @@ def main():
             exit /b 1
 
             :ready
-            echo Opening dashboard in default browser...
+            echo Opening dashboard...
+            REM Try app mode (borderless, looks like a desktop app)
+            REM Edge first, then Chrome, then fall back to regular browser
+            where msedge >nul 2>&1
+            if %errorlevel% equ 0 (
+                start "" msedge --app=http://localhost:7878
+                goto opened
+            )
+            where chrome >nul 2>&1
+            if %errorlevel% equ 0 (
+                start "" chrome --app=http://localhost:7878
+                goto opened
+            )
+            REM Fallback: default browser (regular tab)
             start "" http://localhost:7878
+            :opened
 
             echo.
             echo ============================================
