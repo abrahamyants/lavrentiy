@@ -5428,8 +5428,8 @@ def pipeline():
                 update_covert_profile(profile, covert_pairs, current_situation)
                 for cp in covert_pairs:
                     log(f"Covert avoidance: \"{cp['intended']}\" → \"{cp['said']}\" (avoided /{cp['onset_avoided']}/)", "info")
-        # Editorial distance: L3+ (meaningful when profile/rewrite changes text)
-        if current_layer >= 3:
+        # Editorial distance: L2+ (meaningful when any rewrite changes text)
+        if current_layer >= 2:
             edit_dist = compute_editorial_distance(raw_text, output)
         # Detect dominant language for this session (majority vote on words)
         _cyr_count = sum(1 for ch in raw_text if '\u0400' <= ch <= '\u04ff')
@@ -5456,9 +5456,10 @@ def pipeline():
                 add_trigger_words(detect_triggers_llm(rt, out, prof), prof)
             threading.Thread(target=_bg_trigger_detect, args=(raw_text, output, profile), daemon=True).start()
 
-        # Step 6: Auto-learn (async, Layer 3+ only)
-        # Also: track profile relevance (zero cost) and run decay sweep periodically
-        if current_layer >= 3:
+        # Step 6: Auto-learn (async, Layer 2+)
+        # L2 pairs are generic but still reveal corrections/fillers/vocabulary.
+        # Learning runs in a background thread — zero latency impact on the pipeline.
+        if current_layer >= 2:
             # Track which profile entries were relevant to this session
             track_profile_relevance(profile, raw_text)
 

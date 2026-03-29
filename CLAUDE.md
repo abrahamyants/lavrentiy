@@ -6,6 +6,7 @@
 - Profile dir: `~/.lavrentiy/` (profile.json, history.db)
 - Layers: 1=Transcribe, 2=Reconstruct (generic LLM), 3=Profile (+ vocabulary/corrections), 4=Stutter (stack — each includes all below)
 - L2 vs L3: vocabulary/corrections inject at layer >= 3, NOT layer >= 2. L2 is generic cleanup.
+- Auto-learn runs at L2+ (not L3+). L2 raw→clean pairs feed the learner in the background so the profile is warm by the time L3 activates.
 - Independent toggles: Paralinguistic (cough/laugh/HNR + transcribe sub-toggle), Prosodic (F0/energy/rate) — not layer-gated
 - Prosodic auto-enables on Layer 4 (Stutter)
 - Situations: 3 (default, high_stress, reading). Old names (phone, interview, presentation, casual) resolve via _SITUATION_ALIASES
