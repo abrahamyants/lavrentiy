@@ -2245,7 +2245,8 @@ body::before {
       </div>
     </div>
 
-    <div class="profile-selector">
+    <!-- Profile selector hidden — profile is now linked to Google account -->
+    <div class="profile-selector" id="profile-selector-legacy" style="display:none">
       <select class="profile-select" id="profile-select" onchange="switchProfile(this.value)"></select>
       <button class="profile-add-btn" onclick="openProfileModal()" title="New profile">+</button>
     </div>
@@ -2658,6 +2659,9 @@ function updateAuthUI(user){
   }else{
     so.style.display='flex';si.style.display='none';em.textContent='';
   }
+  // Show legacy profile selector only when NOT signed in (local API key mode)
+  const ps=document.getElementById('profile-selector-legacy');
+  if(ps) ps.style.display=user?'none':'flex';
 }
 
 // Restore auth state on page load + refresh token for engine

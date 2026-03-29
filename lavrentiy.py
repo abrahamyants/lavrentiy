@@ -5996,12 +5996,28 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     'uid': body.get('uid', ''),
                 }
                 log(f"Google Sign-In: {_auth_user.get('email', 'unknown')}", "info")
-                self._json({'signed_in': True, 'user': _auth_user})
+                # Auto-switch to a profile linked to this Google account
+                email = body.get('email', '').strip()
+                if email:
+                    profile_name = email.split('@')[0]  # "george" from "george@gmail.com"
+                    try:
+                        if profile_name not in list_profiles():
+                            create_profile(profile_name)
+                            log(f"Created profile for {email}: {profile_name}", "info")
+                        switch_profile(profile_name)
+                    except Exception as e:
+                        log(f"Profile switch on sign-in failed: {e}", "error")
+                self._json({'signed_in': True, 'user': _auth_user, 'profile': _active_profile_name})
             elif body and body.get('action') == 'sign_out':
                 _firebase_id_token = None
                 _auth_user = None
                 log("Google Sign-Out", "info")
-                self._json({'signed_in': False})
+                # Switch back to Default profile
+                try:
+                    switch_profile("Default")
+                except Exception as e:
+                    log(f"Profile switch on sign-out failed: {e}", "error")
+                self._json({'signed_in': False, 'profile': _active_profile_name})
             elif body and body.get('action') == 'refresh' and body.get('id_token'):
                 _firebase_id_token = body['id_token']
                 self._json({'signed_in': True, 'refreshed': True})
