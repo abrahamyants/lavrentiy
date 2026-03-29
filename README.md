@@ -590,7 +590,7 @@ Key finding from Brown: rank-order correlation between factor count and stutteri
 | Suite | Assertions | Coverage |
 |-------|-----------|----------|
 | `test_core.py` | 39 | `_extract_onset`, `learn_onset_weights`, `predict_phonetic_risk`, `SITUATION_SEVERITY` (3 situations), `compute_wer`, `compute_risk_flags`, `make_decision` |
-| `test_clinical.py` | 94 | `compute_exposure_difficulty`, `compute_editorial_distance`, `detect_covert_avoidance`, `compute_substitution_fingerprint`, `check_redo`, `track_profile_relevance`, `decay_stale_profile_entries`, `update_covert_profile` |
+| `test_clinical.py` | 95 | `compute_exposure_difficulty`, `compute_editorial_distance`, `detect_covert_avoidance`, `compute_substitution_fingerprint`, `check_redo`, `track_profile_relevance`, `decay_stale_profile_entries`, `update_covert_profile` |
 | `test_integration.py` | 53 | `strip_disfluencies`, `count_disfluencies`, `detect_ocd_loops`, database round-trip, profile schema migration, bilingual filler detection |
 | `test_pending.py` | 127 | `detect_word_language`, `detect_onset_anomalies`, `compute_brown_scores`, `predict_triggers_in_text`, `generate_shadow_utterance`, `compute_avoidance_trend`, `_build_whisper_prompt`, `learn_from_sessions`, `build_stutter_insights` |
 | `test_pipeline.py` | 96 | Pipeline stage chaining, L1/L2/L4 data flow, mode×layer decision matrix, critical token retention, disfluency→exposure→editorial chain, trigger detection chain, profile corrections, situation severity ordering (high_stress > default > reading) |
@@ -604,7 +604,9 @@ Key finding from Brown: rank-order correlation between factor count and stutteri
 | `test_paralinguistic.py` | 49 | `compute_hnr` (synthetic ground truth: pure tone, noise, mixed, thresholds, degenerate inputs), `_classify_from_error_patterns` (S/D/I mapping, no_speech_prob, disagreement clusters), `detect_paralinguistic_events` (integration: noisy + clean audio, HNR exemption, duration gates), `format_paralinguistic_tags`, LAYERS/LAYER_NAMES constants |
 | `test_prosodic.py` | 51 | `extract_f0` (synthetic pitch detection), `extract_prosodic_features` (per-segment F0/energy/rate), `compute_speaker_baseline` (historical averages), `infer_speaker_state` (stress/fatigue/calm/tension), `build_prosodic_context` (prompt formatting with stutter rules), `compute_prosodic_summary` (session-level aggregation) |
 | `test_adversarial.py` | 198 | Stress/boundary/Unicode tests for all clinical features (run locally, not in CI) |
-| **Total** | **~1,500+** | **All passing** (1 known flaky: `test_clinical` phone==casual boundary equality) |
+| `test_profile_db.py` | 83 | Profile lifecycle: load/save round-trip, corrupt JSON recovery, normalize, migrate v1→v4, candidate corrections v2→v3, create_profile validation, `_init_db` schema migration (v1→current), `log_session` 17-column round-trip, `db_get_sessions` JSON field parsing, concurrent DB writes (20 threads), concurrent save_profile (5 threads × 10 writes), snapshot backup, migrate_fillers bilingual seeding |
+| `test_audio_preprocess.py` | 29 | Audio preprocessing: DC removal (offset + pure DC), 70Hz high-pass Butterworth (30/50Hz suppression, 200/1000/4000Hz passthrough), AGC -12dB normalization (quiet/loud convergence, silence guard), tanh soft clipping (bounded output, no hard artifacts), frequency response verification, edge cases (50ms signal, zeros, max amplitude) |
+| **Total** | **1,157** | **All passing** |
 
 **Not yet tested** (require live API or audio hardware): Whisper transcription, LLM reconstruction, Falcon validation, DAF audio streaming.
 

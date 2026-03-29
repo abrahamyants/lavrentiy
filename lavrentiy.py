@@ -1016,9 +1016,13 @@ def migrate_fillers(prof):
     return added
 
 _profile_lock = threading.Lock()
+_profile_switch_epoch = 0  # incremented on every switch_profile(); background threads check before saving
 
-def save_profile(prof):
-    """Thread-safe atomic profile write. Lock prevents concurrent .tmp corruption."""
+def save_profile(prof, _epoch=None):
+    """Thread-safe atomic profile write. Lock prevents concurrent .tmp corruption.
+    If _epoch is given (from a background thread), skip save if a profile switch occurred."""
+    if _epoch is not None and _epoch != _profile_switch_epoch:
+        return  # profile was switched since this thread launched — discard stale write
     with _profile_lock:
         PROFILE_DIR.mkdir(exist_ok=True)
         tmp_path = PROFILE_PATH.with_suffix('.tmp')
@@ -1052,7 +1056,7 @@ def list_profiles():
 def switch_profile(name):
     """Switch to a different user profile. Saves current, closes DB, loads new."""
     global _active_profile_name, PROFILE_DIR, PROFILE_PATH, DB_PATH, BACKUP_DIR
-    global profile, _db
+    global profile, _db, _profile_switch_epoch
     global _shadow_history, _onset_anomalies, _personal_onset_weights
     global _personal_onset_weights_by_lang, _personal_dominant_onsets
     global _last_speech_metrics, _last_low_conf_segments, _last_avg_logprob
@@ -1065,32 +1069,38 @@ def switch_profile(name):
         raise ValueError(f"Invalid profile name: {name}")
 
     # Save current profile before switching
-    with _profile_lock:
-        save_profile(profile)
+    # NOTE: do NOT wrap in _profile_lock here — save_profile() acquires it internally
+    # and threading.Lock is not re-entrant (would deadlock).
+    save_profile(profile)
 
-    # Close current DB
+    # Bump epoch so stale background threads skip their save_profile() calls
+    _profile_switch_epoch += 1
+
+    # Close current DB and reinitialize under the SAME lock hold.
+    # Releasing _db_lock between close and reinit would let concurrent callers
+    # (log_session, db_get_sessions) hit the closed connection.
     with _db_lock:
         try:
             _db.close()
         except Exception:
             pass
 
-    # Update paths
-    _active_profile_name = name
-    PROFILE_DIR, PROFILE_PATH, DB_PATH, BACKUP_DIR = _resolve_profile_paths(name)
-    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-    _write_active_profile_name(name)
+        # Update paths (inside lock so DB_PATH is consistent with _db)
+        _active_profile_name = name
+        PROFILE_DIR, PROFILE_PATH, DB_PATH, BACKUP_DIR = _resolve_profile_paths(name)
+        PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+        _write_active_profile_name(name)
 
-    # Load new profile
-    profile = load_profile()
-    profile = migrate_profile(profile)
-    if normalize_profile(profile):
-        save_profile(profile)
-    migrate_fillers(profile)
-    learn_onset_weights(profile.get("trigger_words", []))
+        # Load new profile
+        profile = load_profile()
+        profile = migrate_profile(profile)
+        if normalize_profile(profile):
+            save_profile(profile)
+        migrate_fillers(profile)
+        learn_onset_weights(profile.get("trigger_words", []))
 
-    # Reinitialize DB
-    _db = _init_db(DB_PATH)
+        # Reinitialize DB (still under _db_lock)
+        _db = _init_db(DB_PATH)
 
     # Reset transient state
     _shadow_history.clear() if isinstance(_shadow_history, list) else None
@@ -1104,7 +1114,10 @@ def switch_profile(name):
     _block_count = 0
     _decay_counter = 0
     learn_events.clear() if isinstance(learn_events, list) else None
-    learn_status.clear() if isinstance(learn_status, dict) else None
+    # Reset learn_status with expected keys — .clear() would cause KeyError
+    # when learn_from_sessions later does learn_status["total_learned"] += n
+    if isinstance(learn_status, dict):
+        learn_status.update({"last_run": None, "total_learned": 0, "next_in": LEARN_EVERY})
 
     try:
         print(f"Switched to profile: {name}")
@@ -2508,23 +2521,44 @@ def count_disfluencies(raw_text):
 
 def detect_ocd_loops(text):
     """Detect compulsive phrase loops (3+ repetitions of a 2-4 word phrase).
-    Returns list of {phrase, count} dicts for profile tracking."""
+    Returns list of {phrase, count} dicts for profile tracking.
+
+    Uses an O(n) sliding-window n-gram approach instead of the original regex,
+    which had nested quantifiers that could backtrack catastrophically on long input."""
     if not text:
         return []
+    # Normalize: lowercase, strip punctuation from words
+    words = [w.strip('.,!?;:"\'-') for w in text.lower().split()]
+    words = [w for w in words if w]
+    if len(words) < 6:  # need at least 3 repetitions of a 2-word phrase
+        return []
+
+    seen = {}  # (ngram_tuple) -> count of consecutive runs
     loops = []
-    # Match 2-4 word phrases repeated 3+ times (with optional comma/space between)
-    # "I need to, I need to, I need to" or "I must I must I must"
-    pattern = re.compile(
-        r'\b((?:\w+[\s,]+){1,3}\w+)[,\s]+(?:\1[,\s]+){2,}',
-        re.IGNORECASE
-    )
-    for m in pattern.finditer(text):
-        phrase = re.sub(r'[,\s]+$', '', m.group(1)).strip()
-        # Count how many times the phrase appears in the full match
-        full = m.group(0)
-        count = len(re.findall(re.escape(phrase), full, re.IGNORECASE))
-        if count >= 3 and len(phrase.split()) >= 2:
-            loops.append({"phrase": phrase.lower(), "count": count})
+
+    # Check phrase lengths 2, 3, 4
+    for n in (2, 3, 4):
+        if len(words) < n * 3:
+            continue
+        # Build list of n-grams
+        ngrams = [tuple(words[i:i+n]) for i in range(len(words) - n + 1)]
+        # Scan for consecutive repetitions
+        i = 0
+        while i < len(ngrams):
+            gram = ngrams[i]
+            count = 1
+            j = i + n  # next n-gram that could be a repeat starts n words later
+            while j < len(ngrams) and ngrams[j] == gram:
+                count += 1
+                j += n
+            if count >= 3:
+                phrase = " ".join(gram)
+                if phrase not in seen or seen[phrase] < count:
+                    seen[phrase] = count
+            i += 1
+
+    for phrase, count in seen.items():
+        loops.append({"phrase": phrase, "count": count})
     return loops
 
 
@@ -5339,15 +5373,17 @@ def pipeline():
         state = 'idle'
 
         # Step 5: Trigger word detection (Layer 4)
+        # Capture epoch so background threads can detect if a profile switch occurred
+        _epoch_at_launch = _profile_switch_epoch
         if current_layer >= 4:
             regex_triggers = detect_triggers_regex(raw_text)
             if regex_triggers:
                 add_trigger_words(regex_triggers, profile)
-            threading.Thread(
-                target=lambda: add_trigger_words(
-                    detect_triggers_llm(raw_text, output, profile), profile
-                ), daemon=True
-            ).start()
+            def _bg_trigger_detect(rt, out, prof, epoch=_epoch_at_launch):
+                if epoch != _profile_switch_epoch:
+                    return  # profile switched — discard
+                add_trigger_words(detect_triggers_llm(rt, out, prof), prof)
+            threading.Thread(target=_bg_trigger_detect, args=(raw_text, output, profile), daemon=True).start()
 
         # Step 6: Auto-learn (async, Layer 3+ only)
         # Also: track profile relevance (zero cost) and run decay sweep periodically
@@ -5362,7 +5398,11 @@ def pipeline():
             if _learn_counter >= LEARN_EVERY:
                 _learn_counter = 0
                 learn_status["next_in"] = LEARN_EVERY
-                threading.Thread(target=learn_from_sessions, args=(profile,), daemon=True).start()
+                def _bg_learn(prof, epoch=_epoch_at_launch):
+                    if epoch != _profile_switch_epoch:
+                        return  # profile switched — discard
+                    learn_from_sessions(prof)
+                threading.Thread(target=_bg_learn, args=(profile,), daemon=True).start()
                 # Onset anomaly detection (covert avoidance signal, zero API cost)
                 all_sessions = db_get_sessions(limit=200)
                 detect_onset_anomalies(all_sessions)
@@ -5370,7 +5410,11 @@ def pipeline():
             # Decay sweep: prune stale corrections/fillers/vocab
             if _decay_counter >= DECAY_EVERY:
                 _decay_counter = 0
-                threading.Thread(target=decay_stale_profile_entries, args=(profile,), daemon=True).start()
+                def _bg_decay(prof, epoch=_epoch_at_launch):
+                    if epoch != _profile_switch_epoch:
+                        return
+                    decay_stale_profile_entries(prof)
+                threading.Thread(target=_bg_decay, args=(profile,), daemon=True).start()
 
         # Step 7: Archive audio for future Whisper fine-tuning
         # Runs synchronously — must complete before finally{} deletes tmp
@@ -6192,8 +6236,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
         except (ValueError, TypeError):
             return None
         # 10MB limit for audio uploads (transcribe, calibration)
-        if length == 0 or length > 10_000_000:
+        if length > 10_000_000:
             return None
+        # Content-Length: 0 is valid for body-less POSTs (calibration/start, augment, etc.)
+        # Return empty dict so callers can still do body.get("key") safely
+        if length == 0:
+            return {}
         try:
             return json.loads(self.rfile.read(length))
         except (json.JSONDecodeError, ValueError):

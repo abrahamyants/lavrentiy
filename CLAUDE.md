@@ -24,27 +24,30 @@
 - Single-instance mutex: only one engine process at a time. Kill old before restarting.
 
 ## Testing
-- 15 test files, ~1,500+ assertions total. Run with `python <test_file>.py` (not pytest — test files use sys.exit at module level)
+- 17 test files, ~1,157 assertions total. Run with `python <test_file>.py` (not pytest — test files use sys.exit at module level)
 - RUN TESTS AFTER EVERY CHANGE. No exceptions.
 - test_core (39 pass) — _extract_onset, learn_onset_weights, predict_phonetic_risk, compute_wer, risk_flags, make_decision
 - test_pipeline (96 pass) — L1-L4 paths, all modes, critical token retention, covert avoidance chain, decision matrix
-- test_prosodic — F0 extraction, speaker baseline/state inference, prosodic context building
-- test_paralinguistic — HNR computation, error-pattern classification, event detection, tag formatting
+- test_prosodic (51 pass) — F0 extraction, speaker baseline/state inference, prosodic context building
+- test_paralinguistic (49 pass) — HNR computation, error-pattern classification, event detection, tag formatting
 - test_endpoints (170 pass) — all 21 HTTP routes, CORS, 404s, JSON response shapes
 - test_adversarial (198 pass) — 16 categories of hostile input (null bytes, emoji, None, malformed dicts)
-- test_clinical (94 pass, 1 known flaky: phone==casual boundary) — exposure, editorial distance, covert avoidance, decay
+- test_clinical (95 pass) — exposure, editorial distance, covert avoidance, decay
 - test_threads (37 pass) — 8 concurrent scenarios: shadow history, stats, preview, learn events, onset anomalies, profile lock contention, HTTP state mutations
 - test_clipboard (31 pass) — ClipboardPredictor scoring, cache TTL, situation filtering
-- test_fuzz (23 pass) — 12 functions × 6,000+ random inputs (ASCII, Unicode, massive strings)
+- test_fuzz (23 pass) — 12 functions x 6,000+ random inputs (ASCII, Unicode, massive strings)
 - test_perf (19 pass) — 12 functions with ms thresholds for regression detection
 - test_whisper_voting (43 pass) — multi-temp agreement, low-confidence segments
 - test_integration (53 pass) — disfluency filtering (EN+RU), DB schema round-trip, profile migration
 - test_pending (127 pass) — 9 functions that previously had zero coverage
 - test_preview (14 pass) — start/stop/update preview stream, set_state
+- test_profile_db (83 pass) — profile lifecycle (load/save/migrate/switch/create), DB schema migration, log_session 17-column round-trip, concurrent writes
+- test_audio_preprocess (29 pass) — DC removal, 70Hz high-pass Butterworth, AGC -12dB normalization, tanh soft clip, frequency response verification
 
 ## Thread Safety
 - _profile_lock guards all save_profile() calls (20 call sites across HTTP, hotkey, learn, and pipeline threads)
-- _db_lock guards all SQLite writes
+- _db_lock guards all SQLite writes. switch_profile holds _db_lock across close + reinit to prevent use-after-close.
+- _profile_switch_epoch: background threads capture epoch at launch, bail if it changes before saving (prevents cross-profile corruption)
 - _shadow_lock, _learn_lock, _stats_lock, _prep_lock, preview_lock, _redo_lock, _augment_lock for respective shared state
 - save_profile uses atomic tmp→fsync→rename pattern inside the lock
 
