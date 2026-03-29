@@ -41,6 +41,9 @@
   --shadow-raised: 0 2px 4px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06);
   --shadow-elevated: 0 4px 8px rgba(0,0,0,0.1), 0 16px 48px rgba(0,0,0,0.08), 0 1px 0 rgba(255,255,255,0.4) inset;
   --shadow-deep: 0 8px 16px rgba(0,0,0,0.12), 0 32px 64px rgba(0,0,0,0.1);
+  --shadow-red: 0 4px 20px rgba(185,28,28,0.2), 0 8px 40px rgba(185,28,28,0.1);
+  --shadow-red-intense: 0 0 20px rgba(239,68,68,0.3), 0 0 60px rgba(239,68,68,0.15), 0 0 100px rgba(239,68,68,0.08);
+}
 
 /* ─── Dark mode ─── */
 [data-theme="dark"] {
@@ -60,9 +63,8 @@
   --shadow-raised: 0 2px 4px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.25);
   --shadow-elevated: 0 4px 8px rgba(0,0,0,0.4), 0 16px 48px rgba(0,0,0,0.3), 0 1px 0 rgba(255,255,255,0.05) inset;
   --shadow-deep: 0 8px 16px rgba(0,0,0,0.5), 0 32px 64px rgba(0,0,0,0.4);
-}
-  --shadow-red: 0 4px 20px rgba(185,28,28,0.2), 0 8px 40px rgba(185,28,28,0.1);
-  --shadow-red-intense: 0 0 20px rgba(239,68,68,0.3), 0 0 60px rgba(239,68,68,0.15), 0 0 100px rgba(239,68,68,0.08);
+  --shadow-red: 0 4px 20px rgba(185,28,28,0.3), 0 8px 40px rgba(185,28,28,0.2);
+  --shadow-red-intense: 0 0 20px rgba(239,68,68,0.4), 0 0 60px rgba(239,68,68,0.2), 0 0 100px rgba(239,68,68,0.1);
 }
 
 html, body { height: 100%; margin: 0; overflow-y: auto; }
@@ -2028,16 +2030,13 @@ body::before {
 .lang-btn:hover:not(.active) { color: var(--text-bright); }
 
 /* ─── DARK MODE TOGGLE ───── */
-.theme-toggle {
-  position: absolute; top: 6px; right: 80px; z-index: 20;
-}
 .theme-btn {
-  padding: 2px 6px; font-family: var(--mono); font-size: 9px; font-weight: 600;
-  letter-spacing: 0.5px; border: 1px solid var(--border-hi); background: var(--raised);
+  padding: 5px 12px; font-family: var(--mono); font-size: 10px; font-weight: 600;
+  letter-spacing: 1px; border: 1px solid var(--border-hi); background: var(--raised);
   color: var(--text-muted); cursor: pointer; transition: all 0.15s; line-height: 1;
-  border-radius: 3px;
+  border-radius: 4px;
 }
-.theme-btn:hover { color: var(--text-bright); }
+.theme-btn:hover { color: var(--text-bright); border-color: rgba(185,28,28,0.4); }
 [data-theme="dark"] .theme-btn { background: rgba(185,28,28,0.15); color: var(--red-bright); border-color: rgba(185,28,28,0.3); }
 
 /* ─── PROFILE SELECTOR ───── */
@@ -2286,7 +2285,6 @@ body::before {
 
     <div class="status-ring-wrap">
       <button class="compact-toggle" onclick="toggleCompact()" title="Compact mode">&#8863;</button>
-      <div class="theme-toggle"><button class="theme-btn" onclick="toggleTheme()" title="Toggle dark mode">DARK</button></div>
       <div class="lang-toggle"><button class="lang-btn active" data-lang="en" onclick="setLang('en')">EN</button><button class="lang-btn" data-lang="ru" onclick="setLang('ru')">RU</button></div>
       <button class="help-btn" onclick="toggleHelp()" title="Manual">?</button>
       <div class="status-ring-outer">
@@ -2299,6 +2297,10 @@ body::before {
           </div>
         </div>
       </div>
+    </div>
+
+    <div style="padding:0 16px 8px;border-bottom:1px solid var(--border);">
+      <button class="theme-btn" onclick="toggleTheme()" title="Toggle dark mode" style="width:100%">DARK</button>
     </div>
 
     <div class="sidebar-section" id="tone-section">
