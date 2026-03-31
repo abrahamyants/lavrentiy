@@ -49,6 +49,13 @@ while sf_end < len(lines) and '}' not in lines[sf_end]:
     sf_end += 1
 exec('\n'.join(lines[sf_start:sf_end + 1]), ns)
 
+# Load NATURAL_REPEATS
+nr_start = next(i for i, l in enumerate(lines) if l.startswith('NATURAL_REPEATS = '))
+nr_end = nr_start + 1
+while nr_end < len(lines) and '}' not in lines[nr_end]:
+    nr_end += 1
+exec('\n'.join(lines[nr_start:nr_end + 1]), ns)
+
 # Load _ENGLISH_ONSET_BASELINE
 eb_start = next(i for i, l in enumerate(lines) if l.startswith('_ENGLISH_ONSET_BASELINE = '))
 eb_end = eb_start + 1

@@ -2443,6 +2443,19 @@ body::before {
         <input type="range" id="daf-slider" min="30" max="300" value="100" step="10"
           style="flex:1;accent-color:var(--red);opacity:0;width:0;height:0;position:absolute;pointer-events:none">
       </div>
+      <!-- Patience mode slider -->
+      <div class="engine-section-card">
+        <span class="engine-group-label">PATIENCE</span>
+        <div class="engine-grid">
+          <div class="engine-row"><span>Active</span><span id="patience-value" class="engine-val">2.0s</span></div>
+          <div class="engine-row"><span>Default</span><span id="patience-default-val" class="engine-val">2.0s</span></div>
+          <div class="engine-row"><span>L4/Stress</span><span id="patience-stutter-val" class="engine-val">4.5s</span></div>
+        </div>
+        <input type="range" id="patience-slider" min="1.0" max="6.0" step="0.5" value="2.0"
+          style="width:100%;height:3px;accent-color:var(--red);cursor:pointer;opacity:0.7;margin:2px 0"
+          oninput="updatePatience(this.value)">
+        <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-muted);margin-top:2px;font-family:var(--font-mono)"><span>&#9664; 1.0s</span><span id="patience-pct">2.0s</span><span>6.0s &#9654;</span></div>
+      </div>
       <!-- Whisper settings -->
       <div class="engine-section-card">
         <span class="engine-group-label">WHISPER</span>
@@ -2562,7 +2575,10 @@ body::before {
       <div class="tab-panel" id="tab-learning">
         <div class="learning-wrap" id="learn-feed"><div class="learn-empty">No patterns learned yet. Keep talking.</div></div>
         <div style="padding:16px 24px;border-top:1px solid var(--border)">
-          <button class="aug-btn" id="report-btn" onclick="generateReport()" style="margin-bottom:12px">📊 WEEKLY REPORT</button>
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <button class="aug-btn" id="report-btn" onclick="generateReport()" style="flex:1">📊 WEEKLY REPORT</button>
+            <button class="aug-btn" id="clinical-btn" onclick="generateClinicalProfile()" style="flex:1">🩺 CLINICAL PROFILE</button>
+          </div>
           <div id="report-output" style="display:none;font-family:var(--mono);font-size:11px;color:var(--text-muted);line-height:1.8;white-space:pre-wrap;padding:12px 16px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius)"></div>
         </div>
       </div>
@@ -3937,6 +3953,50 @@ async function generateReport(){
   }catch(e){out.textContent='Report failed: '+e.message;}
   finally{btn.disabled=false;btn.textContent='📊 WEEKLY REPORT';}
 }
+async function generateClinicalProfile(){
+  const btn=document.getElementById('clinical-btn');
+  const out=document.getElementById('report-output');
+  btn.disabled=true;btn.textContent='🩺 LOADING...';
+  out.style.display='block';out.textContent='Building clinical profile...';
+  try{
+    const r=await fetch(API+'/api/clinical_profile');
+    const d=await r.json();
+    if(d.error){out.textContent='Clinical Profile: '+d.error;return;}
+    const lines=[
+      `CLINICAL PROFILE — ${d.user}`,
+      `Period: ${(d.period?.start||'').slice(0,10)} → ${(d.period?.end||'').slice(0,10)}`,
+      `Sessions: ${d.total_sessions} | Minutes: ${d.total_minutes}`,
+      ``,
+      `PRIMARY DISFLUENCY: ${d.primary_disfluency?.type} (${d.primary_disfluency?.percentage}%)`,
+      `Frequency: ${d.frequency_per_minute}/min  Trend: ${d.frequency_trend > 0 ? '+' : ''}${d.frequency_trend}%`,
+      ``,
+      `SITUATIONAL BREAKDOWN:`,
+      ...Object.entries(d.situational_breakdown||{}).map(([s,v])=>`  ${s}: ${v.rate}/min ${v.vs_baseline||v.label||''}`),
+      ``,
+      `TOP ONSET TRIGGERS:`,
+      ...(d.top_onset_triggers||[]).map(t=>`  ${t.onset} weight=${t.weight} events=${t.events}`),
+      ``,
+      `COVERT AVOIDANCE: ${d.covert_avoidance?.active_pairs} pairs | rate ${d.covert_avoidance?.avoidance_rate}% (${d.covert_avoidance?.trend})`,
+      ``,
+      `EDITORIAL DISTANCE: avg=${d.editorial_distance?.average} (${d.editorial_distance?.trend})`,
+      `FLUENCY IMPROVEMENT: ${d.fluency_trend?.improvement > 0 ? '+' : ''}${d.fluency_trend?.improvement}%`,
+      ``,
+      `EXPOSURE: avg=${d.exposure?.average_score} band=${d.exposure?.average_band} | high-difficulty ${d.exposure?.high_difficulty_sessions_pct}% of sessions`,
+    ];
+    out.textContent=lines.join('\n');
+  }catch(e){out.textContent='Clinical profile failed: '+e.message;}
+  finally{btn.disabled=false;btn.textContent='🩺 CLINICAL PROFILE';}
+}
+async function updatePatience(val){
+  const v=parseFloat(val);
+  document.getElementById('patience-pct').textContent=v.toFixed(1)+'s';
+  try{
+    await fetch(API+'/api/patience',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({default:v})});
+    const r=await fetch(API+'/api/patience');
+    const d=await r.json();
+    if(document.getElementById('patience-value'))document.getElementById('patience-value').textContent=d.patience.toFixed(1)+'s';
+  }catch(e){}
+}
 async function updateNST(val){
   const v=parseFloat(val);
   document.getElementById('nst-value').textContent=v.toFixed(2);
@@ -3971,6 +4031,18 @@ async function updateNST(val){
   });
 })();
 async function fetchDAF(){try{const r=await fetch(API+'/api/daf');const d=await r.json();dafActive=d.active;updateDAFUI(d);}catch(e){}}
+async function fetchPatience(){
+  try{
+    const r=await fetch(API+'/api/patience');
+    const d=await r.json();
+    const sl=document.getElementById('patience-slider');
+    if(sl)sl.value=d.default;
+    const pv=document.getElementById('patience-value');if(pv)pv.textContent=d.patience.toFixed(1)+'s';
+    const pdv=document.getElementById('patience-default-val');if(pdv)pdv.textContent=d.default.toFixed(1)+'s';
+    const psv=document.getElementById('patience-stutter-val');if(psv)psv.textContent=d.stutter.toFixed(1)+'s';
+    const pp=document.getElementById('patience-pct');if(pp)pp.textContent=d.default.toFixed(1)+'s';
+  }catch(e){}
+}
 
 document.querySelectorAll('.tone-btn:not(.mode-btn):not(.sit-btn)').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/tone',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tone:btn.dataset.tone})});}catch(e){}});});
 document.querySelectorAll('.layer-opt:not(.sit-btn)').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/layer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layer:parseInt(btn.dataset.layer)})});}catch(e){}});});
@@ -4554,7 +4626,7 @@ async function init(){
   // Apply saved language preference
   document.querySelectorAll('.lang-btn').forEach(b=>b.classList.toggle('active',b.dataset.lang===currentLang));
   document.documentElement.lang=currentLang;
-  await Promise.all([fetchProfiles(),fetchProfile(),fetchSessions(),fetchLearn(),fetchDAF(),fetchHotkeys(),fetchFluencyData()]);
+  await Promise.all([fetchProfiles(),fetchProfile(),fetchSessions(),fetchLearn(),fetchDAF(),fetchHotkeys(),fetchFluencyData(),fetchPatience()]);
   applyI18n();
   pollState();
 }

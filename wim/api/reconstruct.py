@@ -131,6 +131,12 @@ def build_prompt(raw_text, tone="casual", layer=2, profile=None, situation="defa
 
     parts = [
         f"Rebuild this raw voice transcription into clean {tone} text.{lang_note}{aggression_note}",
+        ("The transcription was produced by an automatic speech recognition system and may contain "
+         "artifacts from speech disfluency including repeated words, repeated syllables, filler sounds, "
+         "and silence where the speaker was blocked. When the literal transcription doesn't make "
+         "grammatical sense, prioritize semantic intent and grammatical coherence over literal word "
+         "sequence. Reconstruct what the speaker most likely intended to say, not what the microphone "
+         "literally captured."),
         tone_rule,
         "Strip filler words (including non-English fillers like э, ну, ээ).",
         "Preserve FULL meaning. Do not summarize or add information.",

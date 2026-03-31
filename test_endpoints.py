@@ -200,6 +200,8 @@ ns['WHISPER_TEMP'] = 0.0
 ns['WHISPER_NO_SPEECH_THRESHOLD'] = 0.15
 ns['WHISPER_MULTI_TEMP'] = False
 ns['WHISPER_MULTI_TEMPS'] = [0.0, 0.2, 0.4]
+ns['PATIENCE_DEFAULT'] = 2.0
+ns['PATIENCE_STUTTER'] = 4.5
 ns['DASHBOARD_PORT'] = 7878
 ns['DASHBOARD_PATH'] = Path('dashboard.html')
 ns['RECORD_KEY'] = 'f9'
@@ -255,6 +257,7 @@ target_funcs = [
     '_dedupe_list', '_norm_corrections',
     'calibration_status', 'calibration_next_prompt',
     'augment_status', 'compute_severity_score',
+    'get_patience_timeout', 'generate_clinical_profile',
 ]
 
 for node in ast.walk(tree):
@@ -854,6 +857,79 @@ try:
     post('/api/situation', {'situation': 'default'})
 except Exception as e:
     check(f'Situation toggle auto-enable failed: {e}', False)
+
+# ============================================================
+# GAP: Patience mode endpoints
+# ============================================================
+print()
+print('=== GET /api/patience ===')
+try:
+    r = get('/api/patience')
+    check('returns dict', isinstance(r, dict))
+    check('has patience key', 'patience' in r)
+    check('has default key', 'default' in r)
+    check('has stutter key', 'stutter' in r)
+    check('patience is float', isinstance(r['patience'], (int, float)))
+    check('default is 2.0 initially', r['default'] == 2.0)
+    check('stutter is 4.5 initially', r['stutter'] == 4.5)
+except Exception as e:
+    check(f'GET /api/patience failed: {e}', False)
+
+print()
+print('=== POST /api/patience ===')
+try:
+    r = post('/api/patience', {'default': 3.0})
+    check('returns dict', isinstance(r, dict))
+    check('ok is True', r.get('ok') is True)
+    check('default updated to 3.0', r.get('default') == 3.0)
+    r2 = post('/api/patience', {'stutter': 5.0})
+    check('stutter updated to 5.0', r2.get('stutter') == 5.0)
+    # Restore defaults
+    post('/api/patience', {'default': 2.0, 'stutter': 4.5})
+    r3 = get('/api/patience')
+    check('defaults restored', r3['default'] == 2.0 and r3['stutter'] == 4.5)
+    # Invalid value ignored
+    r4 = post('/api/patience', {'default': 'bad'})
+    check('invalid value ignored', r4.get('ok') is True)
+    # Empty body
+    r5 = post('/api/patience', {})
+    check('empty body returns state', 'patience' in r5)
+except Exception as e:
+    check(f'POST /api/patience failed: {e}', False)
+
+# ============================================================
+# GAP: Clinical profile endpoint
+# ============================================================
+print()
+print('=== GET /api/clinical_profile ===')
+try:
+    r = get('/api/clinical_profile')
+    check('returns dict', isinstance(r, dict))
+    # With empty sessions stub, should return the "need N sessions" error
+    check('error key present (no sessions)', 'error' in r or 'total_sessions' in r)
+    # Test with sessions populated
+    ns['db_get_sessions'] = lambda limit=50: [
+        {'ts': '2026-01-01T10:00:00', 'words': 50, 'situation': 'default',
+         'disfluency_counts': {'word_rep': 3, 'filler': 2, 'total': 5},
+         'editorial_distance': 0.3, 'exposure': {'score': 0.35, 'band': 'moderate'},
+         'lang': 'en'}
+    ] * 25  # 25 sessions to exceed min_sessions=20
+    r2 = get('/api/clinical_profile')
+    check('enough sessions: no error', 'error' not in r2)
+    check('has total_sessions', 'total_sessions' in r2)
+    check('has primary_disfluency', 'primary_disfluency' in r2)
+    check('has frequency_per_minute', 'frequency_per_minute' in r2)
+    check('has situational_breakdown', 'situational_breakdown' in r2)
+    check('has editorial_distance', 'editorial_distance' in r2)
+    check('has fluency_trend', 'fluency_trend' in r2)
+    check('has exposure', 'exposure' in r2)
+    check('has covert_avoidance', 'covert_avoidance' in r2)
+    check('total_sessions = 25', r2.get('total_sessions') == 25)
+    check('primary_disfluency has type', 'type' in r2.get('primary_disfluency', {}))
+    # Restore stub
+    ns['db_get_sessions'] = lambda limit=50: []
+except Exception as e:
+    check(f'GET /api/clinical_profile failed: {e}', False)
 
 # ============================================================
 # Shutdown

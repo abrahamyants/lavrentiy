@@ -132,6 +132,13 @@ def handle(request):
     except Exception:
         return (json.dumps({"error": "Invalid JSON"}), 400, CORS_HEADERS)
 
+    # Profile sync: Lavrentiy desktop pushes learned profile to Firestore
+    if body.get("action") == "sync_profile":
+        profile_data = body.get("profile", {})
+        profile_data["sync_ts"] = time.time()
+        db.collection("wim_users").document(uid).set(profile_data, merge=True)
+        return (json.dumps({"ok": True}), 200, {**CORS_HEADERS, "Content-Type": "application/json"})
+
     raw = body.get("raw", "").strip()
     if not raw:
         return (json.dumps({"error": "Missing 'raw' field"}), 400, CORS_HEADERS)

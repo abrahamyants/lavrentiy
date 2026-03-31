@@ -58,12 +58,17 @@ ns['_prep_lock'] = threading.Lock()
 ns['stats'] = {'api_calls': 0, 'multi_temp_votes': 0, 'multi_temp_disagreements': 0}
 ns['WHISPER_MULTI_TEMPS'] = [0.0, 0.2, 0.4]
 ns['WHISPER_NO_SPEECH_THRESHOLD'] = 0.15
+ns['PATIENCE_DEFAULT'] = 2.0
+ns['PATIENCE_STUTTER'] = 4.5
+ns['current_layer'] = 2
+ns['current_situation'] = 'default'
 ns['log'] = lambda msg, level='info': None
 
 # Extract functions
 target_funcs = [
     '_extract_onset', 'predict_phonetic_risk', 'stats_inc',
     '_multi_temperature_vote', '_extract_low_confidence_segments',
+    'get_patience_timeout',
 ]
 
 for node in ast.walk(tree):

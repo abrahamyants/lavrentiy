@@ -112,6 +112,10 @@ WHISPER_NO_SPEECH_THRESHOLD = 0.15   # Post-hoc filter: segments with no_speech_
                                      # using verbose_json no_speech_prob. Lower = preserve more blocks.
 WHISPER_MULTI_TEMP = False           # Multi-temperature voting: OFF by default (3x cost, avg_logprob catches same artifacts)
 WHISPER_MULTI_TEMPS = [0.0, 0.2, 0.4]  # Temperature schedule for voting passes
+# Patience mode — extended silence threshold for PWS (Apple ML Research, 2023)
+# Default endpointer cuts off PWS 23.8% of the time. Extending to 4.5s reduces to <3%.
+PATIENCE_DEFAULT = 2.0   # seconds — normal silence threshold
+PATIENCE_STUTTER = 4.5   # seconds — Layer 4 / High Stress
 LOCAL_WHISPER = False                # Primary mode: API. Local faster-whisper is auto-loaded as fallback only.
 LOCAL_WHISPER_MODEL_SIZE = "base"    # tiny|base|small|medium|large-v2|large-v3
 # Load local Whisper as fallback (not primary) — kicks in when API fails (key disabled, no internet)
@@ -1093,6 +1097,50 @@ def save_profile(prof, _epoch=None):
             f.flush()
             os.fsync(f.fileno())
         tmp_path.replace(PROFILE_PATH)
+    # Sync to Firestore in background (debounced, fire-and-forget)
+    threading.Thread(target=sync_profile_to_firestore, args=(prof,), daemon=True).start()
+
+_last_sync_ts = 0
+
+def sync_profile_to_firestore(prof):
+    """Push learned profile fields to Firestore via Cloud Function (fire-and-forget)."""
+    global _last_sync_ts
+    if not is_authenticated() or _auth_user is None:
+        return
+    # Debounce: skip if last sync was less than 60s ago
+    now = time.time()
+    if now - _last_sync_ts < 60:
+        return
+    _last_sync_ts = now
+    try:
+        import urllib.request
+        payload = {
+            "action": "sync_profile",
+            "profile": {
+                "trigger_words": prof.get("trigger_words", [])[:30],
+                "onset_weights": prof.get("onset_weights", {}),
+                "covert_profile": prof.get("covert_profile", {}),
+                "filler_words": prof.get("filler_words", [])[:25],
+                "vocabulary": prof.get("vocabulary", [])[:20],
+                "corrections": dict(list(prof.get("corrections", {}).items())[:10]),
+            },
+        }
+        body = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            BACKEND_URL,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {_firebase_id_token}",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            resp.read()
+        log("Profile synced to Firestore", "info")
+    except Exception as e:
+        log(f"Profile sync failed (non-fatal): {str(e)[:80]}", "warn")
+
 
 def _snapshot_profile(prof):
     """Save timestamped backup. Keep last 5."""
@@ -2128,6 +2176,12 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
 
     parts = [
         f"Rebuild this raw voice transcription into clean {tone} text.{lang_note}{aggression_note}",
+        ("The transcription was produced by an automatic speech recognition system and may contain "
+         "artifacts from speech disfluency including repeated words, repeated syllables, filler sounds, "
+         "and silence where the speaker was blocked. When the literal transcription doesn't make "
+         "grammatical sense, prioritize semantic intent and grammatical coherence over literal word "
+         "sequence. Reconstruct what the speaker most likely intended to say, not what the microphone "
+         "literally captured."),
         tone_rule,
         "Strip filler words (including non-English fillers like э, ну, ээ).",
         "Preserve FULL meaning. Do not summarize or add information.",
@@ -2471,6 +2525,19 @@ _STRIP_FILLERS = {
     "э", "ээ", "эм", "эээ", "ну", "нуу",
 }
 
+# Natural English repetitions that should NOT be stripped (Apple ML Research, 2023)
+# These are grammatically valid constructions, not disfluencies
+NATURAL_REPEATS = {
+    "had had", "that that", "is is", "was was", "do do",
+    "can can", "no no", "bye bye", "so so", "very very",
+    "go go", "now now", "come come", "well well",
+    "out out", "boo boo", "ha ha", "ho ho",
+    "knock knock", "tsk tsk", "aye aye",
+    # Russian
+    "да да", "нет нет", "ну ну",
+}
+
+
 def strip_disfluencies(text):
     """Remove obvious disfluency artifacts from transcription.
 
@@ -2492,12 +2559,23 @@ def strip_disfluencies(text):
 
     # Step 2: Remove consecutive word repetitions
     # "I I I want" → "I want",  "the the dog" → "the dog"
-    cleaned = re.sub(r'\b(\w+)(?:\s+\1)+\b', r'\1', cleaned, flags=re.IGNORECASE)
+    # Exception: naturally repeating English constructions (ha ha, bye bye, etc.)
+    def _dedup_word(m):
+        phrase = f"{m.group(1)} {m.group(1)}".lower()
+        if phrase in NATURAL_REPEATS:
+            return m.group(0)  # Don't strip — natural repetition
+        return m.group(1)
+    cleaned = re.sub(r'\b(\w+)(?:\s+\1)+\b', _dedup_word, cleaned, flags=re.IGNORECASE)
 
     # Step 3: Remove phrase repetitions (2-3 word phrases repeated)
     # "I want I want to go" → "I want to go"
+    # Exception: naturally repeating phrases in NATURAL_REPEATS
+    def _dedup_phrase(m):
+        if m.group(1).lower() in NATURAL_REPEATS:
+            return m.group(0)  # Don't strip — natural repetition
+        return m.group(1)
     cleaned = re.sub(
-        r'\b(\w+\s+\w+(?:\s+\w+)?)\s+\1\b', r'\1', cleaned, flags=re.IGNORECASE
+        r'\b(\w+\s+\w+(?:\s+\w+)?)\s+\1\b', _dedup_phrase, cleaned, flags=re.IGNORECASE
     )
 
     # Step 4: Strip standalone filler words (preserve if part of real content)
@@ -3877,6 +3955,20 @@ def _whisper_single_call(filepath, temperature, prompt_text, max_retries=3):
             raise
 
 
+def get_patience_timeout() -> float:
+    """Return silence timeout based on current layer and situation.
+
+    In patience mode (Layer 4 or High Stress), the engine tolerates longer
+    silences before considering speech complete — critical for PWS whose blocks
+    look like silence to both human listeners and ASR systems.
+    (Apple ML Research 2023: default endpointer cuts off PWS 23.8% of the time;
+    extending to 4.5s reduces false cutoffs to <3%.)
+    """
+    if current_layer >= 4 or current_situation == "high_stress":
+        return PATIENCE_STUTTER
+    return PATIENCE_DEFAULT
+
+
 def _extract_low_confidence_segments(verbose_result, risk_threshold=-0.7):
     """Extract segments where Whisper is uncertain (low avg_logprob).
 
@@ -3923,7 +4015,10 @@ def _extract_low_confidence_segments(verbose_result, risk_threshold=-0.7):
         # Block suspect: high no_speech_prob means Whisper nearly classified this as
         # silence. For stutterers, that "silence" is a block — strained, effortful,
         # with possible laryngeal tension. Whisper hallucinated text into the gap.
-        block_suspect = no_speech > WHISPER_NO_SPEECH_THRESHOLD
+        # Patience mode (L4/high_stress) raises threshold to 0.6 — more tolerant
+        # of silence in audio, fewer false block detections.
+        _nst = 0.6 if get_patience_timeout() > PATIENCE_DEFAULT else WHISPER_NO_SPEECH_THRESHOLD
+        block_suspect = no_speech > _nst
 
         # Flag if: low confidence AND near high-risk position, OR block suspect
         if avg_lp < risk_threshold or (avg_lp < -0.4 and brown_risk >= 0.5) or block_suspect:
@@ -5659,6 +5754,163 @@ def set_situation(situation):
         action_str = f" → {', '.join(actions)}" if actions else ""
         log(f"Situation: {situation} (severity: {severity}x){action_str}", "info")
 
+def generate_clinical_profile(min_sessions: int = 20) -> dict:
+    """Generate a longitudinal disfluency profile from accumulated session data.
+
+    Returns a structured dict suitable for display, PDF export, or API response.
+    Requires min_sessions before generating (default 20).
+    """
+    sessions = db_get_sessions(limit=500)
+
+    if len(sessions) < min_sessions:
+        return {"error": f"Need {min_sessions} sessions, have {len(sessions)}"}
+
+    # Sort oldest-first for trend computation
+    sessions_asc = list(reversed(sessions))
+    first_ts = sessions_asc[0].get("ts", "")
+    last_ts = sessions_asc[-1].get("ts", "")
+
+    # Total duration in minutes (words / avg wpm; fallback estimate)
+    total_words = sum(s.get("words", 0) for s in sessions)
+    total_minutes = round(total_words / 130, 1) if total_words else 0
+
+    # --- Primary disfluency type ---
+    type_counts: dict = {}
+    for s in sessions:
+        dc = s.get("disfluency_counts", {})
+        if isinstance(dc, dict):
+            for k, v in dc.items():
+                if k != "total":
+                    type_counts[k] = type_counts.get(k, 0) + (v or 0)
+    total_disf_events = sum(type_counts.values())
+    primary_type = max(type_counts, key=type_counts.get) if type_counts else "unknown"
+    primary_pct = round(type_counts[primary_type] / total_disf_events * 100) if total_disf_events else 0
+
+    # --- Frequency per minute ---
+    freq_per_min = round(total_disf_events / total_minutes, 1) if total_minutes else 0
+
+    # --- Frequency trend (first quartile vs last quartile) ---
+    q = max(len(sessions_asc) // 4, 1)
+    first_q = sessions_asc[:q]
+    last_q = sessions_asc[-q:]
+    def _disf_rate(sess_list):
+        events = sum(sum(v for k, v in (s.get("disfluency_counts") or {}).items() if k != "total") for s in sess_list)
+        words = sum(s.get("words", 0) for s in sess_list)
+        return (events / (words / 130)) if words else 0
+    first_rate = _disf_rate(first_q)
+    last_rate = _disf_rate(last_q)
+    freq_trend = round((last_rate - first_rate) / first_rate * 100) if first_rate else 0
+
+    # --- Situational breakdown ---
+    sit_data: dict = {}
+    for s in sessions:
+        sit = s.get("situation", "default")
+        dc = s.get("disfluency_counts", {}) or {}
+        events = sum(v for k, v in dc.items() if k != "total")
+        w = s.get("words", 0)
+        rate = (events / (w / 130)) if w else 0
+        if sit not in sit_data:
+            sit_data[sit] = {"rates": []}
+        sit_data[sit]["rates"].append(rate)
+    baseline_rate = (sum(sit_data.get("default", {}).get("rates", [0])) /
+                     max(len(sit_data.get("default", {}).get("rates", [1])), 1))
+    situational_breakdown = {}
+    for sit, d in sit_data.items():
+        avg = round(sum(d["rates"]) / max(len(d["rates"]), 1), 1)
+        entry: dict = {"rate": avg}
+        if sit == "default":
+            entry["label"] = "baseline"
+        elif baseline_rate:
+            pct = round((avg - baseline_rate) / baseline_rate * 100)
+            entry["vs_baseline"] = f"{'+' if pct >= 0 else ''}{pct}%"
+        situational_breakdown[sit] = entry
+
+    # --- Onset triggers ---
+    onset_weights = profile.get("onset_weights", {})
+    top_onset_triggers = []
+    for onset, weight in sorted(onset_weights.items(), key=lambda x: -x[1])[:5]:
+        if weight >= 0.3:
+            # Count trigger words using this onset
+            events = sum(
+                v for s in sessions
+                for k, v in (s.get("disfluency_counts") or {}).items()
+                if k != "total"
+            ) // max(len(onset_weights), 1)
+            top_onset_triggers.append({
+                "onset": f"/{onset}/",
+                "weight": round(weight, 2),
+                "events": events,
+            })
+
+    # --- Covert avoidance ---
+    covert = profile.get("covert_profile", {}).get("avoidance_pairs", {})
+    active_pairs = 0
+    avoided_total = 0
+    used_total = 0
+    for sit_words in covert.values():
+        for word, data in sit_words.items():
+            active_pairs += 1
+            avoided_total += data.get("avoided_count", 0)
+            used_total += data.get("used_count", avoided_total)
+    avoidance_rate = round(avoided_total / (avoided_total + used_total) * 100) if (avoided_total + used_total) else 0
+
+    # --- Fluency trend (editorial distance, lower = better) ---
+    edit_dists = [s["editorial_distance"] for s in sessions_asc if s.get("editorial_distance") is not None]
+    fluency_scores = [round(1.0 - min(ed, 1.0), 2) for ed in edit_dists]
+    improvement = 0
+    if len(fluency_scores) >= 4:
+        fq = max(len(fluency_scores) // 4, 1)
+        first_f = sum(fluency_scores[:fq]) / fq
+        last_f = sum(fluency_scores[-fq:]) / fq
+        improvement = round((last_f - first_f) / first_f * 100) if first_f else 0
+    avg_edit = round(sum(edit_dists) / len(edit_dists), 2) if edit_dists else None
+
+    # --- Exposure ---
+    exposure_scores = []
+    exposure_bands: list = []
+    for s in sessions:
+        exp = s.get("exposure", {})
+        if exp and "score" in exp:
+            exposure_scores.append(exp["score"])
+            exposure_bands.append(exp.get("band", "low"))
+    avg_exposure = round(sum(exposure_scores) / len(exposure_scores), 2) if exposure_scores else None
+    avg_band = max(set(exposure_bands), key=exposure_bands.count) if exposure_bands else "unknown"
+    high_diff_pct = round(exposure_bands.count("very_high") / len(exposure_bands) * 100) if exposure_bands else 0
+
+    return {
+        "user": profile.get("name", "Unknown"),
+        "period": {"start": first_ts, "end": last_ts},
+        "total_sessions": len(sessions),
+        "total_minutes": total_minutes,
+        "primary_disfluency": {
+            "type": primary_type,
+            "percentage": primary_pct,
+        },
+        "frequency_per_minute": freq_per_min,
+        "frequency_trend": freq_trend,
+        "situational_breakdown": situational_breakdown,
+        "top_onset_triggers": top_onset_triggers,
+        "covert_avoidance": {
+            "active_pairs": active_pairs,
+            "avoidance_rate": avoidance_rate,
+            "trend": "decreasing" if avoidance_rate < 40 else "stable",
+        },
+        "fluency_trend": {
+            "scores": fluency_scores[-20:],
+            "improvement": improvement,
+        },
+        "editorial_distance": {
+            "average": avg_edit,
+            "trend": "decreasing" if (avg_edit is not None and avg_edit < 0.35) else "stable",
+        },
+        "exposure": {
+            "average_band": avg_band,
+            "average_score": avg_exposure,
+            "high_difficulty_sessions_pct": high_diff_pct,
+        },
+    }
+
+
 # -- Dashboard HTTP server ────────────────────────────────────────
 class DashboardHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
@@ -6015,6 +6267,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'stats': STATS_KEY.upper(),
                 'quit': QUIT_KEY.upper(),
             })
+        elif self.path == '/api/patience':
+            self._json({"patience": get_patience_timeout(),
+                        "default": PATIENCE_DEFAULT,
+                        "stutter": PATIENCE_STUTTER})
+        elif self.path == '/api/clinical_profile':
+            profile_data = generate_clinical_profile()
+            self._json(profile_data)
         else:
             self.send_error(404)
 
@@ -6374,6 +6633,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 # Run in background thread — TTS calls take a while
                 threading.Thread(target=augment_calibration_data, daemon=True).start()
                 self._json({"started": True, "status": augment_status()})
+        elif self.path == '/api/patience':
+            global PATIENCE_DEFAULT, PATIENCE_STUTTER
+            if body:
+                if 'default' in body:
+                    try:
+                        PATIENCE_DEFAULT = float(body['default'])
+                    except (ValueError, TypeError):
+                        pass
+                if 'stutter' in body:
+                    try:
+                        PATIENCE_STUTTER = float(body['stutter'])
+                    except (ValueError, TypeError):
+                        pass
+            self._json({"ok": True, "patience": get_patience_timeout(),
+                        "default": PATIENCE_DEFAULT, "stutter": PATIENCE_STUTTER})
         elif self.path == '/api/set-key':
             global API_KEY, client
             key = (body or {}).get('key', '').strip()

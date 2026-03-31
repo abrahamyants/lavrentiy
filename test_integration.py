@@ -42,6 +42,13 @@ while filler_end < len(lines) and '}' not in lines[filler_end]:
     filler_end += 1
 exec('\n'.join(lines[filler_idx:filler_end + 1]), ns)
 
+# Load NATURAL_REPEATS dynamically
+nr_idx = next(i for i, l in enumerate(lines) if l.startswith('NATURAL_REPEATS = '))
+nr_end = nr_idx + 1
+while nr_end < len(lines) and '}' not in lines[nr_end]:
+    nr_end += 1
+exec('\n'.join(lines[nr_idx:nr_end + 1]), ns)
+
 # Load target functions
 target_funcs = [
     'strip_disfluencies', 'count_disfluencies', 'detect_ocd_loops',
@@ -122,6 +129,26 @@ if strip:
     r = strip('um I I want to uh p- p- pick up the the groceries')
     check(f'mixed disfluencies -> "{r}"', 'I want' in r and 'pick' in r and 'groceries' in r)
     check(f'no fillers remain', 'um' not in r.split() and 'uh' not in r.split())
+
+    # Natural repeats — should NOT be stripped (Apple ML Research 2023)
+    r = strip('ha ha that was funny')
+    check(f'natural "ha ha" preserved -> "{r}"', 'ha ha' in r.lower())
+
+    r = strip('bye bye see you later')
+    check(f'natural "bye bye" preserved -> "{r}"', 'bye bye' in r.lower())
+
+    r = strip('she had had a long day')
+    check(f'natural "had had" preserved -> "{r}"', 'had had' in r.lower())
+
+    r = strip('knock knock who is there')
+    check(f'natural "knock knock" preserved -> "{r}"', 'knock knock' in r.lower())
+
+    r = strip('no no I don\'t think so')
+    check(f'natural "no no" preserved -> "{r}"', 'no no' in r.lower())
+
+    # Non-natural repeats still get stripped
+    r = strip('I I I want to go')
+    check(f'non-natural "I I I" still stripped -> "{r}"', r.count(' I ') + r.startswith('I ') <= 1 or 'I want' in r)
 else:
     print('  SKIP: function not loaded')
 

@@ -128,6 +128,13 @@ print(f'Loaded {len(loaded)}/{len(target_funcs)} functions: {sorted(loaded)}')
 ns['_profile_lock'] = threading.Lock()
 ns['_db_lock'] = threading.Lock()
 
+# Stubs for Firebase/Firestore integration (not testable without credentials)
+ns['is_authenticated'] = lambda: False
+ns['_auth_user'] = None
+ns['_firebase_id_token'] = None
+ns['BACKEND_URL'] = 'http://localhost:0'
+ns['sync_profile_to_firestore'] = lambda prof: None
+
 # Wire current_situation for log_session
 ns['current_situation'] = 'default'
 
