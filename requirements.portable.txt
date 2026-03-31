@@ -1,5 +1,6 @@
 setuptools==82.0.1
 openai==2.29.0
+faster-whisper>=1.0.0
 sounddevice==0.5.5
 soundfile==0.13.1
 keyboard==0.13.5

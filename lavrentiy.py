@@ -112,6 +112,13 @@ WHISPER_NO_SPEECH_THRESHOLD = 0.15   # Post-hoc filter: segments with no_speech_
                                      # using verbose_json no_speech_prob. Lower = preserve more blocks.
 WHISPER_MULTI_TEMP = False           # Multi-temperature voting: OFF by default (3x cost, avg_logprob catches same artifacts)
 WHISPER_MULTI_TEMPS = [0.0, 0.2, 0.4]  # Temperature schedule for voting passes
+LOCAL_WHISPER = False                # Primary mode: API. Local faster-whisper is auto-loaded as fallback only.
+LOCAL_WHISPER_MODEL_SIZE = "base"    # tiny|base|small|medium|large-v2|large-v3
+# Load local Whisper as fallback (not primary) — kicks in when API fails (key disabled, no internet)
+try:
+    from local.whisper_local import transcribe as _local_transcribe_fn  # noqa: F401
+except ImportError:
+    _local_transcribe_fn = None
 LAVRENTIY_DIR = Path.home() / ".lavrentiy"
 PROFILES_ROOT = LAVRENTIY_DIR / "profiles"
 ACTIVE_FILE = LAVRENTIY_DIR / "active_profile"
@@ -1425,12 +1432,17 @@ def calibration_save_audio(prompt_id, audio_data, sample_rate):
     # Run through Whisper to capture raw ASR for WER comparison
     whisper_raw = ""
     try:
-        with open(str(wav_path), "rb") as f:
-            result = client.audio.transcriptions.create(
-                model="whisper-1", file=f, language=LANGUAGE
-            )
-        whisper_raw = result.text.strip()
-        stats_inc("api_calls")
+        if LOCAL_WHISPER and _local_transcribe_fn is not None:
+            r = _local_transcribe_fn(str(wav_path), 0.0, None, LANGUAGE, LOCAL_WHISPER_MODEL_SIZE)
+            whisper_raw = r["text"]
+            stats_inc("local_transcriptions")
+        else:
+            with open(str(wav_path), "rb") as f:
+                result = client.audio.transcriptions.create(
+                    model="whisper-1", file=f, language=LANGUAGE
+                )
+            whisper_raw = result.text.strip()
+            stats_inc("api_calls")
     except Exception as e:
         log(f"Calibration Whisper pass failed: {e}", "error")
     wer_val = None
@@ -1699,12 +1711,17 @@ def augment_calibration_data():
                 # Run through Whisper to capture how ASR handles the disfluent audio
                 whisper_raw = ""
                 try:
-                    with open(str(wav_path), "rb") as f:
-                        w_result = client.audio.transcriptions.create(
-                            model="whisper-1", file=f, language=LANGUAGE
-                        )
-                    whisper_raw = w_result.text.strip()
-                    stats_inc("api_calls")
+                    if LOCAL_WHISPER and _local_transcribe_fn is not None:
+                        r = _local_transcribe_fn(str(wav_path), 0.0, None, LANGUAGE, LOCAL_WHISPER_MODEL_SIZE)
+                        whisper_raw = r["text"]
+                        stats_inc("local_transcriptions")
+                    else:
+                        with open(str(wav_path), "rb") as f:
+                            w_result = client.audio.transcriptions.create(
+                                model="whisper-1", file=f, language=LANGUAGE
+                            )
+                        whisper_raw = w_result.text.strip()
+                        stats_inc("api_calls")
                 except Exception as e:
                     log(f"Augment Whisper pass failed for {base}: {e}", "error")
 
@@ -1943,7 +1960,8 @@ stats = {
     "words": 0, "sessions": 0, "chars": 0,
     "start_time": time.time(),
     "api_calls": 0, "falcon_rejects": 0,
-    "multi_temp_votes": 0, "multi_temp_disagreements": 0
+    "multi_temp_votes": 0, "multi_temp_disagreements": 0,
+    "local_transcriptions": 0
 }
 _stats_lock = threading.Lock()
 
@@ -3819,6 +3837,11 @@ def _whisper_single_call(filepath, temperature, prompt_text, max_retries=3):
 
     Retries up to max_retries on 5xx server errors and rate limits.
     """
+    if LOCAL_WHISPER and _local_transcribe_fn is not None:
+        result = _local_transcribe_fn(filepath, temperature, prompt_text, LANGUAGE, LOCAL_WHISPER_MODEL_SIZE)
+        stats_inc("local_transcriptions")
+        return result
+
     for attempt in range(max_retries):
         try:
             with open(filepath, "rb") as f:
@@ -3845,6 +3868,12 @@ def _whisper_single_call(filepath, temperature, prompt_text, max_retries=3):
                 log(f"Whisper API error ({err_str[:80]}), retry {attempt+1}/{max_retries} in {wait}s", "warn")
                 time.sleep(wait)
                 continue
+            # API exhausted — fall back to local Whisper if available
+            if _local_transcribe_fn is not None:
+                log(f"Whisper API failed ({err_str[:80]}), falling back to local", "warn")
+                result = _local_transcribe_fn(filepath, temperature, prompt_text, LANGUAGE, LOCAL_WHISPER_MODEL_SIZE)
+                stats_inc("local_transcriptions")
+                return result
             raise
 
 
@@ -5254,7 +5283,9 @@ def pipeline():
             return
 
         # Log Whisper pipeline details
-        meta_tag = f"[{whisper_meta['prompt_source']}|{whisper_meta['n_api_calls']}calls]"
+        used_local = (LOCAL_WHISPER and _local_transcribe_fn is not None) or whisper_meta['n_api_calls'] == 0
+        source_label = "local" if used_local else f"{whisper_meta['n_api_calls']}calls"
+        meta_tag = f"[{whisper_meta['prompt_source']}|{source_label}]"
         if whisper_low_conf:
             meta_tag += f" low_conf:{len(whisper_low_conf)}"
         if whisper_disagreements:
