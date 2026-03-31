@@ -1,0 +1,7 @@
+pywebview>=5.0
+pystray>=0.19
+Pillow>=10.0
+# pythonnet is a required transitive dep on Windows.
+# On Python 3.14+, install the pre-release first:
+#   pip install --pre pythonnet
+# On Python 3.12 the release wheel installs fine as part of pywebview's deps.

@@ -26,6 +26,8 @@ ENGINE_FILES = [
     "lavrentiy.py",
     "dashboard.html",
     "mobile.html",
+    "onboard.html",
+    "desktop.py",
     "lavrentiy.ico",
 ]
 
@@ -109,6 +111,29 @@ def main():
     )
     os.remove(pip_path)
 
+    # Install setuptools immediately — needed as build backend for source-dist packages
+    subprocess.run(
+        [python_exe, "-m", "pip", "install", "setuptools", "--no-warn-script-location", "-q"],
+        cwd=PYTHON_DIR,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    # Step 2.5: Pre-install pythonnet (release build can't compile on Python 3.12+)
+    print("\n[2.5/6] Installing pythonnet pre-release (required by pywebview)...")
+    result = subprocess.run(
+        [python_exe, "-m", "pip", "install", "--pre", "pythonnet",
+         "--no-warn-script-location", "-q"],
+        cwd=PYTHON_DIR,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"  WARNING: pythonnet pre-release install failed:\n{result.stderr[:300]}")
+    else:
+        print("  pythonnet installed.")
+
     # Step 3: Install pinned dependencies
     req_path = os.path.join(SCRIPT_DIR, REQUIREMENTS_FILE)
     if not os.path.exists(req_path):
@@ -154,76 +179,17 @@ def main():
     with open(start_bat, "w") as f:
         f.write(textwrap.dedent("""\
             @echo off
-            title Lavrentiy Voice Engine
-            cd /d "%~dp0"
+            title Lavrentiy
+            cd /d "%~dp0engine"
 
-            REM Check for saved API key
-            if exist "api_key.txt" (
-                set /p OPENAI_API_KEY=<api_key.txt
-            ) else (
-                echo ============================================
-                echo   LAVRENTIY - First Time Setup
-                echo ============================================
-                echo.
-                echo Enter your OpenAI API key:
-                echo (starts with sk-...)
-                echo.
-                set /p OPENAI_API_KEY="API Key: "
-                echo.
-                echo %OPENAI_API_KEY%> api_key.txt
-                echo Key saved. You won't be asked again.
-                echo.
-            )
-
-            echo Starting Lavrentiy engine...
-            start "" /B python\\pythonw.exe engine\\lavrentiy.py
-
-            REM Write PID for STOP.bat (pythonw.exe we just launched)
-            REM Brief delay so the process registers
-            timeout /t 1 /nobreak > nul
-            for /f "tokens=2" %%i in ('tasklist /fi "imagename eq pythonw.exe" /fo list ^| findstr "PID:"') do (
-                echo %%i> engine\\lavrentiy.pid
-            )
-
-            REM Poll for server readiness (max 30 seconds)
-            echo Waiting for engine to start...
-            set /a tries=0
-            :waitloop
-            if %tries% geq 30 goto timeout_fail
-            powershell -Command "try { (Invoke-WebRequest -Uri http://localhost:7878/api/state -UseBasicParsing -TimeoutSec 1).StatusCode } catch { exit 1 }" >nul 2>&1
-            if %errorlevel% equ 0 goto ready
-            set /a tries+=1
-            timeout /t 1 /nobreak > nul
-            goto waitloop
-
-            :timeout_fail
-            echo WARNING: Engine did not respond within 30 seconds.
-            echo Check engine\\lavrentiy.py for errors.
-            pause
-            exit /b 1
-
-            :ready
-            echo Opening dashboard...
-            REM Try app mode (borderless, looks like a desktop app)
-            REM Chrome first (cleaner title bar), then Edge, then regular browser
-            where chrome >nul 2>&1
-            if %errorlevel% equ 0 (
-                start "" chrome --app=http://localhost:7878
-                goto opened
-            )
-            where msedge >nul 2>&1
-            if %errorlevel% equ 0 (
-                start "" msedge --app=http://localhost:7878
-                goto opened
-            )
-            REM Fallback: default browser (regular tab)
-            start "" http://localhost:7878
-            :opened
+            echo Starting Lavrentiy...
+            start "" /B "%~dp0python\\pythonw.exe" "%~dp0engine\\desktop.py"
 
             echo.
             echo ============================================
-            echo   Lavrentiy is running on localhost:7878
-            echo   Run STOP.bat to shut down.
+            echo   Lavrentiy is starting.
+            echo   The window will appear in a few seconds.
+            echo   Use the system tray icon to show/hide/quit.
             echo ============================================
             echo.
         """))
@@ -315,10 +281,10 @@ def main():
     print("    STOP.bat      - Stop engine (by PID, safe)")
     print("    UPDATE.bat    - Pull latest engine from GitHub")
     print("    python/       - Portable Python + pinned dependencies")
-    print("    engine/       - lavrentiy.py + dashboard.html + mobile.html")
+    print("    engine/       - lavrentiy.py + dashboard.html + desktop.py + onboard.html")
     print()
     print("  To distribute: zip the 'portable' folder.")
-    print("  First run will ask for the OpenAI API key (saved for next time).")
+    print("  First run shows onboard screen (own key or Google Sign-In).")
     print("=" * 60)
 
 

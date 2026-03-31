@@ -5672,6 +5672,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif self.path == '/sw.js':
             sw_path = Path(__file__).parent / 'sw.js'
             self._serve_file(sw_path, 'application/javascript')
+        elif self.path == '/onboard':
+            self._serve_file(Path(__file__).parent / 'onboard.html', 'text/html')
         elif self.path == '/api/state':
             self._json({
                 'state': state,
@@ -6341,6 +6343,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 # Run in background thread — TTS calls take a while
                 threading.Thread(target=augment_calibration_data, daemon=True).start()
                 self._json({"started": True, "status": augment_status()})
+        elif self.path == '/api/set-key':
+            global API_KEY, client
+            key = (body or {}).get('key', '').strip()
+            if key:
+                API_KEY = key
+                client = openai.OpenAI(api_key=API_KEY)
+                try:
+                    with open(_key_file, 'w') as f:
+                        f.write(key)
+                except Exception:
+                    pass
+                self._json({'ok': True})
+            else:
+                self._json({'ok': False, 'error': 'no key provided'})
         else:
             self.send_error(404)
 
