@@ -104,7 +104,7 @@ TONE_KEY = "f10"
 LAYER_KEY = "f11"
 STATS_KEY = "f12"
 QUIT_KEY = "f3"
-MODEL = "gpt-4o-mini"
+MODEL = "gpt-4o"
 MODEL_L4 = "gpt-4o"                  # L4 stutter reconstruction uses stronger model
 WHISPER_TEMP = 0.0                   # Whisper decoder temperature (0.0=deterministic, 1.0=creative)
 WHISPER_NO_SPEECH_THRESHOLD = 0.15   # Post-hoc filter: segments with no_speech_prob > this are flagged as block suspects
@@ -6200,7 +6200,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 stats_inc("api_calls")
                 try:
                     resp = client.chat.completions.create(
-                        model="gpt-4o-mini",
+                        model="gpt-4o",
                         messages=[{"role": "system", "content": (
                             "You are a speech-language pathology assistant generating a clinical weekly "
                             "progress report for a person who stutters. Be direct, use data. Use emoji "

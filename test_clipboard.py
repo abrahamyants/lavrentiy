@@ -76,7 +76,7 @@ ns['log'] = lambda msg, level='info': None
 ns['stats_inc'] = lambda key, n=1: None
 ns['HOLD_ON_HIGH_RISK'] = False
 ns['current_mode'] = 'SAFE'
-ns['MODEL'] = 'gpt-4o-mini'
+ns['MODEL'] = 'gpt-4o'
 
 # Extract functions and class
 target_funcs = [

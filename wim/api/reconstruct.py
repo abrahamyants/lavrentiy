@@ -23,8 +23,8 @@ import time
 import openai
 
 # ─── Config ───
-MODEL = os.environ.get("WIM_MODEL", "gpt-4o-mini")
-MODEL_L4 = os.environ.get("WIM_MODEL_L4", "gpt-4o-mini")
+MODEL = os.environ.get("WIM_MODEL", "gpt-4o")
+MODEL_L4 = os.environ.get("WIM_MODEL_L4", "gpt-4o")
 API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
 # Try reading from api_key.txt (same dir as this file, or parent)

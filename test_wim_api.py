@@ -275,7 +275,7 @@ try:
     system_msg = api_call['messages'][0]['content']
     check('L3: prompt includes vocabulary', 'Kubernetes' in system_msg)
     check('L3: prompt includes corrections', 'Duncan' in system_msg or 'Dankeschoen' in system_msg)
-    check('L3: model is gpt-4o-mini', api_call['model'] == 'gpt-4o-mini')
+    check('L3: model is gpt-4o', api_call['model'] == 'gpt-4o')
     check('L3 formal: low temperature', api_call['temperature'] == 0.1)
 
     # L4 model selection
