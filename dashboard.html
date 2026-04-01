@@ -2117,6 +2117,22 @@ body::before {
 .theme-btn:hover { color: var(--text-bright); border-color: rgba(185,28,28,0.4); }
 [data-theme="dark"] .theme-btn { background: rgba(185,28,28,0.15); color: var(--red-bright); border-color: rgba(185,28,28,0.3); }
 
+/* ─── HELP OVERLAY (dark mode) ───── */
+[data-theme="dark"] .help-overlay {
+  background:
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.0) 0px, rgba(255,255,255,0.015) 1px, rgba(0,0,0,0.02) 2px, transparent 3px, transparent 6px),
+    linear-gradient(180deg, #222226 0%, #1e1e22 30%, #1a1a1e 70%, #18181c 100%);
+  border-left-color: rgba(255,255,255,0.08);
+}
+[data-theme="dark"] .help-header {
+  background: linear-gradient(180deg, #222226 80%, transparent);
+  border-bottom-color: rgba(255,255,255,0.06);
+}
+[data-theme="dark"] .ha-row { border-bottom-color: rgba(255,255,255,0.06); }
+[data-theme="dark"] .ha-header:hover { background: rgba(255,255,255,0.04); }
+[data-theme="dark"] .ha-example { background: rgba(255,255,255,0.04); border-left-color: rgba(185,28,28,0.4); }
+[data-theme="dark"] .ha-content code { background: var(--raised); color: #ef4444; border-color: rgba(255,255,255,0.08); }
+
 /* ─── PROFILE SELECTOR ───── */
 .profile-selector {
   padding: 0 16px 10px;
@@ -2242,7 +2258,7 @@ body::before {
 .ha-body {
   max-height: 0; overflow: hidden; transition: max-height 0.35s cubic-bezier(0.4,0,0.2,1);
 }
-.ha-row.open .ha-body { max-height: 800px; }
+.ha-row.open .ha-body { max-height: 2000px; }
 .ha-content {
   padding: 0 20px 18px 70px; font-size: 11px; line-height: 1.65; color: var(--text-dim);
 }
@@ -2989,6 +3005,8 @@ const I18N={
   ha_hotkeys_body:{en:'<span class="ha-kbd">F9</span> Start/stop recording &nbsp;<span class="ha-kbd">F10</span> Cycle tones &nbsp;<span class="ha-kbd">F11</span> Cycle layers &nbsp;<span class="ha-kbd">F12</span> Print stats &nbsp;<span class="ha-kbd">F3</span> \u00D73 Quit<br><br>All rebindable from the Shortcuts section at the bottom of the sidebar.',ru:'<span class="ha-kbd">F9</span> Запись/стоп &nbsp;<span class="ha-kbd">F10</span> Сменить тон &nbsp;<span class="ha-kbd">F11</span> Сменить уровень &nbsp;<span class="ha-kbd">F12</span> Статистика &nbsp;<span class="ha-kbd">F3</span> \u00D73 Выход<br><br>Все переназначаемы в разделе Горячие клавиши внизу боковой панели.'},
   ha_colors:{en:'Console Colors',ru:'Цвета консоли'},ha_colors_sub:{en:'What the colored text means',ru:'Значение цветного текста'},
   ha_colors_body:{en:'<strong style="color:#222">White</strong> \u2014 Your transcribed speech (with word count)<br><strong style="color:#16a34a">Green</strong> \u2014 Pipeline status, recording, paste timing<br><strong style="color:#a16207">Yellow</strong> \u2014 Speech analytics and Whisper diagnostics<br><strong style="color:#dc2626">Red</strong> \u2014 Prosodic alerts (vocal tension, erratic pitch)<br><strong style="color:#92400e">Brown</strong> \u2014 Block suspect (Whisper hallucinated over silence)',ru:'<strong style="color:#222">Белый</strong> \u2014 Ваша транскрибированная речь (с количеством слов)<br><strong style="color:#16a34a">Зелёный</strong> \u2014 Статус конвейера, запись, время вставки<br><strong style="color:#a16207">Жёлтый</strong> \u2014 Аналитика речи и диагностика Whisper<br><strong style="color:#dc2626">Красный</strong> \u2014 Просодические предупреждения (голосовое напряжение, хаотичный тон)<br><strong style="color:#92400e">Коричневый</strong> \u2014 Подозрение на блок (Whisper галлюцинировал в тишине)'},
+  ha_pipeline:{en:'How It Works',ru:'Как это работает'},ha_pipeline_sub:{en:'What happens when you press Record',ru:'Что происходит при нажатии Запись'},
+  ha_pipeline_body:{en:'<strong style="color:var(--red-bright)">1. You speak</strong><br>Your voice is captured through the microphone. The audio is cleaned up (background noise removed, volume leveled) before anything else touches it.<br><br><strong style="color:var(--red-bright)">2. Whisper listens</strong><br>OpenAI\u2019s Whisper converts your speech to text. It also reports <em>how confident</em> it is about each word. Quiet moments (blocks, pauses) are flagged rather than guessed at.<br><span style="opacity:0.6;font-size:0.9em">If you use Script Prep, your intended text helps Whisper guess better \u2014 like giving it the answer key.</span><br><br><strong style="color:var(--red-bright)">3. Quick cleanup</strong><br>Before any AI gets involved, obvious disfluencies are stripped automatically (zero cost, instant):<br>\u2022 Repeated syllables: \u201cp-p-pop\u201d \u2192 \u201cpop\u201d<br>\u2022 Repeated words: \u201cI I I want\u201d \u2192 \u201cI want\u201d<br>\u2022 Fillers: \u201cum\u201d, \u201cuh\u201d, \u201clike\u201d, \u201cyou know\u201d<br>\u2022 False starts: \u201cgoing to\u2014 I went\u201d \u2192 \u201cI went\u201d<br>\u2022 Prolongations: \u201cmmmmaybe\u201d \u2192 \u201cmaybe\u201d<br><span style="opacity:0.6;font-size:0.9em">Natural phrases like \u201cbye bye\u201d and \u201chad had\u201d are kept \u2014 real grammar, not disfluencies.</span><br><br><strong style="color:var(--red-bright)">4. Depends on your Layer:</strong><br><br><strong>Layer 1</strong> \u2014 Done. The cleaned text is pasted. No AI, no cost beyond transcription.<br><br><strong>Layer 2</strong> \u2014 GPT rewrites using your chosen tone (casual, professional, etc). It knows the text came from a microphone, so it\u2019s forgiving about messiness. No personal data used.<br><br><strong>Layer 3</strong> \u2014 Same as L2, plus GPT knows <em>your</em> preferred words and learned corrections.<br><br><strong>Layer 4</strong> \u2014 The full engine. A stronger AI model gets a detailed briefing:<br>\u2022 Which sounds are hardest for you<br>\u2022 Words you tend to avoid and swap<br>\u2022 Where Whisper was uncertain or detected a block<br>\u2022 Non-verbal events (coughs, pauses) so it doesn\u2019t make up words<br>\u2022 Your pitch, energy, and speaking rate patterns<br><br><strong style="color:var(--red-bright)">5. Safety check</strong><br>In SAFE mode, a second AI reads both your original words and the rewrite, and asks: \u201cDid the meaning change?\u201d If yes, the rewrite is rejected and your original text is used. Numbers, dollar amounts, and percentages are double-checked separately.<br><br><strong style="color:var(--red-bright)">6. Paste</strong><br>The final text goes to your clipboard and is pasted into whatever app you\u2019re using.',ru:'<strong style="color:var(--red-bright)">1. \u0412\u044b \u0433\u043e\u0432\u043e\u0440\u0438\u0442\u0435</strong><br>\u0412\u0430\u0448 \u0433\u043e\u043b\u043e\u0441 \u0437\u0430\u043f\u0438\u0441\u044b\u0432\u0430\u0435\u0442\u0441\u044f \u0447\u0435\u0440\u0435\u0437 \u043c\u0438\u043a\u0440\u043e\u0444\u043e\u043d. \u0410\u0443\u0434\u0438\u043e \u043e\u0447\u0438\u0449\u0430\u0435\u0442\u0441\u044f \u043f\u0435\u0440\u0435\u0434 \u043e\u0431\u0440\u0430\u0431\u043e\u0442\u043a\u043e\u0439.'},
   ha_tips:{en:'Tips',ru:'Подсказки'},ha_tips_sub:{en:'Power user tricks',ru:'Трюки для продвинутых'},
   ha_tips_body:{en:'\u2022 Click the <strong>timer</strong> in the status ring to reset it.<br>\u2022 <strong>Compact toggle</strong> (top-left) collapses to a minimal bar with clickable chips.<br>\u2022 Tone and Mode <strong>auto-collapse</strong> on L1 (they have no effect).<br>\u2022 <strong>High Stress</strong> situation is a one-click panic button: L4 + DAF + all toggles.<br>\u2022 Click any <strong>stat/learn bar cell</strong> to jump to its detail tab.',ru:'\u2022 Нажмите на <strong>таймер</strong> в кольце статуса для сброса.<br>\u2022 <strong>Компактный режим</strong> (вверху слева) сворачивает в минимальную полосу с кликабельными чипами.<br>\u2022 Тон и Режим <strong>автоматически сворачиваются</strong> на L1 (они не влияют).<br>\u2022 <strong>Стресс</strong> \u2014 кнопка паники в одно нажатие: L4 + DAF + все переключатели.<br>\u2022 Нажмите на любую <strong>ячейку статистики/обучения</strong> для перехода к вкладке.'},
 };
@@ -3129,7 +3147,7 @@ function applyI18n(){
   if(helpSub)helpSub.textContent=t('help_sub');
   // Help accordion sections
   const haRows=document.querySelectorAll('.ha-row[data-ha]');
-  const haKeys=['ha_layers','ha_tone','ha_mode','ha_enhance','ha_situation','ha_daf','ha_whisper','ha_stats','ha_hotkeys','ha_colors','ha_tips'];
+  const haKeys=['ha_layers','ha_tone','ha_mode','ha_enhance','ha_situation','ha_daf','ha_whisper','ha_stats','ha_hotkeys','ha_colors','ha_pipeline','ha_tips'];
   haRows.forEach((row,i)=>{
     if(!haKeys[i])return;
     const name=row.querySelector('.ha-name');
@@ -4945,6 +4963,54 @@ function _checkProfileSync(){
       <strong style="color:#a16207">Yellow</strong> &#8212; Speech analytics and Whisper diagnostics<br>
       <strong style="color:#dc2626">Red</strong> &#8212; Prosodic alerts (vocal tension, erratic pitch)<br>
       <strong style="color:#92400e">Brown</strong> &#8212; Block suspect (Whisper hallucinated over silence)
+    </div></div>
+  </div>
+
+  <div class="ha-row" data-ha>
+    <div class="ha-header" onclick="toggleHa(this)">
+      <div class="ha-icon">&#9776;</div>
+      <div class="ha-info"><div class="ha-name">How It Works</div><div class="ha-sub">What happens when you press Record</div></div>
+      <div class="ha-chevron">&#9654;</div>
+    </div>
+    <div class="ha-body"><div class="ha-content" style="line-height:1.7">
+      <strong style="color:var(--red-bright)">1. You speak</strong><br>
+      Your voice is captured through the microphone. The audio is cleaned up (background noise removed, volume leveled) before anything else touches it.<br><br>
+
+      <strong style="color:var(--red-bright)">2. Whisper listens</strong><br>
+      OpenAI's Whisper converts your speech to text. It also reports <em>how confident</em> it is about each word. Quiet moments (blocks, pauses) are flagged rather than guessed at.<br>
+      <div class="ha-example">If you use <strong>Script Prep</strong>, your intended text helps Whisper guess better &#8212; like giving it the answer key.</div>
+
+      <strong style="color:var(--red-bright)">3. Quick cleanup</strong><br>
+      Before any AI gets involved, obvious disfluencies are stripped automatically (zero cost, instant):<br>
+      &#8226; Repeated syllables: "p-p-pop" &#8594; "pop"<br>
+      &#8226; Repeated words: "I I I want" &#8594; "I want"<br>
+      &#8226; Fillers: "um", "uh", "like", "you know"<br>
+      &#8226; False starts: "going to&#8212; I went" &#8594; "I went"<br>
+      &#8226; Prolongations: "mmmmaybe" &#8594; "maybe"<br>
+      <div class="ha-example">Natural phrases like "bye bye" and "had had" are kept &#8212; they're real grammar, not disfluencies.</div>
+
+      <strong style="color:var(--red-bright)">4. What happens next depends on your Layer:</strong><br><br>
+
+      <div style="margin-left:12px">
+        <strong>Layer 1</strong> &#8212; Done. The cleaned text is pasted. No AI, no internet after Whisper, no cost beyond transcription.<br><br>
+
+        <strong>Layer 2</strong> &#8212; GPT rewrites your text using your chosen <em>tone</em> (casual, professional, etc). It knows the text came from a microphone, not a keyboard, so it's forgiving about messiness. No personal data is used.<br><br>
+
+        <strong>Layer 3</strong> &#8212; Same as Layer 2, plus GPT knows <em>your</em> preferred words and corrections. If it's learned that you always say "gonna" but mean "going to" in professional mode, it fixes that automatically.<br><br>
+
+        <strong>Layer 4</strong> &#8212; The full engine. GPT switches to a stronger model and gets a detailed briefing:<br>
+        &#8226; Which sounds are hardest for you (your personal phoneme map)<br>
+        &#8226; Words you tend to avoid and swap for easier ones<br>
+        &#8226; Where Whisper was uncertain or detected a block<br>
+        &#8226; Non-verbal events (coughs, laughter, pauses) so it doesn't hallucinate words over them<br>
+        &#8226; Your pitch, energy, and speaking rate patterns<br>
+      </div><br>
+
+      <strong style="color:var(--red-bright)">5. Safety check</strong><br>
+      In <strong>SAFE</strong> mode, a second AI (Falcon) reads both your original words and the rewrite, and asks: "Did the meaning change?" If yes, the rewrite is rejected and your original text is used instead. Numbers, dollar amounts, and percentages are double-checked separately.<br><br>
+
+      <strong style="color:var(--red-bright)">6. Paste</strong><br>
+      The final text goes to your clipboard and is pasted into whatever app you're using.
     </div></div>
   </div>
 
