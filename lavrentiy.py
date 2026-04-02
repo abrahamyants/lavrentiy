@@ -6778,8 +6778,22 @@ def on_key_event(event):
         return
 
     if event.name == RECORD_KEY:
+        # Ignore F9 events in first 3 seconds after startup (prevents ghost key)
+        if time.time() - _hook_start_time < 3.0:
+            return
         if event.event_type == keyboard.KEY_DOWN:
-            start_recording()
+            # Toggle safety: if already recording, KEY_DOWN stops it
+            if is_recording:
+                log("Toggle-stop (F9 pressed while recording)", "info")
+                stop_recording()
+            else:
+                start_recording()
+                # Safety timeout: auto-stop after 120s if KEY_UP is missed
+                def _safety_stop():
+                    if is_recording:
+                        log("Safety timeout — auto-stopping recording", "warn")
+                        stop_recording()
+                threading.Timer(30, _safety_stop).start()
         elif event.event_type == keyboard.KEY_UP:
             stop_recording()
 
@@ -6807,5 +6821,6 @@ print()
 # Start dashboard server
 threading.Thread(target=run_dashboard, daemon=True).start()
 
+_hook_start_time = time.time()
 keyboard.hook(on_key_event)
 keep_alive()
