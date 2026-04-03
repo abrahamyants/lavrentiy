@@ -3814,6 +3814,32 @@ def compute_wer(reference, hypothesis):
     return (wer, s_count, d_count, i_count)
 
 
+
+def _text_nearly_identical(raw, clean, threshold=0.85):
+    """Check if raw and clean text are nearly identical.
+    Uses both length ratio AND word overlap — both must exceed threshold.
+    Stuttered speech has high word overlap after disfluency removal but LOW
+    length ratio (stuttered text is inflated by repetitions). This ensures
+    Falcon still validates real reconstructions while skipping no-ops.
+    Zero API cost."""
+    if not raw or not clean:
+        return False
+    raw_words = raw.split()
+    clean_words = clean.split()
+    if not raw_words or not clean_words:
+        return False
+    # Length ratio: stuttered text is always longer than clean
+    length_ratio = min(len(raw_words), len(clean_words)) / max(len(raw_words), len(clean_words))
+    if length_ratio < threshold:
+        return False
+    # Word overlap: shared vocabulary
+    raw_set = set(w.lower().strip(".,!?;:'\"") for w in raw_words)
+    clean_set = set(w.lower().strip(".,!?;:'\"") for w in clean_words)
+    total = max(len(raw_set), len(clean_set))
+    overlap = len(raw_set & clean_set) / total if total > 0 else 0
+    return overlap >= threshold
+
+
 def compute_risk_flags(raw_text, clean_text, falcon_ok, used_fallback, layer):
     """Deterministic risk flags — no LLM calls."""
     flags = []
@@ -5480,13 +5506,21 @@ def pipeline():
 
             # Step 3: Falcon (SAFE mode only, skip if fallback)
             if current_mode == "SAFE" and clean_text and not used_fallback:
-                try:
-                    falcon_ok = falcon_validate(raw_text, clean_text, current_layer)
-                except Exception:
+                if len(filtered_text.split()) <= 3:
                     falcon_ok = True
-                if not falcon_ok:
-                    stats_inc("falcon_rejects")
-                    log("Falcon: REJECTED -- using raw", "error")
+                    clean_text = filtered_text
+                    log(f"Falcon: SKIPPED (short utterance -- {len(filtered_text.split())} words)", "info")
+                elif _text_nearly_identical(raw_text, clean_text):
+                    falcon_ok = True
+                    log("Falcon: SKIPPED (text nearly identical -- no meaningful reconstruction)", "info")
+                else:
+                    try:
+                        falcon_ok = falcon_validate(raw_text, clean_text, current_layer)
+                    except Exception:
+                        falcon_ok = True
+                    if not falcon_ok:
+                        stats_inc("falcon_rejects")
+                        log("Falcon: REJECTED -- using raw", "error")
             t_val = time.time()
 
         # Critical token retention: verify numbers, names, dollar amounts survived reconstruction
