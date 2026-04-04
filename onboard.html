@@ -176,19 +176,20 @@
 
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://accounts.google.com/gsi/client"></script>
   <script>
     const API = 'http://127.0.0.1:7878';
+    const GIS_CLIENT_ID = '787543109204-vnln7rus2o37s4oaptepg66i3qcb3ujb.apps.googleusercontent.com';
 
     firebase.initializeApp({
-      apiKey:        "AIzaSyD2fSjQZT76sJ5yYL6CRgXxE7ejlCP-Acg",
+      apiKey:        "AIzaSyCwHM69yHHWsRRbt1c4bpIjIIV4BxDiLnY",
       authDomain:    "bakers-agent.firebaseapp.com",
       projectId:     "bakers-agent",
       storageBucket: "bakers-agent.firebasestorage.app",
-      appId:         "1:787543109204:android:2f1e08fd7d0039022f07c1"
+      appId:         "1:787543109204:web:288e7cf9a2880b682f07c1"
     });
 
     const auth = firebase.auth();
-    const googleProvider = new firebase.auth.GoogleAuthProvider();
 
     function setStatus(msg, type = '') {
       const el = document.getElementById('status');
@@ -256,10 +257,11 @@
       }
     }
 
-    async function googleSignIn() {
-      setStatus('Opening Google Sign-In...');
+    // GIS credential flow — mirrors WiM Android's Credential Manager approach
+    async function handleGoogleCredential(response) {
       try {
-        const result = await auth.signInWithPopup(googleProvider);
+        const credential = firebase.auth.GoogleAuthProvider.credential(response.credential);
+        const result = await auth.signInWithCredential(credential);
         const token = await result.user.getIdToken();
         await postAuthToEngine(result.user, token);
         setStatus('Signed in. Opening dashboard...', 'ok');
@@ -267,6 +269,16 @@
       } catch (e) {
         setStatus(e.message || 'Sign-in failed.', 'error');
       }
+    }
+
+    function googleSignIn() {
+      setStatus('Opening Google Sign-In...');
+      google.accounts.id.initialize({
+        client_id: GIS_CLIENT_ID,
+        callback: handleGoogleCredential,
+        auto_select: false
+      });
+      google.accounts.id.prompt();
     }
   </script>
 </body>

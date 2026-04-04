@@ -2313,6 +2313,7 @@ body::before {
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://accounts.google.com/gsi/client"></script>
 </head>
 <body>
 
@@ -2762,28 +2763,39 @@ let state={state:'idle',tone:'casual',layer:2,layer_name:'reconstruct',situation
 let profile={trigger_words:[],filler_words:[],vocabulary:[],corrections:{}};
 let sessions=[];let lastSessionCount=-1;let connected=true;let failCount=0;
 
-// ─── Firebase Auth ────────────────────────────────────────
+// ─── Firebase Auth (GIS credential flow — mirrors WiM Android) ───
 const firebaseConfig={
-  apiKey:"AIzaSyD2fSjQZT76sJ5yYL6CRgXxE7ejlCP-Acg",
+  apiKey:"AIzaSyCwHM69yHHWsRRbt1c4bpIjIIV4BxDiLnY",
   authDomain:"bakers-agent.firebaseapp.com",
   projectId:"bakers-agent",
   storageBucket:"bakers-agent.firebasestorage.app",
   messagingSenderId:"787543109204",
-  appId:"1:787543109204:android:2f1e08fd7d0039022f07c1"
+  appId:"1:787543109204:web:288e7cf9a2880b682f07c1"
 };
 firebase.initializeApp(firebaseConfig);
 const auth=firebase.auth();
-const googleProvider=new firebase.auth.GoogleAuthProvider();
+const GIS_CLIENT_ID='787543109204-vnln7rus2o37s4oaptepg66i3qcb3ujb.apps.googleusercontent.com';
 
-async function googleSignIn(){
+// GIS callback — receives Google ID token, passes to Firebase (same as WiM's signInWithCredential)
+async function handleGoogleCredential(response){
   try{
-    const result=await auth.signInWithPopup(googleProvider);
+    const credential=firebase.auth.GoogleAuthProvider.credential(response.credential);
+    const result=await auth.signInWithCredential(credential);
     const token=await result.user.getIdToken();
     await fetch(API+'/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'sign_in',id_token:token,email:result.user.email,
         displayName:result.user.displayName||'',uid:result.user.uid})});
     updateAuthUI(result.user);
   }catch(e){console.error('Sign-in failed:',e);}
+}
+
+function googleSignIn(){
+  google.accounts.id.initialize({
+    client_id:GIS_CLIENT_ID,
+    callback:handleGoogleCredential,
+    auto_select:false
+  });
+  google.accounts.id.prompt();
 }
 
 async function googleSignOut(){
@@ -2805,7 +2817,6 @@ function updateAuthUI(user){
   }else{
     so.style.display='flex';si.style.display='none';em.textContent='';
   }
-  // Show legacy profile selector only when NOT signed in (local API key mode)
   const ps=document.getElementById('profile-selector-legacy');
   if(ps) ps.style.display=user?'none':'flex';
 }
@@ -2818,7 +2829,6 @@ auth.onAuthStateChanged(async(user)=>{
       body:JSON.stringify({action:'refresh',id_token:token,email:user.email,
         displayName:user.displayName||'',uid:user.uid})});
     updateAuthUI(user);
-    // Refresh token every 50 minutes (Firebase tokens expire in 60)
     setInterval(async()=>{
       const t=await user.getIdToken(true);
       fetch(API+'/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},

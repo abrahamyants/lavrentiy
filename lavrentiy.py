@@ -1026,6 +1026,24 @@ if NEEDS_RESAMPLE:
     RESAMPLE_UP = TARGET_RATE // _g
     RESAMPLE_DOWN = NATIVE_RATE // _g
 
+def _redetect_mic():
+    """Re-run mic detection when the cached DEVICE index goes stale."""
+    global DEVICE, NATIVE_RATE, NEEDS_RESAMPLE, RESAMPLE_UP, RESAMPLE_DOWN
+    DEVICE = None
+    for i, dev in enumerate(sd.query_devices()):
+        if PREFERRED_MIC.lower() in dev['name'].lower() and dev['max_input_channels'] > 0:
+            DEVICE = i
+            break
+    if DEVICE is None:
+        DEVICE = sd.default.device[0]
+    device_info = sd.query_devices(DEVICE)
+    NATIVE_RATE = int(device_info['default_samplerate'])
+    NEEDS_RESAMPLE = NATIVE_RATE != TARGET_RATE
+    if NEEDS_RESAMPLE:
+        _g = gcd(TARGET_RATE, NATIVE_RATE)
+        RESAMPLE_UP = TARGET_RATE // _g
+        RESAMPLE_DOWN = NATIVE_RATE // _g
+
 # -- The File (User Profile) ─────────────────────────────────────
 # Bilingual filler sets — merged into profile on startup
 KNOWN_FILLERS = {
@@ -3744,11 +3762,21 @@ def start_recording():
                                 device=DEVICE, callback=audio_callback)
         stream.start()
     except Exception as e:
-        log(f"Stream error: {e}", "error")
-        with lock:
-            is_recording = False
-            state = 'error'
-        threading.Timer(3, lambda: set_state('idle')).start()
+        log(f"Stream error: {e} -- re-detecting mic", "error")
+        # Device index may have gone stale (e.g. after Chrome restart).
+        # Re-detect and retry once before giving up.
+        try:
+            _redetect_mic()
+            stream = sd.InputStream(samplerate=NATIVE_RATE, channels=1,
+                                    device=DEVICE, callback=audio_callback)
+            stream.start()
+            log(f"Mic re-detected as device {DEVICE}", "info")
+        except Exception as e2:
+            log(f"Stream error after re-detect: {e2}", "error")
+            with lock:
+                is_recording = False
+                state = 'error'
+            threading.Timer(3, lambda: set_state('idle')).start()
 
 def stop_recording():
     global is_recording, stream, state, last_stop_time
