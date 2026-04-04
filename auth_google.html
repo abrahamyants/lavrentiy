@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lavrentiy — Sign in with Google</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1a2e; color: #e0e0e0; font-family: 'Segoe UI', system-ui, sans-serif;
+         display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .card { background: #16213e; border: 1px solid #0f3460; border-radius: 12px;
+          padding: 48px 40px; text-align: center; max-width: 400px; width: 90%; }
+  h1 { font-size: 20px; margin-bottom: 8px; color: #e94560; letter-spacing: 2px; }
+  .sub { font-size: 13px; color: #888; margin-bottom: 32px; }
+  #google-btn { display: flex; justify-content: center; margin-bottom: 24px; }
+  #status { font-size: 14px; min-height: 20px; }
+  .ok { color: #4ade80; }
+  .error { color: #e94560; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>LAVRENTIY</h1>
+    <div class="sub">Sign in to enable cloud reconstruction</div>
+    <div id="google-btn"></div>
+    <div id="status"></div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://accounts.google.com/gsi/client"></script>
+  <script>
+    const API = 'http://127.0.0.1:7878';
+    const GIS_CLIENT_ID = '787543109204-vnln7rus2o37s4oaptepg66i3qcb3ujb.apps.googleusercontent.com';
+
+    firebase.initializeApp({
+      apiKey:        "AIzaSyCwHM69yHHWsRRbt1c4bpIjIIV4BxDiLnY",
+      authDomain:    "bakers-agent.firebaseapp.com",
+      projectId:     "bakers-agent",
+      storageBucket: "bakers-agent.firebasestorage.app",
+      appId:         "1:787543109204:web:288e7cf9a2880b682f07c1"
+    });
+    const auth = firebase.auth();
+
+    function setStatus(msg, cls) {
+      const el = document.getElementById('status');
+      el.textContent = msg;
+      el.className = cls || '';
+    }
+
+    async function handleGoogleCredential(response) {
+      setStatus('Signing in...');
+      try {
+        const credential = firebase.auth.GoogleAuthProvider.credential(response.credential);
+        const result = await auth.signInWithCredential(credential);
+        const token = await result.user.getIdToken();
+        await fetch(API + '/api/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'sign_in',
+            id_token: token,
+            email: result.user.email,
+            displayName: result.user.displayName || '',
+            uid: result.user.uid
+          })
+        });
+        setStatus('Signed in as ' + result.user.email + '. You can close this tab.', 'ok');
+      } catch (e) {
+        setStatus(e.message || 'Sign-in failed.', 'error');
+      }
+    }
+
+    // Render Google button immediately — no One Tap guessing
+    google.accounts.id.initialize({
+      client_id: GIS_CLIENT_ID,
+      callback: handleGoogleCredential
+    });
+    google.accounts.id.renderButton(
+      document.getElementById('google-btn'),
+      { theme: 'outline', size: 'large', text: 'signin_with', width: 280 }
+    );
+  </script>
+</body>
+</html>

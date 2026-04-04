@@ -37,7 +37,7 @@ db = firestore.Client()
 
 # Tier definitions
 TIERS = {
-    "free": {"max_layer": 2, "daily_limit": 30, "name": "Free"},
+    "invite": {"max_layer": 2, "daily_limit": 30, "name": "Free"},
     "basic": {"max_layer": 2, "daily_limit": 200, "name": "Basic ($5.99)"},
     "pro": {"max_layer": 4, "daily_limit": 999999, "name": "Pro ($14.99)"},
 }
@@ -66,18 +66,18 @@ def verify_token(request):
 
 
 def get_user_tier(uid):
-    """Get user's subscription tier from Firestore. Default to 'free'."""
+    """Get user's subscription tier from Firestore. Default to 'invite'."""
     doc = db.collection("wim_users").document(uid).get()
     if doc.exists:
-        return doc.to_dict().get("tier", "free")
-    # First-time user: create doc with free tier
+        return doc.to_dict().get("tier", "invite")
+    # First-time user: create doc with invite tier
     db.collection("wim_users").document(uid).set({
-        "tier": "free",
+        "tier": "invite",
         "created": firestore.SERVER_TIMESTAMP,
         "daily_count": 0,
         "daily_reset": time.time(),
     })
-    return "free"
+    return "invite"
 
 
 def check_rate_limit(uid, tier_config):
@@ -124,7 +124,7 @@ def handle(request):
 
     # Get tier
     tier_name = get_user_tier(uid)
-    tier_config = TIERS.get(tier_name, TIERS["free"])
+    tier_config = TIERS.get(tier_name, TIERS["invite"])
 
     # Parse body
     try:

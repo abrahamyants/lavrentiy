@@ -2313,7 +2313,6 @@ body::before {
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-<script src="https://accounts.google.com/gsi/client"></script>
 </head>
 <body>
 
@@ -2763,7 +2762,7 @@ let state={state:'idle',tone:'casual',layer:2,layer_name:'reconstruct',situation
 let profile={trigger_words:[],filler_words:[],vocabulary:[],corrections:{}};
 let sessions=[];let lastSessionCount=-1;let connected=true;let failCount=0;
 
-// ─── Firebase Auth (GIS credential flow — mirrors WiM Android) ───
+// ─── Firebase Auth ────────────────────────────────────────
 const firebaseConfig={
   apiKey:"AIzaSyCwHM69yHHWsRRbt1c4bpIjIIV4BxDiLnY",
   authDomain:"bakers-agent.firebaseapp.com",
@@ -2774,29 +2773,21 @@ const firebaseConfig={
 };
 firebase.initializeApp(firebaseConfig);
 const auth=firebase.auth();
-const GIS_CLIENT_ID='787543109204-vnln7rus2o37s4oaptepg66i3qcb3ujb.apps.googleusercontent.com';
+const googleProvider=new firebase.auth.GoogleAuthProvider();
 
-// GIS callback — receives Google ID token, passes to Firebase (same as WiM's signInWithCredential)
-async function handleGoogleCredential(response){
-  try{
-    const credential=firebase.auth.GoogleAuthProvider.credential(response.credential);
-    const result=await auth.signInWithCredential(credential);
+function googleSignIn(){
+  auth.signInWithRedirect(googleProvider);
+}
+// Handle redirect result on page load
+auth.getRedirectResult().then(async(result)=>{
+  if(result&&result.user){
     const token=await result.user.getIdToken();
     await fetch(API+'/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'sign_in',id_token:token,email:result.user.email,
         displayName:result.user.displayName||'',uid:result.user.uid})});
     updateAuthUI(result.user);
-  }catch(e){console.error('Sign-in failed:',e);}
-}
-
-function googleSignIn(){
-  google.accounts.id.initialize({
-    client_id:GIS_CLIENT_ID,
-    callback:handleGoogleCredential,
-    auto_select:false
-  });
-  google.accounts.id.prompt();
-}
+  }
+}).catch(e=>console.error('Sign-in failed:',e));
 
 async function googleSignOut(){
   try{
@@ -3308,6 +3299,12 @@ async function pollState(){
     const r=await fetch(API+'/api/state');const d=await r.json();state=d;failCount=0;
     if(!connected){connected=true;document.getElementById('disconnected').classList.remove('show');}
     updateUI();
+    // Detect sign-in from engine state (auth page in system browser posts to /api/auth)
+    if(d.auth&&d.auth.signed_in&&document.getElementById('auth-signed-out').style.display!=='none'){
+      updateAuthUI({email:d.auth.user&&d.auth.user.email||'Signed in',displayName:d.auth.user&&d.auth.user.displayName||''});
+    }else if(d.auth&&!d.auth.signed_in&&document.getElementById('auth-signed-in').style.display!=='none'){
+      updateAuthUI(null);
+    }
     _checkProfileSync();
     if(d.stats.sessions!==lastSessionCount){lastSessionCount=d.stats.sessions;fetchSessions();}
     if(now-lastLogFetch>=1000){lastLogFetch=now;fetchLog();}

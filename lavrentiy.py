@@ -6019,6 +6019,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._serve_file(sw_path, 'application/javascript')
         elif self.path == '/onboard':
             self._serve_file(Path(__file__).parent / 'onboard.html', 'text/html')
+        elif self.path == '/auth/google':
+            self._serve_file(Path(__file__).parent / 'auth_google.html', 'text/html')
         elif self.path == '/api/state':
             self._json({
                 'state': state,

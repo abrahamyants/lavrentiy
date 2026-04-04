@@ -26,7 +26,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ENGINE_PY  = os.path.join(SCRIPT_DIR, "lavrentiy.py")
 ICON_PATH  = os.path.join(SCRIPT_DIR, "lavrentiy.ico")
 READY_URL    = "http://127.0.0.1:7878/api/state"
-ONBOARD_URL  = "http://127.0.0.1:7878/onboard"
+ONBOARD_URL  = "http://localhost:7878/onboard"
 
 # ── Shared state (touched from main + tray threads) ───────────────────────────
 engine_proc = None   # subprocess.Popen
