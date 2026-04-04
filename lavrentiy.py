@@ -6064,8 +6064,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif self.path == '/api/log':
             self._json(console_log)
         elif self.path == '/api/learn':
+            # Compute fluency improvement from editorial distance trend
+            _fl_sessions = db_get_sessions(limit=50)
+            _fl_dists = [s["editorial_distance"] for s in _fl_sessions
+                         if s.get("editorial_distance") is not None]
+            _fl_imp = None
+            if len(_fl_dists) >= 6:
+                half = len(_fl_dists) // 2
+                first_avg = sum(_fl_dists[:half]) / half
+                second_avg = sum(_fl_dists[half:]) / half
+                if first_avg > 0:
+                    _fl_imp = round((first_avg - second_avg) / first_avg * 100, 1)
+            learn_status_with_fluency = dict(learn_status)
+            learn_status_with_fluency['fluency_improvement'] = _fl_imp
             self._json({
-                'status': learn_status,
+                'status': learn_status_with_fluency,
                 'events': _learn_events_snapshot(),
                 'totals': {
                     'corrections': len(profile.get('corrections', {})),
@@ -6690,6 +6703,51 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     if f:
                         try: os.unlink(f.name)
                         except OSError: pass
+        elif self.path == '/api/record':
+            if is_recording:
+                stop_recording()
+                self._json({"recording": False})
+            else:
+                threading.Thread(target=start_recording, daemon=True).start()
+                self._json({"recording": True})
+        elif self.path == '/api/export-my-data':
+            # GDPR: export all local + cloud data for signed-in user
+            local_data = dict(profile)
+            cloud_data = None
+            if is_authenticated() and _firebase_id_token:
+                try:
+                    import urllib.request
+                    req = urllib.request.Request(
+                        BACKEND_URL,
+                        data=json.dumps({"action": "export_data"}).encode("utf-8"),
+                        headers={"Content-Type": "application/json", "Authorization": f"Bearer {_firebase_id_token}"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        cloud_data = json.loads(resp.read()).get("data", {})
+                except Exception as e:
+                    log(f"Cloud export failed: {str(e)[:80]}", "warn")
+            self._json({"local": local_data, "cloud": cloud_data, "user": _auth_user})
+        elif self.path == '/api/delete-my-data':
+            # GDPR: delete cloud data for signed-in user
+            if not is_authenticated() or not _firebase_id_token:
+                self._json({"error": "Not signed in"})
+            else:
+                try:
+                    import urllib.request
+                    req = urllib.request.Request(
+                        BACKEND_URL,
+                        data=json.dumps({"action": "delete_data"}).encode("utf-8"),
+                        headers={"Content-Type": "application/json", "Authorization": f"Bearer {_firebase_id_token}"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        resp.read()
+                    log("Cloud data deleted", "info")
+                    self._json({"ok": True, "deleted": True})
+                except Exception as e:
+                    log(f"Cloud delete failed: {str(e)[:80]}", "error")
+                    self._json({"error": str(e)[:200]})
         elif self.path == '/api/augment':
             if _augment_state["running"]:
                 self._json({"error": "augmentation already running", "status": augment_status()})
@@ -6853,7 +6911,7 @@ def on_key_event(event):
                     if is_recording:
                         log("Safety timeout -- auto-stopping recording", "warn")
                         stop_recording()
-                threading.Timer(30, _safety_stop).start()
+                threading.Timer(180, _safety_stop).start()
         elif event.event_type == keyboard.KEY_UP:
             stop_recording()
 

@@ -145,7 +145,7 @@
 [data-theme="dark"] ::-webkit-scrollbar-thumb { background: #3a3a40; }
 [data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background: #4a4a50; }
 
-html, body { height: 100%; margin: 0; overflow-y: auto; }
+html, body { height: 100%; margin: 0; overflow: hidden; }
 
 body {
   font-family: var(--font);
@@ -1014,7 +1014,7 @@ body::before {
 }
 .learn-progress-cell {
   flex: 2; display: flex; align-items: center; gap: 8px; padding: 3px 10px;
-  border-radius: 3px;
+  border-radius: 3px; cursor: pointer;
   background: linear-gradient(180deg, #1a1a1e 0%, #222228 40%, #1e1e24 100%);
   border: 1px solid rgba(0,0,0,0.5);
   box-shadow:
@@ -1221,7 +1221,7 @@ body::before {
 .tab-panel.active .corrections-row .arrow-icon { color: #a08888; }
 
 /* ─── CONSOLE ──────────────────────────────────── */
-.console-wrap { padding: 16px 24px; font-family: var(--mono); }
+.console-wrap { padding: 16px 24px; font-family: var(--mono); overflow-x: hidden; }
 .log-line {
   font-size: 11px; line-height: 1.9;
   white-space: pre-wrap; word-break: break-word;
@@ -1235,6 +1235,15 @@ body::before {
 .log-line.kind-info { color: var(--yellow); }
 .log-line.kind-error { color: var(--red-bright); text-shadow: 0 0 8px rgba(248,113,113,0.3); }
 .console-empty { color: var(--text-muted); font-size: 11px; text-align: center; padding: 40px 0; letter-spacing: 1px; }
+.console-legend {
+  position: absolute; bottom: 4px; right: 16px;
+  padding: 4px 10px;
+  font-family: var(--mono); font-size: 8px; letter-spacing: 2px;
+  line-height: 1.4;
+  color: var(--text-muted); opacity: 0.6;
+  pointer-events: none; z-index: 2;
+}
+.console-legend .legend-dot { margin-right: 4px; font-size: 20px; vertical-align: middle; }
 
 /* ─── SESSIONS ─────────────────────────────────── */
 .sessions-wrap { padding: 16px 24px; }
@@ -1662,43 +1671,15 @@ body::before {
 
 /* ─── BOTTOM — chassis footer plate ─────────────── */
 .bottom-bar {
-  padding: 12px 24px; border-top: 1px solid rgba(0,0,0,0.15);
+  padding: 4px 24px;
   display: flex; justify-content: center; align-items: center;
-  background:
-    /* brushed grain */
-    repeating-linear-gradient(
-      90deg,
-      rgba(255,255,255,0.0) 0px,
-      rgba(255,255,255,0.03) 1px,
-      rgba(0,0,0,0.015) 2px,
-      transparent 3px,
-      transparent 5px
-    ),
-    linear-gradient(180deg, var(--surface) 0%, #b8b8bc 100%);
   flex-shrink: 0;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
   position: relative;
-}
-/* engraved brand mark */
-.bottom-bar .disclaimer {
-  position: relative;
-  padding: 0 40px;
-}
-/* decorative hex screws */
-.bottom-bar::before,
-.bottom-bar::after {
-  content: '';
-  width: 8px; height: 8px;
-  border-radius: 50%;
   background:
-    conic-gradient(from 30deg, rgba(255,255,255,0.08) 0deg, transparent 60deg, rgba(255,255,255,0.08) 60deg, transparent 120deg, rgba(255,255,255,0.08) 120deg, transparent 180deg, rgba(255,255,255,0.08) 180deg, transparent 240deg, rgba(255,255,255,0.08) 240deg, transparent 300deg, rgba(255,255,255,0.08) 300deg, transparent 360deg),
-    linear-gradient(145deg, #b8b8be, #a0a0a6);
-  box-shadow: inset 0 1px 2px rgba(0,0,0,0.4), 0 1px 0 rgba(255,255,255,0.06);
-  position: absolute;
-  top: 50%; margin-top: -4px;
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.0) 0px, rgba(255,255,255,0.015) 1px, rgba(0,0,0,0.02) 2px, transparent 3px, transparent 6px),
+    linear-gradient(180deg, #2a2a2a 0%, #1a1a1a 100%);
+  border-top: 1px solid rgba(255,255,255,0.08);
 }
-.bottom-bar::before { left: 16px; }
-.bottom-bar::after { right: 16px; }
 .bottom-bar .disclaimer { font-size: 10px; color: #ee5a24; font-style: italic; letter-spacing: 1px; font-weight: 700; }
 
 /* ═══ DISCONNECTED ═══ */
@@ -2194,18 +2175,20 @@ body::before {
 .profile-modal-create:hover { background: rgba(185,28,28,0.25); }
 
 .help-overlay {
-  position: fixed; top: 0; right: -480px; width: 460px; height: 100vh; z-index: 1000;
+  position: fixed; top: 0; right: 0; width: 460px; height: 100vh; z-index: 1000;
   background:
     repeating-linear-gradient(90deg, rgba(255,255,255,0.0) 0px, rgba(255,255,255,0.04) 1px, rgba(0,0,0,0.02) 2px, transparent 3px, transparent 6px),
     linear-gradient(180deg, #ccccd0 0%, #c4c4c8 30%, #bcbcc0 70%, #b8b8bc 100%);
   border-left: 2px solid rgba(0,0,0,0.15);
   box-shadow: -8px 0 24px rgba(0,0,0,0.15);
-  transition: right 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateX(100%);
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
   overflow-y: auto; overflow-x: hidden;
   font-family: var(--font); color: var(--text);
   scrollbar-width: thin; scrollbar-color: var(--raised-hi) var(--bg);
+  visibility: hidden;
 }
-.help-overlay.open { right: 0; }
+.help-overlay.open { transform: translateX(0); visibility: visible; }
 .help-overlay::-webkit-scrollbar { width: 6px; }
 .help-overlay::-webkit-scrollbar-track { background: var(--bg); }
 .help-overlay::-webkit-scrollbar-thumb { background: var(--elevated); border-radius: 3px; }
@@ -2394,7 +2377,7 @@ body::before {
           <div class="ring-spinner"></div>
           <div class="ring-glow"></div>
           <div class="ring-center">
-            <div class="ring-label" id="state-label">idle</div>
+            <div class="ring-label" id="state-label" onclick="toggleRecord()" style="cursor:pointer" title="Click to record">idle</div>
             <div class="ring-time" id="uptime" style="cursor:pointer" title="Click to reset timer">00:00</div>
           </div>
         </div>
@@ -2559,10 +2542,9 @@ body::before {
       <div class="learn-cell"><div class="lv" id="l-triggers">0</div><div class="ll">Triggers</div></div>
       <div class="learn-cell"><div class="lv" id="l-editdist">—</div><div class="ll">Edit Dist</div></div>
       <div class="learn-cell"><div class="lv" id="l-redos">0</div><div class="ll">Redos</div></div>
-      <div class="learn-progress-cell">
-        <span class="lp-label">Next cycle</span>
-        <div class="lp-track"><div class="lp-fill" id="lp-fill" style="width:0%"></div></div>
-        <span class="lp-count" id="lp-count">0/3</span>
+      <div class="learn-progress-cell" id="fluency-cell">
+        <span class="lp-label">Fluency</span>
+        <span class="lp-count" id="lp-fluency" style="font-weight:700">—</span>
       </div>
       <div class="learn-progress-cell">
         <span class="lp-label">Decay</span>
@@ -2584,12 +2566,19 @@ body::before {
 
     <div class="content-area">
 
-      <div class="tab-panel active" id="tab-console">
+      <div class="tab-panel active" id="tab-console" style="position:relative">
         <div id="preview-bar" style="display:none;padding:12px 24px;border-bottom:1px solid var(--border);background:rgba(220,38,38,0.03)">
           <span style="font-family:var(--mono);font-size:8px;letter-spacing:3px;color:var(--red-bright);text-transform:uppercase;margin-right:10px">PREVIEW</span>
           <span id="preview-text" style="font-family:var(--mono);font-size:12px;color:var(--text-dim)"></span>
         </div>
         <div class="console-wrap" id="console"><div class="console-empty">Waiting for input...</div></div>
+        <div class="console-legend">
+          <div><span class="legend-dot" style="color:var(--green)">&#9679;</span> recording</div>
+          <div><span class="legend-dot" style="color:var(--yellow)">&#9679;</span> info</div>
+          <div><span class="legend-dot" style="color:var(--text)">&#9679;</span> output</div>
+          <div><span class="legend-dot" style="color:var(--text-muted)">&#9679;</span> raw</div>
+          <div><span class="legend-dot" style="color:var(--red-bright)">&#9679;</span> error</div>
+        </div>
       </div>
 
       <div class="tab-panel" id="tab-sessions">
@@ -2736,6 +2725,14 @@ body::before {
 
       <div class="tab-panel" id="tab-profile">
         <div class="profile-wrap">
+          <div id="gdpr-controls" style="display:none;padding:12px 16px;margin-bottom:12px;background:rgba(212,165,116,0.05);border:1px solid rgba(212,165,116,0.2);border-radius:6px">
+            <div style="font-family:var(--mono);font-size:9px;letter-spacing:2px;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px">Your cloud data</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="hk-save-btn" onclick="exportMyData()" style="flex:1;min-width:120px">EXPORT</button>
+              <button class="hk-save-btn" onclick="deleteMyData()" style="flex:1;min-width:120px;background:rgba(185,28,28,0.15);color:var(--red-bright);border-color:rgba(185,28,28,0.3)">DELETE CLOUD DATA</button>
+            </div>
+            <div id="gdpr-status" style="margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--text-dim)"></div>
+          </div>
           <div class="profile-section" id="sec-trigger">
             <div class="profile-header" onclick="toggleSection('trigger')"><span><span class="ph-title">Trigger Words</span><span class="ph-count" id="cnt-trigger">(0)</span></span><span class="arrow">&#9654;</span></div>
             <div class="profile-body" id="body-trigger"><div class="tag-list" id="tags-trigger"></div><div class="add-row"><input class="add-input" id="input-trigger" placeholder="Add trigger word..." onkeydown="if(event.key==='Enter')addTag('trigger')"><button class="add-btn" onclick="addTag('trigger')">+</button></div></div>
@@ -2840,10 +2837,10 @@ function toggleTheme(){
   localStorage.setItem('lavrentiy-theme', next);
   document.querySelector('.theme-btn').textContent = isDark ? 'DARK' : 'LIGHT';
 }
-// Restore on load
+// Restore on load (default: dark)
 (function(){
   const saved = localStorage.getItem('lavrentiy-theme');
-  if (saved === 'dark') {
+  if (saved !== 'light') {
     document.documentElement.setAttribute('data-theme', 'dark');
     const btn = document.querySelector('.theme-btn');
     if (btn) btn.textContent = 'LIGHT';
@@ -3288,13 +3285,21 @@ function switchToTab(name){
 document.querySelectorAll('.tab-btn').forEach(btn=>{
   btn.addEventListener('click',()=>switchToTab(btn.dataset.tab));
 });
-// Stat bar clicks → jump to relevant tab
+// Stats bar clicks → relevant tabs
 document.getElementById('s-words').parentElement.addEventListener('click',()=>switchToTab('sessions'));
 document.getElementById('s-sessions').parentElement.addEventListener('click',()=>switchToTab('sessions'));
+document.getElementById('s-wpm').parentElement.addEventListener('click',()=>switchToTab('sessions'));
 document.getElementById('s-api').parentElement.addEventListener('click',()=>switchToTab('console'));
+document.getElementById('s-difficulty').parentElement.addEventListener('click',()=>switchToTab('insights'));
 document.getElementById('s-cost').parentElement.addEventListener('click',()=>switchToTab('console'));
-// Learn bar clicks → jump to learning tab
-document.querySelectorAll('.learn-cell').forEach(c=>c.addEventListener('click',()=>switchToTab('learning')));
+// Learn bar clicks → relevant tabs
+document.getElementById('l-corrections').parentElement.addEventListener('click',()=>switchToTab('profile'));
+document.getElementById('l-fillers').parentElement.addEventListener('click',()=>switchToTab('profile'));
+document.getElementById('l-vocab').parentElement.addEventListener('click',()=>switchToTab('profile'));
+document.getElementById('l-triggers').parentElement.addEventListener('click',()=>switchToTab('profile'));
+document.getElementById('l-editdist').parentElement.addEventListener('click',()=>switchToTab('insights'));
+document.getElementById('l-redos').parentElement.addEventListener('click',()=>switchToTab('console'));
+document.querySelectorAll('.learn-progress-cell').forEach(c=>c.addEventListener('click',()=>switchToTab('learning')));
 
 async function pollState(){
   const now=Date.now();
@@ -3308,6 +3313,9 @@ async function pollState(){
     }else if(d.auth&&!d.auth.signed_in&&document.getElementById('auth-signed-in').style.display!=='none'){
       updateAuthUI(null);
     }
+    // GDPR controls only visible when signed in
+    const gdpr=document.getElementById('gdpr-controls');
+    if(gdpr)gdpr.style.display=(d.auth&&d.auth.signed_in)?'block':'none';
     _checkProfileSync();
     if(d.stats.sessions!==lastSessionCount){lastSessionCount=d.stats.sessions;fetchSessions();}
     if(now-lastLogFetch>=1000){lastLogFetch=now;fetchLog();}
@@ -3514,9 +3522,16 @@ function renderLearn(){
   }).join('');
 }
 function updateLearnProgress(){
-  const s=learnData.status||{};const n=s.next_in!=null?s.next_in:3;const d=3-n;
-  document.getElementById('lp-fill').style.width=Math.round((d/3)*100)+'%';
-  document.getElementById('lp-count').textContent=d+'/3';
+  // Fluency improvement
+  const fl=document.getElementById('lp-fluency');
+  if(fl&&learnData.status){
+    const imp=learnData.status.fluency_improvement;
+    if(imp!=null){
+      const sign=imp>=0?'+':'';
+      fl.textContent=sign+Math.round(imp)+'%';
+      fl.style.color=imp>=0?'var(--green)':'var(--red-bright)';
+    }else{fl.textContent='--';}
+  }
   // Decay progress bar
   const decay=learnData.decay||{};
   const sweepEvery=decay.sweep_every||30;
@@ -4649,6 +4664,36 @@ function updateCompactBar() {
   });
 }
 
+// Click state label to toggle recording
+async function toggleRecord(){
+  try{await fetch(API+'/api/record',{method:'POST'});}catch(e){}
+}
+// GDPR: export user's data
+async function exportMyData(){
+  const s=document.getElementById('gdpr-status');
+  s.textContent='Exporting...';s.style.color='var(--text-dim)';
+  try{
+    const r=await fetch(API+'/api/export-my-data',{method:'POST'});
+    const d=await r.json();
+    const blob=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='lavrentiy-my-data-'+new Date().toISOString().slice(0,10)+'.json';
+    a.click();
+    s.textContent='Downloaded.';s.style.color='var(--green)';
+  }catch(e){s.textContent='Export failed: '+e.message;s.style.color='var(--red-bright)';}
+}
+async function deleteMyData(){
+  if(!confirm('Delete all your cloud-synced data? This cannot be undone. Your local data stays on this computer.'))return;
+  const s=document.getElementById('gdpr-status');
+  s.textContent='Deleting...';s.style.color='var(--text-dim)';
+  try{
+    const r=await fetch(API+'/api/delete-my-data',{method:'POST'});
+    const d=await r.json();
+    if(d.ok){s.textContent='Cloud data deleted.';s.style.color='var(--green)';}
+    else{s.textContent='Delete failed: '+(d.error||'unknown');s.style.color='var(--red-bright)';}
+  }catch(e){s.textContent='Delete failed: '+e.message;s.style.color='var(--red-bright)';}
+}
 async function init(){
   await runBootSequence();
   applyCompact();
@@ -4658,6 +4703,15 @@ async function init(){
   await Promise.all([fetchProfiles(),fetchProfile(),fetchSessions(),fetchLearn(),fetchDAF(),fetchHotkeys(),fetchFluencyData(),fetchPatience()]);
   applyI18n();
   pollState();
+  // Enable clipboard shortcuts in pywebview (WebView2 swallows Ctrl+V/C/A/X by default)
+  document.addEventListener('keydown',function(e){
+    if(e.ctrlKey&&!e.altKey&&!e.shiftKey){
+      if(e.key==='v'){document.execCommand('paste');}
+      else if(e.key==='c'){document.execCommand('copy');}
+      else if(e.key==='x'){document.execCommand('cut');}
+      else if(e.key==='a'){document.execCommand('selectAll');}
+    }
+  });
 }
 
 async function runBootSequence(){

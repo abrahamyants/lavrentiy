@@ -139,6 +139,17 @@ def handle(request):
         db.collection("wim_users").document(uid).set(profile_data, merge=True)
         return (json.dumps({"ok": True}), 200, {**CORS_HEADERS, "Content-Type": "application/json"})
 
+    # GDPR: export user's stored data
+    if body.get("action") == "export_data":
+        doc = db.collection("wim_users").document(uid).get()
+        data = doc.to_dict() if doc.exists else {}
+        return (json.dumps({"ok": True, "data": data}), 200, {**CORS_HEADERS, "Content-Type": "application/json"})
+
+    # GDPR: delete user's cloud data
+    if body.get("action") == "delete_data":
+        db.collection("wim_users").document(uid).delete()
+        return (json.dumps({"ok": True, "deleted": True}), 200, {**CORS_HEADERS, "Content-Type": "application/json"})
+
     raw = body.get("raw", "").strip()
     if not raw:
         return (json.dumps({"error": "Missing 'raw' field"}), 400, CORS_HEADERS)
