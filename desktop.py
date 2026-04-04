@@ -16,6 +16,7 @@ import time
 import threading
 import subprocess
 import urllib.request
+import webbrowser
 
 import webview
 import pystray
@@ -26,7 +27,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ENGINE_PY  = os.path.join(SCRIPT_DIR, "lavrentiy.py")
 ICON_PATH  = os.path.join(SCRIPT_DIR, "lavrentiy.ico")
 READY_URL    = "http://127.0.0.1:7878/api/state"
-ONBOARD_URL  = "http://localhost:7878/onboard"
+ONBOARD_URL  = "http://localhost:7878/"
 
 # ── Shared state (touched from main + tray threads) ───────────────────────────
 engine_proc = None   # subprocess.Popen
@@ -123,6 +124,14 @@ def build_and_run_tray():
     tray_icon.run()   # blocks until tray_icon.stop()
 
 
+# ── JS API (exposed to page as window.pywebview.api) ─────────────────────────
+
+class Api:
+    def open_google_signin(self):
+        """Open Google sign-in page in the system browser."""
+        webbrowser.open("http://localhost:7878/auth/google")
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
@@ -144,6 +153,8 @@ def main():
     tray_thread = threading.Thread(target=build_and_run_tray, daemon=True)
     tray_thread.start()
 
+    api = Api()
+
     # Create the native window (not yet visible — webview.start shows it)
     window = webview.create_window(
         title="LAVRENTIY",
@@ -154,6 +165,7 @@ def main():
         background_color="#1a1a2e",
         resizable=True,
         text_select=True,
+        js_api=api,
     )
     window.events.closing += on_closing
 

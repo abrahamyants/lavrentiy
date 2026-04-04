@@ -237,7 +237,7 @@ body::before {
   border-right: 1px solid rgba(0,0,0,0.2);
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow: hidden;
   box-shadow:
     4px 0 24px rgba(0,0,0,0.12),
     1px 0 0 rgba(255,255,255,0.15) inset,
@@ -246,6 +246,13 @@ body::before {
   position: sticky;
   top: 0;
   height: 100vh;
+}
+.sidebar-frozen {
+  flex-shrink: 0;
+}
+.sidebar-scroll {
+  flex: 1;
+  overflow-y: auto;
 }
 
 .sidebar-brand {
@@ -850,7 +857,7 @@ body::before {
 }
 
 /* ─── TOP BARS WRAPPER ──── */
-.top-bars { overflow: hidden; }
+.top-bars { overflow: hidden; position: relative; z-index: 5; }
 
 /* ─── STATS BAR — recessed LED display windows ──── */
 .stats-bar {
@@ -2347,6 +2354,7 @@ body::before {
   </div>
 
   <div class="sidebar">
+    <div class="sidebar-frozen">
     <div class="sidebar-brand">
       <div class="brand-row">
         <div class="brand-plate">
@@ -2396,7 +2404,9 @@ body::before {
     <div style="padding:0 16px 8px;border-bottom:1px solid var(--border);">
       <button class="theme-btn" onclick="toggleTheme()" title="Toggle dark mode" style="width:100%">DARK</button>
     </div>
+    </div><!-- end sidebar-frozen -->
 
+    <div class="sidebar-scroll">
     <div class="sidebar-section" id="tone-section">
       <div class="sidebar-section-title">Tone <span class="section-note" id="tone-note"></span></div>
       <div class="tone-stack">
@@ -2529,6 +2539,7 @@ body::before {
     <div class="sidebar-footer">
       <div id="hotkey-footer" class="keys" style="display:none"></div>
     </div>
+    </div><!-- end sidebar-scroll -->
   </div>
 
   <div class="resize-handle" id="resize-handle"></div>
@@ -2776,18 +2787,13 @@ const auth=firebase.auth();
 const googleProvider=new firebase.auth.GoogleAuthProvider();
 
 function googleSignIn(){
-  auth.signInWithRedirect(googleProvider);
-}
-// Handle redirect result on page load
-auth.getRedirectResult().then(async(result)=>{
-  if(result&&result.user){
-    const token=await result.user.getIdToken();
-    await fetch(API+'/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'sign_in',id_token:token,email:result.user.email,
-        displayName:result.user.displayName||'',uid:result.user.uid})});
-    updateAuthUI(result.user);
+  // Google blocks OAuth in embedded webviews — open system browser
+  if(window.pywebview&&window.pywebview.api){
+    window.pywebview.api.open_google_signin();
+  }else{
+    window.open('http://localhost:7878/auth/google','_blank');
   }
-}).catch(e=>console.error('Sign-in failed:',e));
+}
 
 async function googleSignOut(){
   try{
@@ -4523,6 +4529,7 @@ async function augStart(){
     document.body.style.cursor='';
     document.body.style.userSelect='';
   });
+
 })();
 
 // ─── HOTKEY CUSTOMIZATION ──────────────────────

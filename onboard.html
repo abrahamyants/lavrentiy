@@ -257,20 +257,26 @@
     }
 
     function googleSignIn() {
-      setStatus('Redirecting to Google Sign-In...');
-      auth.signInWithRedirect(googleProvider);
-    }
-    // Handle redirect result on page load
-    auth.getRedirectResult().then(async (result) => {
-      if (result && result.user) {
-        const token = await result.user.getIdToken();
-        await postAuthToEngine(result.user, token);
-        setStatus('Signed in. Opening dashboard...', 'ok');
-        setTimeout(goToDashboard, 700);
+      setStatus('Opening sign-in in your browser...');
+      if (window.pywebview && window.pywebview.api) {
+        window.pywebview.api.open_google_signin();
+      } else {
+        window.open('http://localhost:7878/auth/google', '_blank');
       }
-    }).catch(e => {
-      if (e.code) setStatus(e.message || 'Sign-in failed.', 'error');
-    });
+      // Poll engine state — auth page in browser posts to /api/auth
+      const poll = setInterval(async () => {
+        try {
+          const r = await fetch(API + '/api/state');
+          const d = await r.json();
+          if (d.auth && d.auth.signed_in) {
+            clearInterval(poll);
+            setStatus('Signed in. Opening dashboard...', 'ok');
+            setTimeout(goToDashboard, 700);
+          }
+        } catch (e) {}
+      }, 1000);
+      setTimeout(() => clearInterval(poll), 120000);
+    }
         } catch (e) {}
       }, 1000);
       // Stop polling after 2 minutes
