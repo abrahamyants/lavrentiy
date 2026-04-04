@@ -6844,16 +6844,12 @@ def on_key_event(event):
         if time.time() - _hook_start_time < 3.0:
             return
         if event.event_type == keyboard.KEY_DOWN:
-            # Toggle safety: if already recording, KEY_DOWN stops it
-            if is_recording:
-                log("Toggle-stop (F9 pressed while recording)", "info")
-                stop_recording()
-            else:
+            if not is_recording:
                 start_recording()
-                # Safety timeout: auto-stop after 120s if KEY_UP is missed
+                # Safety timeout: auto-stop if KEY_UP is missed by the OS
                 def _safety_stop():
                     if is_recording:
-                        log("Safety timeout — auto-stopping recording", "warn")
+                        log("Safety timeout -- auto-stopping recording", "warn")
                         stop_recording()
                 threading.Timer(30, _safety_stop).start()
         elif event.event_type == keyboard.KEY_UP:
