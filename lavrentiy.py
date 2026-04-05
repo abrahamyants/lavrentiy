@@ -10,6 +10,11 @@ Defaults: F9=talk  F10=tone  F11=layer  F12=stats  F3x3=quit  (rebindable)
 """
 
 import sys
+import os
+# Embedded Python distributions (portable build) don't auto-add the script's
+# directory to sys.path — explicitly add it so sibling modules (gemini_client,
+# local.whisper_local) can be imported.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import re
 import openai
 import sounddevice as sd
@@ -2549,7 +2554,7 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
                 user_prompt=raw_text,
                 api_key=GEMINI_API_KEY,
                 temperature=temp,
-                max_tokens=1000,
+                max_tokens=4096,  # Gemini 2.5 Pro's "thinking" eats output budget
             )
             _last_recon_model = "gemini-2.5-pro"
             return result
@@ -4106,10 +4111,16 @@ def _whisper_single_call(filepath, temperature, prompt_text, max_retries=3):
 
     Retries up to max_retries on 5xx server errors and rate limits.
     """
+    # Primary mode: OpenAI Whisper API. Local faster-whisper is fallback-only —
+    # it's slower on consumer CPUs than the API round-trip in most cases.
+    # The fallback kicks in automatically when the API fails (see retry block below).
     if LOCAL_WHISPER and _local_transcribe_fn is not None:
-        result = _local_transcribe_fn(filepath, temperature, prompt_text, LANGUAGE, LOCAL_WHISPER_MODEL_SIZE)
-        stats_inc("local_transcriptions")
-        return result
+        try:
+            result = _local_transcribe_fn(filepath, temperature, prompt_text, LANGUAGE, LOCAL_WHISPER_MODEL_SIZE)
+            stats_inc("local_transcriptions")
+            return result
+        except Exception as _e:
+            log(f"Local Whisper failed ({str(_e)[:80]}), falling back to API", "warn")
 
     for attempt in range(max_retries):
         try:
@@ -6076,9 +6087,11 @@ def set_mode(mode):
 
 # Situation pre-warm presets: auto-configure DAF, layer, and prep text
 SITUATION_PRESETS = {
-    "high_stress": {"daf_ms": 100, "layer": 4, "paralinguistic": True, "prosodic": True,
-                    "prep": "Hello this is speaking. Thank you for having me. Next slide."},
-    "reading": {"daf_ms": 0, "layer": 3, "prep": ""},
+    # No auto-prep text — users load their own prep via the Prep tab when they
+    # have actual intended text to compare against. Hardcoded template text
+    # pollutes covert_profile with false avoidance pairs.
+    "high_stress": {"daf_ms": 100, "layer": 4, "paralinguistic": True, "prosodic": True},
+    "reading": {"daf_ms": 0, "layer": 3},
 }
 
 def set_situation(situation):

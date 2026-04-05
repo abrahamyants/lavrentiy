@@ -37,8 +37,8 @@ db = firestore.Client()
 
 # Tier definitions
 TIERS = {
-    "invite": {"max_layer": 2, "daily_limit": 30, "name": "Free"},
-    "basic": {"max_layer": 2, "daily_limit": 200, "name": "Basic ($5.99)"},
+    "invite": {"max_layer": 4, "daily_limit": 30, "name": "Invite"},
+    "basic": {"max_layer": 4, "daily_limit": 200, "name": "Basic ($5.99)"},
     "pro": {"max_layer": 4, "daily_limit": 999999, "name": "Pro ($14.99)"},
 }
 

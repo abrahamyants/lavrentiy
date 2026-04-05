@@ -17,7 +17,7 @@ GEMINI_ENDPOINT = f"https://generativelanguage.googleapis.com/v1beta/models/{GEM
 
 
 def generate(system_prompt: str, user_prompt: str, api_key: str,
-             temperature: float = 0.3, max_tokens: int = 1000) -> str:
+             temperature: float = 0.3, max_tokens: int = 4096) -> str:
     """Call Gemini 2.5 Pro with a system + user prompt. Returns the generated text.
     Raises Exception on API error — caller should catch and fall back to OpenAI."""
     if not api_key:
