@@ -179,6 +179,8 @@ def handle(request):
         whisper_low_conf=body.get("whisper_low_conf"),
         whisper_disagreements=body.get("whisper_disagreements"),
         speech_severity_mod=body.get("speech_severity_mod", 0.0),
+        paralinguistic_events=body.get("paralinguistic_events"),
+        prosodic_context=body.get("prosodic_context"),
     )
 
     result["tier"] = tier_config["name"]

@@ -2085,15 +2085,18 @@ body::before {
 .lang-toggle {
   position: absolute; top: 6px; right: 32px; display: flex; z-index: 20;
 }
-.lang-btn {
+.theme-toggle {
+  position: absolute; top: 6px; right: 82px; display: flex; z-index: 20;
+}
+.lang-btn, .theme-tog-btn {
   padding: 2px 5px; font-family: var(--mono); font-size: 9px; font-weight: 600;
   letter-spacing: 0.5px; border: 1px solid var(--border-hi); background: var(--raised);
   color: var(--text-muted); cursor: pointer; transition: all 0.15s; line-height: 1;
 }
-.lang-btn:first-child { border-radius: 3px 0 0 3px; }
-.lang-btn:last-child { border-radius: 0 3px 3px 0; border-left: none; }
-.lang-btn.active { background: rgba(185,28,28,0.15); color: var(--red-bright); border-color: rgba(185,28,28,0.3); }
-.lang-btn:hover:not(.active) { color: var(--text-bright); }
+.lang-btn:first-child, .theme-tog-btn:first-child { border-radius: 3px 0 0 3px; }
+.lang-btn:last-child, .theme-tog-btn:last-child { border-radius: 0 3px 3px 0; border-left: none; }
+.lang-btn.active, .theme-tog-btn.active { background: rgba(185,28,28,0.15); color: var(--red-bright); border-color: rgba(185,28,28,0.3); }
+.lang-btn:hover:not(.active), .theme-tog-btn:hover:not(.active) { color: var(--text-bright); }
 
 /* ─── DARK MODE TOGGLE ───── */
 .theme-btn {
@@ -2362,14 +2365,9 @@ body::before {
       </div>
     </div>
 
-    <!-- Profile selector hidden — profile is now linked to Google account -->
-    <div class="profile-selector" id="profile-selector-legacy" style="display:none">
-      <select class="profile-select" id="profile-select" onchange="switchProfile(this.value)"></select>
-      <button class="profile-add-btn" onclick="openProfileModal()" title="New profile">+</button>
-    </div>
-
-    <div class="status-ring-wrap">
+<div class="status-ring-wrap">
       <button class="compact-toggle" onclick="toggleCompact()" title="Compact mode">&#8863;</button>
+      <div class="theme-toggle"><button class="theme-tog-btn" data-theme-set="dark" onclick="setTheme('dark')">D</button><button class="theme-tog-btn" data-theme-set="light" onclick="setTheme('light')">L</button></div>
       <div class="lang-toggle"><button class="lang-btn active" data-lang="en" onclick="setLang('en')">EN</button><button class="lang-btn" data-lang="ru" onclick="setLang('ru')">RU</button></div>
       <button class="help-btn" onclick="toggleHelp()" title="Manual">?</button>
       <div class="status-ring-outer">
@@ -2384,9 +2382,6 @@ body::before {
       </div>
     </div>
 
-    <div style="padding:0 16px 8px;border-bottom:1px solid var(--border);">
-      <button class="theme-btn" onclick="toggleTheme()" title="Toggle dark mode" style="width:100%">DARK</button>
-    </div>
     </div><!-- end sidebar-frozen -->
 
     <div class="sidebar-scroll">
@@ -2816,8 +2811,6 @@ function updateAuthUI(user){
   }else{
     so.style.display='flex';si.style.display='none';em.textContent='';
   }
-  const ps=document.getElementById('profile-selector-legacy');
-  if(ps) ps.style.display=user?'none':'flex';
 }
 
 // Restore auth state on page load + refresh token for engine
@@ -2838,21 +2831,28 @@ auth.onAuthStateChanged(async(user)=>{
 // ─── end Firebase Auth ────────────────────────────────────
 
 // ─── Dark mode ────────────────────────────────────────────
+function setTheme(theme){
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('lavrentiy-theme', theme);
+  document.querySelectorAll('.theme-tog-btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.themeSet === theme);
+  });
+}
 function toggleTheme(){
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-  const next = isDark ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', next);
-  localStorage.setItem('lavrentiy-theme', next);
-  document.querySelector('.theme-btn').textContent = isDark ? 'DARK' : 'LIGHT';
+  setTheme(isDark ? 'light' : 'dark');
 }
 // Restore on load (default: dark)
 (function(){
   const saved = localStorage.getItem('lavrentiy-theme');
-  if (saved !== 'light') {
-    document.documentElement.setAttribute('data-theme', 'dark');
-    const btn = document.querySelector('.theme-btn');
-    if (btn) btn.textContent = 'LIGHT';
-  }
+  const theme = (saved === 'light') ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', theme);
+  // Mark active button after DOM ready
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.theme-tog-btn').forEach(b=>{
+      b.classList.toggle('active', b.dataset.themeSet === theme);
+    });
+  });
 })();
 // ─── end Dark mode ────────────────────────────────────────
 let _toggleCooldown={};

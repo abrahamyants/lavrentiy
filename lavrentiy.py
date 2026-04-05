@@ -974,7 +974,8 @@ def is_authenticated():
 
 def reconstruct_via_backend(raw_text, tone, layer, prof, situation="default", mode="SAFE",
                             whisper_low_conf=None, whisper_disagreements=None,
-                            speech_severity_mod=0.0):
+                            speech_severity_mod=0.0,
+                            paralinguistic_events=None, prosodic_context=None):
     """Reconstruct via Cloud Function backend (uses server-side API key).
     Called when user is signed in via Google instead of using a local API key."""
     import urllib.request
@@ -998,6 +999,10 @@ def reconstruct_via_backend(raw_text, tone, layer, prof, situation="default", mo
         payload["whisper_low_conf"] = whisper_low_conf[:5]
     if whisper_disagreements:
         payload["whisper_disagreements"] = whisper_disagreements[:5]
+    if paralinguistic_events:
+        payload["paralinguistic_events"] = paralinguistic_events
+    if prosodic_context:
+        payload["prosodic_context"] = prosodic_context
 
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
@@ -5572,6 +5577,8 @@ def pipeline():
                         whisper_low_conf=whisper_low_conf,
                         whisper_disagreements=whisper_disagreements,
                         speech_severity_mod=speech_metrics["severity_modifier"],
+                        paralinguistic_events=para_events if paralinguistic_enabled else None,
+                        prosodic_context=prosodic_ctx if prosodic_enabled else None,
                     )
                     if clean_text is None:
                         log("Backend reconstruct returned None — using raw", "error")

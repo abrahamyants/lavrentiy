@@ -100,7 +100,8 @@ def strip_disfluencies(text):
 
 def build_prompt(raw_text, tone="casual", layer=2, profile=None, situation="default",
                  whisper_low_conf=None, whisper_disagreements=None,
-                 speech_severity_mod=0.0):
+                 speech_severity_mod=0.0,
+                 paralinguistic_events=None, prosodic_context=None):
     """Build the reconstruction system prompt. Pure function — no API calls."""
     profile = profile or {}
     tone_rule = TONE_RULES.get(tone, TONE_RULES["casual"])
@@ -289,6 +290,19 @@ def build_prompt(raw_text, tone="casual", layer=2, profile=None, situation="defa
         if profile.get("trigger_words"):
             parts.append(f"\nKnown trigger words: {', '.join(profile['trigger_words'])}")
 
+    # Paralinguistic event markers (cough, laughter, sigh) — Lavrentiy L5
+    if paralinguistic_events:
+        event_str = ", ".join(
+            f"[{e.get('type','?')}] at {e.get('start',0):.1f}s"
+            for e in paralinguistic_events[:8]
+        )
+        parts.append(f"\nNon-speech events detected in audio: {event_str}")
+        parts.append("Whisper may have hallucinated words during these moments — trust semantic context over literal transcription near them.")
+
+    # Prosodic context (F0/energy/rate/speaker state) — Lavrentiy L5.5
+    if prosodic_context:
+        parts.append(f"\nSpeaker acoustic state: {prosodic_context}")
+
     return "\n".join(parts)
 
 
@@ -365,7 +379,8 @@ def compute_confidence(raw_text, clean_text, falcon_ok, layer=2):
 def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
                        situation="default", mode="FAST",
                        whisper_low_conf=None, whisper_disagreements=None,
-                       speech_severity_mod=0.0):
+                       speech_severity_mod=0.0,
+                       paralinguistic_events=None, prosodic_context=None):
     """Main entry point. Takes raw messy text, returns clean text + confidence.
 
     Args:
@@ -402,7 +417,8 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
     system_prompt = build_prompt(
         raw_text, tone=tone, layer=layer, profile=profile, situation=situation,
         whisper_low_conf=whisper_low_conf, whisper_disagreements=whisper_disagreements,
-        speech_severity_mod=speech_severity_mod
+        speech_severity_mod=speech_severity_mod,
+        paralinguistic_events=paralinguistic_events, prosodic_context=prosodic_context
     )
 
     temp = TONE_TEMP.get(tone, 0.3)
