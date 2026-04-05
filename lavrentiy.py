@@ -2007,6 +2007,7 @@ current_mode = profile["preferences"].get("mode", MODE)
 paralinguistic_enabled = profile["preferences"].get("paralinguistic", False)
 paralinguistic_transcribe = profile["preferences"].get("paralinguistic_transcribe", False)
 prosodic_enabled = profile["preferences"].get("prosodic", False)
+quiet_mode_enabled = profile["preferences"].get("quiet_mode", False)
 
 # Migration: Layer 5 -> Layer 4 + toggles
 if current_layer >= 5:
@@ -5382,17 +5383,22 @@ def pipeline():
         audio_data = resample_poly(audio_data, RESAMPLE_UP, RESAMPLE_DOWN)
 
     # Audio preprocessing: DC removal → high-pass filter → AGC → soft clip
+    # Quiet Mode: aggressive gain for whispered/soft speech, tighter high-pass to kill room noise
+    hp_cutoff = 100.0 if quiet_mode_enabled else 70.0
+    agc_target_db = -6 if quiet_mode_enabled else -12
     # 1. DC offset removal — centers waveform around zero
     audio_data = audio_data - numpy.mean(audio_data)
-    # 2. 70Hz high-pass filter — removes AC hum, desk vibrations, wind rumble
+    # 2. High-pass filter — removes AC hum, desk vibrations, wind rumble
     #    Butterworth order 2 is gentle enough to preserve speech fundamentals
+    #    Quiet mode uses 100Hz (tighter) since whispers have no low-freq content anyway
     nyq = TARGET_RATE / 2.0
-    b_hp, a_hp = butter(2, 70.0 / nyq, btype="highpass")
+    b_hp, a_hp = butter(2, hp_cutoff / nyq, btype="highpass")
     audio_data = filtfilt(b_hp, a_hp, audio_data).astype(numpy.float32)
-    # 3. AGC: normalize to -12 dB RMS so Whisper gets consistent input levels
+    # 3. AGC: normalize RMS so Whisper gets consistent input levels
+    #    Normal: -12dB, Quiet mode: -6dB (double the gain for whispered speech)
     rms = numpy.sqrt(numpy.mean(audio_data ** 2))
     if rms > 1e-6:
-        target_rms = 10 ** (-12 / 20)  # -12 dB
+        target_rms = 10 ** (agc_target_db / 20)
         audio_data = audio_data * (target_rms / rms)
     # 4. Soft clip via tanh — gentler than hard clip, avoids digital artifacts
     #    in Whisper's mel spectrogram from peak transients
@@ -5761,6 +5767,13 @@ def set_prosodic(enabled):
     save_profile(profile)
     log(f"Prosodic: {'ON' if prosodic_enabled else 'OFF'}", "info")
 
+def set_quiet_mode(enabled):
+    global quiet_mode_enabled
+    quiet_mode_enabled = bool(enabled)
+    profile["preferences"]["quiet_mode"] = quiet_mode_enabled
+    save_profile(profile)
+    log(f"Quiet Mode: {'ON' if quiet_mode_enabled else 'OFF'}", "info")
+
 def set_mode(mode):
     global current_mode
     if mode in MODES:
@@ -6045,6 +6058,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'paralinguistic_enabled': paralinguistic_enabled,
                 'paralinguistic_transcribe': paralinguistic_transcribe,
                 'prosodic_enabled': prosodic_enabled,
+                'quiet_mode_enabled': quiet_mode_enabled,
                 'profile_name': _active_profile_name,
                 'auth': {
                     'signed_in': is_authenticated(),
@@ -6416,6 +6430,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if body and 'enabled' in body:
                 set_prosodic(body['enabled'])
             self._json({'prosodic_enabled': prosodic_enabled})
+        elif self.path == '/api/quiet_mode':
+            if body and 'enabled' in body:
+                set_quiet_mode(body['enabled'])
+            self._json({'quiet_mode_enabled': quiet_mode_enabled})
         elif self.path == '/api/mode':
             if body and isinstance(body.get('mode'), str):
                 set_mode(body['mode'].upper())

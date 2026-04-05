@@ -190,6 +190,7 @@ ns['BACKEND_URL'] = 'https://us-central1-bakers-agent.cloudfunctions.net/wim-rec
 ns['paralinguistic_enabled'] = False
 ns['paralinguistic_transcribe'] = False
 ns['prosodic_enabled'] = False
+ns['quiet_mode_enabled'] = False
 ns['_daf_active'] = False
 ns['_daf_delay_ms'] = 100
 ns['_clipboard_predictor'] = None

@@ -2411,6 +2411,13 @@ body::before {
     </div>
 
     <div class="sidebar-section">
+      <div class="sidebar-section-title">Voice</div>
+      <div class="engine-section-card">
+        <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-quiet-mode"><span class="toggle-slider"></span></label><span class="toggle-label">Quiet Mode</span><span class="toggle-hint">whispered/soft speech</span></div>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
       <div class="sidebar-section-title">Enhancements</div>
       <div class="engine-section-card">
         <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-paralinguistic"><span class="toggle-slider"></span></label><span class="toggle-label">Paralinguistic</span><span class="toggle-hint">cough/laugh</span></div>
@@ -3385,6 +3392,8 @@ function updateUI(){
   if(paraTransToggle&&!(_toggleCooldown.paraTrans>now)&&document.activeElement!==paraTransToggle)paraTransToggle.checked=!!state.paralinguistic_transcribe;
   document.getElementById('para-transcribe-row').style.display=state.paralinguistic_enabled?'flex':'none';
   if(prosToggle&&!(_toggleCooldown.pros>now)&&document.activeElement!==prosToggle)prosToggle.checked=!!state.prosodic_enabled;
+  const quietToggle=document.getElementById('toggle-quiet-mode');
+  if(quietToggle&&!(_toggleCooldown.quiet>now)&&document.activeElement!==quietToggle)quietToggle.checked=!!state.quiet_mode_enabled;
   // Speech metrics sidebar (#11)
   const sm=state.speech_metrics||{};
   const pauseEl=document.getElementById('speech-pause');
@@ -4144,6 +4153,7 @@ document.querySelectorAll('.learn-progress-cell').forEach(cell=>{
 document.getElementById('toggle-paralinguistic').addEventListener('change',async(e)=>{_toggleCooldown.para=Date.now()+3000;try{await fetch(API+'/api/paralinguistic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}document.getElementById('para-transcribe-row').style.display=e.target.checked?'flex':'none';});
 document.getElementById('toggle-para-transcribe').addEventListener('change',async(e)=>{_toggleCooldown.paraTrans=Date.now()+3000;try{await fetch(API+'/api/paralinguistic_transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}});
 document.getElementById('toggle-prosodic').addEventListener('change',async(e)=>{_toggleCooldown.pros=Date.now()+3000;try{await fetch(API+'/api/prosodic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}});
+document.getElementById('toggle-quiet-mode').addEventListener('change',async(e)=>{_toggleCooldown.quiet=Date.now()+3000;try{await fetch(API+'/api/quiet_mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}});
 
 // ─── SCRIPT PREP ─────────────────────────────────
 async function runPrep(){
