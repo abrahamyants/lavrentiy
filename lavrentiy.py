@@ -2044,7 +2044,8 @@ stats = {
     "start_time": time.time(),
     "api_calls": 0, "falcon_rejects": 0,
     "multi_temp_votes": 0, "multi_temp_disagreements": 0,
-    "local_transcriptions": 0
+    "local_transcriptions": 0,
+    "repetition_loops": 0
 }
 _stats_lock = threading.Lock()
 
@@ -2670,22 +2671,35 @@ def apply_profile_corrections(text, prof):
 def strip_block_hallucinations(text, low_conf_segments):
     """Strip Whisper-hallucinated text from block-suspect segments (zero API cost).
 
-    When Whisper encounters silence (a stuttering block), it often hallucinates
-    short filler phrases ("Thank you", "Okay", etc.) into the gap. At L1 we
-    can remove these using the confidence metadata already computed.
-    Only strips short segments (≤3 words) to avoid removing real speech.
+    Two sources of Whisper hallucination both get removed:
+      1. Block suspects: silence (stuttering block) where Whisper invents "Thank you",
+         "Okay", etc. — short filler phrases (≤3 words).
+      2. Repetition loops: compression_ratio > 2.4 means Whisper's decoder got stuck
+         producing "bad bad bad..." or "Thank you Thank you Thank you..." garbage.
+         Removed regardless of length since the whole segment is corrupt.
+
+    Uses confidence metadata already in the Whisper verbose_json response — no extra
+    API cost.
     """
     if not low_conf_segments or not text:
         return text
     result = text
     for seg in low_conf_segments:
-        if seg.get("block_suspect"):
-            seg_text = seg.get("text", "").strip()
-            if seg_text and len(seg_text.split()) <= 3:
-                before = result
-                result = result.replace(seg_text, "")
-                if result != before:
-                    log(f"L1 block strip: \"{seg_text}\" (no_speech_prob={seg['no_speech_prob']})", "info")
+        seg_text = seg.get("text", "").strip()
+        if not seg_text:
+            continue
+        # Repetition loops: always strip (whole segment is Whisper garbage)
+        if seg.get("repetition_loop"):
+            before = result
+            result = result.replace(seg_text, "")
+            if result != before:
+                log(f"Strip repetition loop: \"{seg_text[:60]}...\" (compression={seg['compression_ratio']})", "info")
+        # Block suspects: strip short phrases only
+        elif seg.get("block_suspect") and len(seg_text.split()) <= 3:
+            before = result
+            result = result.replace(seg_text, "")
+            if result != before:
+                log(f"Block strip: \"{seg_text}\" (no_speech_prob={seg['no_speech_prob']})", "info")
     result = re.sub(r'\s{2,}', ' ', result).strip()
     return result if result else text
 
@@ -4081,6 +4095,7 @@ def _extract_low_confidence_segments(verbose_result, risk_threshold=-0.7):
     for seg in segments:
         avg_lp = seg.get("avg_logprob", 0.0)
         no_speech = seg.get("no_speech_prob", 0.0)
+        compression_ratio = seg.get("compression_ratio", 1.0)
         seg_text = seg.get("text", "").strip()
 
         if not seg_text:
@@ -4105,19 +4120,28 @@ def _extract_low_confidence_segments(verbose_result, risk_threshold=-0.7):
         # of silence in audio, fewer false block detections.
         _nst = 0.6 if get_patience_timeout() > PATIENCE_DEFAULT else WHISPER_NO_SPEECH_THRESHOLD
         block_suspect = no_speech > _nst
+        # Compression ratio > 2.4 = Whisper stuck in repetition loop (OpenAI's own threshold).
+        # The decoder output this segment with abnormally low entropy, meaning it's
+        # likely "bad bad bad..." or "Thank you Thank you..." hallucination garbage.
+        repetition_loop = compression_ratio > 2.4
 
-        # Flag if: low confidence AND near high-risk position, OR block suspect
-        if avg_lp < risk_threshold or (avg_lp < -0.4 and brown_risk >= 0.5) or block_suspect:
+        # Flag if: low confidence AND near high-risk position, OR block suspect, OR repetition loop
+        if avg_lp < risk_threshold or (avg_lp < -0.4 and brown_risk >= 0.5) or block_suspect or repetition_loop:
             flagged.append({
                 "text": seg_text,
                 "avg_logprob": round(avg_lp, 3),
                 "no_speech_prob": round(no_speech, 3),
+                "compression_ratio": round(compression_ratio, 2),
                 "position": words_so_far,
                 "brown_risk": round(brown_risk, 2),
                 "block_suspect": block_suspect,
+                "repetition_loop": repetition_loop,
             })
             if block_suspect:
                 log(f"Block suspect: \"{seg_text}\" (no_speech_prob={no_speech:.2f}) — likely hallucinated over a block", "info")
+            if repetition_loop:
+                log(f"Repetition loop: \"{seg_text}\" (compression_ratio={compression_ratio:.2f}) — Whisper hallucination", "warn")
+                stats_inc("repetition_loops")
 
     return flagged
 

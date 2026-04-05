@@ -2549,6 +2549,7 @@ body::before {
       <div class="learn-cell"><div class="lv" id="l-triggers">0</div><div class="ll">Triggers</div></div>
       <div class="learn-cell"><div class="lv" id="l-editdist">—</div><div class="ll">Edit Dist</div></div>
       <div class="learn-cell"><div class="lv" id="l-redos">0</div><div class="ll">Redos</div></div>
+      <div class="learn-cell"><div class="lv" id="l-loops" title="Whisper hallucination loops (compression_ratio > 2.4)">0</div><div class="ll">Loops</div></div>
       <div class="learn-progress-cell" id="fluency-cell">
         <span class="lp-label">Fluency</span>
         <span class="lp-count" id="lp-fluency" style="font-weight:700">—</span>
@@ -3306,6 +3307,7 @@ document.getElementById('l-vocab').parentElement.addEventListener('click',()=>sw
 document.getElementById('l-triggers').parentElement.addEventListener('click',()=>switchToTab('profile'));
 document.getElementById('l-editdist').parentElement.addEventListener('click',()=>switchToTab('insights'));
 document.getElementById('l-redos').parentElement.addEventListener('click',()=>switchToTab('console'));
+document.getElementById('l-loops').parentElement.addEventListener('click',()=>switchToTab('console'));
 document.querySelectorAll('.learn-progress-cell').forEach(c=>c.addEventListener('click',()=>switchToTab('learning')));
 
 async function pollState(){
@@ -3521,6 +3523,12 @@ function renderLearn(){
     const rc=learnData.redo_count||0;
     rdEl.textContent=rc;
     rdEl.style.color=rc>=3?'var(--red-bright)':rc>=1?'var(--yellow)':'';
+  }
+  const lpEl=document.getElementById('l-loops');
+  if(lpEl){
+    const loops=(state.stats&&state.stats.repetition_loops)||0;
+    lpEl.textContent=loops;
+    lpEl.style.color=loops>=3?'var(--red-bright)':loops>=1?'var(--yellow)':'';
   }
   const feed=document.getElementById('learn-feed');const events=learnData.events||[];
   if(!events.length){feed.innerHTML='<div class="learn-empty">'+esc(t('learn_empty'))+'</div>';return;}
