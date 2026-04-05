@@ -104,6 +104,7 @@ TONE_KEY = "f10"
 LAYER_KEY = "f11"
 STATS_KEY = "f12"
 QUIT_KEY = "f3"
+COMMAND_KEY = "f8"  # Command Mode: highlight text + say command → transforms selection
 MODEL = "gpt-4o"
 MODEL_L4 = "gpt-4o"                  # L4 stutter reconstruction uses stronger model
 WHISPER_TEMP = 0.0                   # Whisper decoder temperature (0.0=deterministic, 1.0=creative)
@@ -2044,6 +2045,9 @@ target_hwnd = None
 last_paste_time = 0
 last_stop_time = 0
 is_pasting = False
+# Command Mode: highlight text + F8 + speak command → transforms selection
+is_command_mode = False
+command_selected_text = ""
 stats = {
     "words": 0, "sessions": 0, "chars": 0,
     "start_time": time.time(),
@@ -2591,6 +2595,39 @@ NATURAL_REPEATS = {
     # Russian
     "да да", "нет нет", "ну ну",
 }
+
+
+# Known Whisper training-data hallucinations. These leak in during silence,
+# whispered audio, or low-SNR clips because Whisper's training set included
+# YouTube auto-captions with these credits/subscribe-nags.
+_WHISPER_HALLUCINATIONS = [
+    r"transcribed by\s+(https?://)?otter\.?ai",
+    r"transcription by\s+castingwords",
+    r"subtitles?\s+(by|courtesy of)\s+the?\s*amara\.org\s*community",
+    r"subtitled by\s+the?\s*amara\.org\s*community",
+    r"thank you for watching[.!]?",
+    r"thanks for watching[.!]?(\s+see you next time)?[.!]?",
+    r"don'?t forget to (like|subscribe)",
+    r"(please\s+)?like and subscribe",
+    r"subscribe to (my|our|the) channel",
+    r"click the bell icon",
+    r"see you (in the )?next (video|time)[.!]?",
+    r"^\s*thank you\.\s*$",  # lone "Thank you." (common hallucination over silence)
+    r"^\s*you\.\s*$",  # lone "you." (common block hallucination)
+    r"^\s*\.\s*$",  # lone period
+]
+_WHISPER_HALLUCINATION_RE = re.compile(
+    "|".join(f"({p})" for p in _WHISPER_HALLUCINATIONS),
+    re.IGNORECASE
+)
+
+def strip_whisper_hallucinations(text):
+    """Remove well-known Whisper training-data hallucinations (zero cost)."""
+    if not text:
+        return text
+    cleaned = _WHISPER_HALLUCINATION_RE.sub("", text).strip()
+    cleaned = re.sub(r'\s{2,}', ' ', cleaned)
+    return cleaned if cleaned else text  # never return empty — keep original if all stripped
 
 
 def strip_disfluencies(text):
@@ -5547,7 +5584,14 @@ def pipeline():
             if "auto_suggest" in speaker_state:
                 log(f"Situation suggestion: prosodic features suggest higher stress than '{current_situation}'", "info")
 
-        # Step 1.5: Disfluency post-filter (rule-based, zero cost)
+        # Step 1.5a: Strip Whisper training-data hallucinations (otter.ai credits,
+        # "Thank you for watching", "Subscribe to my channel" etc.) — these leak
+        # in during silence/low-SNR audio from YouTube auto-caption training data
+        _pre_hall = raw_text
+        raw_text = strip_whisper_hallucinations(raw_text)
+        if raw_text != _pre_hall:
+            log(f"Stripped Whisper hallucination: \"{_pre_hall[:80]}\" -> \"{raw_text[:80]}\"", "info")
+        # Step 1.5b: Disfluency post-filter (rule-based, zero cost)
         # At L1: this IS the output cleanup (no GPT reconstruction)
         # At L2+: pre-cleans Whisper output before sending to GPT
         filtered_text = strip_disfluencies(raw_text)
@@ -5761,6 +5805,137 @@ def pipeline():
             pass
 
 
+def transform_via_command(selected_text, command, tone="casual"):
+    """Command Mode: transform selected text per a spoken command via GPT.
+    Returns transformed text, or None on failure."""
+    try:
+        prompt = (
+            "You are a text editing assistant. The user has selected text and spoken a "
+            "command describing how to transform it. Apply the command to the text and "
+            "return ONLY the transformed text — no preamble, no quotes, no explanation. "
+            "Preserve the user's meaning and facts. If the command is unclear or the "
+            "transformation would change factual content, return the original text."
+        )
+        user_msg = f"TEXT:\n{selected_text}\n\nCOMMAND: {command}"
+        stats_inc("api_calls")
+        resp = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": user_msg}
+            ],
+            max_tokens=1500,
+            temperature=0.2,
+        )
+        return resp.choices[0].message.content.strip()
+    except Exception as e:
+        log(f"Command transform failed: {e}", "error")
+        return None
+
+
+_command_prev_clipboard = ""
+
+def start_command_recording():
+    """Command Mode: synthesize Ctrl+C to grab selection, then start recording."""
+    global is_command_mode, command_selected_text, _command_prev_clipboard
+    if is_recording or is_command_mode:
+        return
+    # Save user's clipboard so we can restore it after the command completes
+    _command_prev_clipboard = ""
+    try:
+        _command_prev_clipboard = pyperclip.paste()
+    except Exception:
+        pass
+    try:
+        pyautogui.hotkey('ctrl', 'c')
+    except Exception as e:
+        log(f"Command Mode: clipboard copy failed: {e}", "error")
+        return
+    time.sleep(0.15)  # wait for clipboard to populate
+    try:
+        command_selected_text = pyperclip.paste()
+    except Exception:
+        command_selected_text = ""
+    if not command_selected_text or command_selected_text == _command_prev_clipboard:
+        log("Command Mode: no text selected", "warn")
+        command_selected_text = ""
+        # Restore clipboard even on abort — we may have already copied over it
+        try:
+            pyperclip.copy(_command_prev_clipboard)
+        except Exception:
+            pass
+        return
+    log(f"Command on: \"{command_selected_text[:60]}...\" — speak command", "info")
+    is_command_mode = True
+    # Start recording (reuses the existing audio pipeline)
+    start_recording()
+
+
+def stop_command_recording():
+    """Command Mode: stop recording, transcribe, transform, paste replacement."""
+    global is_command_mode, command_selected_text
+    if not is_command_mode:
+        return
+    selected = command_selected_text
+    command_selected_text = ""
+    is_command_mode = False
+    # Stop the audio recording and let the pipeline transcribe it — but we need
+    # to intercept the pipeline() output instead of pasting. Simplest approach:
+    # run Whisper directly on the buffered audio.
+    with lock:
+        if not recording:
+            stop_recording()
+            log("Command Mode: no audio captured", "warn")
+            return
+        frames = list(recording)
+    # Trigger the normal stop (closes audio capture, sets state to processing)
+    stop_recording()
+    # Run Whisper on the captured audio
+    try:
+        audio_data = numpy.concatenate(frames, axis=0).flatten()
+        if NEEDS_RESAMPLE:
+            audio_data = resample_poly(audio_data, RESAMPLE_UP, RESAMPLE_DOWN)
+        # Basic preprocessing
+        audio_data = audio_data - numpy.mean(audio_data)
+        nyq = TARGET_RATE / 2.0
+        b_hp, a_hp = butter(2, 70.0 / nyq, btype="highpass")
+        audio_data = filtfilt(b_hp, a_hp, audio_data).astype(numpy.float32)
+        rms = numpy.sqrt(numpy.mean(audio_data ** 2))
+        if rms > 1e-6:
+            audio_data = audio_data * (10 ** (-12 / 20) / rms)
+        audio_data = numpy.tanh(1.2 * audio_data).astype(numpy.float32)
+        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        tmp.close()
+        sf.write(tmp.name, audio_data, TARGET_RATE)
+        whisper_result, _ = whisper_transcribe(tmp.name)
+        os.unlink(tmp.name)
+        command_text = whisper_result.get("text", "").strip() if whisper_result else ""
+    except Exception as e:
+        log(f"Command Mode: transcription failed: {e}", "error")
+        set_state('idle')
+        return
+    if not command_text:
+        log("Command Mode: no command heard", "warn")
+        set_state('idle')
+        return
+    log(f"Command: \"{command_text}\"", "info")
+    # Transform the selected text per the spoken command
+    transformed = transform_via_command(selected, command_text, current_tone)
+    if transformed:
+        log(f"-> \"{transformed[:80]}...\"", "out")
+        paste(transformed)
+    else:
+        log("Command Mode: transform failed, selection unchanged", "error")
+    # Restore user's original clipboard after paste completes
+    def _restore_clipboard():
+        try:
+            pyperclip.copy(_command_prev_clipboard)
+        except Exception:
+            pass
+    threading.Timer(1.5, _restore_clipboard).start()
+    set_state('idle')
+
+
 def paste(text):
     """Copy to clipboard + restore focus + Ctrl+V."""
     global last_paste_time, is_pasting
@@ -5894,6 +6069,106 @@ def set_situation(situation):
             actions.append("clip-rescan")
         action_str = f" → {', '.join(actions)}" if actions else ""
         log(f"Situation: {situation} (severity: {severity}x){action_str}", "info")
+
+def generate_voice_profile() -> dict:
+    """Celebratory Voice Profile — shows what the user accomplished, not what's broken.
+    Inverts the clinical framing for non-therapeutic audiences. Zero API cost."""
+    from collections import Counter
+    sessions = db_get_sessions(limit=1000)
+    if not sessions:
+        return {"unlocked": False, "words_so_far": 0, "needed": 500}
+    total_words = sum(s.get("words", 0) for s in sessions)
+    if total_words < 500:
+        return {"unlocked": False, "words_so_far": total_words, "needed": 500}
+
+    # ── Catchphrase: most used 2-3 word phrases ─────────────
+    phrase_counts = Counter()
+    for s in sessions:
+        text = (s.get("out") or "").lower()
+        words = re.findall(r"\b\w+\b", text)
+        for i in range(len(words) - 1):
+            phrase_counts[f"{words[i]} {words[i+1]}"] += 1
+        for i in range(len(words) - 2):
+            phrase_counts[f"{words[i]} {words[i+1]} {words[i+2]}"] += 1
+    # Filter out generic/stop-phrase combinations
+    _stop = {"of the", "in the", "to the", "on the", "for the", "is a", "it is",
+             "this is", "that is", "i am", "i have", "i was", "you are"}
+    catchphrase_candidates = [
+        (p, c) for p, c in phrase_counts.most_common(50)
+        if p not in _stop and c >= 3
+    ]
+    catchphrase = catchphrase_candidates[0] if catchphrase_candidates else None
+
+    # ── Peak dictation time: what hour had most sessions ────
+    hour_counts = Counter()
+    dow_counts = Counter()
+    for s in sessions:
+        try:
+            dt = datetime.fromisoformat(s.get("ts", ""))
+            hour_counts[dt.hour] += 1
+            dow_counts[dt.strftime("%A")] += 1
+        except Exception:
+            pass
+    peak_hour = hour_counts.most_common(1)[0][0] if hour_counts else None
+    peak_day = dow_counts.most_common(1)[0][0] if dow_counts else None
+
+    # ── Dictation superpower: inferred from behavior ───────
+    layer_counts = Counter(s.get("layer", 1) for s in sessions)
+    tone_counts = Counter(s.get("tone", "casual") for s in sessions)
+    avg_words_per_session = total_words / len(sessions) if sessions else 0
+    fav_tone = tone_counts.most_common(1)[0][0] if tone_counts else "casual"
+    fav_layer = layer_counts.most_common(1)[0][0] if layer_counts else 1
+
+    if avg_words_per_session >= 30:
+        superpower = "Long-form dictator"
+    elif fav_tone == "formal":
+        superpower = "Formal communicator"
+    elif fav_tone == "professional":
+        superpower = "Business operator"
+    elif fav_layer >= 4:
+        superpower = "Clinical precision"
+    elif len(sessions) >= 100:
+        superpower = "Daily habit"
+    else:
+        superpower = "Rapid drafter"
+
+    # ── Headline: one-line celebration ─────────────────────
+    headlines = [
+        f"You dictated {total_words:,} words — that's an email you didn't have to type.",
+        f"You've had {len(sessions)} conversations with your keyboard without typing.",
+        f"That's {total_words:,} words you said out loud instead of typing.",
+    ]
+    headline = headlines[total_words % len(headlines)]
+
+    # ── Streak: consecutive days with at least one session ─
+    day_set = set()
+    for s in sessions:
+        try:
+            day_set.add(datetime.fromisoformat(s.get("ts", "")).date())
+        except Exception:
+            pass
+    streak = 0
+    today = datetime.now().date()
+    check = today
+    while check in day_set:
+        streak += 1
+        check = check - timedelta(days=1)
+
+    return {
+        "unlocked": True,
+        "headline": headline,
+        "total_words": total_words,
+        "total_sessions": len(sessions),
+        "avg_words_per_session": round(avg_words_per_session, 1),
+        "catchphrase": {"phrase": catchphrase[0], "count": catchphrase[1]} if catchphrase else None,
+        "peak_hour": peak_hour,
+        "peak_day": peak_day,
+        "superpower": superpower,
+        "favorite_tone": fav_tone,
+        "favorite_layer": fav_layer,
+        "streak_days": streak,
+    }
+
 
 def generate_clinical_profile(min_sessions: int = 20) -> dict:
     """Generate a longitudinal disfluency profile from accumulated session data.
@@ -6431,6 +6706,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif self.path == '/api/clinical_profile':
             profile_data = generate_clinical_profile()
             self._json(profile_data)
+        elif self.path == '/api/voice_profile':
+            self._json(generate_voice_profile())
         else:
             self.send_error(404)
 
@@ -6952,8 +7229,8 @@ def on_key_event(event):
     if is_pasting:
         return
 
-    # Only process KEY_DOWN for non-record keys
-    if event.event_type != keyboard.KEY_DOWN and event.name != RECORD_KEY:
+    # Only process KEY_DOWN for non-record keys (record/command need KEY_UP too)
+    if event.event_type != keyboard.KEY_DOWN and event.name not in (RECORD_KEY, COMMAND_KEY):
         return
 
     if event.name == STATS_KEY and event.event_type == keyboard.KEY_DOWN:
@@ -6995,6 +7272,22 @@ def on_key_event(event):
                 threading.Timer(180, _safety_stop).start()
         elif event.event_type == keyboard.KEY_UP:
             stop_recording()
+
+    if event.name == COMMAND_KEY:
+        # Command Mode: highlighted text + spoken command → transformed text
+        if time.time() - _hook_start_time < 3.0:
+            return
+        if event.event_type == keyboard.KEY_DOWN:
+            if not is_recording and not is_command_mode:
+                start_command_recording()
+                def _cmd_safety_stop():
+                    if is_command_mode:
+                        log("Command Mode safety timeout -- auto-stopping", "warn")
+                        stop_command_recording()
+                threading.Timer(60, _cmd_safety_stop).start()
+        elif event.event_type == keyboard.KEY_UP:
+            if is_command_mode:
+                stop_command_recording()
 
 # -- Keep-alive (replaces tkinter indicator) ──────────────────────
 def keep_alive():
