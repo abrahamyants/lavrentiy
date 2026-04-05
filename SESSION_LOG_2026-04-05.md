@@ -124,3 +124,8 @@
 ## GIT STATE
 - All commits pushed to `main` at github.com/gugosf114/lavrentiy
 - Latest: Gemini integration + layer-aware gating revert
+
+## SECURITY NOTE
+- Accidentally committed `gemini_api_key.txt` to public GitHub in commit `c3c0f2b` before `.gitignore` was updated. Fixed in commit `3c7b549` (removed from tracking, added to .gitignore) but key is still in git history.
+- Risk is bounded: Gemini API keys are scoped only to Gemini API (no access to Drive/email/etc), max damage is quota/credit exhaustion.
+- **TODO:** In GCP Console → Billing → Budgets & Alerts, set a hard budget cap (e.g. $50/month). That's the real safety net against any key leak, not just this one. Rotate the key via https://aistudio.google.com/apikey when convenient.
