@@ -4,6 +4,7 @@ profile.json
 __pycache__/
 *.pyc
 api_key.txt
+gemini_api_key.txt
 install_log.txt
 test_install.bat
 lavrentiy_preview.png
