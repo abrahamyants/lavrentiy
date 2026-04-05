@@ -362,6 +362,109 @@ body::before {
   border-bottom: 1px solid var(--border);
   position: relative;
 }
+
+/* ─── MIC LEVEL EQUALIZER — flanks the status ring ──── */
+.eq-bars {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  pointer-events: none;
+  z-index: 5;
+  height: 70px;
+}
+.eq-left { left: 8px; }
+.eq-right { right: 8px; flex-direction: row-reverse; }
+.eq-bars span {
+  display: block;
+  width: 3px;
+  background: linear-gradient(180deg, #ee5a24 0%, #b91c1c 100%);
+  border-radius: 2px;
+  opacity: 0.25;
+  transition: opacity 0.2s;
+  box-shadow: 0 0 4px rgba(238,90,36,0.3);
+}
+/* Height curve: taller toward the middle (closest to ring), shorter at edges */
+.eq-bars span:nth-child(1) { height: 10px; }
+.eq-bars span:nth-child(2) { height: 20px; }
+.eq-bars span:nth-child(3) { height: 34px; }
+.eq-bars span:nth-child(4) { height: 48px; }
+.eq-bars span:nth-child(5) { height: 56px; }
+.eq-bars span:nth-child(6) { height: 42px; }
+.eq-bars span:nth-child(7) { height: 26px; }
+
+/* When recording: each bar moves independently (different freq bands, chaotic) */
+.app.st-recording .eq-bars span {
+  opacity: 0.9;
+  transform-origin: center;
+}
+/* 7 unique keyframes — each bar has its own rhythm, peaks, duration */
+.app.st-recording .eq-bars span:nth-child(1) { animation: eq-b1 1.10s ease-in-out infinite; animation-delay: -0.30s; }
+.app.st-recording .eq-bars span:nth-child(2) { animation: eq-b2 0.85s ease-in-out infinite; animation-delay: -0.10s; }
+.app.st-recording .eq-bars span:nth-child(3) { animation: eq-b3 1.35s ease-in-out infinite; animation-delay: -0.60s; }
+.app.st-recording .eq-bars span:nth-child(4) { animation: eq-b4 0.75s ease-in-out infinite; animation-delay: -0.22s; }
+.app.st-recording .eq-bars span:nth-child(5) { animation: eq-b5 1.20s ease-in-out infinite; animation-delay: -0.80s; }
+.app.st-recording .eq-bars span:nth-child(6) { animation: eq-b6 0.95s ease-in-out infinite; animation-delay: -0.40s; }
+.app.st-recording .eq-bars span:nth-child(7) { animation: eq-b7 1.05s ease-in-out infinite; animation-delay: -0.05s; }
+/* Mirror the right side — bars 1-7 get offset delays so L/R aren't synced */
+.app.st-recording .eq-bars.eq-right span:nth-child(1) { animation-delay: -0.28s; }
+.app.st-recording .eq-bars.eq-right span:nth-child(2) { animation-delay: -0.17s; }
+.app.st-recording .eq-bars.eq-right span:nth-child(3) { animation-delay: -0.39s; }
+.app.st-recording .eq-bars.eq-right span:nth-child(4) { animation-delay: -0.21s; }
+.app.st-recording .eq-bars.eq-right span:nth-child(5) { animation-delay: -0.06s; }
+.app.st-recording .eq-bars.eq-right span:nth-child(6) { animation-delay: -0.33s; }
+.app.st-recording .eq-bars.eq-right span:nth-child(7) { animation-delay: -0.44s; }
+
+@keyframes eq-b1 { 0%{transform:scaleY(0.30);} 32%{transform:scaleY(0.85);} 58%{transform:scaleY(0.40);} 100%{transform:scaleY(0.30);} }
+@keyframes eq-b2 { 0%{transform:scaleY(0.45);} 24%{transform:scaleY(1.00);} 70%{transform:scaleY(0.55);} 100%{transform:scaleY(0.45);} }
+@keyframes eq-b3 { 0%{transform:scaleY(0.55);} 40%{transform:scaleY(0.75);} 65%{transform:scaleY(1.00);} 100%{transform:scaleY(0.55);} }
+@keyframes eq-b4 { 0%{transform:scaleY(0.25);} 18%{transform:scaleY(0.95);} 50%{transform:scaleY(0.65);} 80%{transform:scaleY(1.00);} 100%{transform:scaleY(0.25);} }
+@keyframes eq-b5 { 0%{transform:scaleY(0.60);} 30%{transform:scaleY(0.85);} 55%{transform:scaleY(0.45);} 100%{transform:scaleY(0.60);} }
+@keyframes eq-b6 { 0%{transform:scaleY(0.40);} 22%{transform:scaleY(0.60);} 48%{transform:scaleY(1.00);} 76%{transform:scaleY(0.35);} 100%{transform:scaleY(0.40);} }
+@keyframes eq-b7 { 0%{transform:scaleY(0.35);} 27%{transform:scaleY(0.75);} 62%{transform:scaleY(0.50);} 88%{transform:scaleY(0.90);} 100%{transform:scaleY(0.35);} }
+@media (max-width: 900px) { .eq-bars { display: none; } }
+
+/* ─── Wi-Fi bars in API Calls stat cell ──── */
+.sv-row { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.wifi-bars { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 14px; position: relative; }
+.wifi-bars i {
+  display: block; width: 3px;
+  background: #3a3a3a; border-radius: 1px;
+  transition: background 0.2s;
+}
+.wifi-bars i:nth-child(1) { height: 4px; }
+.wifi-bars i:nth-child(2) { height: 7px; }
+.wifi-bars i:nth-child(3) { height: 10px; }
+.wifi-bars i:nth-child(4) { height: 13px; }
+/* State: ok (green), error (red + X), idle (gray) */
+.wifi-bars.ok i { background: #22c55e; box-shadow: 0 0 4px rgba(34,197,94,0.4); }
+.wifi-bars.error i { background: #b91c1c; }
+.wifi-bars.error::after {
+  content: ''; position: absolute; inset: -2px -1px;
+  background: linear-gradient(135deg, transparent 43%, #dc2626 43%, #dc2626 57%, transparent 57%),
+              linear-gradient(45deg, transparent 43%, #dc2626 43%, #dc2626 57%, transparent 57%);
+  pointer-events: none;
+}
+.wifi-bars.idle i { background: #666; opacity: 0.5; }
+
+/* ─── F8 command hint — typewriter rotation ──── */
+.cmd-hint {
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  opacity: 0.55;
+  text-align: center;
+  height: 14px;
+  transition: opacity 0.3s;
+}
+.cmd-hint-prefix { color: #f59e0b; font-weight: 700; margin-right: 4px; }
+.cmd-hint-caret { animation: cmd-blink 0.8s step-end infinite; color: #f59e0b; }
+@keyframes cmd-blink { 50% { opacity: 0; } }
+.app.st-recording .cmd-hint, .app.st-command .cmd-hint, .app.st-processing .cmd-hint { opacity: 0; }
 .status-ring-outer {
   width: 110px;
   height: 110px;
@@ -501,6 +604,22 @@ body::before {
 @keyframes ring-throb {
   0%, 100% { box-shadow: 8px 8px 24px rgba(0,0,0,0.6), -4px -4px 16px rgba(255,255,255,0.02), 0 0 50px rgba(255,68,68,0.12), 0 0 80px rgba(238,90,36,0.06); }
   50% { box-shadow: 8px 8px 24px rgba(0,0,0,0.6), -4px -4px 16px rgba(255,255,255,0.02), 0 0 60px rgba(255,68,68,0.18), 0 0 100px rgba(238,90,36,0.1); }
+}
+
+/* Command Mode (F8 held): amber/cyan color distinct from red recording */
+.app.st-command .ring-label { color: #f59e0b; font-size: 9px; letter-spacing: 3px; text-shadow: 0 0 12px rgba(245,158,11,0.8), 0 0 30px rgba(245,158,11,0.4); }
+.app.st-command .ring-time { color: #fbbf24; text-shadow: 0 0 10px rgba(251,191,36,0.6), 0 0 24px rgba(245,158,11,0.3); }
+.app.st-command .status-ring-outer {
+  box-shadow: 8px 8px 24px rgba(0,0,0,0.6), -4px -4px 16px rgba(255,255,255,0.02), 0 0 50px rgba(245,158,11,0.15), 0 0 80px rgba(245,158,11,0.08);
+  animation: ring-throb-cmd 1.5s ease-in-out infinite;
+}
+@keyframes ring-throb-cmd {
+  0%, 100% { box-shadow: 8px 8px 24px rgba(0,0,0,0.6), -4px -4px 16px rgba(255,255,255,0.02), 0 0 50px rgba(245,158,11,0.15), 0 0 80px rgba(245,158,11,0.08); }
+  50% { box-shadow: 8px 8px 24px rgba(0,0,0,0.6), -4px -4px 16px rgba(255,255,255,0.02), 0 0 60px rgba(245,158,11,0.22), 0 0 100px rgba(245,158,11,0.12); }
+}
+.app.st-command .eq-bars span {
+  background: linear-gradient(180deg, #fbbf24 0%, #d97706 100%) !important;
+  box-shadow: 0 0 4px rgba(245,158,11,0.4);
 }
 
 .app.st-processing .ring-spinner {
@@ -649,9 +768,10 @@ body::before {
   background: rgba(0,0,0,0.08);
   border: 1px solid rgba(0,0,0,0.08);
   border-radius: 6px;
-  padding: 6px 4px 4px;
-  margin-bottom: 6px;
+  padding: 2px 6px;
+  margin-bottom: 2px;
 }
+.engine-section-card:last-child { margin-bottom: 0; }
 
 .tone-btn {
   padding: 5px 12px;
@@ -1225,6 +1345,55 @@ body::before {
 
 /* ─── CONSOLE ──────────────────────────────────── */
 .console-wrap { padding: 16px 24px; font-family: var(--mono); overflow-x: hidden; }
+
+/* ─── Command Mode intro banner — inline, brand colors, dismissible ──── */
+.cmd-intro-banner {
+  position: relative;
+  margin: 4px 0 14px;
+  padding: 12px 36px 12px 16px;
+  background: linear-gradient(135deg, rgba(185,28,28,0.12) 0%, rgba(92,42,42,0.35) 100%);
+  border: 1px solid rgba(212,165,116,0.35);
+  border-left: 3px solid #d4a574;
+  border-radius: 4px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04);
+  font-family: var(--font);
+  max-width: 520px;
+}
+.cmd-intro-label {
+  font-family: var(--mono); font-size: 8px; letter-spacing: 3px;
+  color: #d4a574; margin-bottom: 4px; text-transform: uppercase;
+}
+.cmd-intro-title {
+  font-family: 'Playfair Display', serif; font-size: 15px; font-weight: 700;
+  color: #e8d8d8; line-height: 1.2; margin-bottom: 6px;
+}
+.cmd-intro-body {
+  font-size: 11px; line-height: 1.5; color: #a08888; margin-bottom: 6px;
+}
+.cmd-intro-body kbd {
+  background: rgba(0,0,0,0.35); border: 1px solid rgba(212,165,116,0.4);
+  border-radius: 3px; padding: 1px 6px; font-family: var(--mono);
+  font-size: 9px; color: #d4a574; font-weight: 700; margin: 0 2px;
+}
+.cmd-intro-examples {
+  font-family: var(--mono); font-size: 9px; color: #907878;
+  letter-spacing: 0.5px;
+}
+.cmd-intro-examples em {
+  color: #c4956a; font-style: normal;
+}
+.cmd-intro-close {
+  position: absolute; top: 8px; right: 8px;
+  background: transparent; border: 1px solid rgba(212,165,116,0.2);
+  color: #a08888; font-size: 14px; line-height: 1; cursor: pointer;
+  width: 20px; height: 20px; border-radius: 3px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s; font-family: var(--mono);
+}
+.cmd-intro-close:hover {
+  background: rgba(185,28,28,0.15); border-color: rgba(185,28,28,0.4);
+  color: var(--red-bright);
+}
 .log-line {
   font-size: 11px; line-height: 1.9;
   white-space: pre-wrap; word-break: break-word;
@@ -1239,14 +1408,43 @@ body::before {
 .log-line.kind-error { color: var(--red-bright); text-shadow: 0 0 8px rgba(248,113,113,0.3); }
 .console-empty { color: var(--text-muted); font-size: 11px; text-align: center; padding: 40px 0; letter-spacing: 1px; }
 .console-legend {
-  position: absolute; bottom: 4px; right: 16px;
-  padding: 4px 10px;
-  font-family: var(--mono); font-size: 8px; letter-spacing: 2px;
-  line-height: 1.4;
-  color: var(--text-muted); opacity: 0.6;
+  position: absolute; bottom: 0; right: 0;
+  padding: 6px 10px 6px 12px;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.5px;
+  line-height: 1.0;
+  color: var(--text-muted);
   pointer-events: none; z-index: 2;
+  background: var(--console-bg);
+  border-top: 1px solid rgba(238,90,36,0.2);
+  border-left: 1px solid rgba(238,90,36,0.2);
+  border-top-left-radius: 6px;
+  box-shadow: -2px -2px 8px rgba(0,0,0,0.3);
 }
-.console-legend .legend-dot { margin-right: 4px; font-size: 20px; vertical-align: middle; }
+.console-legend > div { padding: 2px 0; }
+/* Only show legend when console tab is active */
+#console-legend-global { display: none; }
+#console-legend-global.show { display: block; }
+/* Tips toggle — bottom-left, mirror of legend */
+.tips-toggle {
+  position: absolute; bottom: 0; left: 0;
+  padding: 6px 10px 6px 12px;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 1px;
+  line-height: 1.2;
+  color: var(--text-muted);
+  cursor: pointer; z-index: 2;
+  background: var(--console-bg);
+  border-top: 1px solid rgba(212,165,116,0.2);
+  border-right: 1px solid rgba(212,165,116,0.2);
+  border-top-right-radius: 6px;
+  box-shadow: 2px -2px 8px rgba(0,0,0,0.3);
+  transition: color 0.15s;
+  display: none;
+}
+.tips-toggle.show { display: flex; align-items: center; gap: 6px; }
+.tips-toggle:hover { color: #d4a574; }
+.tips-toggle-label { color: #d4a574; font-weight: 700; letter-spacing: 2px; }
+.tips-toggle-state { color: var(--text-muted); font-weight: 400; }
+.console-legend .legend-dot { margin-right: 4px; font-size: 22px; vertical-align: middle; }
 
 /* ─── SESSIONS ─────────────────────────────────── */
 .sessions-wrap { padding: 16px 24px; }
@@ -2389,6 +2587,12 @@ body::before {
       <div class="theme-toggle"><button class="theme-tog-btn" data-theme-set="dark" onclick="setTheme('dark')">D</button><button class="theme-tog-btn" data-theme-set="light" onclick="setTheme('light')">L</button></div>
       <div class="lang-toggle"><button class="lang-btn active" data-lang="en" onclick="setLang('en')">EN</button><button class="lang-btn" data-lang="ru" onclick="setLang('ru')">RU</button></div>
       <button class="help-btn" onclick="toggleHelp()" title="Manual">?</button>
+      <div class="eq-bars eq-left" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+      </div>
+      <div class="eq-bars eq-right" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+      </div>
       <div class="status-ring-outer">
         <div class="status-ring-inner">
           <div class="ring-spinner"></div>
@@ -2398,6 +2602,9 @@ body::before {
             <div class="ring-time" id="uptime" style="cursor:pointer" title="Click to reset timer">00:00</div>
           </div>
         </div>
+      </div>
+      <div class="cmd-hint" id="cmd-hint">
+        <span class="cmd-hint-prefix">F8:</span> <span class="cmd-hint-text" id="cmd-hint-text"></span><span class="cmd-hint-caret">|</span>
       </div>
     </div>
 
@@ -2425,19 +2632,11 @@ body::before {
     </div>
 
     <div class="sidebar-section">
-      <div class="sidebar-section-title">Voice</div>
-      <div class="engine-section-card">
-        <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-quiet-mode"><span class="toggle-slider"></span></label><span class="toggle-label">Quiet Mode</span><span class="toggle-hint">whispered/soft speech</span></div>
-      </div>
-    </div>
-
-    <div class="sidebar-section">
       <div class="sidebar-section-title">Enhancements</div>
       <div class="engine-section-card">
+        <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-quiet-mode"><span class="toggle-slider"></span></label><span class="toggle-label">Quiet Mode</span><span class="toggle-hint">whispered/soft speech</span></div>
         <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-paralinguistic"><span class="toggle-slider"></span></label><span class="toggle-label">Paralinguistic</span><span class="toggle-hint">cough/laugh</span></div>
         <div class="toggle-row toggle-sub" id="para-transcribe-row" style="display:none"><label class="toggle-switch"><input type="checkbox" id="toggle-para-transcribe"><span class="toggle-slider"></span></label><span class="toggle-label">Transcribe</span><span class="toggle-hint">inject [tags] in text</span></div>
-      </div>
-      <div class="engine-section-card">
         <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-prosodic"><span class="toggle-slider"></span></label><span class="toggle-label">Prosodic</span><span class="toggle-hint">pitch/energy/rate</span></div>
       </div>
     </div>
@@ -2530,6 +2729,7 @@ body::before {
       </div>
       <div id="hotkey-editor" style="display:none">
         <div class="hotkey-row"><kbd class="hk-key" id="hk-record">F9</kbd><span class="hk-label">Record</span><button class="hk-edit-btn" onclick="startRebind('record')" title="Click to rebind">⚙</button></div>
+        <div class="hotkey-row"><kbd class="hk-key">F8</kbd><span class="hk-label">Command (transform selection)</span></div>
         <div class="hotkey-row"><kbd class="hk-key" id="hk-tone">F10</kbd><span class="hk-label">Cycle Tone</span><button class="hk-edit-btn" onclick="startRebind('tone')" title="Click to rebind">⚙</button></div>
         <div class="hotkey-row"><kbd class="hk-key" id="hk-layer">F11</kbd><span class="hk-label">Cycle Layer</span><button class="hk-edit-btn" onclick="startRebind('layer')" title="Click to rebind">⚙</button></div>
         <div class="hotkey-row"><kbd class="hk-key" id="hk-stats">F12</kbd><span class="hk-label">Print Stats</span><button class="hk-edit-btn" onclick="startRebind('stats')" title="Click to rebind">⚙</button></div>
@@ -2551,7 +2751,7 @@ body::before {
       <div class="stat-cell"><div class="sv" id="s-words">0</div><div class="sl">Words</div></div>
       <div class="stat-cell"><div class="sv" id="s-sessions">0</div><div class="sl">Sessions</div></div>
       <div class="stat-cell"><div class="sv" id="s-wpm">0</div><div class="sl">WPM</div></div>
-      <div class="stat-cell"><div class="sv" id="s-api">0</div><div class="sl">API Calls</div></div>
+      <div class="stat-cell"><div class="sv-row"><span class="sv" id="s-api">0</span><span class="wifi-bars" id="wifi-bars" title="Network status"><i></i><i></i><i></i><i></i></span></div><div class="sl">API · Network</div></div>
       <div class="stat-cell"><div class="sv" id="s-difficulty" title="Average exposure difficulty from recent sessions">—</div><div class="sl">Avg Difficulty</div></div>
       <div class="stat-cell"><div class="sv" id="s-cost">$0.00</div><div class="sl">Est. Cost</div></div>
     </div>
@@ -2587,7 +2787,18 @@ body::before {
       </div>
     </div>
 
-    <div class="content-area">
+    <div class="content-area" style="position:relative">
+      <div class="tips-toggle show" id="tips-toggle-global" onclick="toggleTipsEnabled()" title="Toggle daily tips">
+        <span class="tips-toggle-label">TIPS</span>
+        <span class="tips-toggle-state" id="tips-toggle-state">ON</span>
+      </div>
+      <div class="console-legend show" id="console-legend-global">
+        <div><span class="legend-dot" style="color:var(--green)">&#9679;</span> recording</div>
+        <div><span class="legend-dot" style="color:var(--yellow)">&#9679;</span> info</div>
+        <div><span class="legend-dot" style="color:var(--text)">&#9679;</span> output</div>
+        <div><span class="legend-dot" style="color:var(--text-muted)">&#9679;</span> raw</div>
+        <div><span class="legend-dot" style="color:var(--red-bright)">&#9679;</span> error</div>
+      </div>
 
       <div class="tab-panel active" id="tab-console" style="position:relative">
         <div id="preview-bar" style="display:none;padding:12px 24px;border-bottom:1px solid var(--border);background:rgba(220,38,38,0.03)">
@@ -2595,13 +2806,6 @@ body::before {
           <span id="preview-text" style="font-family:var(--mono);font-size:12px;color:var(--text-dim)"></span>
         </div>
         <div class="console-wrap" id="console"><div class="console-empty">Waiting for input...</div></div>
-        <div class="console-legend">
-          <div><span class="legend-dot" style="color:var(--green)">&#9679;</span> recording</div>
-          <div><span class="legend-dot" style="color:var(--yellow)">&#9679;</span> info</div>
-          <div><span class="legend-dot" style="color:var(--text)">&#9679;</span> output</div>
-          <div><span class="legend-dot" style="color:var(--text-muted)">&#9679;</span> raw</div>
-          <div><span class="legend-dot" style="color:var(--red-bright)">&#9679;</span> error</div>
-        </div>
       </div>
 
       <div class="tab-panel" id="tab-sessions">
@@ -2779,6 +2983,19 @@ body::before {
           <div class="profile-section" id="sec-covert">
             <div class="profile-header" onclick="toggleSection('covert')"><span><span class="ph-title">Covert Avoidance Pairs</span><span class="ph-count" id="cnt-covert">(0)</span></span><span class="arrow">&#9654;</span></div>
             <div class="profile-body" id="body-covert"><div id="covert-pairs-list"></div></div>
+          </div>
+
+          <div style="margin-top:24px;padding:14px 16px;background:rgba(185,28,28,0.04);border:1px solid rgba(185,28,28,0.2);border-radius:6px">
+            <div style="font-family:var(--mono);font-size:9px;letter-spacing:2px;color:var(--red-bright);text-transform:uppercase;margin-bottom:10px">Danger Zone</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+              <button class="hk-save-btn" onclick="resetSessionHistory()" style="flex:1;min-width:140px;background:rgba(202,138,4,0.15);color:var(--yellow);border-color:rgba(202,138,4,0.3)">RESET HISTORY</button>
+              <button class="hk-save-btn" onclick="deleteProfile()" style="flex:1;min-width:140px;background:rgba(185,28,28,0.15);color:var(--red-bright);border-color:rgba(185,28,28,0.3)">DELETE PROFILE</button>
+            </div>
+            <div style="font-family:var(--mono);font-size:9px;line-height:1.6;color:var(--text-dim)">
+              <strong style="color:var(--yellow)">RESET HISTORY</strong> — clears session log &amp; counters (Words, Sessions, API calls, etc). Keeps all learned data (corrections, vocabulary, triggers).<br>
+              <strong style="color:var(--red-bright)">DELETE PROFILE</strong> — wipes EVERYTHING the engine learned about you: trigger words, corrections, vocabulary, covert avoidance patterns, onset weights, session history. Cannot be undone.
+            </div>
+            <div id="reset-status" style="margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--text-dim)"></div>
           </div>
         </div>
       </div>
@@ -3011,7 +3228,7 @@ const I18N={
   prof_create:{en:'Create',ru:'Создать'},
   prof_name_ph:{en:'Name',ru:'Имя'},
   // Dynamic states
-  st_idle:{en:'idle',ru:'ожидание'},st_recording:{en:'recording',ru:'запись'},st_processing:{en:'processing',ru:'обработка'},
+  st_idle:{en:'idle',ru:'ожидание'},st_recording:{en:'recording',ru:'запись'},st_processing:{en:'processing',ru:'обработка'},st_command:{en:'CMD',ru:'КМД'},
   // Notes
   note_select:{en:'select Reconstruct +',ru:'выберите Реконструкция +'},
   // Help overlay
@@ -3314,6 +3531,11 @@ function switchToTab(name){
   const panel=document.getElementById('tab-'+name);
   if(panel)panel.classList.add('active');
   if(name==='you')fetchVoiceProfile();
+  // Legend + tips toggle visible only on console tab
+  const legend=document.getElementById('console-legend-global');
+  if(legend)legend.classList.toggle('show', name==='console');
+  const tipsToggle=document.getElementById('tips-toggle-global');
+  if(tipsToggle)tipsToggle.classList.toggle('show', name==='console');
 }
 document.querySelectorAll('.tab-btn').forEach(btn=>{
   btn.addEventListener('click',()=>switchToTab(btn.dataset.tab));
@@ -3351,12 +3573,13 @@ async function pollState(){
     const gdpr=document.getElementById('gdpr-controls');
     if(gdpr)gdpr.style.display=(d.auth&&d.auth.signed_in)?'block':'none';
     _checkProfileSync();
+    _maybeShowCommandModeIntro();
     if(d.stats.sessions!==lastSessionCount){lastSessionCount=d.stats.sessions;fetchSessions();}
     if(now-lastLogFetch>=1000){lastLogFetch=now;fetchLog();}
     if(now-lastLearnFetch>=3000){lastLearnFetch=now;fetchLearn();}
     if(state.state==='recording'&&now-lastPreviewFetch>=400){lastPreviewFetch=now;fetchPreview();}else if(state.state!=='recording'){document.getElementById('preview-bar').style.display='none';}
   }catch(e){failCount++;if(failCount>3){connected=false;document.getElementById('disconnected').classList.add('show');}}
-  setTimeout(pollState,750);
+  setTimeout(pollState,250);
 }
 async function fetchPreview(){try{const r=await fetch(API+'/api/preview');const d=await r.json();const bar=document.getElementById('preview-bar');if(d.enabled&&d.active&&d.text){bar.style.display='block';const sw=d.scored_words||[];if(sw.length){document.getElementById('preview-text').innerHTML=sw.map(w=>{if(w.risk>=0.8)return`<span class="trigger-risk-high">${esc(w.word)}</span>`;if(w.risk>=0.6)return`<span class="trigger-risk">${esc(w.word)}</span>`;return esc(w.word);}).join(' ');}else{document.getElementById('preview-text').textContent=d.text;}}else{bar.style.display='none';}}catch(e){}}
 async function fetchSessions(){try{const r=await fetch(API+'/api/sessions');sessions=await r.json();renderSessions();}catch(e){}}
@@ -3429,6 +3652,13 @@ function updateUI(){
   const mins=(Date.now()/1000-st.start_time)/60;
   document.getElementById('s-wpm').textContent=mins>0?Math.round(st.words/mins):0;
   document.getElementById('s-api').textContent=st.api_calls;
+  // Network status Wi-Fi bars
+  const wifi=document.getElementById('wifi-bars');
+  if(wifi){
+    const status=state.network_status||'idle';
+    wifi.className='wifi-bars '+status;
+    wifi.title=status==='ok'?'Network: OK':status==='error'?('Network error: '+(state.network_error||'')):'Network: idle (no recent calls)';
+  }
   // Avg Difficulty (from exposure band)
   const diffEl=document.getElementById('s-difficulty');
   if(diffEl&&state.avg_exposure){
@@ -3558,9 +3788,13 @@ function esc(s){const d=document.createElement('div');d.textContent=s;return d.i
 function escJs(s){return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
 
 function renderConsole(){
-  const el=document.getElementById('console');const wb=el.scrollTop+el.clientHeight>=el.scrollHeight-20;
-  el.innerHTML=logLines.map(e=>{const d=new Date(e.ts*1000);const ts=d.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});return `<div class="log-line kind-${e.kind}"><span class="log-ts">${ts}</span>${esc(e.text)}</div>`;}).join('');
-  if(wb)el.scrollTop=el.scrollHeight;
+  const el=document.getElementById('console');const atTop=el.scrollTop<=20;
+  // Preserve pinned banner across re-renders (e.g. command mode intro)
+  const banner=document.getElementById('cmd-intro-banner');
+  // Newest entries at top — reverse the array before rendering
+  el.innerHTML=[...logLines].reverse().map(e=>{const d=new Date(e.ts*1000);const ts=d.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});return `<div class="log-line kind-${e.kind}"><span class="log-ts">${ts}</span>${esc(e.text)}</div>`;}).join('');
+  if(banner)el.insertBefore(banner, el.firstChild);
+  if(atTop)el.scrollTop=0;
 }
 
 function renderLearn(){
@@ -4770,6 +5004,165 @@ async function deleteMyData(){
     else{s.textContent='Delete failed: '+(d.error||'unknown');s.style.color='var(--red-bright)';}
   }catch(e){s.textContent='Delete failed: '+e.message;s.style.color='var(--red-bright)';}
 }
+async function resetSessionHistory(){
+  if(!confirm('Reset session history? This clears Words, Sessions, and API Calls counters, plus the session log. Learned data (corrections, vocabulary, triggers) is kept.'))return;
+  const s=document.getElementById('reset-status');
+  s.textContent='Resetting...';s.style.color='var(--text-dim)';
+  try{
+    const r=await fetch(API+'/api/reset-session-history',{method:'POST'});
+    const d=await r.json();
+    if(d.ok){s.textContent='Session history cleared.';s.style.color='var(--yellow)';fetchSessions();fetchLearn();}
+    else{s.textContent='Reset failed: '+(d.error||'unknown');s.style.color='var(--red-bright)';}
+  }catch(e){s.textContent='Reset failed: '+e.message;s.style.color='var(--red-bright)';}
+}
+async function deleteProfile(){
+  if(!confirm('DELETE PROFILE: This wipes ALL learned data — corrections, vocabulary, trigger words, covert avoidance patterns, onset weights, session history. The engine will start completely fresh.\n\nThis cannot be undone. Continue?'))return;
+  if(!confirm('Are you absolutely sure? Everything the engine has learned about your speech will be erased.'))return;
+  const s=document.getElementById('reset-status');
+  s.textContent='Deleting profile...';s.style.color='var(--text-dim)';
+  try{
+    const r=await fetch(API+'/api/delete-profile',{method:'POST'});
+    const d=await r.json();
+    if(d.ok){s.textContent='Profile deleted. Engine reset to factory state.';s.style.color='var(--red-bright)';fetchProfile();fetchSessions();fetchLearn();}
+    else{s.textContent='Delete failed: '+(d.error||'unknown');s.style.color='var(--red-bright)';}
+  }catch(e){s.textContent='Delete failed: '+e.message;s.style.color='var(--red-bright)';}
+}
+// Daily tips — one rotates in each day, shown in console, dismissible per-day
+const _LAV_TIPS = [
+  {title:"Transform text with your voice", body:"Select text anywhere, hold <kbd>F8</kbd>, speak a command, release. Your selection gets replaced.", examples:'Try: <em>"make this formal"</em> · <em>"fix grammar"</em> · <em>"translate"</em>'},
+  {title:"Click 'idle' to record", body:'The word "idle" in the status ring is clickable. Click once to start recording, click again to stop — mouse alternative to F9.'},
+  {title:"Click the timer to reset it", body:"The 00:00 timer under the status ring is clickable. Click to reset session uptime back to zero."},
+  {title:"Click any stat to jump to details", body:"Every cell in the stats bar and learn bar is clickable. Click Words to see Sessions tab, click Corrections to see The File tab, etc."},
+  {title:"High Stress = one-click panic button", body:"Hit Situation → High Stress. Auto-enables Layer 4, DAF at 100ms, paralinguistic + prosodic, severity 1.5×. Everything on for stressful moments."},
+  {title:"Script Prep feeds Whisper the answer key", body:"Paste what you're about to say into the Prep tab. Whisper uses it as a decoder hint — transcription accuracy jumps on technical terms and names."},
+  {title:"Quiet Mode for whispered speech", body:"Voice section → Quiet Mode. Boosts gain to -6dB and tightens high-pass to 100Hz for dictating in libraries, offices, late at night."},
+  {title:"The engine learns your avoidance patterns", body:"When you swap 'door' for 'entrance' to avoid a /d/ block, the engine detects it via Script Prep comparison. Layer 4 uses this to reconstruct the word you meant."},
+  {title:"F10 cycles tone, F11 cycles layer", body:"Don't touch the dashboard. F10 rotates Casual → Professional → Friend → Formal. F11 rotates Layer I → II → III → IV. F12 prints stats."},
+  {title:"Your personal phonetic risk map", body:"The engine tracks which initial sounds you block on (k, p, br, etc.) and builds personalized onset weights. Feeds into trigger prediction at Layer 4."},
+  {title:"Anti-compulsion nudge", body:"Re-record similar content 3+ times in a row and the engine flags it. Stuttering can trigger obsessive redo loops — this pushes you to accept and move on."},
+  {title:"Weekly clinical report", body:'Learning tab → "Weekly Report" button. GPT-generated summary of your week: disfluency trends, trigger patterns, progress. Uses real session data.'},
+  {title:"Voice Profile unlocks at 500 words", body:'The "You" tab shows your headline, catchphrase, peak dictation time, day streak, and superpower. Celebrates what you accomplished, not what went wrong.'},
+  {title:"Whisper hallucinations auto-stripped", body:"When audio is silent or whispered, Whisper sometimes injects 'Transcribed by otter.ai' or 'Thanks for watching' — training data leaks. Engine catches and removes them."},
+  {title:"Hold F9 longer on high-risk words", body:"When Script Prep text is loaded, engine predicts Brown peak risk before recording. Logs ⚠ HIGH RISK if a block is likely — hold the key through it."},
+];
+function _todaysTip(){
+  const d=new Date();
+  const dayOfYear=Math.floor((d-new Date(d.getFullYear(),0,0))/86400000);
+  return {idx:dayOfYear % _LAV_TIPS.length, date:d.toISOString().slice(0,10), tip:_LAV_TIPS[dayOfYear % _LAV_TIPS.length]};
+}
+function _maybeShowCommandModeIntro(){
+  if(localStorage.getItem('lavrentiy-tips-enabled')==='0')return;
+  const {date,tip}=_todaysTip();
+  const dismissed=localStorage.getItem('lavrentiy-tip-dismissed-date');
+  if(dismissed===date)return;
+  if(document.getElementById('cmd-intro-banner'))return;
+  const console_el=document.getElementById('console');
+  if(!console_el)return;
+  const banner=document.createElement('div');
+  banner.id='cmd-intro-banner';
+  banner.className='cmd-intro-banner';
+  banner.innerHTML=`
+    <button class="cmd-intro-close" title="Dismiss for today">&times;</button>
+    <div class="cmd-intro-label">DAILY TIP</div>
+    <div class="cmd-intro-title">${tip.title}</div>
+    <div class="cmd-intro-body">${tip.body}</div>
+    ${tip.examples?`<div class="cmd-intro-examples">${tip.examples}</div>`:''}`;
+  console_el.insertBefore(banner, console_el.firstChild);
+  banner.querySelector('.cmd-intro-close').addEventListener('click',()=>{
+    localStorage.setItem('lavrentiy-tip-dismissed-date',date);
+    banner.remove();
+  });
+}
+// Init tips toggle display state from localStorage
+(function(){
+  document.addEventListener('DOMContentLoaded',()=>{
+    const el=document.getElementById('tips-toggle-state');
+    if(el)el.textContent=localStorage.getItem('lavrentiy-tips-enabled')==='0'?'OFF':'ON';
+  });
+})();
+function toggleTipsEnabled(){
+  const el=document.getElementById('tips-toggle-state');
+  const current=localStorage.getItem('lavrentiy-tips-enabled')!=='0';
+  const next=!current;
+  localStorage.setItem('lavrentiy-tips-enabled', next?'1':'0');
+  if(el)el.textContent=next?'ON':'OFF';
+  if(!next){
+    const b=document.getElementById('cmd-intro-banner');
+    if(b)b.remove();
+  }else{
+    _maybeShowCommandModeIntro();
+  }
+}
+// Context-aware typewriter hint — rotates based on current layer/state/toggles
+(function startCmdHintLoop(){
+  const el=document.getElementById('cmd-hint-text');
+  const prefixEl=document.querySelector('.cmd-hint-prefix');
+  if(!el)return;
+  // Contextual hint pools by current state
+  const HINTS_BY_CTX = {
+    command: ['select text + hold F8', 'say: make this formal', 'say: fix grammar', 'say: translate', 'transforms selection'],
+    recording: ['speak naturally', 'release when done', 'hold through blocks'],
+    processing: ['reconstructing...'],
+    l1: ['raw transcription', 'no GPT call', 'fastest, cheapest', 'F11 = next layer'],
+    l2: ['GPT rewrites with tone', 'F10 cycles tone', 'fillers stripped', 'F8 to transform text'],
+    l3: ['uses your vocabulary', 'learns your corrections', 'same as L2 + profile'],
+    l4: ['stutter clinical mode', 'tracks onset weights', 'covert avoidance detected', 'use High Stress preset', 'hold F9 through blocks'],
+    idle_default: ['F9 to record', 'hold F8 to transform', 'click "idle" to toggle', 'F10 tone · F11 layer', 'click any stat to jump'],
+    para_on: ['cough/laugh detected', 'non-speech tagged'],
+    prosodic_on: ['pitch & energy tracked', 'feeds L4 severity'],
+    quiet_on: ['audio boosted +6dB', 'dictate in public'],
+  };
+  function currentPool(){
+    // State-specific pools override everything
+    if(state && state.state === 'command') return {prefix:'CMD:', items:HINTS_BY_CTX.command};
+    if(state && state.state === 'recording') return {prefix:'REC:', items:HINTS_BY_CTX.recording};
+    if(state && state.state === 'processing') return {prefix:'...', items:HINTS_BY_CTX.processing};
+    // Idle — rotate through: layer-specific + active toggle tips + general
+    let items = [...HINTS_BY_CTX.idle_default];
+    if(state && state.layer){
+      items = items.concat(HINTS_BY_CTX['l'+state.layer] || []);
+    }
+    if(state && state.paralinguistic_enabled) items = items.concat(HINTS_BY_CTX.para_on);
+    if(state && state.prosodic_enabled) items = items.concat(HINTS_BY_CTX.prosodic_on);
+    if(state && state.quiet_mode_enabled) items = items.concat(HINTS_BY_CTX.quiet_on);
+    return {prefix:'F8:', items};
+  }
+  let idx=0, pos=0, typing=true, currentItems=null, currentPrefix='F8:';
+  function refreshContext(){
+    const pool = currentPool();
+    if(prefixEl) prefixEl.textContent = pool.prefix;
+    currentPrefix = pool.prefix;
+    currentItems = pool.items;
+    if(idx >= currentItems.length) idx = 0;
+  }
+  function tick(){
+    if(!currentItems) refreshContext();
+    const word=currentItems[idx % currentItems.length];
+    if(typing){
+      pos++;
+      el.textContent=word.slice(0,pos);
+      if(pos>=word.length){
+        typing=false;
+        setTimeout(tick, 1800);
+        return;
+      }
+      setTimeout(tick, 50);
+    }else{
+      pos--;
+      el.textContent=word.slice(0,pos);
+      if(pos<=0){
+        typing=true;
+        idx++;
+        refreshContext(); // pick new pool each rotation — catches state changes
+        setTimeout(tick, 400);
+        return;
+      }
+      setTimeout(tick, 25);
+    }
+  }
+  tick();
+})();
+
 async function init(){
   await runBootSequence();
   applyCompact();

@@ -97,6 +97,15 @@ if not API_KEY:
     except Exception:
         pass
 
+# Gemini API key (for cheaper L2/L3 reconstruction; L4 + Falcon stay on GPT-4o)
+GEMINI_API_KEY = ""
+_last_recon_model = ""  # updated by reconstruct() — shows in log status line
+_gemini_key_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gemini_api_key.txt")
+if os.path.exists(_gemini_key_file):
+    GEMINI_API_KEY = open(_gemini_key_file, "r").read().strip()
+if not GEMINI_API_KEY:
+    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+
 LANGUAGE = "en"
 PREFERRED_MIC = "C930"
 RECORD_KEY = "f9"
@@ -2048,6 +2057,10 @@ is_pasting = False
 # Command Mode: highlight text + F8 + speak command → transforms selection
 is_command_mode = False
 command_selected_text = ""
+# Network status tracking (for Wi-Fi bar indicator in stats bar)
+_last_api_ok_ts = 0
+_last_api_error_ts = 0
+_last_api_error_msg = ""
 stats = {
     "words": 0, "sessions": 0, "chars": 0,
     "start_time": time.time(),
@@ -2060,8 +2073,18 @@ _stats_lock = threading.Lock()
 
 def stats_inc(key, n=1):
     """Thread-safe increment of a stats counter."""
+    global _last_api_ok_ts
     with _stats_lock:
         stats[key] = stats.get(key, 0) + n
+    # Track network status: any API call increment = API reachable
+    if key == "api_calls":
+        _last_api_ok_ts = time.time()
+
+def track_api_error(msg=""):
+    """Record that an API call failed — used for network-status Wi-Fi indicator."""
+    global _last_api_error_ts, _last_api_error_msg
+    _last_api_error_ts = time.time()
+    _last_api_error_msg = str(msg)[:200]
 
 # -- Redo detection (anti-compulsion guardrail) ──────────────────
 # Tracks consecutive re-recordings of similar content.
@@ -2511,17 +2534,40 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
     TONE_TEMP = {"formal": 0.1, "professional": 0.15, "casual": 0.35, "friend": 0.4}
     temp = TONE_TEMP.get(tone, 0.3)
 
+    global _last_recon_model
     use_model = MODEL_L4 if layer >= 4 else MODEL
+    system_prompt = "\n".join(parts)
+    # Route L2/L3 through Gemini 2.5 Pro if key configured — cheaper than GPT-4o,
+    # competitive quality for instruction-following. L4 stays on GPT-4o (clinical
+    # prompts are tuned for it). Falcon validation also stays on GPT-4o downstream.
+    if layer <= 3 and GEMINI_API_KEY:
+        try:
+            import gemini_client
+            stats_inc("api_calls")
+            result = gemini_client.generate(
+                system_prompt=system_prompt,
+                user_prompt=raw_text,
+                api_key=GEMINI_API_KEY,
+                temperature=temp,
+                max_tokens=1000,
+            )
+            _last_recon_model = "gemini-2.5-pro"
+            return result
+        except Exception as e:
+            track_api_error(f"Gemini: {str(e)[:100]}")
+            log(f"Gemini failed, falling back to GPT-4o: {str(e)[:80]}", "warn")
+            # fall through to OpenAI
     stats_inc("api_calls")
     resp = client.chat.completions.create(
         model=use_model,
         messages=[
-            {"role": "system", "content": "\n".join(parts)},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": raw_text}
         ],
         max_tokens=1000,
         temperature=temp
     )
+    _last_recon_model = use_model
     return resp.choices[0].message.content.strip()
 
 
@@ -2622,12 +2668,14 @@ _WHISPER_HALLUCINATION_RE = re.compile(
 )
 
 def strip_whisper_hallucinations(text):
-    """Remove well-known Whisper training-data hallucinations (zero cost)."""
+    """Remove well-known Whisper training-data hallucinations (zero cost).
+    Returns empty string if the entire text WAS a hallucination — the whole
+    utterance is garbage, nothing should be pasted."""
     if not text:
         return text
     cleaned = _WHISPER_HALLUCINATION_RE.sub("", text).strip()
     cleaned = re.sub(r'\s{2,}', ' ', cleaned)
-    return cleaned if cleaned else text  # never return empty — keep original if all stripped
+    return cleaned  # may be empty — that's correct if entire output was hallucination
 
 
 def strip_disfluencies(text):
@@ -4083,6 +4131,7 @@ def _whisper_single_call(filepath, temperature, prompt_text, max_retries=3):
             return {"text": result.text if hasattr(result, 'text') else str(result), "segments": []}
         except Exception as e:
             err_str = str(e)
+            track_api_error(f"Whisper: {err_str[:100]}")
             is_retryable = any(code in err_str for code in ("500", "502", "503", "429"))
             if is_retryable and attempt < max_retries - 1:
                 wait = 2 ** attempt  # 1s, 2s, 4s
@@ -5592,6 +5641,10 @@ def pipeline():
         raw_text = strip_whisper_hallucinations(raw_text)
         if raw_text != _pre_hall:
             log(f"Stripped Whisper hallucination: \"{_pre_hall[:80]}\" -> \"{raw_text[:80]}\"", "info")
+        if not raw_text.strip():
+            log("Entire output was Whisper hallucination — nothing to paste", "warn")
+            set_state('idle')
+            return
         # Step 1.5b: Disfluency post-filter (rule-based, zero cost)
         # At L1: this IS the output cleanup (no GPT reconstruction)
         # At L2+: pre-cleans Whisper output before sending to GPT
@@ -5690,7 +5743,8 @@ def pipeline():
         else:
             log(f"-> \"{output}\"  [{wc}w]", "out")
         flags_tag = f" flags:[{','.join(decision['risk_flags'])}]" if decision['risk_flags'] else ""
-        log(f"[{decision['mode']}] {decision['decision']} | {timings['total_ms']}ms (asr:{timings['asr_ms']} recon:{timings['reconstruct_ms']} val:{timings['validate_ms']}){flags_tag}", "info")
+        model_tag = f" [{_last_recon_model}]" if _last_recon_model and current_layer > 1 and current_mode != "RAW" else ""
+        log(f"[{decision['mode']}] {decision['decision']} | {timings['total_ms']}ms (asr:{timings['asr_ms']} recon:{timings['reconstruct_ms']} val:{timings['validate_ms']}){model_tag}{flags_tag}", "info")
 
         # Inject paralinguistic tags into output if transcribe toggle is ON
         if paralinguistic_transcribe and para_events:
@@ -6377,8 +6431,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
         elif self.path == '/auth/google':
             self._serve_file(Path(__file__).parent / 'auth_google.html', 'text/html')
         elif self.path == '/api/state':
+            # Network status: green if recent API success, red if recent error, gray if idle
+            _now = time.time()
+            if _last_api_error_ts > _last_api_ok_ts and _now - _last_api_error_ts < 60:
+                _net_status = "error"
+            elif _last_api_ok_ts > 0 and _now - _last_api_ok_ts < 300:
+                _net_status = "ok"
+            else:
+                _net_status = "idle"
             self._json({
-                'state': state,
+                'state': ('command' if is_command_mode else state),
+                'is_command_mode': is_command_mode,
+                'network_status': _net_status,
+                'network_error': _last_api_error_msg if _net_status == "error" else "",
                 'tone': current_tone,
                 'layer': current_layer,
                 'layer_name': LAYER_NAMES.get(current_layer, '?'),
@@ -7110,6 +7175,61 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 except Exception as e:
                     log(f"Cloud delete failed: {str(e)[:80]}", "error")
                     self._json({"error": str(e)[:200]})
+        elif self.path == '/api/reset-session-history':
+            # Reset: clear session history (SQLite), keep learned profile intact
+            try:
+                with _db_lock:
+                    _db.execute("DELETE FROM sessions")
+                    _db.commit()
+                with _stats_lock:
+                    stats["words"] = 0
+                    stats["sessions"] = 0
+                    stats["chars"] = 0
+                    stats["api_calls"] = 0
+                    stats["falcon_rejects"] = 0
+                    stats["repetition_loops"] = 0
+                    stats["start_time"] = time.time()
+                log("Session history reset — profile kept", "info")
+                self._json({"ok": True, "reset": "session_history"})
+            except Exception as e:
+                log(f"Reset session failed: {e}", "error")
+                self._json({"error": str(e)[:200]})
+        elif self.path == '/api/delete-profile':
+            # DELETE: wipe entire profile (corrections, vocabulary, triggers, everything)
+            try:
+                # Clear profile fields but preserve identity/structure
+                profile["trigger_words"] = []
+                profile["filler_words"] = []
+                profile["vocabulary"] = []
+                profile["corrections"] = {}
+                profile["candidate_corrections"] = {}
+                profile["candidate_fillers"] = {}
+                profile["candidate_vocabulary"] = {}
+                profile["covert_profile"] = {}
+                profile["onset_weights"] = {}
+                profile["onset_weights_by_lang"] = {}
+                profile["trigger_types"] = {}
+                profile["_relevance"] = {}
+                save_profile(profile)
+                # Also clear session history
+                with _db_lock:
+                    _db.execute("DELETE FROM sessions")
+                    _db.commit()
+                # Reset stats
+                with _stats_lock:
+                    for k in ("words", "sessions", "chars", "api_calls", "falcon_rejects", "repetition_loops"):
+                        stats[k] = 0
+                    stats["start_time"] = time.time()
+                # Clear in-memory onset weights
+                global _personal_onset_weights, _personal_onset_weights_by_lang, _personal_dominant_onsets
+                _personal_onset_weights = {}
+                _personal_onset_weights_by_lang = {}
+                _personal_dominant_onsets = []
+                log("Profile deleted — all learned data wiped", "warn")
+                self._json({"ok": True, "reset": "profile"})
+            except Exception as e:
+                log(f"Delete profile failed: {e}", "error")
+                self._json({"error": str(e)[:200]})
         elif self.path == '/api/augment':
             if _augment_state["running"]:
                 self._json({"error": "augmentation already running", "status": augment_status()})
