@@ -2105,7 +2105,7 @@ body::before {
   position: absolute; top: 6px; right: 32px; display: flex; z-index: 20;
 }
 .theme-toggle {
-  position: absolute; top: 6px; right: 82px; display: flex; z-index: 20;
+  position: absolute; top: 6px; left: 34px; display: flex; z-index: 20;
 }
 .lang-btn, .theme-tog-btn {
   padding: 2px 5px; font-family: var(--mono); font-size: 9px; font-weight: 600;
@@ -5083,12 +5083,13 @@ function _checkProfileSync(){
       <div class="ha-chevron">&#9654;</div>
     </div>
     <div class="ha-body"><div class="ha-content">
-      <span class="ha-kbd">F9</span> Start/stop recording &nbsp;
+      <span class="ha-kbd">F9</span> Dictate (hold to record) &nbsp;
+      <span class="ha-kbd">F8</span> Command Mode (transform selection) &nbsp;
       <span class="ha-kbd">F10</span> Cycle tones &nbsp;
       <span class="ha-kbd">F11</span> Cycle layers &nbsp;
       <span class="ha-kbd">F12</span> Print stats &nbsp;
       <span class="ha-kbd">F3</span> &#215;3 Quit<br><br>
-      All rebindable from the Shortcuts section at the bottom of the sidebar.
+      F9 and F10-F12 are rebindable from the Shortcuts section of the sidebar.
     </div></div>
   </div>
 
@@ -5155,6 +5156,88 @@ function _checkProfileSync(){
     </div></div>
   </div>
 
+  <div class="ha-row" data-ha>
+    <div class="ha-header" onclick="toggleHa(this)">
+      <div class="ha-icon">&#9999;</div>
+      <div class="ha-info"><div class="ha-name">Command Mode (F8)</div><div class="ha-sub">Transform highlighted text with voice</div></div>
+      <div class="ha-chevron">&#9654;</div>
+    </div>
+    <div class="ha-body"><div class="ha-content">
+      Instead of dictating new text, transform text you already have. Works in any app.<br><br>
+      <strong>How to use:</strong><br>
+      1. Select/highlight text anywhere (email, doc, Slack, etc.)<br>
+      2. Hold <span class="ha-kbd">F8</span> and speak a command<br>
+      3. Release F8 &#8212; your selection is replaced with the transformed text<br><br>
+      <strong>Example commands:</strong> "make this formal", "fix the grammar", "translate to Spanish", "summarize this", "make it shorter", "rewrite this as bullet points"
+      <div class="ha-example">
+        <span class="he-in">Selected:</span> "hey can u send me that report when u get a chance"<br>
+        <span class="he-in">F8 + say:</span> "make this professional"<br>
+        <span class="he-out">Replaced with:</span> "Could you please send me that report at your earliest convenience?"
+      </div>
+      Your clipboard is preserved. Works at any layer/tone. Uses GPT-4o.
+    </div></div>
+  </div>
+
+  <div class="ha-row" data-ha>
+    <div class="ha-header" onclick="toggleHa(this)">
+      <div class="ha-icon">&#9835;</div>
+      <div class="ha-info"><div class="ha-name">Quiet Mode</div><div class="ha-sub">For whispered or soft speech</div></div>
+      <div class="ha-chevron">&#9654;</div>
+    </div>
+    <div class="ha-body"><div class="ha-content">
+      Toggle in the <strong>Voice</strong> section of the sidebar. When ON:<br>
+      &#8226; High-pass filter tightens from 70Hz to 100Hz (kills more room noise since whispers have no low-frequency content)<br>
+      &#8226; Audio gain doubles (-6dB vs -12dB target) to boost soft speech<br><br>
+      Use it when dictating in shared spaces where you don't want to be heard (library, open office, late at night). Stuttering can worsen under social pressure &#8212; this lets you dictate without drawing attention.
+    </div></div>
+  </div>
+
+  <div class="ha-row" data-ha>
+    <div class="ha-header" onclick="toggleHa(this)">
+      <div class="ha-icon">&#9733;</div>
+      <div class="ha-info"><div class="ha-name">You Tab</div><div class="ha-sub">Your dictation profile</div></div>
+      <div class="ha-chevron">&#9654;</div>
+    </div>
+    <div class="ha-body"><div class="ha-content">
+      Celebratory stats about your dictation, not clinical metrics. Unlocks at 500 words.<br><br>
+      <strong>What you'll see:</strong><br>
+      &#8226; Total words dictated (emails you didn't have to type)<br>
+      &#8226; Your catchphrase (most-used 2-3 word combination)<br>
+      &#8226; Peak dictation time (your most productive hour/day)<br>
+      &#8226; Dictation superpower (your style: long-form, formal, daily habit, etc.)<br>
+      &#8226; Day streak (consecutive days of usage)<br><br>
+      All derived from your local session history. Zero API cost.
+    </div></div>
+  </div>
+
+  <div class="ha-row" data-ha>
+    <div class="ha-header" onclick="toggleHa(this)">
+      <div class="ha-icon">&#9919;</div>
+      <div class="ha-info"><div class="ha-name">Privacy &amp; Your Data</div><div class="ha-sub">What we keep, how to export/delete</div></div>
+      <div class="ha-chevron">&#9654;</div>
+    </div>
+    <div class="ha-body"><div class="ha-content">
+      <strong>Your voice audio is never stored.</strong> It's sent to Whisper for transcription, then discarded.<br><br>
+      <strong>Your transcripts stay on YOUR computer</strong> (in <code>~/.lavrentiy/</code>). They never leave your device.<br><br>
+      <strong>If you sign in with Google:</strong> Only pattern metadata syncs to the cloud (trigger words, filler words, vocabulary, corrections, onset weights). Never raw text or audio.<br><br>
+      <strong>Export / Delete:</strong> Sign in, go to <strong>The File</strong> tab, click EXPORT to download all your data as JSON, or DELETE CLOUD DATA to wipe your Firestore record (local data stays).<br><br>
+      <strong>Retention:</strong> Cloud data auto-deletes after 24 months of inactivity.
+    </div></div>
+  </div>
+
+  <div class="ha-row" data-ha>
+    <div class="ha-header" onclick="toggleHa(this)">
+      <div class="ha-icon">&#9883;</div>
+      <div class="ha-info"><div class="ha-name">Loops &amp; Blocks</div><div class="ha-sub">Whisper quality diagnostics</div></div>
+      <div class="ha-chevron">&#9654;</div>
+    </div>
+    <div class="ha-body"><div class="ha-content">
+      <strong>Loops</strong> (learn bar) &#8212; Count of Whisper hallucination loops this session. When Whisper gets stuck repeating ("bad bad bad..." / "Thank you Thank you..."), its compression ratio spikes. We detect + strip these segments automatically.<br><br>
+      <strong>Block suspects</strong> (console, brown text) &#8212; Segments where Whisper nearly classified the audio as silence but output text anyway. For stutterers, that "silence" is often a block. We strip short phrases (&le;3 words) Whisper hallucinated into blocks.<br><br>
+      <strong>Known hallucinations auto-stripped:</strong> "Transcribed by otter.ai", "Thank you for watching", "Subscribe to my channel", "Subtitles by Amara.org" &#8212; these leak in from Whisper's YouTube training data.
+    </div></div>
+  </div>
+
   <div class="ha-row" data-ha style="border-bottom:none">
     <div class="ha-header" onclick="toggleHa(this)">
       <div class="ha-icon">&#9889;</div>
@@ -5163,10 +5246,14 @@ function _checkProfileSync(){
     </div>
     <div class="ha-body"><div class="ha-content" style="padding-bottom:40px">
       &#8226; Click the <strong>timer</strong> in the status ring to reset it.<br>
-      &#8226; <strong>Compact toggle</strong> (top-left) collapses to a minimal bar with clickable chips.<br>
+      &#8226; Click the word <strong>"idle"</strong> in the status ring to toggle recording (mouse alternative to F9).<br>
+      &#8226; <strong>Compact toggle</strong> (top-left) collapses to a minimal bar.<br>
+      &#8226; <strong>D/L toggle</strong> (next to compact) switches dark/light mode.<br>
+      &#8226; <strong>EN/RU toggle</strong> (top-right) switches interface language.<br>
       &#8226; Tone and Mode <strong>auto-collapse</strong> on L1 (they have no effect).<br>
       &#8226; <strong>High Stress</strong> situation is a one-click panic button: L4 + DAF + all toggles.<br>
-      &#8226; Click any <strong>stat/learn bar cell</strong> to jump to its detail tab.
+      &#8226; Click any <strong>stat/learn bar cell</strong> to jump to its detail tab.<br>
+      &#8226; <strong>F8</strong> = Command Mode (transform selection), <strong>F9</strong> = Dictate.
     </div></div>
   </div>
 
