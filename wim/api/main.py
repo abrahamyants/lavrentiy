@@ -139,11 +139,17 @@ def handle(request):
         db.collection("wim_users").document(uid).set(profile_data, merge=True)
         return (json.dumps({"ok": True}), 200, {**CORS_HEADERS, "Content-Type": "application/json"})
 
-    # GDPR: export user's stored data
+    # GDPR: export user's stored data (user-visible fields only — strip internal billing/quota state)
     if body.get("action") == "export_data":
         doc = db.collection("wim_users").document(uid).get()
-        data = doc.to_dict() if doc.exists else {}
-        return (json.dumps({"ok": True, "data": data}), 200, {**CORS_HEADERS, "Content-Type": "application/json"})
+        full = doc.to_dict() if doc.exists else {}
+        # Expose learned-profile metadata but hide rate-limiting / tier internals
+        user_visible = {
+            k: v for k, v in full.items()
+            if k in {"trigger_words", "onset_weights", "covert_profile",
+                     "filler_words", "vocabulary", "corrections", "sync_ts", "created"}
+        }
+        return (json.dumps({"ok": True, "data": user_visible}), 200, {**CORS_HEADERS, "Content-Type": "application/json"})
 
     # GDPR: delete user's cloud data
     if body.get("action") == "delete_data":

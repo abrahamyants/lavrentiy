@@ -2657,7 +2657,8 @@ def strip_disfluencies(text):
         if phrase in NATURAL_REPEATS:
             return m.group(0)  # Don't strip — natural repetition
         return m.group(1)
-    cleaned = re.sub(r'\b(\w+)(?:\s+\1)+\b', _dedup_word, cleaned, flags=re.IGNORECASE)
+    # Require 3+ repetitions (2+ is often emphasis: "no no", "go go", "please please")
+    cleaned = re.sub(r'\b(\w+)(?:\s+\1){2,}\b', _dedup_word, cleaned, flags=re.IGNORECASE)
 
     # Step 3: Remove phrase repetitions (2-3 word phrases repeated)
     # "I want I want to go" → "I want to go"
