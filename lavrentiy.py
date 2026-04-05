@@ -625,6 +625,16 @@ def learn_onset_weights(trigger_words):
         top = _personal_dominant_onsets[0]
         print(f"Onset weights: dominant /{top['onset']}/ ({top['pct']}% of {total} triggers)")
 
+    # Persist to profile so weights survive restart + feed Firestore sync + clinical profile
+    try:
+        profile["onset_weights"] = dict(_personal_onset_weights)
+        profile["onset_weights_by_lang"] = {
+            lang: dict(w) for lang, w in _personal_onset_weights_by_lang.items()
+        }
+    except NameError:
+        # profile not yet loaded (early startup path); skip persistence
+        pass
+
 
 # -- Onset frequency anomaly detection (covert avoidance signal) ──
 # English content-word onset distribution (approximate, from SUBTLEX-US).
@@ -1998,6 +2008,11 @@ def db_session_count():
 recording = []
 is_recording = False
 stream = None
+# Pre-roll buffer: always-listening ring buffer captures last N seconds of audio
+# so F9 presses catch the user's first word (mic stream startup takes ~150-500ms)
+PREROLL_SEC = 0.5
+_preroll_buffer = []
+_preroll_max_frames = None  # computed on startup from NATIVE_RATE
 lock = threading.Lock()
 state = 'idle'
 
@@ -2499,13 +2514,26 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
     return resp.choices[0].message.content.strip()
 
 
-def falcon_validate(raw_text, clean_text, layer):
-    """Binary meaning check. Returns True if meaning preserved."""
+def falcon_validate(raw_text, clean_text, layer, tone="casual"):
+    """Binary meaning check. Returns True if meaning preserved.
+    Tone-aware: formal tone expands contractions, casual keeps them — Falcon must know
+    which changes are expected per tone."""
+    tone_note = ""
+    if tone == "formal":
+        tone_note = (
+            " Tone is FORMAL: contractions expanded to full form (don't→do not, I'm→I am) "
+            "and colloquialisms replaced with standard English are expected, not meaning changes."
+        )
+    elif tone == "professional":
+        tone_note = " Tone is PROFESSIONAL: light formality adjustments are expected."
+    elif tone == "friend":
+        tone_note = " Tone is FRIEND: sentence fragments and casual contractions are expected."
+    # casual: no extra note needed
     if layer <= 3:
         prompt = (
             "The reconstruction cleans up a voice transcription: removing filler words "
             "(um, uh, like, you know), fixing grammar, and improving clarity. "
-            "Filler removal and grammar fixes are expected and acceptable. "
+            "Filler removal and grammar fixes are expected and acceptable." + tone_note + " "
             "Does the reconstruction preserve the core content and intent? "
             "Answer ONLY 'yes' or 'no'."
         )
@@ -2516,7 +2544,8 @@ def falcon_validate(raw_text, clean_text, layer):
             "postponement tactics, not meaningful hesitation. Synonym substitutions "
             "and circumlocutions are avoidance behaviors — the reconstruction should "
             "recover the intended word. Rambling run-on filler (mazes) should be "
-            "stripped. Does the reconstruction preserve intended meaning? "
+            "stripped." + tone_note + " "
+            "Does the reconstruction preserve intended meaning? "
             "Answer ONLY 'yes' or 'no'."
         )
 
@@ -3430,10 +3459,6 @@ def decay_stale_profile_entries(prof):
 
 
 # -- Trigger Word Detection ───────────────────────────────────────
-# Regex: catch "Co-Co-Coca-Cola", "I I I want", "th-th-the", "b-b-but"
-_REPEAT_WORD = re.compile(
-    r'\b(\w+(?:\s+|[-])){1,5}\1{0}\w*\b', re.IGNORECASE
-)
 # Hyphenated stutters: "co-co-coca", "b-b-but", "th-th-the"
 _HYPHEN_STUTTER = re.compile(
     r'\b(\w{1,4})[-]\1[-]?(\w+)\b', re.IGNORECASE
@@ -3728,16 +3753,34 @@ def daf_set_delay(delay_ms):
 
 # -- Audio ────────────────────────────────────────────────────────
 def audio_callback(indata, frames, time_info, status):
-    if is_recording:
-        with lock:
-            recording.append(indata.copy())
+    chunk = indata.copy()
+    # Always maintain rolling pre-roll buffer (last PREROLL_SEC of audio)
+    with lock:
+        _preroll_buffer.append(chunk)
+        if _preroll_max_frames is not None:
+            total = sum(len(c) for c in _preroll_buffer)
+            while total > _preroll_max_frames and len(_preroll_buffer) > 1:
+                total -= len(_preroll_buffer.pop(0))
+        if is_recording:
+            recording.append(chunk)
+
+def _open_persistent_stream():
+    """Open audio stream once and keep it running for the engine lifetime.
+    This ensures the pre-roll buffer is always being fed, so F9 presses
+    catch the user's first word instead of losing ~150-500ms to stream startup."""
+    global stream, _preroll_max_frames
+    _preroll_max_frames = int(NATIVE_RATE * PREROLL_SEC)
+    stream = sd.InputStream(samplerate=NATIVE_RATE, channels=1,
+                            device=DEVICE, callback=audio_callback)
+    stream.start()
 
 def start_recording():
-    global is_recording, recording, stream, target_hwnd, state
+    global is_recording, recording, target_hwnd, state
     with lock:
         if is_recording:
             return
-        recording = []
+        # Seed recording with pre-roll buffer so first word is captured
+        recording = [c for c in _preroll_buffer]
         is_recording = True
         state = 'recording'
     target_hwnd = user32.GetForegroundWindow()
@@ -3758,29 +3801,20 @@ def start_recording():
         start_preview_stream()
     except Exception as e:
         log(f"Preview start failed: {e}", "error")
-    try:
-        stream = sd.InputStream(samplerate=NATIVE_RATE, channels=1,
-                                device=DEVICE, callback=audio_callback)
-        stream.start()
-    except Exception as e:
-        log(f"Stream error: {e} -- re-detecting mic", "error")
-        # Device index may have gone stale (e.g. after Chrome restart).
-        # Re-detect and retry once before giving up.
+    # Stream is persistent (opened at startup) — just verify it's alive
+    if stream is None or not stream.active:
+        log("Stream not active -- reopening", "warn")
         try:
-            _redetect_mic()
-            stream = sd.InputStream(samplerate=NATIVE_RATE, channels=1,
-                                    device=DEVICE, callback=audio_callback)
-            stream.start()
-            log(f"Mic re-detected as device {DEVICE}", "info")
-        except Exception as e2:
-            log(f"Stream error after re-detect: {e2}", "error")
+            _open_persistent_stream()
+        except Exception as e:
+            log(f"Stream error: {e}", "error")
             with lock:
                 is_recording = False
                 state = 'error'
             threading.Timer(3, lambda: set_state('idle')).start()
 
 def stop_recording():
-    global is_recording, stream, state, last_stop_time
+    global is_recording, state, last_stop_time
     now = time.time()
     if now - last_stop_time < 1.0:
         return
@@ -3790,11 +3824,7 @@ def stop_recording():
             return
         is_recording = False
         state = 'processing'
-        s = stream
-        stream = None
-    if s:
-        s.stop()
-        s.close()
+    # Stream stays open (persistent for pre-roll buffer) — do NOT close it
     try:
         stop_preview_stream()
     except Exception as e:
@@ -5404,9 +5434,9 @@ def pipeline():
     #    in Whisper's mel spectrogram from peak transients
     audio_data = numpy.tanh(1.2 * audio_data).astype(numpy.float32)
 
-    # Step 0: Speech rate & pause analysis — only when prosodic is ON or L4+ (feeds severity modifier)
+    # Step 0: Speech rate & pause analysis — pure numpy, ~2ms, feeds reconstruction severity at L2+
     speech_metrics = {"pause_ratio": 0, "speaking_rate_sps": 0, "severity_modifier": 0}
-    if prosodic_enabled or current_layer >= 4:
+    if current_layer >= 2:
         speech_metrics = analyze_speech_rate(audio_data, TARGET_RATE)
         if speech_metrics["severity_modifier"] > 0:
             log(f"Speech: pause_ratio={speech_metrics['pause_ratio']:.0%} rate={speech_metrics['speaking_rate_sps']:.1f}syl/s → severity +{speech_metrics['severity_modifier']}", "info")
@@ -5493,10 +5523,10 @@ def pipeline():
         filtered_text = strip_disfluencies(raw_text)
 
         # Block hallucination removal: strip phantom words Whisper invents during blocks
-        if current_layer == 1:
-            filtered_text = strip_block_hallucinations(filtered_text, whisper_low_conf)
-        # Profile corrections (vocabulary/corrections map): L3+ only
-        if current_layer >= 3:
+        # Runs at all layers — GPT shouldn't see Whisper's phantom words either
+        filtered_text = strip_block_hallucinations(filtered_text, whisper_low_conf)
+        # Profile corrections (vocabulary/corrections map): L2+ so GPT sees learned fixes
+        if current_layer >= 2:
             filtered_text = apply_profile_corrections(filtered_text, profile)
 
         if filtered_text != raw_text and current_layer == 1:
@@ -5514,9 +5544,9 @@ def pipeline():
                     clean_text, _backend_falcon, _backend_result = reconstruct_via_backend(
                         filtered_text, current_tone, current_layer, profile,
                         current_situation, current_mode,
-                        whisper_low_conf=whisper_low_conf if current_layer >= 4 else None,
-                        whisper_disagreements=whisper_disagreements if current_layer >= 4 else None,
-                        speech_severity_mod=speech_metrics["severity_modifier"] if current_layer >= 4 else 0,
+                        whisper_low_conf=whisper_low_conf,
+                        whisper_disagreements=whisper_disagreements,
+                        speech_severity_mod=speech_metrics["severity_modifier"],
                     )
                     if clean_text is None:
                         log("Backend reconstruct returned None — using raw", "error")
@@ -5527,9 +5557,9 @@ def pipeline():
                     # Local API key — call OpenAI directly
                     clean_text = reconstruct(
                         filtered_text, current_tone, current_layer, profile, current_situation,
-                        whisper_low_conf=whisper_low_conf if current_layer >= 4 else None,
-                        whisper_disagreements=whisper_disagreements if current_layer >= 4 else None,
-                        speech_severity_mod=speech_metrics["severity_modifier"] if current_layer >= 4 else 0,
+                        whisper_low_conf=whisper_low_conf,
+                        whisper_disagreements=whisper_disagreements,
+                        speech_severity_mod=speech_metrics["severity_modifier"],
                         paralinguistic_events=para_events if paralinguistic_enabled else None,
                         prosodic_context=prosodic_ctx if prosodic_enabled else None
                     )
@@ -5549,7 +5579,7 @@ def pipeline():
                     log("Falcon: SKIPPED (text nearly identical -- no meaningful reconstruction)", "info")
                 else:
                     try:
-                        falcon_ok = falcon_validate(raw_text, clean_text, current_layer)
+                        falcon_ok = falcon_validate(raw_text, clean_text, current_layer, current_tone)
                     except Exception:
                         falcon_ok = True
                     if not falcon_ok:
@@ -5802,6 +5832,10 @@ def set_situation(situation):
         if preset.get("daf_ms"):
             daf_start(preset["daf_ms"])
             actions.append(f"DAF:{preset['daf_ms']}ms")
+        elif _daf_active and preset.get("daf_ms") == 0:
+            # Preset explicitly says "no DAF" (e.g., reading) — turn it off
+            daf_stop()
+            actions.append("DAF:OFF")
         elif situation == "default" and _daf_active:
             daf_stop()
             actions.append("DAF:OFF")
@@ -6860,11 +6894,8 @@ def cycle_tone():
     log(f"Tone: {current_tone}", "info")
 
 def cycle_layer():
-    global current_layer
     idx = LAYERS.index(current_layer)
-    current_layer = LAYERS[(idx + 1) % len(LAYERS)]
-    profile["preferences"]["layer"] = current_layer
-    save_profile(profile)
+    set_layer(LAYERS[(idx + 1) % len(LAYERS)])
     log(f"Layer: {current_layer} ({LAYER_NAMES[current_layer]})", "info")
 
 def print_stats():
@@ -6958,5 +6989,10 @@ print()
 threading.Thread(target=run_dashboard, daemon=True).start()
 
 _hook_start_time = time.time()
+# Open persistent audio stream so pre-roll buffer starts feeding immediately
+try:
+    _open_persistent_stream()
+except Exception as e:
+    log(f"Failed to open persistent stream: {e}", "error")
 keyboard.hook(on_key_event)
 keep_alive()
