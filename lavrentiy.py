@@ -5979,6 +5979,9 @@ def pipeline():
                     "as an ai", "as a language model",
                     "please ensure that you", "ensure that you construct",
                     "i'd be happy to help",
+                    "no output", "identified as hallucinated", "hallucinated filler",
+                    "no transcription", "unable to transcribe", "no speech detected",
+                    "[no output", "[hallucin", "[unable to",
                 ]
                 _leak_detected = False
                 for pattern in _LLM_LEAK_PATTERNS:
