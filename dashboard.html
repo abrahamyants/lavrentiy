@@ -2534,8 +2534,8 @@ body::before {
 </div>
 
 <div class="disconnected" id="disconnected">
-  <div class="msg">Connection Lost</div>
-  <div class="sub">Lavrentiy engine is not running</div>
+  <div class="msg" id="disconnected-msg">Starting engine</div>
+  <div class="sub" id="disconnected-sub">This takes about 30 seconds on first launch</div>
 </div>
 
 <div class="app" id="app">
@@ -3010,6 +3010,7 @@ const API='';
 let state={state:'idle',tone:'casual',layer:2,layer_name:'reconstruct',situation:'default',stats:{words:0,sessions:0,chars:0,start_time:Date.now()/1000,api_calls:0,falcon_rejects:0}};
 let profile={trigger_words:[],filler_words:[],vocabulary:[],corrections:{}};
 let sessions=[];let lastSessionCount=-1;let connected=true;let failCount=0;
+const _pageLoadTime=Date.now();let _everConnected=false;
 
 // ─── Firebase Auth ────────────────────────────────────────
 const firebaseConfig={
@@ -3561,7 +3562,7 @@ async function pollState(){
   const now=Date.now();
   try{
     const r=await fetch(API+'/api/state');const d=await r.json();state=d;failCount=0;
-    if(!connected){connected=true;document.getElementById('disconnected').classList.remove('show');}
+    if(!connected){connected=true;_everConnected=true;document.getElementById('disconnected').classList.remove('show');}
     updateUI();
     // Detect sign-in from engine state (auth page in system browser posts to /api/auth)
     if(d.auth&&d.auth.signed_in&&document.getElementById('auth-signed-out').style.display!=='none'){
@@ -3578,7 +3579,32 @@ async function pollState(){
     if(now-lastLogFetch>=1000){lastLogFetch=now;fetchLog();}
     if(now-lastLearnFetch>=3000){lastLearnFetch=now;fetchLearn();}
     if(state.state==='recording'&&now-lastPreviewFetch>=400){lastPreviewFetch=now;fetchPreview();}else if(state.state!=='recording'){document.getElementById('preview-bar').style.display='none';}
-  }catch(e){failCount++;if(failCount>3){connected=false;document.getElementById('disconnected').classList.add('show');}}
+  }catch(e){
+    failCount++;
+    const elapsed=(Date.now()-_pageLoadTime)/1000;
+    const graceSeconds=45;
+    if(!_everConnected && elapsed<graceSeconds){
+      // Startup grace period: show friendly "starting" message, not "connection lost"
+      if(failCount>2){
+        connected=false;
+        const d=document.getElementById('disconnected');
+        d.classList.add('show');
+        const msg=document.getElementById('disconnected-msg');
+        const sub=document.getElementById('disconnected-sub');
+        if(elapsed<10){msg.textContent='Starting engine';sub.textContent='Loading audio pipeline...';}
+        else if(elapsed<20){msg.textContent='Starting engine';sub.textContent='Initializing speech recognition...';}
+        else if(elapsed<30){msg.textContent='Almost ready';sub.textContent='Loading your voice profile...';}
+        else{msg.textContent='Almost ready';sub.textContent='Starting dashboard server...';}
+      }
+    } else if(failCount>3){
+      // Post-grace or mid-session disconnect: show real error
+      connected=false;
+      const d=document.getElementById('disconnected');
+      d.classList.add('show');
+      document.getElementById('disconnected-msg').textContent='Connection Lost';
+      document.getElementById('disconnected-sub').textContent='Lavrentiy engine is not running';
+    }
+  }
   setTimeout(pollState,250);
 }
 async function fetchPreview(){try{const r=await fetch(API+'/api/preview');const d=await r.json();const bar=document.getElementById('preview-bar');if(d.enabled&&d.active&&d.text){bar.style.display='block';const sw=d.scored_words||[];if(sw.length){document.getElementById('preview-text').innerHTML=sw.map(w=>{if(w.risk>=0.8)return`<span class="trigger-risk-high">${esc(w.word)}</span>`;if(w.risk>=0.6)return`<span class="trigger-risk">${esc(w.word)}</span>`;return esc(w.word);}).join(' ');}else{document.getElementById('preview-text').textContent=d.text;}}else{bar.style.display='none';}}catch(e){}}
