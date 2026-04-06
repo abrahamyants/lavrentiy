@@ -4311,11 +4311,19 @@ def _multi_temperature_vote(filepath, prompt_text):
       disagreements: list of {position, variants: [str, str, str]}
       all_texts: list of all transcriptions
     """
-    results = []
-    for temp in WHISPER_MULTI_TEMPS:
-        r = _whisper_single_call(filepath, temp, prompt_text)
-        results.append(r)
-        stats_inc("multi_temp_votes")
+    # Fire all 3 temperatures in PARALLEL — total time = max(call1, call2, call3)
+    # instead of sum(call1, call2, call3). Cuts 4-6 sec overhead to ~0-1 sec.
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    results = [None] * len(WHISPER_MULTI_TEMPS)
+    with ThreadPoolExecutor(max_workers=len(WHISPER_MULTI_TEMPS)) as pool:
+        futures = {
+            pool.submit(_whisper_single_call, filepath, temp, prompt_text): i
+            for i, temp in enumerate(WHISPER_MULTI_TEMPS)
+        }
+        for future in as_completed(futures):
+            idx = futures[future]
+            results[idx] = future.result()
+            stats_inc("multi_temp_votes")
 
     primary = results[0]  # temp=0 is authoritative by default
     all_texts = [r.get("text", "").strip() for r in results]
