@@ -4373,9 +4373,14 @@ def whisper_transcribe(filepath):
     with _stats_lock:
         n_calls_before = stats["api_calls"]
 
-    # Multi-temp voting only fires when paralinguistic + transcribe are BOTH on.
-    # That's the only combo that needs disagreement data. Otherwise 1 call = 1/3 cost.
-    _use_multi = WHISPER_MULTI_TEMP and paralinguistic_enabled and paralinguistic_transcribe
+    # Multi-temp voting fires when:
+    # 1) Paralinguistic + transcribe both ON (needs disagreement data for event detection)
+    # 2) Layer 4 (stutter) — disagreements help target disfluency artifacts in reconstruction
+    # Otherwise single call = 1/3 the cost.
+    _use_multi = WHISPER_MULTI_TEMP and (
+        (paralinguistic_enabled and paralinguistic_transcribe)
+        or current_layer >= 4
+    )
     if _use_multi:
         vote = _multi_temperature_vote(filepath, prompt_text)
         text = vote["text"]
