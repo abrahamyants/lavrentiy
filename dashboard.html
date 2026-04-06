@@ -2535,7 +2535,7 @@ body::before {
 
 <div class="disconnected" id="disconnected">
   <div class="msg" id="disconnected-msg">Starting engine</div>
-  <div class="sub" id="disconnected-sub">Takes about 15 seconds. Play while you wait.</div>
+  <div class="sub" id="disconnected-sub">Play Tic-Tac-Toe against young Garry Kasparov&#x2019;s bot</div>
   <div id="ttt-game" style="margin-top:20px;display:none">
     <div style="display:grid;grid-template-columns:repeat(3,64px);gap:4px;margin:0 auto;width:fit-content">
       <div class="ttt-cell" onclick="tttMove(0)"></div><div class="ttt-cell" onclick="tttMove(1)"></div><div class="ttt-cell" onclick="tttMove(2)"></div>
@@ -3669,7 +3669,7 @@ async function pollState(){
         const msg=document.getElementById('disconnected-msg');
         const sub=document.getElementById('disconnected-sub');
         msg.textContent='Starting engine';
-        sub.textContent='Takes about 15 seconds. Play while you wait.';
+        sub.textContent='Play Tic-Tac-Toe against young Garry Kasparov\u2019s bot';
       }
     } else if(failCount>3){
       // Post-grace or mid-session disconnect: show real error
