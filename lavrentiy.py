@@ -6342,7 +6342,7 @@ SITUATION_PRESETS = {
     # No auto-prep text — users load their own prep via the Prep tab when they
     # have actual intended text to compare against. Hardcoded template text
     # pollutes covert_profile with false avoidance pairs.
-    "high_stress": {"daf_ms": 100, "layer": 4, "paralinguistic": True, "prosodic": True},
+    "high_stress": {"layer": 4, "paralinguistic": True, "prosodic": True},  # DAF removed: user controls DAF manually, preset should not force echo on
     "reading": {"daf_ms": 0, "layer": 3},
 }
 
