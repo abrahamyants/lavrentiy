@@ -3846,9 +3846,13 @@ def daf_stop():
         if not _daf_active:
             return
         if _daf_stream:
-            _daf_stream.stop()
-            _daf_stream.close()
+            try:
+                _daf_stream.stop()
+                _daf_stream.close()
+            except Exception:
+                pass
             _daf_stream = None
+            time.sleep(0.1)  # let Windows audio device fully release
         _daf_active = False
         log("DAF stopped", "info")
 
