@@ -5961,6 +5961,29 @@ def pipeline():
                 used_fallback = True
             t_recon = time.time()
 
+            # Step 2.5: Catch LLM hallucinations in reconstruction output.
+            # GPT-4o sometimes echoes system prompt fragments or chatbot responses
+            # instead of returning cleaned speech. Detect and fall back to raw.
+            if clean_text and not used_fallback:
+                _recon_lower = clean_text.strip().lower()
+                _LLM_LEAK_PATTERNS = [
+                    "i'm sorry", "i apologize", "i didn't catch that",
+                    "could you please clarify", "could you please repeat",
+                    "could you say that again", "i'm not sure what you meant",
+                    "please clarify", "please provide more context",
+                    "i cannot assist", "i can't assist", "i can't help",
+                    "as an ai", "as a language model",
+                    "please ensure that you", "ensure that you construct",
+                    "i'd be happy to help",
+                ]
+                for pattern in _LLM_LEAK_PATTERNS:
+                    if _recon_lower.startswith(pattern) or pattern in _recon_lower:
+                        log(f"LLM leak detected in reconstruction: \"{clean_text[:80]}\" -- using raw", "warn")
+                        clean_text = filtered_text
+                        used_fallback = True
+                        stats_inc("llm_leaks")
+                        break
+
             # Step 3: Falcon (SAFE mode only, skip if fallback)
             if current_mode == "SAFE" and clean_text and not used_fallback:
                 if len(filtered_text.split()) <= 3:
