@@ -5863,31 +5863,23 @@ def pipeline():
         # in non-speech windows as hallucination. Whisper hallucinates 40.3% of the
         # time on silence (Barański et al., 2025). For stutterers, silence = blocks,
         # so we mark them rather than stripping blindly.
-        vad_segments = detect_speech_segments(audio_data, TARGET_RATE)
-        _vad_block_markers = []
-        if vad_segments and whisper_segments:
-            whisper_segments, _vad_block_markers = vad_filter_whisper_segments(
-                whisper_segments, vad_segments
-            )
-            if _vad_block_markers:
-                stripped_texts = [b["whisper_text"] for b in _vad_block_markers if b["whisper_text"]]
-                if stripped_texts:
-                    log(f"VAD: stripped {len(_vad_block_markers)} hallucinated segments from silence windows: {stripped_texts[:3]}", "info")
-                # Rebuild raw_text from cleaned segments only
-                raw_text = " ".join(s.get("text", "").strip() for s in whisper_segments).strip()
-
-            # Log VAD summary
+        # SileroVAD: LOG-ONLY mode — analyze speech/silence but don't strip yet.
+        # Once threshold is tuned for stuttered speech, switch to active filtering.
+        vad_segments = detect_speech_segments(audio_data, TARGET_RATE, threshold=0.5)
+        if vad_segments:
             speech_segs = [s for s in vad_segments if s["is_speech"]]
             silence_segs = [s for s in vad_segments if not s["is_speech"]]
             if silence_segs:
                 total_silence = sum(s["end_s"] - s["start_s"] for s in silence_segs)
                 total_audio = audio_data.shape[0] / TARGET_RATE
-                log(f"VAD: {len(speech_segs)} speech + {len(silence_segs)} silence segments ({total_silence:.1f}s/{total_audio:.1f}s silence)", "info")
-
-        if not raw_text.strip():
-            log("VAD + Whisper: no speech content detected", "warn")
-            set_state('idle')
-            return
+                log(f"VAD: {len(speech_segs)} speech + {len(silence_segs)} silence ({total_silence:.1f}s/{total_audio:.1f}s)", "info")
+                # Log what WOULD be stripped (for tuning), but don't actually strip
+                if whisper_segments:
+                    _, would_strip = vad_filter_whisper_segments(whisper_segments, vad_segments)
+                    if would_strip:
+                        texts = [b["whisper_text"] for b in would_strip if b["whisper_text"]]
+                        if texts:
+                            log(f"VAD: would strip (not stripping): {texts[:3]}", "info")
 
         # Step 1.5a: Strip Whisper training-data hallucinations (otter.ai credits,
         # "Thank you for watching", "Subscribe to my channel" etc.) — these leak
