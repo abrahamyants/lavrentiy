@@ -4686,6 +4686,170 @@ _INSERTION_RATIO = 0.35      # Insertions >=35% of errors -> sigh or throat-clea
 _last_paralinguistic_events = []
 
 
+# ── SileroVAD pre-filter ──────────────────────────────────────────
+# Whisper hallucinates 40.3% of the time on non-speech audio (Barański et al., 2025).
+# Stutterers produce blocks (silence) that Whisper fills with fabricated text.
+# Solution: run VAD BEFORE Whisper, cross-reference after. Whisper output that
+# maps to a non-speech VAD segment is flagged as hallucination.
+# SileroVAD runs via ONNX (~300KB model, ~5ms per second of audio on CPU).
+# Research: combined VAD + pattern filter drops WER from 104.8% to 6.5%.
+
+_vad_model = None
+_vad_model_path = Path(__file__).parent / "silero_vad.onnx"
+
+def _load_vad_model():
+    """Lazy-load SileroVAD ONNX model."""
+    global _vad_model
+    if _vad_model is not None:
+        return _vad_model
+    if not _vad_model_path.exists():
+        return None
+    try:
+        import onnxruntime as ort
+        _vad_model = ort.InferenceSession(
+            str(_vad_model_path),
+            providers=["CPUExecutionProvider"]
+        )
+        return _vad_model
+    except Exception as e:
+        log(f"SileroVAD load failed: {e}", "warn")
+        return None
+
+
+def detect_speech_segments(audio_data, sample_rate=16000, threshold=0.35,
+                           min_speech_ms=250, min_silence_ms=300):
+    """Run SileroVAD on audio, return list of speech/silence segments.
+
+    Returns list of dicts:
+      [{"start_s": 0.0, "end_s": 1.2, "is_speech": True},
+       {"start_s": 1.2, "end_s": 2.8, "is_speech": False},  # block candidate
+       {"start_s": 2.8, "end_s": 4.1, "is_speech": True}, ...]
+
+    threshold: VAD speech probability threshold (lower = more permissive,
+               set conservatively for stutterers — better to send a strained
+               sound to Whisper than to miss real speech)
+    min_speech_ms: minimum speech segment duration to keep
+    min_silence_ms: minimum silence duration to mark as block candidate
+    """
+    model = _load_vad_model()
+    if model is None:
+        return []  # no VAD model → skip, pipeline continues normally
+
+    try:
+        # SileroVAD expects 16kHz mono float32, processes in 512-sample chunks (32ms)
+        if sample_rate != 16000:
+            from scipy.signal import resample
+            audio_data = resample(audio_data, int(len(audio_data) * 16000 / sample_rate))
+            sample_rate = 16000
+
+        window_size = 512  # 32ms at 16kHz — SileroVAD's native chunk size
+        audio = audio_data.astype(numpy.float32)
+
+        # SileroVAD v5+ ONNX inputs: input(float[1, chunk]), state(float[2,1,128]), sr(int64 scalar)
+        state = numpy.zeros((2, 1, 128), dtype=numpy.float32)
+        sr = numpy.array(sample_rate, dtype=numpy.int64)
+
+        # Process chunks, collect per-chunk speech probability
+        probs = []
+        for i in range(0, len(audio) - window_size + 1, window_size):
+            chunk = audio[i:i + window_size].reshape(1, -1)
+            ort_inputs = {"input": chunk, "state": state, "sr": sr}
+            out = model.run(None, ort_inputs)
+            prob = float(out[0][0][0])
+            state = out[1]
+            probs.append(prob)
+
+        if not probs:
+            return []
+
+        # Convert chunk probabilities to segments
+        chunk_duration = window_size / sample_rate
+        segments = []
+        current_is_speech = probs[0] >= threshold
+        current_start = 0.0
+
+        for i, prob in enumerate(probs):
+            is_speech = prob >= threshold
+            if is_speech != current_is_speech:
+                end_s = i * chunk_duration
+                segments.append({
+                    "start_s": round(current_start, 3),
+                    "end_s": round(end_s, 3),
+                    "is_speech": current_is_speech,
+                })
+                current_start = end_s
+                current_is_speech = is_speech
+
+        # Close final segment
+        total_s = len(audio) / sample_rate
+        segments.append({
+            "start_s": round(current_start, 3),
+            "end_s": round(total_s, 3),
+            "is_speech": current_is_speech,
+        })
+
+        # Merge short segments (avoid fragmenting speech/silence)
+        merged = []
+        for seg in segments:
+            duration_ms = (seg["end_s"] - seg["start_s"]) * 1000
+            if seg["is_speech"] and duration_ms < min_speech_ms and merged:
+                # Too short to be real speech — merge with previous
+                merged[-1]["end_s"] = seg["end_s"]
+            elif not seg["is_speech"] and duration_ms < min_silence_ms and merged:
+                # Too short to be a real block — merge with previous
+                merged[-1]["end_s"] = seg["end_s"]
+            else:
+                merged.append(dict(seg))
+
+        return merged
+
+    except Exception as e:
+        log(f"VAD error: {e}", "warn")
+        return []  # fail open — pipeline continues without VAD
+
+
+def vad_filter_whisper_segments(whisper_segments, vad_segments):
+    """Cross-reference Whisper output segments with VAD segments.
+
+    For each Whisper segment that falls predominantly within a non-speech VAD
+    window, flag it as a hallucination candidate. This catches text that Whisper
+    fabricated during silence/blocks — the 40.3% hallucination rate on non-speech.
+
+    Returns (cleaned_segments, block_markers):
+      cleaned_segments: Whisper segments with hallucinated ones removed
+      block_markers: list of {"start_s", "end_s"} for detected blocks
+    """
+    if not vad_segments or not whisper_segments:
+        return whisper_segments, []
+
+    cleaned = []
+    block_markers = []
+
+    for wseg in whisper_segments:
+        w_start = wseg.get("start", 0)
+        w_end = wseg.get("end", 0)
+        w_mid = (w_start + w_end) / 2
+
+        # Find which VAD segment this Whisper segment's midpoint falls in
+        in_speech = True  # default: trust Whisper if VAD can't decide
+        for vseg in vad_segments:
+            if vseg["start_s"] <= w_mid <= vseg["end_s"]:
+                in_speech = vseg["is_speech"]
+                break
+
+        if in_speech:
+            cleaned.append(wseg)
+        else:
+            # Whisper produced text during a non-speech window → hallucination
+            block_markers.append({
+                "start_s": round(w_start, 2),
+                "end_s": round(w_end, 2),
+                "whisper_text": wseg.get("text", "").strip(),
+            })
+
+    return cleaned, block_markers
+
+
 def compute_hnr(audio_segment, sample_rate=16000):
     """Compute Harmonics-to-Noise Ratio via autocorrelation.
 
@@ -5694,6 +5858,36 @@ def pipeline():
             # Auto-suggest situation upgrade if prosodic stress is elevated
             if "auto_suggest" in speaker_state:
                 log(f"Situation suggestion: prosodic features suggest higher stress than '{current_situation}'", "info")
+
+        # Step 1.4b: SileroVAD cross-reference — flag Whisper output that falls
+        # in non-speech windows as hallucination. Whisper hallucinates 40.3% of the
+        # time on silence (Barański et al., 2025). For stutterers, silence = blocks,
+        # so we mark them rather than stripping blindly.
+        vad_segments = detect_speech_segments(audio_data, TARGET_RATE)
+        _vad_block_markers = []
+        if vad_segments and whisper_segments:
+            whisper_segments, _vad_block_markers = vad_filter_whisper_segments(
+                whisper_segments, vad_segments
+            )
+            if _vad_block_markers:
+                stripped_texts = [b["whisper_text"] for b in _vad_block_markers if b["whisper_text"]]
+                if stripped_texts:
+                    log(f"VAD: stripped {len(_vad_block_markers)} hallucinated segments from silence windows: {stripped_texts[:3]}", "info")
+                # Rebuild raw_text from cleaned segments only
+                raw_text = " ".join(s.get("text", "").strip() for s in whisper_segments).strip()
+
+            # Log VAD summary
+            speech_segs = [s for s in vad_segments if s["is_speech"]]
+            silence_segs = [s for s in vad_segments if not s["is_speech"]]
+            if silence_segs:
+                total_silence = sum(s["end_s"] - s["start_s"] for s in silence_segs)
+                total_audio = audio_data.shape[0] / TARGET_RATE
+                log(f"VAD: {len(speech_segs)} speech + {len(silence_segs)} silence segments ({total_silence:.1f}s/{total_audio:.1f}s silence)", "info")
+
+        if not raw_text.strip():
+            log("VAD + Whisper: no speech content detected", "warn")
+            set_state('idle')
+            return
 
         # Step 1.5a: Strip Whisper training-data hallucinations (otter.ai credits,
         # "Thank you for watching", "Subscribe to my channel" etc.) — these leak
