@@ -5962,8 +5962,12 @@ def pipeline():
             t_recon = time.time()
 
             # Step 2.5: Catch LLM hallucinations in reconstruction output.
-            # GPT-4o sometimes echoes system prompt fragments or chatbot responses
-            # instead of returning cleaned speech. Detect and fall back to raw.
+            # Two defenses:
+            # A) Pattern match: chatbot responses, system prompt fragments
+            # B) Length explosion: reconstruction should SHORTEN, not expand.
+            #    If output is 2.5x longer than input, GPT fabricated content.
+            #    (The "hallucination of the millennium" was a full fabricated
+            #    paragraph about GitHub/Whisper/README from a 5-word input.)
             if clean_text and not used_fallback:
                 _recon_lower = clean_text.strip().lower()
                 _LLM_LEAK_PATTERNS = [
@@ -5976,13 +5980,25 @@ def pipeline():
                     "please ensure that you", "ensure that you construct",
                     "i'd be happy to help",
                 ]
+                _leak_detected = False
                 for pattern in _LLM_LEAK_PATTERNS:
                     if _recon_lower.startswith(pattern) or pattern in _recon_lower:
                         log(f"LLM leak detected in reconstruction: \"{clean_text[:80]}\" -- using raw", "warn")
-                        clean_text = filtered_text
-                        used_fallback = True
-                        stats_inc("llm_leaks")
+                        _leak_detected = True
                         break
+
+                # Length explosion check: if GPT output is 2.5x longer than input,
+                # it fabricated content instead of cleaning speech
+                if not _leak_detected and len(filtered_text.split()) >= 3:
+                    _len_ratio = len(clean_text.split()) / max(1, len(filtered_text.split()))
+                    if _len_ratio > 2.5:
+                        log(f"LLM length explosion: {len(filtered_text.split())}w -> {len(clean_text.split())}w ({_len_ratio:.1f}x) -- using raw", "warn")
+                        _leak_detected = True
+
+                if _leak_detected:
+                    clean_text = filtered_text
+                    used_fallback = True
+                    stats_inc("llm_leaks")
 
             # Step 3: Falcon (SAFE mode only, skip if fallback)
             if current_mode == "SAFE" and clean_text and not used_fallback:
