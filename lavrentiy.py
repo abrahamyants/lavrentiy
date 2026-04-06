@@ -4373,7 +4373,10 @@ def whisper_transcribe(filepath):
     with _stats_lock:
         n_calls_before = stats["api_calls"]
 
-    if WHISPER_MULTI_TEMP:
+    # Multi-temp voting only fires when paralinguistic + transcribe are BOTH on.
+    # That's the only combo that needs disagreement data. Otherwise 1 call = 1/3 cost.
+    _use_multi = WHISPER_MULTI_TEMP and paralinguistic_enabled and paralinguistic_transcribe
+    if _use_multi:
         vote = _multi_temperature_vote(filepath, prompt_text)
         text = vote["text"]
         segments = vote["segments"]
