@@ -2258,6 +2258,11 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
         tone_rule,
         "Strip filler words (including non-English fillers like э, ну, ээ).",
         "Preserve FULL meaning. Do not summarize or add information.",
+        "Do NOT censor, sanitize, or soften the speaker's language. Profanity, slang, "
+        "harsh words, and strong language must be preserved EXACTLY as spoken. "
+        "If the speaker said 'fuck', output 'fuck'. If the speaker said 'steal', output 'steal'. "
+        "Do not substitute softer synonyms (e.g. do not change 'steal' to 'borrow'). "
+        "Your job is to clean up SPEECH ARTIFACTS, not to edit the speaker's word choices.",
         "Output ONLY the reconstructed text."
     ]
 
@@ -2652,20 +2657,61 @@ NATURAL_REPEATS = {
 # whispered audio, or low-SNR clips because Whisper's training set included
 # YouTube auto-captions with these credits/subscribe-nags.
 _WHISPER_HALLUCINATIONS = [
+    # Otter.ai / transcription service credits
     r"transcribed by\s+(https?://)?otter\.?ai",
     r"transcription by\s+castingwords",
     r"subtitles?\s+(by|courtesy of)\s+the?\s*amara\.org\s*community",
     r"subtitled by\s+the?\s*amara\.org\s*community",
+    r"captions by[^.]{0,30}",
+    r"transcript by[^.]{0,30}",
+    # YouTube endings
     r"thank you for watching[.!]?",
     r"thanks for watching[.!]?(\s+see you next time)?[.!]?",
+    r"thanks for listening[.!]?",
     r"don'?t forget to (like|subscribe)",
     r"(please\s+)?like and subscribe",
+    r"like,?\s*comment,?\s*(and\s+)?subscribe",
     r"subscribe to (my|our|the) channel",
-    r"click the bell icon",
-    r"see you (in the )?next (video|time)[.!]?",
-    r"^\s*thank you\.\s*$",  # lone "Thank you." (common hallucination over silence)
-    r"^\s*you\.\s*$",  # lone "you." (common block hallucination)
-    r"^\s*\.\s*$",  # lone period
+    r"click the bell (icon|button)?",
+    r"hit the (bell|notification)",
+    r"see you (in the )?next (video|episode|time)[.!]?",
+    r"leave a comment (below|down)",
+    r"check out (our|my) (website|channel|links?)",
+    r"follow (us|me) on",
+    # Legal / disclaimer boilerplate (leaked today: "please see the complete disclaimer at sites.google.com")
+    r"please see the complete disclaimer",
+    r"for more information,?\s*visit",
+    r"all rights reserved\.?",
+    r"copyright\s+\d{4}",
+    r"terms (and|&) conditions apply",
+    r"terms of service",
+    r"this content is (licensed|provided)",
+    r"visit (us|our website) at",
+    r"powered by[^.]{0,30}",
+    # Podcast / sponsor credits
+    r"sponsored by[^.]{0,40}",
+    r"brought to you by[^.]{0,40}",
+    r"this (episode|video|content) is",
+    r"available on all (platforms|streaming)",
+    # Music / sound markers
+    r"♪+\s*♪*",
+    r"\[music\]",
+    r"\[applause\]",
+    r"\[silence\]",
+    r"\[no audio\]",
+    r"\[laughter\]",
+    # Chatbot refusal leaks (safety net — catches LLM reconstruction output that's a refusal, not speech)
+    r"^I'?m sorry,?\s*I (can'?t|cannot|don'?t|didn'?t)\s+(assist|help|catch|understand)",
+    r"^(sorry,?\s+)?I didn'?t catch that",
+    r"^could you (please\s+)?(clarify|repeat|rephrase|say that again)",
+    r"^I'?m not sure what you meant",
+    r"^please (clarify|provide more context)",
+    # Minimal hallucinations (silence → single word)
+    r"^\s*thank you\.\s*$",
+    r"^\s*you\.\s*$",
+    r"^\s*\.\s*$",
+    # Stray URLs appearing out of nowhere (hallucinated from training data)
+    r"(?<!\S)https?://\S+(?!\S)",
 ]
 _WHISPER_HALLUCINATION_RE = re.compile(
     "|".join(f"({p})" for p in _WHISPER_HALLUCINATIONS),
