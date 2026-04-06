@@ -2534,6 +2534,7 @@ body::before {
 </div>
 
 <div class="disconnected" id="disconnected">
+  <div id="ttt-close" onclick="document.getElementById('disconnected').classList.remove('show')" style="display:none;position:absolute;top:16px;right:20px;font-size:22px;color:var(--text-muted);cursor:pointer;font-family:var(--mono);line-height:1;padding:4px 8px;border-radius:4px;transition:color 0.2s,background 0.2s" onmouseover="this.style.color='var(--text-bright)';this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.color='var(--text-muted)';this.style.background='none'">&times;</div>
   <div class="msg" id="disconnected-msg">Starting engine</div>
   <div class="sub" id="disconnected-sub">Play Tic-Tac-Toe against young Garry Kasparov&#x2019;s bot</div>
   <div id="ttt-game" style="margin-top:20px;display:none">
@@ -3622,20 +3623,18 @@ async function pollState(){
     const r=await fetch(API+'/api/state');const d=await r.json();state=d;failCount=0;
     if(!connected){
       connected=true;_everConnected=true;
-      // Don't rip the overlay away mid-game. Show "Ready!" and let user dismiss.
+      // Engine connected. Show X close button, let user finish their game.
       const msg=document.getElementById('disconnected-msg');
-      const sub=document.getElementById('disconnected-sub');
       const game=document.getElementById('ttt-game');
+      const closeBtn=document.getElementById('ttt-close');
       if(game && game.style.display==='block'){
-        // User was playing — show "Ready!" but let them finish or click to dismiss
+        // User was playing — show X button, change title to green "Ready!"
         msg.textContent='Engine ready!';
         msg.style.color='#4CAF50';
-        sub.textContent='Click here to start using Lavrentiy';
-        sub.style.cursor='pointer';
-        sub.onclick=function(){document.getElementById('disconnected').classList.remove('show');msg.style.color='';sub.onclick=null;sub.style.cursor='';};
-        // Also auto-dismiss after 5 seconds if they don't click
-        setTimeout(()=>{document.getElementById('disconnected').classList.remove('show');msg.style.color='';},5000);
+        closeBtn.style.display='block';
+        // No auto-dismiss. User closes when they're done.
       } else {
+        // No game active — dismiss immediately
         document.getElementById('disconnected').classList.remove('show');
       }
     }
