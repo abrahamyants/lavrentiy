@@ -35,10 +35,10 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
 
 [Files]
-; Source everything from portable/, exclude secrets + runtime logs + pycache
+; Source everything from installed copy, exclude runtime logs + pycache
 Source: "C:\Users\georg\AppData\Local\Programs\Lavrentiy\*"; DestDir: "{app}"; \
   Flags: ignoreversion recursesubdirs createallsubdirs; \
-  Excludes: "engine\api_key.txt,engine\gemini_api_key.txt,lav_err.txt,lav_out.txt,*\__pycache__\*,lavrentiy.pid"
+  Excludes: "lav_err.txt,lav_out.txt,*\__pycache__\*,lavrentiy.pid"
 
 [Icons]
 Name: "{group}\Lavrentiy"; Filename: "{app}\Lavrentiy.vbs"; IconFilename: "{app}\engine\lavrentiy.ico"; Comment: "Voice reconstruction engine"
