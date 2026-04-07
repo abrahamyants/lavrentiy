@@ -9040,12 +9040,6 @@ def on_key_event(event):
         if event.event_type == keyboard.KEY_DOWN:
             if not is_recording:
                 start_recording()
-                # Safety timeout: auto-stop if KEY_UP is missed by the OS
-                def _safety_stop():
-                    if is_recording:
-                        log("Safety timeout -- auto-stopping recording", "warn")
-                        stop_recording()
-                threading.Timer(180, _safety_stop).start()
         elif event.event_type == keyboard.KEY_UP:
             stop_recording()
 
@@ -9056,11 +9050,6 @@ def on_key_event(event):
         if event.event_type == keyboard.KEY_DOWN:
             if not is_recording and not is_command_mode:
                 start_command_recording()
-                def _cmd_safety_stop():
-                    if is_command_mode:
-                        log("Command Mode safety timeout -- auto-stopping", "warn")
-                        stop_command_recording()
-                threading.Timer(60, _cmd_safety_stop).start()
         elif event.event_type == keyboard.KEY_UP:
             if is_command_mode:
                 stop_command_recording()
