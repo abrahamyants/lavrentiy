@@ -2656,7 +2656,11 @@ NATURAL_REPEATS = {
 # Known Whisper training-data hallucinations. These leak in during silence,
 # whispered audio, or low-SNR clips because Whisper's training set included
 # YouTube auto-captions with these credits/subscribe-nags.
+# Custom patterns (45) + Bag of Hallucinations dataset (1,270) from
+# Barański et al. 2025 — "Investigation of Whisper ASR Hallucinations
+# Induced by Non-Speech Audio" (https://arxiv.org/abs/2501.11378)
 _WHISPER_HALLUCINATIONS = [
+    # Custom patterns
     # Otter.ai / transcription service credits
     r"transcribed by\s+(https?://)?otter\.?ai",
     r"transcription by\s+castingwords",
@@ -2712,6 +2716,1277 @@ _WHISPER_HALLUCINATIONS = [
     r"^\s*\.\s*$",
     # Stray URLs appearing out of nowhere (hallucinated from training data)
     r"(?<!\S)https?://\S+(?!\S)",
+    # BoH dataset — Barański et al. 2025 (1,270 phrases, occurrence count > 1)
+    re.escape('thank you'),  # 30054x
+    re.escape('thanks for watching'),  # 12525x
+    re.escape('so'),  # 4614x
+    re.escape('thank you for watching'),  # 3131x
+    re.escape('the'),  # 3030x
+    re.escape('you'),  # 2713x
+    re.escape('oh'),  # 2220x
+    re.escape('okay'),  # 1145x
+    re.escape('i m sorry'),  # 939x
+    re.escape('oh my god'),  # 836x
+    re.escape('bye'),  # 681x
+    re.escape('i m not sure what i m doing here'),  # 658x
+    re.escape('uh'),  # 639x
+    re.escape('meow'),  # 581x
+    re.escape('subtitles by the amara org community'),  # 560x
+    re.escape('ah'),  # 515x
+    re.escape('i'),  # 476x
+    re.escape('yeah'),  # 468x
+    re.escape('bang'),  # 466x
+    re.escape('beep'),  # 460x
+    re.escape('um'),  # 453x
+    re.escape('all right'),  # 402x
+    re.escape('a'),  # 381x
+    re.escape('ha'),  # 355x
+    re.escape('bf watch tv 2021'),  # 345x
+    re.escape('woof'),  # 340x
+    re.escape('wow'),  # 311x
+    re.escape('woo'),  # 289x
+    re.escape('beeping'),  # 264x
+    re.escape('rr'),  # 223x
+    re.escape('hello'),  # 207x
+    re.escape('no'),  # 202x
+    re.escape('is'),  # 200x
+    re.escape('boom'),  # 178x
+    re.escape('hmm'),  # 168x
+    re.escape('hey'),  # 157x
+    re.escape('i don t know'),  # 155x
+    re.escape('oh shit'),  # 118x
+    re.escape('what'),  # 115x
+    re.escape('i m not sure if i can do this'),  # 113x
+    re.escape('come on'),  # 113x
+    re.escape('foreign'),  # 106x
+    re.escape('yes'),  # 102x
+    re.escape('gerrard street'),  # 101x
+    re.escape('shh'),  # 101x
+    re.escape('i m not sure if i should be doing this but'),  # 99x
+    re.escape('me'),  # 94x
+    re.escape('whoa'),  # 90x
+    re.escape('oh yeah'),  # 88x
+    re.escape('aa'),  # 88x
+    re.escape('i m'),  # 88x
+    re.escape('i m not sure what to do with this'),  # 85x
+    re.escape('and'),  # 81x
+    re.escape('the end'),  # 78x
+    re.escape('bell rings'),  # 77x
+    re.escape('i m not going to let you get away with this'),  # 76x
+    re.escape('go'),  # 75x
+    re.escape('mm'),  # 72x
+    re.escape('oh i see'),  # 71x
+    re.escape('ruff'),  # 70x
+    re.escape('applause'),  # 69x
+    re.escape('transcript emily beynon'),  # 66x
+    re.escape('oh no'),  # 66x
+    re.escape('woo hoo'),  # 66x
+    re.escape('i m out'),  # 65x
+    re.escape('i m not sure why i m doing this'),  # 64x
+    re.escape('music'),  # 62x
+    re.escape('grr rr'),  # 61x
+    re.escape('aah'),  # 60x
+    re.escape('i m going to make a'),  # 59x
+    re.escape('welcome'),  # 56x
+    re.escape('vroom'),  # 56x
+    re.escape('i m not sure if i can get the'),  # 54x
+    re.escape('the train is now moving towards the central station'),  # 53x
+    re.escape('i m going to go ahead and do that'),  # 53x
+    re.escape('ow'),  # 53x
+    re.escape('huh'),  # 53x
+    re.escape('i m not sure if i should have used the shield'),  # 53x
+    re.escape('there we go'),  # 51x
+    re.escape('bark'),  # 51x
+    re.escape('screams'),  # 50x
+    re.escape('amen'),  # 49x
+    re.escape('hi'),  # 48x
+    re.escape('i m not sure if you can see it but i m not sure'),  # 44x
+    re.escape('let s go'),  # 44x
+    re.escape('a avaa'),  # 44x
+    re.escape('i love you'),  # 43x
+    re.escape('i m not sure what to do with this guy'),  # 43x
+    re.escape('grr'),  # 43x
+    re.escape('pfft'),  # 42x
+    re.escape('i m going to go get some food'),  # 40x
+    re.escape('i m not sure what to do here'),  # 40x
+    re.escape('baa'),  # 40x
+    re.escape('i m not sure if i can do it'),  # 39x
+    re.escape('woohoo'),  # 38x
+    re.escape('closed captioning provided by the imperial news network'),  # 37x
+    re.escape('birds chirp'),  # 37x
+    re.escape('i m going to go to bed'),  # 37x
+    re.escape('ding'),  # 36x
+    re.escape('oo'),  # 36x
+    re.escape('subtitles by steamteamextra'),  # 33x
+    re.escape('i m going to go get some water'),  # 33x
+    re.escape('run'),  # 33x
+    re.escape('ugh'),  # 32x
+    re.escape('i m not going to do it'),  # 32x
+    re.escape('fire'),  # 32x
+    re.escape('hello and welcome to another episode of the'),  # 31x
+    re.escape('noo oo'),  # 31x
+    re.escape('i m going to try to get the'),  # 30x
+    re.escape('here'),  # 30x
+    re.escape('hello everyone'),  # 29x
+    re.escape('good'),  # 29x
+    re.escape('click'),  # 29x
+    re.escape('ah you'),  # 29x
+    re.escape('i m not sure what that means'),  # 29x
+    re.escape('quack'),  # 29x
+    re.escape('whistle'),  # 28x
+    re.escape('help'),  # 28x
+    re.escape('thanks'),  # 27x
+    re.escape('we ll be right back'),  # 27x
+    re.escape('oh fuck'),  # 27x
+    re.escape('here we go'),  # 26x
+    re.escape('i m not sure if i can get through this'),  # 26x
+    re.escape('welcome to another episode of the'),  # 26x
+    re.escape('roar'),  # 26x
+    re.escape('so until next time bye for now'),  # 25x
+    re.escape('i m going to do it again'),  # 25x
+    re.escape('ready'),  # 25x
+    re.escape('woo oo'),  # 25x
+    re.escape('he'),  # 25x
+    re.escape('i m going to go to the bathroom'),  # 24x
+    re.escape('bleh'),  # 24x
+    re.escape('there'),  # 24x
+    re.escape('screaming'),  # 23x
+    re.escape('oh god'),  # 23x
+    re.escape('welcome to the'),  # 23x
+    re.escape('rawr'),  # 23x
+    re.escape('i m not sure if i should have used the'),  # 23x
+    re.escape('wee'),  # 23x
+    re.escape('now'),  # 22x
+    re.escape('i m not going to do that'),  # 21x
+    re.escape('transcription by eso translation by'),  # 21x
+    re.escape('nice'),  # 21x
+    re.escape('i m not sure if i should have used the shield but i m not sure if i should have used the shield'),  # 21x
+    re.escape('alright'),  # 21x
+    re.escape('ooh'),  # 21x
+    re.escape('ss'),  # 21x
+    re.escape('closed captioning provided by muhsen'),  # 20x
+    re.escape('oh man'),  # 20x
+    re.escape('there you go'),  # 20x
+    re.escape('i m going to go'),  # 20x
+    re.escape('shit'),  # 20x
+    re.escape('i m not sure what the hell that was'),  # 20x
+    re.escape('mwah'),  # 20x
+    re.escape('i m a'),  # 20x
+    re.escape('whee'),  # 20x
+    re.escape('hello everyone welcome to my channel'),  # 19x
+    re.escape('peace'),  # 19x
+    re.escape('baa a'),  # 19x
+    re.escape('z'),  # 19x
+    re.escape('hello friends'),  # 18x
+    re.escape('mm hmm'),  # 18x
+    re.escape('wah'),  # 18x
+    re.escape('ho'),  # 18x
+    re.escape('oh my gosh'),  # 17x
+    re.escape('i m going to go to the other side'),  # 17x
+    re.escape('st paul s church'),  # 17x
+    re.escape('i m going to go get some more'),  # 17x
+    re.escape('i m not sure if you can see this but i m not sure'),  # 17x
+    re.escape('i m going to get you'),  # 17x
+    re.escape('the station is a'),  # 17x
+    re.escape('i m going to go ahead and get my bag'),  # 16x
+    re.escape('fuck'),  # 16x
+    re.escape('that s it'),  # 16x
+    re.escape('and the'),  # 16x
+    re.escape('sigh'),  # 16x
+    re.escape('right'),  # 16x
+    re.escape('the game is based on the original game but the game is based on the original game'),  # 15x
+    re.escape('i m not sure if i should do this but i m not sure'),  # 15x
+    re.escape('yep'),  # 15x
+    re.escape('rr you'),  # 15x
+    re.escape('ee'),  # 15x
+    re.escape('i m not sure if i should have used the flashbang'),  # 15x
+    re.escape('tanya cushman reviewer s'),  # 14x
+    re.escape('one two three'),  # 14x
+    re.escape('laughter'),  # 14x
+    re.escape('i m going to go ahead and get the'),  # 14x
+    re.escape('stop'),  # 14x
+    re.escape('rr rip'),  # 14x
+    re.escape('up'),  # 14x
+    re.escape('exit 159'),  # 14x
+    re.escape('la'),  # 14x
+    re.escape('west yard'),  # 13x
+    re.escape('i m going to go get my dog'),  # 13x
+    re.escape('what are you doing'),  # 13x
+    re.escape('i m going to use a'),  # 13x
+    re.escape('good job'),  # 13x
+    re.escape('welcome to the new york city of new york'),  # 13x
+    re.escape('i m going to go to the next one'),  # 12x
+    re.escape('west ville'),  # 12x
+    re.escape('the you'),  # 12x
+    re.escape('i m going to go ahead and start the engine'),  # 12x
+    re.escape('uh you'),  # 12x
+    re.escape('bells chiming'),  # 12x
+    re.escape('mix well'),  # 12x
+    re.escape('i know'),  # 12x
+    re.escape('aww'),  # 12x
+    re.escape('look'),  # 12x
+    re.escape('boo'),  # 12x
+    re.escape('who oo'),  # 12x
+    re.escape('a aah'),  # 12x
+    re.escape('bum'),  # 12x
+    re.escape('i m going to make a hole in the bottom of the'),  # 11x
+    re.escape('i m going to go ahead and do it'),  # 11x
+    re.escape('i m going to take a quick break and then head back to the'),  # 11x
+    re.escape('yay'),  # 11x
+    re.escape('damn'),  # 11x
+    re.escape('good boy'),  # 11x
+    re.escape('one'),  # 11x
+    re.escape('oh wow'),  # 11x
+    re.escape('surah al fatihah'),  # 11x
+    re.escape('out'),  # 11x
+    re.escape('hup'),  # 11x
+    re.escape('waa a'),  # 11x
+    re.escape('i m not sure if i can get the gun'),  # 11x
+    re.escape('blah'),  # 11x
+    re.escape('thank you very much'),  # 10x
+    re.escape('the game is based on the original game but it s not the original game'),  # 10x
+    re.escape('i m so excited'),  # 10x
+    re.escape('outro music'),  # 10x
+    re.escape('oops'),  # 10x
+    re.escape('laughing'),  # 10x
+    re.escape('i m not going to let you go'),  # 10x
+    re.escape('let s see'),  # 10x
+    re.escape('pfftt tt'),  # 10x
+    re.escape('wait'),  # 10x
+    re.escape('cool'),  # 10x
+    re.escape('it'),  # 10x
+    re.escape('hoo oo'),  # 10x
+    re.escape('oh ho'),  # 10x
+    re.escape('i can t'),  # 10x
+    re.escape('e'),  # 10x
+    re.escape('oh my goodness'),  # 9x
+    re.escape('westminster bridge'),  # 9x
+    re.escape('sorry'),  # 9x
+    re.escape('i m going to try to get out of here'),  # 9x
+    re.escape('holy shit'),  # 9x
+    re.escape('i m going to try to get a better view of the water'),  # 9x
+    re.escape('3 2 1 go'),  # 9x
+    re.escape('oh boy'),  # 9x
+    re.escape('sing'),  # 9x
+    re.escape('i m not sure if this is the best way to do it but i m not sure if it s the best way to do it'),  # 9x
+    re.escape('the train is now moving towards the station'),  # 9x
+    re.escape('i m going to make a little'),  # 9x
+    re.escape('i m going to try to get it out of the way'),  # 9x
+    re.escape('so you'),  # 9x
+    re.escape('hi guys'),  # 9x
+    re.escape('i m going to have to do this again'),  # 9x
+    re.escape('jingle bells'),  # 9x
+    re.escape('siren blares'),  # 9x
+    re.escape('that'),  # 9x
+    re.escape('man'),  # 9x
+    re.escape('buzz z'),  # 9x
+    re.escape('i m not sure if that s the right word but i m not sure if that s the right word'),  # 9x
+    re.escape('oh you'),  # 9x
+    re.escape('down'),  # 9x
+    re.escape('i m not sure if this is the right way to do it but i m not sure if this is the right way'),  # 8x
+    re.escape('i m not sure if this is the best way to do it but i m not sure if this is the best way'),  # 8x
+    re.escape('i m not sure'),  # 8x
+    re.escape('transcribed by eso translated by'),  # 8x
+    re.escape('exit'),  # 8x
+    re.escape('woof woo'),  # 8x
+    re.escape('whistling'),  # 8x
+    re.escape('i got it'),  # 8x
+    re.escape('i m going to drink a glass of water'),  # 8x
+    re.escape('bee end'),  # 8x
+    re.escape('ss you'),  # 8x
+    re.escape('what s up'),  # 8x
+    re.escape('i m home'),  # 8x
+    re.escape('hmm mm'),  # 8x
+    re.escape('beautiful'),  # 8x
+    re.escape('on'),  # 8x
+    re.escape('shh you'),  # 8x
+    re.escape('uh huh'),  # 8x
+    re.escape('i don t know what to do'),  # 8x
+    re.escape('i m not'),  # 8x
+    re.escape('ma'),  # 8x
+    re.escape('water'),  # 8x
+    re.escape('dog'),  # 8x
+    re.escape('a thank you for watching'),  # 8x
+    re.escape('meh'),  # 8x
+    re.escape('welcome to the new york city of new york city'),  # 8x
+    re.escape('prediction'),  # 7x
+    re.escape('look at that'),  # 7x
+    re.escape('welcome to my channel'),  # 7x
+    re.escape('great'),  # 7x
+    re.escape('i m not sure if i m doing it right or not'),  # 7x
+    re.escape('i m not sure why i m doing this but i m not sure'),  # 7x
+    re.escape('i m not sure what i m doing here i m just going to keep going'),  # 7x
+    re.escape('i m going to make a hole in the bottom of the hole'),  # 7x
+    re.escape('fans roar'),  # 7x
+    re.escape('good girl'),  # 7x
+    re.escape('i m going to go ahead and start the recording'),  # 7x
+    re.escape('i m not a robot'),  # 7x
+    re.escape('we ll see you next time'),  # 7x
+    re.escape('captions by nicosubs'),  # 7x
+    re.escape('i m not sure what i m doing'),  # 7x
+    re.escape('fire in the hole'),  # 7x
+    re.escape('i m going to try to eat it with my hands'),  # 7x
+    re.escape('what the fuck'),  # 7x
+    re.escape('ee end'),  # 7x
+    re.escape('i m so sorry'),  # 7x
+    re.escape('got him'),  # 7x
+    re.escape('perfect'),  # 7x
+    re.escape('come here'),  # 7x
+    re.escape('i m not going to do it again'),  # 7x
+    re.escape('aagh'),  # 7x
+    re.escape('i m not sure what that is'),  # 7x
+    re.escape('i m going to make a sauce'),  # 7x
+    re.escape('oop'),  # 7x
+    re.escape('oh my'),  # 7x
+    re.escape('see'),  # 7x
+    re.escape('please'),  # 7x
+    re.escape('i m not sure if you can see the red dot on the screen'),  # 7x
+    re.escape('i m not sure if this is the best way to do it but i m not sure if this is the best way to do it'),  # 7x
+    re.escape('i m not sure if i m going to be able to do it'),  # 7x
+    re.escape('goal'),  # 7x
+    re.escape('i m not sure if i can get the key to the chest'),  # 7x
+    re.escape('this'),  # 7x
+    re.escape('who'),  # 7x
+    re.escape('do'),  # 7x
+    re.escape('oo ooh'),  # 7x
+    re.escape('boop'),  # 7x
+    re.escape('choo'),  # 7x
+    re.escape('noo'),  # 7x
+    re.escape('that s good'),  # 6x
+    re.escape('ta da'),  # 6x
+    re.escape('i m going to go ahead and turn it off'),  # 6x
+    re.escape('the first stage is a bit more difficult but it s not too bad'),  # 6x
+    re.escape('the city of london'),  # 6x
+    re.escape('i m not a monster'),  # 6x
+    re.escape('the first boss is a very important boss it s a very important boss'),  # 6x
+    re.escape('hi guys welcome back to my channel'),  # 6x
+    re.escape('i m going to try to get it'),  # 6x
+    re.escape('what the hell'),  # 6x
+    re.escape('hey guys'),  # 6x
+    re.escape('i m going to go to the right'),  # 6x
+    re.escape('arr rr'),  # 6x
+    re.escape('the city is a city of'),  # 6x
+    re.escape('i m going to make a hole in the bottom of the pot'),  # 6x
+    re.escape('the city of san francisco'),  # 6x
+    re.escape('i m going to take a picture of the'),  # 6x
+    re.escape('i m going to go to the beach'),  # 6x
+    re.escape('i m not sure what to do'),  # 6x
+    re.escape('bzz z'),  # 6x
+    re.escape('i m going to make a new house'),  # 6x
+    re.escape('oh yes'),  # 6x
+    re.escape('uh oh'),  # 6x
+    re.escape('oh hey'),  # 6x
+    re.escape('well'),  # 6x
+    re.escape('good night'),  # 6x
+    re.escape('3 2 1'),  # 6x
+    re.escape('i m going to make a new one'),  # 6x
+    re.escape('audio jungle'),  # 6x
+    re.escape('pop'),  # 6x
+    re.escape('i m not sure if this is the right way to do it but i m not sure if this is the right way to do it'),  # 6x
+    re.escape('cut'),  # 6x
+    re.escape('oof'),  # 6x
+    re.escape('i am'),  # 6x
+    re.escape('tanya cushman reviewer'),  # 6x
+    re.escape('a aah you'),  # 6x
+    re.escape('get him'),  # 6x
+    re.escape('whoop'),  # 6x
+    re.escape('caw'),  # 6x
+    re.escape('watch'),  # 6x
+    re.escape('woo ooh'),  # 6x
+    re.escape('psst'),  # 6x
+    re.escape('haa a'),  # 6x
+    re.escape('audiojungle'),  # 6x
+    re.escape('i m not sure if i can get the sword'),  # 6x
+    re.escape('baby'),  # 6x
+    re.escape('more'),  # 6x
+    re.escape('eh'),  # 6x
+    re.escape('i m a man'),  # 6x
+    re.escape('i m not sure if i can get the headshot'),  # 6x
+    re.escape('i m not sure if this is the best way to do it but i m sure it s the best way to do it'),  # 5x
+    re.escape('the water is very clear'),  # 5x
+    re.escape('st louis railway station'),  # 5x
+    re.escape('i m not sure what that means but i m sure it means something'),  # 5x
+    re.escape('beep be'),  # 5x
+    re.escape('i m going to try to get it out'),  # 5x
+    re.escape('i m not sure if this is the best way to do it but i m sure it s the easiest way to do it'),  # 5x
+    re.escape('happy birthday to you'),  # 5x
+    re.escape('so here we go'),  # 5x
+    re.escape('let s see what we have here'),  # 5x
+    re.escape('showed up at the boy s house three months before he was born and his family has kept him for good luck in fact the boy says he loves a python like a sister'),  # 5x
+    re.escape('there it is'),  # 5x
+    re.escape('satsang with mooji'),  # 5x
+    re.escape('so let s go'),  # 5x
+    re.escape('excuse me'),  # 5x
+    re.escape('i m going to go ahead and get the camera'),  # 5x
+    re.escape('i m going to put it in the oven'),  # 5x
+    re.escape('i m going to show you how to do it'),  # 5x
+    re.escape('jack link s jerky feed your wild side'),  # 5x
+    re.escape('al fatiha'),  # 5x
+    re.escape('hello i m a newbie'),  # 5x
+    re.escape('i m not sure if this is the right way to do it but i m not sure if this'),  # 5x
+    re.escape('why'),  # 5x
+    re.escape('oh okay'),  # 5x
+    re.escape('closed captioning by kris brandhagen com'),  # 5x
+    re.escape('i m going to go ahead and get out of here'),  # 5x
+    re.escape('captioned by cotter captioning services'),  # 5x
+    re.escape('i m going to go ahead and get some water'),  # 5x
+    re.escape('captions by gettranscribed com'),  # 5x
+    re.escape('good morning'),  # 5x
+    re.escape('i m going to do a little bit of a'),  # 5x
+    re.escape('i m not sure what the hell i m doing here'),  # 5x
+    re.escape('ouch'),  # 5x
+    re.escape('pshh'),  # 5x
+    re.escape('hello i m a'),  # 5x
+    re.escape('hit'),  # 5x
+    re.escape('i m going to try to get the camera to focus'),  # 5x
+    re.escape('i m not sure why i m doing this but i m not sure why i m doing this'),  # 5x
+    re.escape('i m not going to die'),  # 5x
+    re.escape('shoot'),  # 5x
+    re.escape('action'),  # 5x
+    re.escape('what the'),  # 5x
+    re.escape('clink'),  # 5x
+    re.escape('buh'),  # 5x
+    re.escape('laughs'),  # 5x
+    re.escape('watch out'),  # 5x
+    re.escape('i m coming'),  # 5x
+    re.escape('i m gonna go to bed'),  # 5x
+    re.escape('three'),  # 5x
+    re.escape('mark'),  # 5x
+    re.escape('i m going to take a picture of you'),  # 5x
+    re.escape('very good'),  # 5x
+    re.escape('right now'),  # 5x
+    re.escape('i m ready'),  # 5x
+    re.escape('you know'),  # 5x
+    re.escape('i m out of here'),  # 5x
+    re.escape('yahoo'),  # 5x
+    re.escape('baah'),  # 5x
+    re.escape('bzz'),  # 5x
+    re.escape('hold on'),  # 5x
+    re.escape('i m not sure if i should have used the shield here'),  # 5x
+    re.escape('i m not sure if i can get the key'),  # 5x
+    re.escape('alleluia'),  # 5x
+    re.escape('power'),  # 5x
+    re.escape('bow'),  # 5x
+    re.escape('woo hoo woo'),  # 5x
+    re.escape('womp'),  # 5x
+    re.escape('i m not sure if i can get the gun to move'),  # 5x
+    re.escape('i m not sure if i can get the right angle here'),  # 5x
+    re.escape('i m going to go ahead and get out of the way'),  # 4x
+    re.escape('i m going to take a look at the'),  # 4x
+    re.escape('subtitles by subtitle workshop'),  # 4x
+    re.escape('i m not sure if i can do this but i m not sure if i can do this'),  # 4x
+    re.escape('oh the bat'),  # 4x
+    re.escape('bang b  b'),  # 4x
+    re.escape('hello i m going to make a'),  # 4x
+    re.escape('ew'),  # 4x
+    re.escape('i m going to take a picture of the sea'),  # 4x
+    re.escape('lhc kowloon'),  # 4x
+    re.escape('i m not sure if i m going to be able to do this'),  # 4x
+    re.escape('are you ready'),  # 4x
+    re.escape('call someone call hey someone s dead'),  # 4x
+    re.escape('go ahead'),  # 4x
+    re.escape('hey everybody'),  # 4x
+    re.escape('oh i m sorry'),  # 4x
+    re.escape('hello friends welcome to my channel'),  # 4x
+    re.escape('hiya'),  # 4x
+    re.escape('whew'),  # 4x
+    re.escape('and that s it'),  # 4x
+    re.escape('intro'),  # 4x
+    re.escape('i m not sure if i can get him to move'),  # 4x
+    re.escape('i m not sure if i can get him to move but i m not sure if i can get him to move'),  # 4x
+    re.escape('strasbourg'),  # 4x
+    re.escape('i m not sure if i m doing this right or not but i m not sure if i m doing this right or not'),  # 4x
+    re.escape('st louis'),  # 4x
+    re.escape('i m not sure if i should be doing this'),  # 4x
+    re.escape('i ll see you next time'),  # 4x
+    re.escape('i m going to go get him'),  # 4x
+    re.escape('to'),  # 4x
+    re.escape('i m going to go ahead and get a little bit of water'),  # 4x
+    re.escape('hello i m going to show you how to make a'),  # 4x
+    re.escape('kowloon'),  # 4x
+    re.escape('i m not sure if i m doing this right or not'),  # 4x
+    re.escape('dancing and prancing in jingle bell square in the frosty air what a bright time it s arrived'),  # 4x
+    re.escape('i m going to make a hole in the bottom of the box'),  # 4x
+    re.escape('i m not sure why i m doing this but i m not why i m doing this but  i m not sure why'),  # 4x
+    re.escape('so i m going to go ahead and do that'),  # 4x
+    re.escape('i m going to go ahead and eat this'),  # 4x
+    re.escape('the train is now departing for the next station'),  # 4x
+    re.escape('hello everyone welcome back to my channel'),  # 4x
+    re.escape('aum'),  # 4x
+    re.escape('i love it'),  # 4x
+    re.escape('wahoo'),  # 4x
+    re.escape('i m going to go to the right side of the road'),  # 4x
+    re.escape('ahh'),  # 4x
+    re.escape('i m going to take a quick break and then head back to the hotel'),  # 4x
+    re.escape('a drink combine different things now your life is more exciting are you ready fast breakfast'),  # 4x
+    re.escape('he is such a powerful animal oh my god look at the size of that this is the pacific rattlesnake holy cow this is the biggest one i ve ever seen really and he s actually really powerful so we have to keep him safe'),  # 4x
+    re.escape('ah i m'),  # 4x
+    re.escape('10'),  # 4x
+    re.escape('hi baby'),  # 4x
+    re.escape('i m not sure if i m doing the right thing here'),  # 4x
+    re.escape('i hope you enjoyed this video'),  # 4x
+    re.escape('free'),  # 4x
+    re.escape('i don t know what to say'),  # 4x
+    re.escape('i m on it'),  # 4x
+    re.escape('i m going to try to get it out of the water'),  # 4x
+    re.escape('back'),  # 4x
+    re.escape('nothing'),  # 4x
+    re.escape('get it'),  # 4x
+    re.escape('yes it is'),  # 4x
+    re.escape('what is this'),  # 4x
+    re.escape('i m going to the beach'),  # 4x
+    re.escape('oh look at that'),  # 4x
+    re.escape('i m not alone'),  # 4x
+    re.escape('i m going to try to eat it all at once'),  # 4x
+    re.escape('awesome'),  # 4x
+    re.escape('right here'),  # 4x
+    re.escape('another one'),  # 4x
+    re.escape('boo oo'),  # 4x
+    re.escape('i m going to go ahead and get a little bit of a look at the'),  # 4x
+    re.escape('i m going to make a little bit of a'),  # 4x
+    re.escape('tsk'),  # 4x
+    re.escape('a ah you'),  # 4x
+    re.escape('bang b'),  # 4x
+    re.escape('i m going to go to the other side of the road'),  # 4x
+    re.escape('very nice'),  # 4x
+    re.escape('die'),  # 4x
+    re.escape('mom'),  # 4x
+    re.escape('i m going to take a little bit of this'),  # 4x
+    re.escape('moo'),  # 4x
+    re.escape('right there'),  # 4x
+    re.escape('da'),  # 4x
+    re.escape('i m back'),  # 4x
+    re.escape('raargh'),  # 4x
+    re.escape('i m not sure if you can hear me'),  # 4x
+    re.escape('yee end'),  # 4x
+    re.escape('what s that'),  # 4x
+    re.escape('nom'),  # 4x
+    re.escape('hello and welcome back to another episode of the'),  # 4x
+    re.escape('i m not sure if i should have used the weapon'),  # 4x
+    re.escape('the train is coming'),  # 4x
+    re.escape('i m going to try to get the door open'),  # 4x
+    re.escape('huff'),  # 4x
+    re.escape('i m going to the bathroom'),  # 4x
+    re.escape('rats'),  # 4x
+    re.escape('moo oo'),  # 4x
+    re.escape('red'),  # 4x
+    re.escape('i m not sure if i should have used the same move here'),  # 4x
+    re.escape('i m not sure if i can get the gun  gun'),  # 4x
+    re.escape('i m going to try to get the car out of the way'),  # 4x
+    re.escape('we are'),  # 4x
+    re.escape('get up'),  # 4x
+    re.escape('i m not sure if i can get the gun to fire'),  # 4x
+    re.escape('hush'),  # 4x
+    re.escape('aha'),  # 4x
+    re.escape('hello everyone i m going to show you how to make a beautiful'),  # 4x
+    re.escape('really an airplane really'),  # 3x
+    re.escape('see ya'),  # 3x
+    re.escape('good evening'),  # 3x
+    re.escape('i m going to go get it'),  # 3x
+    re.escape('i m not a'),  # 3x
+    re.escape('see you next time'),  # 3x
+    re.escape('london road'),  # 3x
+    re.escape('i m going to have to get out of here'),  # 3x
+    re.escape('ok'),  # 3x
+    re.escape('stop it'),  # 3x
+    re.escape('what is it'),  # 3x
+    re.escape('i m going to start with the'),  # 3x
+    re.escape('look at this'),  # 3x
+    re.escape('check it out'),  # 3x
+    re.escape('i m not sure if this is the best way to do this but i m not sure if this'),  # 3x
+    re.escape('the first stage is the most difficult stage in the game'),  # 3x
+    re.escape('chanting'),  # 3x
+    re.escape('christmas'),  # 3x
+    re.escape('you re welcome'),  # 3x
+    re.escape('god'),  # 3x
+    re.escape('i think love and rain are similar'),  # 3x
+    re.escape('come on baby'),  # 3x
+    re.escape('1055 to the outside line light mail'),  # 3x
+    re.escape('i m not sure if you can see the sound of the'),  # 3x
+    re.escape('keloland'),  # 3x
+    re.escape('i m going to go ahead and get my camera'),  # 3x
+    re.escape('i m going to try to get a better view of the area'),  # 3x
+    re.escape('i m going to go get my bike'),  # 3x
+    re.escape('what was that'),  # 3x
+    re.escape('the plate'),  # 3x
+    re.escape('i m not sure if this is the best way to do this but i m not sure if this is the best way'),  # 3x
+    re.escape('i m going to take a picture'),  # 3x
+    re.escape('i m scared'),  # 3x
+    re.escape('that was awesome'),  # 3x
+    re.escape('double kill'),  # 3x
+    re.escape('what the fuck is this'),  # 3x
+    re.escape('i m going to eat the rest of the chicken'),  # 3x
+    re.escape('what is that'),  # 3x
+    re.escape('the i'),  # 3x
+    re.escape('there he is'),  # 3x
+    re.escape('recording'),  # 3x
+    re.escape('i m going to make a hole in the bottom of the pipe'),  # 3x
+    re.escape('i don t think so'),  # 3x
+    re.escape('what s going on'),  # 3x
+    re.escape('don t move'),  # 3x
+    re.escape('wipe vo'),  # 3x
+    re.escape('baa b'),  # 3x
+    re.escape('kill'),  # 3x
+    re.escape('i m dead'),  # 3x
+    re.escape('wait a minute'),  # 3x
+    re.escape('one more'),  # 3x
+    re.escape('stayallday com'),  # 3x
+    re.escape('there they are'),  # 3x
+    re.escape('so yeah'),  # 3x
+    re.escape('i m done'),  # 3x
+    re.escape('i m not sure if this is the right way to do it but i m sure it s the right way to do it'),  # 3x
+    re.escape('hit him'),  # 3x
+    re.escape('i need'),  # 3x
+    re.escape('ready yeah'),  # 3x
+    re.escape('i m not sure if i can get it'),  # 3x
+    re.escape('and then what you can do you can mix things together you can add the ham you don t have time to make breakfast you re going to have an exciting life now breakfast to go you re going to love my nuts watch this you can do everything in the cover'),  # 3x
+    re.escape('help me'),  # 3x
+    re.escape('the train is now departing for the central line'),  # 3x
+    re.escape('lhc'),  # 3x
+    re.escape('jingle bells to sing and to sing'),  # 3x
+    re.escape('there he goes'),  # 3x
+    re.escape('i m not sure if you can see it but i m not sure if you can see it'),  # 3x
+    re.escape('start'),  # 3x
+    re.escape('welcome to the first episode of the series'),  # 3x
+    re.escape('i m going to go ahead and wash my hands'),  # 3x
+    re.escape('fuck you'),  # 3x
+    re.escape('i m going to try to eat it with a spoon'),  # 3x
+    re.escape('david'),  # 3x
+    re.escape('i m not sure if you can see the'),  # 3x
+    re.escape('the name zafira means pure religion muslim'),  # 3x
+    re.escape('one two three four five six seven eight'),  # 3x
+    re.escape('oreo jungle'),  # 3x
+    re.escape('westminster road'),  # 3x
+    re.escape('king street'),  # 3x
+    re.escape('i m tired'),  # 3x
+    re.escape('that s pretty cool'),  # 3x
+    re.escape('i ll be right back'),  # 3x
+    re.escape('that s right'),  # 3x
+    re.escape('i m not sure if i should do this but i m not sure if'),  # 3x
+    re.escape('i m going to go to the front'),  # 3x
+    re.escape('i don t know what i m doing'),  # 3x
+    re.escape('yes sir'),  # 3x
+    re.escape('nah'),  # 3x
+    re.escape('i m not sure if this is the best way to end the game but i m sure it s worth it'),  # 3x
+    re.escape('the american pronunciation guide presents how to pronounce the american pronunciation guide'),  # 3x
+    re.escape('add the onion and garlic and stir fry'),  # 3x
+    re.escape('i m going to go ahead and get the car'),  # 3x
+    re.escape('the station is located on the right'),  # 3x
+    re.escape('playstation'),  # 3x
+    re.escape('this is the'),  # 3x
+    re.escape('i m going to take a deep breath'),  # 3x
+    re.escape('i m a little bit scared'),  # 3x
+    re.escape('oh sorry'),  # 3x
+    re.escape('siren wails'),  # 3x
+    re.escape('welcome to the channel'),  # 3x
+    re.escape('stand clear of the doors please'),  # 3x
+    re.escape('i m going to take a quick look at the map'),  # 3x
+    re.escape('i m going to go ahead and get some more wood'),  # 3x
+    re.escape('i m going to go ahead and get the gun'),  # 3x
+    re.escape('i m going to show you how to make a'),  # 3x
+    re.escape('where we get it feeling good with our hands make it feel as best we can with our hands and then we ll go ahead and prime our basement and after we put the primer on'),  # 3x
+    re.escape('wheeze'),  # 3x
+    re.escape('i m going to take a quick break and then head back to the road'),  # 3x
+    re.escape('i m going to go ahead and get a little bit of a'),  # 3x
+    re.escape('audio'),  # 3x
+    re.escape('so long'),  # 3x
+    re.escape('i m going to try to get a better view of the road'),  # 3x
+    re.escape('oh crap'),  # 3x
+    re.escape('jingle bell'),  # 3x
+    re.escape('i m gonna go'),  # 3x
+    re.escape('30 seconds'),  # 3x
+    re.escape('don t burn me down'),  # 3x
+    re.escape('comes home now she s been gone'),  # 3x
+    re.escape('yo'),  # 3x
+    re.escape('relax'),  # 3x
+    re.escape('over there'),  # 3x
+    re.escape('oh baby'),  # 3x
+    re.escape('and then'),  # 3x
+    re.escape('oh ha'),  # 3x
+    re.escape('and there you go'),  # 3x
+    re.escape('i m going to go ahead and get the water'),  # 3x
+    re.escape('maybe'),  # 3x
+    re.escape('okay yeah'),  # 3x
+    re.escape('this is a'),  # 3x
+    re.escape('i want to see you'),  # 3x
+    re.escape('rr thank you'),  # 3x
+    re.escape('just like that'),  # 3x
+    re.escape('woo oh'),  # 3x
+    re.escape('i do'),  # 3x
+    re.escape('raah'),  # 3x
+    re.escape('away'),  # 3x
+    re.escape('i got'),  # 3x
+    re.escape('k'),  # 3x
+    re.escape('where are you going'),  # 3x
+    re.escape('i don t care'),  # 3x
+    re.escape('i m not sure if i should have used the shield to get the shield but i m not sure if i should have used the shield to get the shield i m not sure if i should have used the shield to get the shield'),  # 3x
+    re.escape('i m going to try to get the key'),  # 3x
+    re.escape('remember'),  # 3x
+    re.escape('again'),  # 3x
+    re.escape('it s okay'),  # 3x
+    re.escape('raa a'),  # 3x
+    re.escape('it is'),  # 3x
+    re.escape('whee ee'),  # 3x
+    re.escape('no it s not'),  # 3x
+    re.escape('hi everyone'),  # 3x
+    re.escape('nya'),  # 3x
+    re.escape('this procedure safely in this video we will show one or more of these icons to alert you when to use caution'),  # 3x
+    re.escape('happy'),  # 3x
+    re.escape('it s good'),  # 3x
+    re.escape('let me go'),  # 3x
+    re.escape('sizzling'),  # 3x
+    re.escape('he end'),  # 3x
+    re.escape('pew'),  # 3x
+    re.escape('r i p'),  # 3x
+    re.escape('rap'),  # 3x
+    re.escape('sighs'),  # 3x
+    re.escape('nope'),  # 3x
+    re.escape('i m not going to let you do this to me'),  # 3x
+    re.escape('oh yeah oh'),  # 3x
+    re.escape('daddy'),  # 3x
+    re.escape('i m going to turn it off'),  # 3x
+    re.escape('mommy'),  # 3x
+    re.escape('welcome to the new york city of the'),  # 3x
+    re.escape('roo oo'),  # 3x
+    re.escape('heh'),  # 3x
+    re.escape('i 10'),  # 3x
+    re.escape('back up'),  # 3x
+    re.escape('bop'),  # 3x
+    re.escape('wee we'),  # 3x
+    re.escape('i m not sure if i should have used the bomb'),  # 3x
+    re.escape('uh ah'),  # 3x
+    re.escape('work'),  # 3x
+    re.escape('welcome to the city of toronto'),  # 3x
+    re.escape('i m not sure if i should have used the shield to get the shield but i m not sure if i should have used the shield to get the shield i m not sure if i should have used the shield'),  # 3x
+    re.escape('wom'),  # 3x
+    re.escape('bird'),  # 3x
+    re.escape('welcome to the kodak'),  # 3x
+    re.escape('boomm mm'),  # 3x
+    re.escape('bleep'),  # 3x
+    re.escape('enough'),  # 3x
+    re.escape('i m not sure if i should have used the shield to get the shield but i m not sure if i should have used the shield'),  # 3x
+    re.escape('eww'),  # 3x
+    re.escape('i m not sure if i can get the gun i m not sure if i can get the'),  # 3x
+    re.escape('honk'),  # 3x
+    re.escape('ah ha'),  # 3x
+    re.escape('vrr rr'),  # 3x
+    re.escape('yeah oh'),  # 3x
+    re.escape('and uh'),  # 3x
+    re.escape('ba da'),  # 3x
+    re.escape('tick'),  # 3x
+    re.escape('hoo'),  # 3x
+    re.escape('hello i m a little bit of a'),  # 3x
+    re.escape('welcome to the city of new york city'),  # 3x
+    re.escape('hello i m going to show you how to make a beautiful'),  # 3x
+    re.escape('welcome to the city of new york'),  # 3x
+    re.escape('i m not sure if i can get the red button'),  # 3x
+    re.escape('sir'),  # 2x
+    re.escape('i m going to go get my wife'),  # 2x
+    re.escape('one two three go'),  # 2x
+    re.escape('ah happy birthday'),  # 2x
+    re.escape('point'),  # 2x
+    re.escape('i don t know what s going on'),  # 2x
+    re.escape('this is unit 88 we are in route over'),  # 2x
+    re.escape('wee hoo hmm mwah wah ooh wah'),  # 2x
+    re.escape('i can t believe it'),  # 2x
+    re.escape('let s see here'),  # 2x
+    re.escape('all right good'),  # 2x
+    re.escape('raawr'),  # 2x
+    re.escape('stuff'),  # 2x
+    re.escape('this is it'),  # 2x
+    re.escape('good stuff'),  # 2x
+    re.escape('i m going to take a quick break and then i ll be back'),  # 2x
+    re.escape('god damn'),  # 2x
+    re.escape('happy new year'),  # 2x
+    re.escape('stupid oh i ain t got no'),  # 2x
+    re.escape('i m going to try the chicken'),  # 2x
+    re.escape('the first stage is a bit more difficult'),  # 2x
+    re.escape('woof woo  woo  woo'),  # 2x
+    re.escape('home'),  # 2x
+    re.escape('the bridge'),  # 2x
+    re.escape('good night oh dear we re back to that again good night'),  # 2x
+    re.escape('i m not sure if you can see this but i m not sure if'),  # 2x
+    re.escape('i m going to try to get a good shot'),  # 2x
+    re.escape('i m not sure if i can get the shield'),  # 2x
+    re.escape('i m going to go eat this'),  # 2x
+    re.escape('i m not sure if i should have used the flashbang but i m not sure if i should have used the flashbang'),  # 2x
+    re.escape('good sir'),  # 2x
+    re.escape('the station is on the right'),  # 2x
+    re.escape('silence'),  # 2x
+    re.escape('and the game s'),  # 2x
+    re.escape('there she is'),  # 2x
+    re.escape('holy smokin toledos man'),  # 2x
+    re.escape('birds chirping'),  # 2x
+    re.escape('i m going to go ahead and do this'),  # 2x
+    re.escape('i like you'),  # 2x
+    re.escape('hooray'),  # 2x
+    re.escape('not bad'),  # 2x
+    re.escape('i m going to take a sip of this'),  # 2x
+    re.escape('i m going to try it'),  # 2x
+    re.escape('oh i m going to die'),  # 2x
+    re.escape('huff h'),  # 2x
+    re.escape('let s do this'),  # 2x
+    re.escape('om'),  # 2x
+    re.escape('are'),  # 2x
+    re.escape('add the sauce'),  # 2x
+    re.escape('i m going to try to get a better view of the'),  # 2x
+    re.escape('0'),  # 2x
+    re.escape('the file over the edge and that s going to remove any of the old hook and make sure it s nice and straight the next step is to remove the mill marks'),  # 2x
+    re.escape('and there you have it'),  # 2x
+    re.escape('ee end subtitles by the mara or community'),  # 2x
+    re.escape('good shot'),  # 2x
+    re.escape('i m going to have to do this'),  # 2x
+    re.escape('are you done'),  # 2x
+    re.escape('hey everybody it s ian at karatemart com'),  # 2x
+    re.escape('that was good'),  # 2x
+    re.escape('i m not sure if you can see it but i m not'),  # 2x
+    re.escape('i love you too'),  # 2x
+    re.escape('quite some market'),  # 2x
+    re.escape('this is the first time i ve played this game'),  # 2x
+    re.escape('hello my name is i m a'),  # 2x
+    re.escape('i m happy now'),  # 2x
+    re.escape('200'),  # 2x
+    re.escape('the engine is a 4 cylinder 2 0 litre 2 0  2 0'),  # 2x
+    re.escape('raa ah you'),  # 2x
+    re.escape('rr running'),  # 2x
+    re.escape('blee end'),  # 2x
+    re.escape('oh ah'),  # 2x
+    re.escape('to get that bolt tight you can buy the mach ratchet alone for just 19 99 or buy it included with the mach series 53 piece mechanics tool'),  # 2x
+    re.escape('al fatihah'),  # 2x
+    re.escape('i m going to put it in the'),  # 2x
+    re.escape('incredibly the snake is incapable of freeing itself from the grip of the'),  # 2x
+    re.escape('i m going to have to go back to the'),  # 2x
+    re.escape('buzzer'),  # 2x
+    re.escape('lhc kxl3'),  # 2x
+    re.escape('i m not sure if i m doing this right'),  # 2x
+    re.escape('wah w  w'),  # 2x
+    re.escape('how are you'),  # 2x
+    re.escape('of'),  # 2x
+    re.escape('the train is now moving towards the'),  # 2x
+    re.escape('take cover'),  # 2x
+    re.escape('i m going to go ahead and get my'),  # 2x
+    re.escape('i did it'),  # 2x
+    re.escape('yeah baby'),  # 2x
+    re.escape('i m not a fucking idiot'),  # 2x
+    re.escape('to the'),  # 2x
+    re.escape('jingle bell rock'),  # 2x
+    re.escape('that is how you sharpen a rip saw that s just touching up a rip saw'),  # 2x
+    re.escape('i m going to go back'),  # 2x
+    re.escape('so this is the first step'),  # 2x
+    re.escape('quack qu'),  # 2x
+    re.escape('3 4 5 6 7 8 9 10'),  # 2x
+    re.escape('humming'),  # 2x
+    re.escape('i see you'),  # 2x
+    re.escape('i guess i ll call as woodcock back the all blacks with a 10 bet and we ll show you 20 on their next game make your call at tabsport co nz'),  # 2x
+    re.escape('i think it s a big one'),  # 2x
+    re.escape('ksrt'),  # 2x
+    re.escape('all right then'),  # 2x
+    re.escape('i m going to go ahead and get the key'),  # 2x
+    re.escape('i m not sure if i m going to be able to get through this'),  # 2x
+    re.escape('bee end subtitles by the mara or community'),  # 2x
+    re.escape('so i m going to cut it into small pieces'),  # 2x
+    re.escape('yo what is up guys it is coby back here with another black ops 2 tips and tricks video and'),  # 2x
+    re.escape('with'),  # 2x
+    re.escape('five four three two one'),  # 2x
+    re.escape('i like this'),  # 2x
+    re.escape('hit it'),  # 2x
+    re.escape('mee'),  # 2x
+    re.escape('oh nice'),  # 2x
+    re.escape('the train is a bit slow but it s a good sign that the train is moving'),  # 2x
+    re.escape('the water is very deep'),  # 2x
+    re.escape('who is it'),  # 2x
+    re.escape('i m the best'),  # 2x
+    re.escape('the train that took my baby'),  # 2x
+    re.escape('take this boy'),  # 2x
+    re.escape('i can t do it'),  # 2x
+    re.escape('look out'),  # 2x
+    re.escape('pretty cool huh'),  # 2x
+    re.escape('that s okay'),  # 2x
+    re.escape('i m going to try to get a better view of the city'),  # 2x
+    re.escape('use sponges on the rounded areas and sand as though you are shining shoes with a buffing action'),  # 2x
+    re.escape('get down'),  # 2x
+    re.escape('chant'),  # 2x
+    re.escape('sound'),  # 2x
+    re.escape('clear'),  # 2x
+    re.escape('twice'),  # 2x
+    re.escape('i m going to eat this one'),  # 2x
+    re.escape('western block'),  # 2x
+    re.escape('wadi w  w'),  # 2x
+    re.escape('can you hear that'),  # 2x
+    re.escape('i m not sure if this is the right way to do it but i m not sure if this is the right way to do it you'),  # 2x
+    re.escape('shut up'),  # 2x
+    re.escape('i m going to turn it on'),  # 2x
+    re.escape('ah thank you for watching'),  # 2x
+    re.escape('see you'),  # 2x
+    re.escape('yeah i was just ready to stay'),  # 2x
+    re.escape('he is a retired salesman named dominic how are you baby and together they have become the talk of echo park so how was your night maria'),  # 2x
+    re.escape('i m gonna go down the walk now'),  # 2x
+    re.escape('it s beautiful'),  # 2x
+    re.escape('doors are closing'),  # 2x
+    re.escape('cheers'),  # 2x
+    re.escape('good dog'),  # 2x
+    re.escape('ok let s go'),  # 2x
+    re.escape('good day'),  # 2x
+    re.escape('that really got that shit'),  # 2x
+    re.escape('the first two in the third'),  # 2x
+    re.escape('i m not sure if i should have used the gun'),  # 2x
+    re.escape('tap'),  # 2x
+    re.escape('i m not sure what that was'),  # 2x
+    re.escape('in comparison with the american analog it seemed to be a fluff the weapon was strictly classified'),  # 2x
+    re.escape('like that'),  # 2x
+    re.escape('i m sorry for the bad audio'),  # 2x
+    re.escape('bye now'),  # 2x
+    re.escape('hello everyone welcome to another episode of my channel'),  # 2x
+    re.escape('so there you go'),  # 2x
+    re.escape('complete'),  # 2x
+    re.escape('first'),  # 2x
+    re.escape('i m going to eat this'),  # 2x
+    re.escape('2'),  # 2x
+    re.escape('hello it s me again your sabine blumenthal'),  # 2x
+    re.escape('hi thank you'),  # 2x
+    re.escape('bravo'),  # 2x
+    re.escape('so there it is'),  # 2x
+    re.escape('open'),  # 2x
+    re.escape('many of you know me and trust me thermocell my protection from mosquitoes'),  # 2x
+    re.escape('oh that hurt'),  # 2x
+    re.escape('white'),  # 2x
+    re.escape('hey baby'),  # 2x
+    re.escape('did you see that zoe'),  # 2x
+    re.escape('i m going to make a fire'),  # 2x
+    re.escape('damn it'),  # 2x
+    re.escape('i m going to go ahead and get started'),  # 2x
+    re.escape('hmm ah'),  # 2x
+    re.escape('i m not sure if i can get it to move'),  # 2x
+    re.escape('as well'),  # 2x
+    re.escape('there it goes'),  # 2x
+    re.escape('done'),  # 2x
+    re.escape('i m not sure what to do with this one'),  # 2x
+    re.escape('what the hell is that'),  # 2x
+    re.escape('jesus'),  # 2x
+    re.escape('i m going to go ahead and get the car out of the way'),  # 2x
+    re.escape('get out of here'),  # 2x
+    re.escape('i m not sure if i should have used the shield to get the shield but i m not sure if i should have used the shield to get the shield'),  # 2x
+    re.escape('cutting perspex can be difficult as the swarf welds itself back behind the blade'),  # 2x
+    re.escape('the first'),  # 2x
+    re.escape('not yet'),  # 2x
+    re.escape('stamford street'),  # 2x
+    re.escape('fire damn'),  # 2x
+    re.escape('o'),  # 2x
+    re.escape('i m not sure if i can get through this door'),  # 2x
+    re.escape('curry leaves'),  # 2x
+    re.escape('i m going to go to the'),  # 2x
+    re.escape('the water is very cold'),  # 2x
+    re.escape('oh please'),  # 2x
+    re.escape('we are now at upper session road'),  # 2x
+    re.escape('i don t want us to be apart'),  # 2x
+    re.escape('i m going to try to get a little bit of a'),  # 2x
+    re.escape('i m going to go to the next store'),  # 2x
+    re.escape('like so'),  # 2x
+    re.escape('nice fish'),  # 2x
+    re.escape('are you kidding me'),  # 2x
+    re.escape('or thank you for watching'),  # 2x
+    re.escape('i m gonna kill you'),  # 2x
+    re.escape('i m not sure what i m doing here i m just going to go back to the first level'),  # 2x
+    re.escape('jingle bell rock jingle bell chime and jingle bell time dancing and prancing in jingle bell square'),  # 2x
+    re.escape('chirping'),  # 2x
+    re.escape('one minute'),  # 2x
+    re.escape('a ahahaa'),  # 2x
+    re.escape('i m going to make a fried egg'),  # 2x
+    re.escape('i don t care if froggy greenback was'),  # 2x
+    re.escape('oh there you go'),  # 2x
+    re.escape('a hahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahahah'),  # 2x
+    re.escape('holy cow'),  # 2x
+    re.escape('i m not sure if i can do this but i m going to try'),  # 2x
+    re.escape('i m not sure if this is the right way to go but i m sure it s the right way to go'),  # 2x
+    re.escape('i m not sure if you can see it'),  # 2x
+    re.escape('fuck off'),  # 2x
+    re.escape('device'),  # 2x
+    re.escape('and here we go'),  # 2x
+    re.escape('i m not sure if i m going to be able to do this but i m going to try'),  # 2x
+    re.escape('shoo'),  # 2x
+    re.escape('shake it like a'),  # 2x
+    re.escape('so i m going to go ahead and start the engine'),  # 2x
+    re.escape('i m going to start the engine'),  # 2x
+    re.escape('i m not sure if i should have used the shield to get the shield but i m not sure if i should have used the shield to get the shield i m not sure if i should have used the shield to get the shield but i m not sure if i should have used the shield'),  # 2x
+    re.escape('i can t see anything'),  # 2x
+    re.escape('i m not sure if this is the right way to do this but i m not sure if this is the right way'),  # 2x
+    re.escape('i m going to use this one'),  # 2x
+    re.escape('i m going to use the same method for the other two'),  # 2x
+    re.escape('holy crap'),  # 2x
+    re.escape('pa'),  # 2x
+    re.escape('i m not sure if you can see the music'),  # 2x
+    re.escape('bounce'),  # 2x
+    re.escape('hell yeah'),  # 2x
+    re.escape('st mary s church'),  # 2x
+    re.escape('the city of san francisco is home to the'),  # 2x
+    re.escape('jack'),  # 2x
+    re.escape('perfect meal it chops minces purees'),  # 2x
+    re.escape('st paul s cathedral'),  # 2x
+    re.escape('i m going to go ahead and get the camera out of the way'),  # 2x
+    re.escape('three two one go'),  # 2x
+    re.escape('i m going to use a plastic bag to hold the plastic bag'),  # 2x
+    re.escape('demonstrate sympathetic response'),  # 2x
+    re.escape('he is such a powerful animal oh my god look at the size of that this is the pacific rattlesnake holy cow this is the biggest one i ve ever seen really and he s actually really powerful so we have to keep him'),  # 2x
+    re.escape('it s raining'),  # 2x
+    re.escape('so this is the'),  # 2x
+    re.escape('you can do it'),  # 2x
+    re.escape('good luck'),  # 2x
+    re.escape('hello hmm'),  # 2x
+    re.escape('jingle bells jingle all the way oh what fun it is to ride in a one horse open sleigh'),  # 2x
+    re.escape('coming up'),  # 2x
+    re.escape('i m going to fry the chicken breast'),  # 2x
+    re.escape('a hit combines different things now your life is more exciting are you ready fast breakfast'),  # 2x
+    re.escape('sweet'),  # 2x
+    re.escape('yeah man'),  # 2x
+    re.escape('lwxw is a'),  # 2x
+    re.escape('who answered the call of the wild they don t care about little owls even if they are in danger we gotta stop this construction once and for all we re the only ones who care we re the only ones who know'),  # 2x
+    re.escape('kill mosquitoes kill malaria'),  # 2x
+    re.escape('16'),  # 2x
+    re.escape('the city of the'),  # 2x
+    re.escape('oh i m getting a little bit of a headache here'),  # 2x
+    re.escape('buzz'),  # 2x
+    re.escape('show'),  # 2x
+    re.escape('i don t want to do that'),  # 2x
+    re.escape('the train is now moving to the right'),  # 2x
+    re.escape('hello and welcome back to another episode of the super mario bros 3d world'),  # 2x
+    re.escape('i m going to go ahead and get the engine running'),  # 2x
+    re.escape('like'),  # 2x
+    re.escape('i m ready to go'),  # 2x
+    re.escape('three two one'),  # 2x
+    re.escape('siren'),  # 2x
+    re.escape('look at that oh that was good'),  # 2x
+    re.escape('go for it'),  # 2x
+    re.escape('i m going to go to the next room'),  # 2x
+    re.escape('i m not sure if i can get a better view of the city from here'),  # 2x
+    re.escape('sorry about that'),  # 2x
+    re.escape('has gps guidance built in the 155mm weapon is fired like a regular howitzer shell'),  # 2x
+    re.escape('beep be  be'),  # 2x
+    re.escape('all right let s go'),  # 2x
+    re.escape('test'),  # 2x
+    re.escape('merry christmas'),  # 2x
+    re.escape('mind the gap'),  # 2x
+    re.escape('next stop canet de mar'),  # 2x
+    re.escape('station tussenwater you are in metro line b towards the netherlands station tussenwater'),  # 2x
+    re.escape('ha haa a'),  # 2x
+    re.escape('please mind the gap between the train and the platform'),  # 2x
+    re.escape('thank you so much for watching'),  # 2x
+    re.escape('old tonga garage'),  # 2x
+    re.escape('copyright 2020 mooji media ltd all rights reserved'),  # 2x
+    re.escape('hello i m going to show you how to make a little'),  # 2x
+    re.escape('so uh'),  # 2x
+    re.escape('hello i m going to show you how to make a good'),  # 2x
+    re.escape('i m going to add a little bit of salt'),  # 2x
+    re.escape('pee end'),  # 2x
+    re.escape('hee'),  # 2x
+    re.escape('oh that s good'),  # 2x
+    re.escape('so we have a'),  # 2x
+    re.escape('i m going to take a short break and then i ll be back'),  # 2x
+    re.escape('that s'),  # 2x
+    re.escape('i m going to cut it into small pieces'),  # 2x
+    re.escape('i m going to go ahead and get that'),  # 2x
+    re.escape('i m not afraid'),  # 2x
+    re.escape('doors closing please stand clear'),  # 2x
+    re.escape('and they don t go pray for me and they don t go'),  # 2x
+    re.escape('i m going to go ahead and start the video'),  # 2x
+    re.escape('w ajo way 1st st'),  # 2x
+    re.escape('i m going to take a short break and then i ll come back'),  # 2x
+    re.escape('i m going to start with the first one'),  # 2x
+    re.escape('that are being judged today at the show ah'),  # 2x
+    re.escape('try it'),  # 2x
+    re.escape('mungu wa kawalani na ndio mana ngurue wa kike upata siku zake kawaida ndio mana'),  # 2x
+    re.escape('add the fried vegetables'),  # 2x
+    re.escape('oh good'),  # 2x
+    re.escape('yeah it s really nice'),  # 2x
+    re.escape('oh thank you'),  # 2x
+    re.escape('the royal palace of london'),  # 2x
+    re.escape('turtle go away'),  # 2x
+    re.escape('crr'),  # 2x
+    re.escape('pp'),  # 2x
+    re.escape('march of the resistance'),  # 2x
+    re.escape('mawr'),  # 2x
+    re.escape('morning'),  # 2x
+    re.escape('i m gonna go to the bathroom'),  # 2x
+    re.escape('i m not sure if i can get the camera to focus'),  # 2x
+    re.escape('allah is the greatest'),  # 2x
+    re.escape('i m not sure if this is the best way to do this but i m not sure if this is the best way to do this'),  # 2x
+    re.escape('who let the dogs out'),  # 2x
+    re.escape('i m not going to lie to you'),  # 2x
+    re.escape('time'),  # 2x
+    re.escape('woo ha'),  # 2x
+    re.escape('i m not sure if i can get the weapon out of the way'),  # 2x
+    re.escape('i m not sure if i can get the door open'),  # 2x
+    re.escape('hmm oh'),  # 2x
+    re.escape('i m going to try to get the right one'),  # 2x
+    re.escape('roomm mm'),  # 2x
+    re.escape('i m not sure if i can get the key to the door'),  # 2x
+    re.escape('to you'),  # 2x
+    re.escape('i m on my way'),  # 2x
+    re.escape('i m going home'),  # 2x
+    re.escape('headshot'),  # 2x
+    re.escape('i m gonna do it'),  # 2x
+    re.escape('cute'),  # 2x
+    re.escape('p'),  # 2x
+    re.escape('i m not sure if i can get the speed up here'),  # 2x
+    re.escape('i m going to use the power of the'),  # 2x
+    re.escape('welcome to the city of in the city of london in the'),  # 2x
+    re.escape('i m not sure if this is the right way to go but i m not sure if this is the right way to go'),  # 2x
+    re.escape('we are the champions'),  # 2x
+    re.escape('molly'),  # 2x
+    re.escape('1 2 3'),  # 2x
+    re.escape('i m not sure if i should have used the shield to get the shield i m not sure if i should have used the shield'),  # 2x
+    re.escape('i m going to try to get the first one'),  # 2x
+    re.escape('7'),  # 2x
+    re.escape('call someone hey someone s dead'),  # 2x
+    re.escape('waa'),  # 2x
+    re.escape('move'),  # 2x
+    re.escape('huh what'),  # 2x
+    re.escape('in'),  # 2x
+    re.escape('ah shh'),  # 2x
+    re.escape('jump'),  # 2x
+    re.escape('i m not sure what the point of this is'),  # 2x
+    re.escape('chop'),  # 2x
+    re.escape('oh no oh'),  # 2x
+    re.escape('next'),  # 2x
+    re.escape('i m going to go now'),  # 2x
+    re.escape('ah wow'),  # 2x
+    re.escape('i m not gonna let you get away with this'),  # 2x
+    re.escape('we wish you a merry christmas'),  # 2x
+    re.escape('yeah go'),  # 2x
+    re.escape('oh my lord'),  # 2x
+    re.escape('i m not sure if i can get the fire to go away'),  # 2x
+    re.escape('this is a live'),  # 2x
+    re.escape('that s the jingle bell rock'),  # 2x
+    re.escape('ah a'),  # 2x
+    re.escape('mm you'),  # 2x
+    re.escape('hook'),  # 2x
+    re.escape('i m crying'),  # 2x
+    re.escape('what yeah'),  # 2x
+    re.escape('much'),  # 2x
+    re.escape('a subtitles by the mara or community'),  # 2x
+    re.escape('ryan'),  # 2x
+    re.escape('speed'),  # 2x
+    re.escape('i m down'),  # 2x
+    re.escape('ew26'),  # 2x
+    re.escape('1 2 3 4 5 6 7 8 9 10'),  # 2x
+    re.escape('i m not sure if i can get the first one'),  # 2x
+    re.escape('zip'),  # 2x
+    re.escape('no yeah'),  # 2x
+    re.escape('one two'),  # 2x
+    re.escape('i m not sure if i should have used the same move in the first place i m not sure if i should have used the'),  # 2x
+    re.escape('ch'),  # 2x
+    re.escape('a thank you'),  # 2x
+    re.escape('bzzt'),  # 2x
+    re.escape('tree'),  # 2x
+    re.escape('mwaah'),  # 2x
+    re.escape('45'),  # 2x
+    re.escape('oh huh'),  # 2x
+    re.escape('the fuck'),  # 2x
+    re.escape('please subscribe'),  # 2x
+    re.escape('coming out'),  # 2x
+    re.escape('pretty good'),  # 2x
+    re.escape('wee oo'),  # 2x
+    re.escape('john'),  # 2x
+    re.escape('i m not sure if i can get the gun  gun i m not sure if i can get the'),  # 2x
+    re.escape('i m a monster'),  # 2x
+    re.escape('bump'),  # 2x
+    re.escape('you win'),  # 2x
+    re.escape('a oh'),  # 2x
+    re.escape('i m going to die'),  # 2x
+    re.escape('it s time to go'),  # 2x
+    re.escape('i m going to go home'),  # 2x
+    re.escape('i m going to use a little bit of this'),  # 2x
+    re.escape('almost'),  # 2x
+    re.escape('that s awesome'),  # 2x
+    re.escape('i m not sure if this is the right way to do it but i m not sure if i can do it'),  # 2x
+    re.escape('no oh'),  # 2x
+    re.escape('life'),  # 2x
+    re.escape('the city of san francisco is a city of'),  # 2x
+    re.escape('kaa a'),  # 2x
+    re.escape('ga'),  # 2x
+    re.escape('wow awesome'),  # 2x
+    re.escape('half'),  # 2x
+    re.escape('eight'),  # 2x
+    re.escape('hello i m going to the airport to get my ticket'),  # 2x
+    re.escape('jesus christ'),  # 2x
+    re.escape('i m not gonna let you go'),  # 2x
+    re.escape('hello i m a newbie i m going to make a new video'),  # 2x
+    re.escape('i m going to'),  # 2x
+    re.escape('i m alive'),  # 2x
+    re.escape('i m not sure if i can get the fire on him'),  # 2x
+    re.escape('go yeah'),  # 2x
+    re.escape('na'),  # 2x
+    re.escape('ff'),  # 2x
+    re.escape('allah'),  # 2x
+    re.escape('film it'),  # 2x
+    re.escape('i m going to eat it with a spoon'),  # 2x
+    re.escape('the game is based on the original game but it s not the first time it s been released'),  # 2x
+    re.escape('yeah woo'),  # 2x
+    re.escape('the station is a station'),  # 2x
+    re.escape('incredible'),  # 2x
+    re.escape('i m here to help'),  # 2x
+    re.escape('you ve got it all'),  # 2x
+    re.escape('delivery'),  # 2x
+    re.escape('burn'),  # 2x
+    re.escape('fire good job boys good job'),  # 2x
+    re.escape('welcome to the world of tire today we are going to show you how to make a tire'),  # 2x
+    re.escape('welcome to the north shore of the'),  # 2x
+    re.escape('chirp'),  # 2x
+    re.escape('why don t you'),  # 2x
+    re.escape('no what'),  # 2x
+    re.escape('lame'),  # 2x
+    re.escape('next stop'),  # 2x
+    re.escape('the train is now departing for the central station'),  # 2x
+    re.escape('rr run'),  # 2x
+    re.escape('bell'),  # 2x
+    re.escape('40'),  # 2x
+    re.escape('maa'),  # 2x
+    re.escape('and i'),  # 2x
+    re.escape('i m going to make a little bit of a mess'),  # 2x
+    re.escape('loading'),  # 2x
+    re.escape('fast'),  # 2x
+    re.escape('ah mm'),  # 2x
+    re.escape('kiss'),  # 2x
+    re.escape('whoosh'),  # 2x
+    re.escape('change'),  # 2x
+    re.escape('how long'),  # 2x
+    re.escape('brr rr'),  # 2x
+    re.escape('so um'),  # 2x
+    re.escape('get out'),  # 2x
+    re.escape('breathe'),  # 2x
+    re.escape('wok'),  # 2x
+    re.escape('pow'),  # 2x
+    re.escape('i m waiting for you'),  # 2x
+    re.escape('bleeh'),  # 2x
+    re.escape('be'),  # 2x
+    re.escape('hulk smash'),  # 2x
+    re.escape('i think'),  # 2x
+    re.escape('30'),  # 2x
+    re.escape('cuckoo'),  # 2x
+    re.escape('1 2 3 4'),  # 2x
+    re.escape('raarr rr'),  # 2x
+    re.escape('we are the'),  # 2x
+    re.escape('dun'),  # 2x
+    re.escape('howl'),  # 2x
+    re.escape('bok'),  # 2x
+    re.escape('hello i m'),  # 2x
+    re.escape('uu'),  # 2x
+    re.escape('nn'),  # 2x
+    re.escape('thump'),  # 2x
+    re.escape('welcome to the video of the first video of the'),  # 2x
+    re.escape('i m going to take a picture of the city'),  # 2x
+    re.escape('hello everyone i m going to show you how to make a'),  # 2x
+    re.escape('hello i m a student at the university of toronto'),  # 2x
+    re.escape('i m not going to be a doctor'),  # 2x
+    re.escape('hello everyone beautiful'),  # 2x
+    re.escape('tsk t'),  # 2x
+    re.escape('welcome to the new york city'),  # 2x
+    re.escape('big'),  # 2x
+    re.escape('you have faith'),  # 2x
+    re.escape('fight'),  # 2x
+    re.escape('i don t know if you can hear it'),  # 2x
+    re.escape('mouth'),  # 2x
+    re.escape('wub'),  # 2x
+    re.escape('hurr'),  # 2x
 ]
 _WHISPER_HALLUCINATION_RE = re.compile(
     "|".join(f"({p})" for p in _WHISPER_HALLUCINATIONS),
