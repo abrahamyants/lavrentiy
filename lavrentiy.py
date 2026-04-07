@@ -7437,6 +7437,67 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     if f:
                         try: os.unlink(f.name)
                         except OSError: pass
+        elif self.path == '/api/reconstruct_test':
+            # Cross-platform parity test endpoint: feed raw text into pipeline, skip mic/Whisper.
+            # POST {"raw": "I I I w-want to go", "tone": "casual", "layer": 2, "situation": "default"}
+            # Returns same structure as mobile /api/transcribe but without audio path.
+            if not body or not isinstance(body.get('raw'), str):
+                self._json({"error": "Send {\"raw\": \"text\", \"tone\"?: \"...\", \"layer\"?: N, \"situation\"?: \"...\"}"})
+                return
+            try:
+                import time as _t
+                _t0 = _t.time()
+                raw_text = body['raw']
+                tone = body.get('tone', current_tone)
+                layer = body.get('layer', current_layer)
+                situation = body.get('situation', current_situation)
+                # Strip disfluencies (same as main pipeline)
+                filtered = strip_disfluencies(raw_text)
+                clean_text = filtered
+                falcon_ok = True
+                if layer >= 2:
+                    try:
+                        clean_text = reconstruct(filtered, tone, layer, profile, situation=situation)
+                    except Exception as e:
+                        log(f"reconstruct_test failed: {e}", "error")
+                        clean_text = filtered
+                    # Falcon validation (SAFE mode)
+                    try:
+                        falcon_ok = falcon_validate(raw_text, clean_text, layer, tone)
+                        if not falcon_ok:
+                            clean_text = filtered
+                    except Exception:
+                        falcon_ok = True
+                _ms = round((_t.time() - _t0) * 1000)
+                # Compute WER
+                raw_words = raw_text.lower().split()
+                clean_words = clean_text.lower().split()
+                _n, _m = len(raw_words), len(clean_words)
+                if _n > 0:
+                    dp = list(range(_m + 1))
+                    for i in range(1, _n + 1):
+                        prev, dp[0] = dp[0], i
+                        for j in range(1, _m + 1):
+                            cost = 0 if raw_words[i-1] == clean_words[j-1] else 1
+                            dp[j], prev = min(dp[j]+1, dp[j-1]+1, prev+cost), dp[j]
+                    wer = round(dp[_m] / _n, 4)
+                else:
+                    wer = 0.0
+                self._json({
+                    "raw": raw_text,
+                    "filtered": filtered,
+                    "clean": clean_text,
+                    "tone": tone,
+                    "layer": layer,
+                    "situation": situation,
+                    "falcon_ok": falcon_ok,
+                    "wer": wer,
+                    "recon_ms": _ms,
+                    "pipeline": "lavrentiy",
+                })
+            except Exception as e:
+                log(f"reconstruct_test error: {e}", "error")
+                self._json({"error": str(e)})
         elif self.path == '/api/record':
             if is_recording:
                 stop_recording()
