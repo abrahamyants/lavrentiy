@@ -2661,6 +2661,10 @@ NATURAL_REPEATS = {
 # Induced by Non-Speech Audio" (https://arxiv.org/abs/2501.11378)
 _WHISPER_HALLUCINATIONS = [
     # Custom patterns
+    # Prompt leak hallucinations (system prompt fragments leaking into transcription)
+    r"transcribe intended words only",
+    r"clear,?\s*fluent speech",
+    r"not repetitions or filler",
     # Otter.ai / transcription service credits
     r"transcribed by\s+(https?://)?otter\.?ai",
     r"transcription by\s+castingwords",
