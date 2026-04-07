@@ -1,12 +1,12 @@
 ; Lavrentiy Inno Setup script
-; Builds: Lavrentiy-Setup-v1.1.0.exe
-; Wraps: C:\Users\georg\Documents\GitHub\lavrentiy\portable\ (everything)
+; Builds: Lavrentiy-Setup-v1.2.0.exe
+; Wraps: C:\Users\georg\AppData\Local\Programs\Lavrentiy\ (installed copy)
 ; Runs via: Lavrentiy.vbs (no pywebview, uses Edge --app)
 
 [Setup]
 AppName=Lavrentiy
-AppVersion=1.1.0
-AppVerName=Lavrentiy 1.1.0
+AppVersion=1.2.0
+AppVerName=Lavrentiy 1.2.0
 AppPublisher=Gurgen Abrahamyants
 AppPublisherURL=https://github.com/gugosf114/lavrentiy
 AppSupportURL=https://github.com/gugosf114/lavrentiy/issues
@@ -18,8 +18,8 @@ UninstallDisplayName=Lavrentiy
 Compression=lzma2/max
 SolidCompression=yes
 OutputDir=Output
-OutputBaseFilename=Lavrentiy-Setup-v1.1.0
-SetupIconFile=..\portable\engine\lavrentiy.ico
+OutputBaseFilename=Lavrentiy-Setup-v1.2.0
+SetupIconFile=C:\Users\georg\AppData\Local\Programs\Lavrentiy\engine\lavrentiy.ico
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 WizardStyle=modern
@@ -36,7 +36,7 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 
 [Files]
 ; Source everything from portable/, exclude secrets + runtime logs + pycache
-Source: "..\portable\*"; DestDir: "{app}"; \
+Source: "C:\Users\georg\AppData\Local\Programs\Lavrentiy\*"; DestDir: "{app}"; \
   Flags: ignoreversion recursesubdirs createallsubdirs; \
   Excludes: "engine\api_key.txt,engine\gemini_api_key.txt,lav_err.txt,lav_out.txt,*\__pycache__\*,lavrentiy.pid"
 
