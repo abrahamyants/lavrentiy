@@ -614,17 +614,6 @@ Key finding from Brown: rank-order correlation between factor count and stutteri
 
 ## Changelog
 
-### 2026-04-19 — Canary wiring (dormant), PyAutoGUI fail-safe off, Google sign-in fix, launcher cleanup, session log
-
-- **Added**: `canary_transcribe()` in `lavrentiy.py` — NVIDIA Canary-Qwen-2.5B via Replicate HTTP API (raw urllib, the official `replicate` SDK breaks on Python 3.14). Falls back to Whisper automatically. Flagged **dormant** (`CANARY_ENABLED = False`) until the Replicate cog's public-URL upload path is solved — their `/v1/files` endpoint returns JSON metadata URLs the cog rejects as "Unsupported format," and base64 data URIs hit the same wall.
-- **Added**: Replicate token read from `replicate_key.txt` (gitignored) + `REPLICATE_API_TOKEN` env var, same pattern as OpenAI `api_key.txt`.
-- **Added**: `POST /api/open-signin` — engine opens Google auth in the system default browser so sign-in works when the dashboard is hosted in an Edge `--app=` window (Google refuses OAuth in embedded/app-mode browsers).
-- **Changed**: Dashboard `googleSignIn()` calls `/api/open-signin` instead of `window.open`, with a `window.open` fallback.
-- **Fixed**: `pyautogui.FAILSAFE = False` at startup. Mouse-in-corner was aborting paste mid-pipeline because PyAutoGUI ships FAILSAFE on by default.
-- **Removed**: Legacy launchers — `lavrentiy.bat`, `Lavrentiy.vbs` (repo copy, replaced by VBS in installed dir), `Lavrentiy Desktop.vbs`. Also cleaned up 2 broken `lavrentiy.bat` files at `%USERPROFILE%\` and `%USERPROFILE%\.lavrentiy\` that launched engine without a dashboard.
-- **Added (installed version)**: `Lavrentiy.vbs` that invokes `desktop.py` (pre-existing pywebview wrapper that was shipped-but-dormant). Produces installed + native-desktop-window combination — equivalent of installing a CD-ROM game. Engine-wait bumped from 20s → 60s in `desktop.py` to accommodate cold-start.
-- **Session log**: see [SESSION_LOG_2026-04-19.md](SESSION_LOG_2026-04-19.md) for the acknowledgment-moment failure log from this session — every moment I said "you're right," "I was wrong," or acknowledged a mistake. Kept honest and detailed per George's request.
-
 ### 2026-03-23 — "What I Meant" (WIM) consumer app + security hardening
 
 - **Added**: `wim/` — standalone consumer PWA with Whisper transcription + GPT reconstruction + confidence scoring (γ). Tone selector (Casual/Pro/Formal/Friend), session history, Web Share API, auto-copy. Same brushed-metal design DNA as Лаврентий but simplified for consumers.
@@ -699,3 +688,14 @@ Key finding from Brown: rank-order correlation between factor count and stutteri
 - **Fixed**: Covert pair removal endpoint (`/api/covert/remove`) was navigating a non-existent data structure (`substitutions`/`total_events` keys). Rewritten to use the actual `covert_profile.avoidance_pairs` structure.
 - **Fixed**: Mobile transcribe endpoint (`/api/transcribe`) passed `low_confidence=` and `disagreements=` to `reconstruct()`, which silently ignored them. Corrected to `whisper_low_conf=` and `whisper_disagreements=`.
 - **Fixed**: Dashboard HTTP server used single-threaded `HTTPServer`. During LLM calls (3–10s), all other requests queued, causing "CONNECTION LOST" in the dashboard. Replaced with `ThreadingHTTPServer`.
+
+### 2026-04-19 — Canary wiring (dormant), PyAutoGUI fail-safe off, Google sign-in fix, launcher cleanup, session log
+
+- **Added**: `canary_transcribe()` in `lavrentiy.py` — NVIDIA Canary-Qwen-2.5B via Replicate HTTP API (raw urllib, the official `replicate` SDK breaks on Python 3.14). Falls back to Whisper automatically. Flagged **dormant** (`CANARY_ENABLED = False`) until the Replicate cog's public-URL upload path is solved — their `/v1/files` endpoint returns JSON metadata URLs the cog rejects as "Unsupported format," and base64 data URIs hit the same wall.
+- **Added**: Replicate token read from `replicate_key.txt` (gitignored) + `REPLICATE_API_TOKEN` env var, same pattern as OpenAI `api_key.txt`.
+- **Added**: `POST /api/open-signin` — engine opens Google auth in the system default browser so sign-in works when the dashboard is hosted in an Edge `--app=` window (Google refuses OAuth in embedded/app-mode browsers).
+- **Changed**: Dashboard `googleSignIn()` calls `/api/open-signin` instead of `window.open`, with a `window.open` fallback.
+- **Fixed**: `pyautogui.FAILSAFE = False` at startup. Mouse-in-corner was aborting paste mid-pipeline because PyAutoGUI ships FAILSAFE on by default.
+- **Removed**: Legacy launchers — `lavrentiy.bat`, `Lavrentiy.vbs` (repo copy, replaced by VBS in installed dir), `Lavrentiy Desktop.vbs`. Also cleaned up 2 broken `lavrentiy.bat` files at `%USERPROFILE%\` and `%USERPROFILE%\.lavrentiy\` that launched engine without a dashboard.
+- **Added (installed version)**: `Lavrentiy.vbs` that invokes `desktop.py` (pre-existing pywebview wrapper that was shipped-but-dormant). Produces installed + native-desktop-window combination — equivalent of installing a CD-ROM game. Engine-wait bumped from 20s → 60s in `desktop.py` to accommodate cold-start.
+- **Session log**: see [SESSION_LOG_2026-04-19.md](SESSION_LOG_2026-04-19.md) for the acknowledgment-moment failure log from this session — every moment I said "you're right," "I was wrong," or acknowledged a mistake. Kept honest and detailed per George's request.
