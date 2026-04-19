@@ -13,3 +13,4 @@ build_portable.py
 _build_portable_zip.py
 lavrentiy-portable-*.zip
 installer/Output/
+replicate_key.txt

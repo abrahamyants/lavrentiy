@@ -3088,12 +3088,17 @@ const auth=firebase.auth();
 const googleProvider=new firebase.auth.GoogleAuthProvider();
 
 function googleSignIn(){
-  // Google blocks OAuth in embedded webviews — open system browser
+  // Google blocks OAuth in embedded/app-mode browsers (Edge --app=, webviews, etc.)
+  // Route the sign-in through the system default browser instead.
   if(window.pywebview&&window.pywebview.api){
     window.pywebview.api.open_google_signin();
-  }else{
-    window.open('http://localhost:7878/auth/google','_blank');
+    return;
   }
+  // Ask the engine to open Google sign-in in the user's real default browser.
+  // Fall back to window.open only if the endpoint is unreachable.
+  fetch('/api/open-signin',{method:'POST'}).then(r=>{
+    if(!r.ok) window.open('http://localhost:7878/auth/google','_blank');
+  }).catch(()=>window.open('http://localhost:7878/auth/google','_blank'));
 }
 
 async function googleSignOut(){

@@ -22,6 +22,9 @@ import soundfile as sf
 import keyboard
 import pyperclip
 import pyautogui
+# Disable PyAutoGUI's corner-of-screen fail-safe: it aborts paste() if the mouse
+# happens to be in a screen corner. F3×3 is the actual quit hotkey for this engine.
+pyautogui.FAILSAFE = False
 import tempfile
 import threading
 import numpy
@@ -131,6 +134,25 @@ try:
     from local.whisper_local import transcribe as _local_transcribe_fn  # noqa: F401
 except ImportError:
     _local_transcribe_fn = None
+
+# -- NVIDIA Canary-Qwen-2.5B via Replicate (primary ASR) ─────────
+# Swapped in as primary ears. Whisper (API + local faster-whisper) stays as fallback.
+# Canary was trained with AMI meeting data oversampled to 15% — it produces verbatim
+# transcripts that preserve disfluencies, which gives the stutter-focused reconstruction
+# layers better raw material than Whisper's smoothed-over output.
+# Uses raw HTTP (stdlib urllib) — the official `replicate` Python client has
+# pydantic v1 dependencies that break on Python 3.14+.
+CANARY_ENABLED = False  # dormant until the public-URL upload path is solved
+# Token: read from replicate_key.txt (gitignored) first, fall back to env var.
+# Same pattern as OpenAI API_KEY above — keeps secrets out of the public repo.
+REPLICATE_API_TOKEN = ""
+_replicate_key_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "replicate_key.txt")
+if os.path.exists(_replicate_key_file):
+    REPLICATE_API_TOKEN = open(_replicate_key_file, "r").read().strip()
+if not REPLICATE_API_TOKEN:
+    REPLICATE_API_TOKEN = os.environ.get("REPLICATE_API_TOKEN", "")
+CANARY_MODEL = "nvidia/canary-qwen-2.5b"
+
 LAVRENTIY_DIR = Path.home() / ".lavrentiy"
 PROFILES_ROOT = LAVRENTIY_DIR / "profiles"
 ACTIVE_FILE = LAVRENTIY_DIR / "active_profile"
@@ -4349,19 +4371,149 @@ def _multi_temperature_vote(filepath, prompt_text):
     }
 
 
+def canary_transcribe(filepath):
+    """Primary ASR: NVIDIA Canary-Qwen-2.5B via Replicate HTTP API.
+
+    Uses raw urllib (stdlib) — the official `replicate` Python client has
+    pydantic v1 dependencies that break on Python 3.14+. Same transport either
+    way; this version has zero extra dependencies.
+
+    Returns the same dict shape as whisper_transcribe() for pipeline compatibility.
+    Low-confidence / disagreement / segment fields are empty — Canary doesn't
+    expose Whisper-style per-segment signals, and its LLM-aware decoder makes
+    the block-suspect / multi-temp-voting machinery unnecessary anyway.
+
+    Returns None on failure — caller should fall back to Whisper.
+    """
+    if not CANARY_ENABLED or not REPLICATE_API_TOKEN:
+        return None
+    try:
+        import urllib.request
+        import base64
+
+        # Inline-upload: read audio → base64 → data URI. Avoids separate upload step.
+        with open(filepath, "rb") as f:
+            audio_b64 = base64.b64encode(f.read()).decode("ascii")
+        audio_data_uri = f"data:audio/wav;base64,{audio_b64}"
+
+        payload = {
+            "input": {
+                "audio": audio_data_uri,
+                "include_timestamps": True,
+                "show_confidence": True,
+            }
+        }
+        body = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            f"https://api.replicate.com/v1/models/{CANARY_MODEL}/predictions",
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {REPLICATE_API_TOKEN}",
+                "Prefer": "wait=60",  # synchronous wait up to 60s
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+
+        status = result.get("status")
+        output = None
+        if status == "succeeded":
+            output = result.get("output")
+        elif status in ("starting", "processing"):
+            # Prefer: wait didn't complete in time — poll the get URL
+            poll_url = result.get("urls", {}).get("get")
+            if not poll_url:
+                log("Canary: no poll URL — falling back", "warn")
+                return None
+            for _ in range(60):
+                time.sleep(1)
+                poll_req = urllib.request.Request(
+                    poll_url,
+                    headers={"Authorization": f"Bearer {REPLICATE_API_TOKEN}"},
+                )
+                with urllib.request.urlopen(poll_req, timeout=10) as resp:
+                    poll_result = json.loads(resp.read().decode("utf-8"))
+                poll_status = poll_result.get("status")
+                if poll_status == "succeeded":
+                    output = poll_result.get("output")
+                    break
+                if poll_status in ("failed", "canceled"):
+                    err = str(poll_result.get("error", "unknown"))[:80]
+                    log(f"Canary {poll_status}: {err}", "warn")
+                    return None
+            else:
+                log("Canary: timed out while polling — falling back", "warn")
+                return None
+        else:
+            log(f"Canary: unexpected status '{status}' — falling back", "warn")
+            return None
+
+        # Parse output defensively — Replicate cogs return varying shapes
+        if isinstance(output, str):
+            text = output.strip()
+            segments = []
+        elif isinstance(output, dict):
+            text = (output.get("text") or output.get("transcription")
+                    or output.get("transcript") or "").strip()
+            segments = output.get("segments", []) or []
+            if not text:
+                text = str(output).strip()
+        elif isinstance(output, list):
+            text = " ".join(str(x) for x in output if x).strip()
+            segments = []
+        elif output is None:
+            text = ""
+            segments = []
+        else:
+            text = str(output).strip()
+            segments = []
+
+        if not text:
+            log("Canary returned empty text — falling back to Whisper", "warn")
+            return None
+
+        stats_inc("canary_calls")
+        log(f"Canary: {len(text.split())}w transcribed", "info")
+        return {
+            "text": text,
+            "segments": segments,
+            "low_confidence": [],
+            "disagreements": [],
+            "all_texts": [text],
+            "whisper_meta": {
+                "prompt_source": "canary",
+                "prompt_length": 0,
+                "temperatures": [0.0],
+                "n_api_calls": 1,
+                "engine": "canary-qwen-2.5b",
+            }
+        }
+    except Exception as e:
+        log(f"Canary failed ({str(e)[:100]}) — falling back to Whisper", "warn")
+        return None
+
+
 def whisper_transcribe(filepath):
-    """Full Whisper transcription with all enhancements:
-    1. Script Prep seeding (decoder conditioning)
-    2. Verbose JSON mode (segment-level confidence)
-    3. Multi-temperature voting (disagreement detection)
+    """Primary ASR with fallback chain: Canary → Whisper API → local faster-whisper.
+
+    Tries NVIDIA Canary-Qwen-2.5B first (better ears for disfluent speech).
+    Falls back to the existing Whisper pipeline if Canary is unavailable.
 
     Returns dict with:
       text: final transcription
-      segments: verbose segment data
-      low_confidence: flagged uncertain segments
-      disagreements: multi-temp voting disagreements (if enabled)
-      whisper_meta: {prompt_used, temperatures, n_api_calls}
+      segments: verbose segment data (empty for Canary path)
+      low_confidence: flagged uncertain segments (empty for Canary path)
+      disagreements: multi-temp voting disagreements (empty for Canary path)
+      whisper_meta: {prompt_source, prompt_length, temperatures, n_api_calls, engine}
     """
+    # Try Canary first — trained on disfluent speech, better than Whisper for stutters
+    canary_result = canary_transcribe(filepath)
+    if canary_result is not None:
+        return canary_result
+
+    # Fallback: existing Whisper pipeline (API → local faster-whisper → error)
     prompt_text = _build_whisper_prompt()
     with _stats_lock:
         n_calls_before = stats["api_calls"]
@@ -7112,6 +7264,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json({'signed_in': True, 'refreshed': True})
             else:
                 self._json({'signed_in': is_authenticated(), 'user': _auth_user})
+        elif self.path == '/api/open-signin':
+            # Open Google sign-in in the system default browser.
+            # Edge --app= mode is detected by Google as an embedded browser and
+            # refuses OAuth. Popping the real system browser lets OAuth complete
+            # normally; auth_google.html posts the token back to /api/auth.
+            import webbrowser
+            try:
+                webbrowser.open('http://localhost:7878/auth/google', new=2)
+                self._json({'ok': True})
+            except Exception as e:
+                log(f"open-signin failed: {e}", "error")
+                self._json({'ok': False, 'error': str(e)[:200]})
         elif self.path == '/api/tone':
             if body and isinstance(body.get('tone'), str):
                 set_tone(body['tone'])
