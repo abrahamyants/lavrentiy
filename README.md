@@ -808,7 +808,9 @@ Repeatedly, even after the rules were in memory:
 - Re-surfaced caveats (security, safety, backups) after explicit instruction not to.
 - Framed failures emotionally ("bad news") after being corrected on it.
 
-## 23. Deleted a working launcher based on a broken verification method (2026-04-19)
+## 23. Deleted a working launcher based on a broken verification method, then compounded it by never noticing the installed version was a 6-day-old snapshot (2026-04-19)
+
+**Part A — deletion of a working launcher:**
 
 The repo-level `Lavrentiy.vbs` and its desktop shortcut `zz Lavrentiy.lnk` had been manually verified working earlier in the session — I ran `cmd /c start` on the VBS and confirmed the engine came up, port 7878 listening, `/api/state` responding. Full evidence it worked.
 
@@ -816,7 +818,32 @@ My PowerShell verification script later reported it as `ENGINE_DOWN` because `St
 
 George's response the next morning: "zz had always worked." Correct. I had deleted a working thing because my tool was broken and I hadn't distinguished "unverified by my broken tool" from "doesn't work."
 
-Restored 2026-04-19. The desktop shortcut now points at `C:\Users\georg\AppData\Local\Programs\Lavrentiy\Lavrentiy.vbs` — the installed + native-window launcher we built later in the session, which is a stronger target than the original Edge-app-mode VBS anyway.
+Restored 2026-04-19.
+
+**Part B — the compounding failure I should have caught during the several hours of launcher work:**
+
+At no point during hours of launcher troubleshooting did I check the **version** of the code sitting in the installed directory at `C:\Users\georg\AppData\Local\Programs\Lavrentiy\engine\`. When I finally looked, the evidence was immediate and obvious:
+
+- `VERSION.txt` reports `v1.0.0-14-ge1c088d` — i.e., v1.0.0 base tag, 14 commits past that, commit hash `e1c088d`.
+- The installed `lavrentiy.py` was last modified **2026-04-13 at 16:51** — six days old.
+- Grepping the installed file for Canary wiring (`canary_transcribe` / `CANARY_ENABLED` / `REPLICATE_API_TOKEN`): **0 hits**.
+- Grepping for the PyAutoGUI fail-safe fix (`FAILSAFE = False`): **0 hits**.
+- Grepping for the new Google-sign-in endpoint (`/api/open-signin`): **0 hits**.
+
+Conclusion: the installed version is a frozen snapshot from a previous install run. Every edit we made during this session — Canary wiring, PyAutoGUI fix, `/api/open-signin`, dashboard changes — landed in the **repo** copy (`C:\Users\georg\Documents\GitHub\lavrentiy\`), not in the installed copy. Nothing that we worked on this session has been reaching the launcher George actually double-clicks.
+
+Signals that should have flagged this to me during the session, in order of how obvious they were, and which I missed every time:
+
+1. **The installer binary is named `Lavrentiy-Setup-v1.1.0.exe`.** Explicitly versioned. Separate from the repo. The very filename carried the signal that "installed version" is a point-in-time artifact.
+2. **`Lavrentiy.iss` (the Inno Setup script) comments the install source literally**: "Wraps: `C:\Users\georg\AppData\Local\Programs\Lavrentiy\` (installed copy)." It names the installed copy as a distinct thing.
+3. **There's a `VERSION.txt` sitting right there in the installed engine dir.** I listed that directory twice this session — April 13 date was on every file — and never once read VERSION.txt.
+4. **The sizes diverged.** Installed `lavrentiy.py` was 359,743 bytes. Repo `lavrentiy.py` was 367,215 bytes. ~7 KB of code missing from the installed copy — the approximate size of everything I added this session. I compared file sizes at least once during verification but never thought about why they were different.
+5. **When the first "verification" tests "passed" on `START.bat` via the installed path, the output was classic Whisper reconstruction.** Canary wasn't being called because Canary isn't in that installed code. I didn't notice. I treated the Whisper-style output as generic "the pipeline works" instead of diagnostic evidence that the code in use didn't contain the swap I had just built.
+6. **George told me, verbatim, the engine was running Whisper during the troubleshooting runs** (his log paste showed `Whisper [default|1calls]`). I interpreted that as "Canary path isn't firing because token isn't loaded," when the truer answer was ALSO "this isn't even the code you think it is." I stopped at the first plausible explanation and never verified against the running binary.
+
+The pattern behind both halves of this entry is the same: **I kept trusting outputs of my own tools over direct inspection of the actual state.** Deleted launchers I had direct evidence worked. Debugged code I had direct evidence wasn't even in the running binary. Multiple hours were spent working on a version of Lavrentiy that has nothing we built this session in it.
+
+**Restored 2026-04-19.** The desktop shortcut `zz Lavrentiy.lnk` is back, pointing at the installed `Lavrentiy.vbs`. A second desktop shortcut `zzz Lavrentiy.lnk` was added last in alphabetic order, invoking `python.exe desktop.py` directly — the form that has been confirmed to actually open the native window. Both launch the 6-day-old installed snapshot, not the current repo code. **Getting this session's fixes into an installed build would require re-running the installer (or a copy of the repo engine into `AppData\Local\Programs\Lavrentiy\engine\`) — that step was never taken during the session.**
 
 ---
 
