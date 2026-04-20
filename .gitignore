@@ -4,6 +4,7 @@ docs/*
 !docs/multilingual_research_notes.md
 !docs/stutterzero_checkpoint_research.md
 !docs/clinical_validation_protocol.md
+!docs/l4_prompt_engineering_memo.md
 profile.json
 __pycache__/
 *.pyc
