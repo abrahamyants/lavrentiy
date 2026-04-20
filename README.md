@@ -717,6 +717,45 @@ Key finding from Brown: rank-order correlation between factor count and stutteri
 - **Added**: Phase-3 test matrix (`_phase3_l4_tones.py`) — 10 hardest utterances from George's `history.db` × 4 tones at L4. Baseline (Current) vs Eval v1.2.1 diff: 25/40 byte-identical, 13/40 minor edits, 2/40 major changes (one genuine tone-driven improvement on SID=3556, one regression on SID=3122 friend tone where Eval left raw unchanged). Falcon verdict identical on all 40 — the new phonetic context injection didn't flip any outcome on these specific inputs because none of them triggered the phonetic-hallucination failure mode the fixes guard against.
 - **Git commits**: `be07f7b` (v1.2.0 initial, 4 fixes), `abb28f2` (v1.2.1, added fixes 5–8 + test harness), `2690981` (test-harness cleanup — preserved in history). v1.3.0 fast-boot + this changelog entry: pending commit.
 - **Known limitation — v1.3.0 fast-boot is a half-win**: direct-launch (`python.exe lavrentiy.py`) takes ~9s, vs the ~30s baseline. Via the shortcut path (`python.exe desktop.py` → subprocess engine), measured ~47s total — SLOWER than baseline, because `desktop.py` has its own ~5s import cost for `webview`/`pystray`/`PIL` BEFORE it even spawns the engine subprocess, plus two Python processes cold-start competing for disk I/O. First response to the splash still appears fast (~13s with live stage text visible), so perceived UX is better even when total time isn't. Full fix requires merging `desktop.py` into the engine as a single process — deferred.
+
+### 2026-04-20 (cont.) — Moonshine swap, Canary retirement, research memos, Firestore publisher, Phase-4 benchmark
+
+Parallel-session work continued from the eval-build entry above. Eleven commits landed on `main` in a single day across five work streams (Claude main, Sonnet 4.6 extended, Gemini Deep Research, two Claude shells). Full blow-by-blow in `SESSION_LOG_2026-04-20.md`.
+
+- **Changed**: local fallback ASR swapped from `faster-whisper` to **Useful Sensors Moonshine (ONNX)**. `local/whisper_local.py` rewritten to use `MoonshineOnnxModel` + stdlib-urllib downloader (bypasses `huggingface_hub` because Python 3.14-alpha has an `httpx` bug that breaks HF's retry loop). Signature preserved — all 5 call sites in `lavrentiy.py` unchanged. Measured RTF ~0.35 on desktop. Model files cache to `~/.cache/moonshine/base/` on first fallback (~235 MB, one-time). `local/whisper_local.py` is gitignored so the rewrite does NOT appear in `git diff` — review directly at that path.
+- **Removed**: Canary / Replicate path retired entirely. `canary_transcribe()` function (~120 lines), `CANARY_ENABLED` flag, `REPLICATE_API_TOKEN` loader, and associated config block all deleted from `lavrentiy.py`. Net: -146 lines in that file. Orphan credential file `replicate_key.txt` still on disk (gitignored, harmless) — George's manual cleanup when convenient.
+- **Added**: `firestore_publisher.py` — desktop-side component that pushes the learned profile (`trigger_words`, `onset_weights`, `covert_profile`) to Firestore at `wim_users/{uid}` for future WiM consumption. Idempotent via payload MD5. **WiM-side consumer not yet wired — Phase 2.**
+- **Added**: Seven research memos under `docs/` (whitelisted in `.gitignore`):
+  - `spanish_stuttering_memo.md` — bilingual outreach groundwork
+  - `multilingual_research_notes.md` — 10-language pack research
+  - `stutterzero_checkpoint_research.md` — StutterZero paper analysis
+  - `clinical_validation_protocol.md` — IRB-ready validation protocol for university labs
+  - `l4_prompt_engineering_memo.md` — L4 system-prompt rewrite rationale (cross-project: feeds WiM `ReconstructClient.kt`)
+  - `yolo_stutter_stutter_solver_evaluation.md` — YOLO-Stutter + DysfluentWFST eval. **Highest-leverage action: email Berkeley Speech Group for the license.**
+  - `foundation_grant_landscape.md` — shortlist of 5 foundations funding speech-disability R&D; outreach-email groundwork
+- **Added**: `bench/_phase4_ears_benchmark.py` (1,058 lines) — evaluation harness that runs the three WiM ears engines (Vosk / whisper.cpp / Qwen3-ASR) against labeled stutter audio and reports WER, insertion/deletion/substitution rates, disfluency-preservation rates, RTF on device, + side-by-side matrix. **Never been run against all three live branches yet** — that's the objective accuracy comparison needed before any `MERGE_PLAN.md` execution on the WiM side.
+- **Added**: `SESSION_LOG_2026-04-20.md` at repo root — insurance-against-compaction log describing the desktop / research / cross-project half of the day's work. Mirror at `wim-android/SESSION_LOG_2026-04-20.md` covers the Android half. Both files let the next session pick up context without re-deriving it from transcripts.
+- **Changed (cosmetic)**: `installer/Lavrentiy.iss` line-4 comment updated from the stale *"no pywebview, uses Edge --app"* to *"Lavrentiy.vbs → pywebview native window"*. No functional change.
+- **Git commits landed today on `main`** (11 total):
+  - `be07f7b` Add eval-build branch for institutional outreach
+  - `abb28f2` eval-build v1.2.1: add 4 more fixes (8 total)
+  - `2690981` Remove `_eval_strip_test.py` — one-shot verification harness
+  - `c096733` Add phase2/phase3 evaluation scripts & matrices
+  - `310d4dc` README: 2026-04-20 changelog entry + FAILURE LOG 24-29
+  - `9bc8803` Add multilingual pack, research memos, benchmark harness
+  - `375fcf9` Add clinical validation protocol memo
+  - `777fd28` Firestore publisher: cross-device profile sync from desktop to WiM
+  - `68303a6` Add L4 prompt engineering memo
+  - `de9a6a8` Add YOLO-Stutter memo; use Moonshine fallback
+  - `fa00cd1` Add foundation grant landscape research memo
+  - `37bb756` Session log insurance for 2026-04-20
+- **Open cross-project dependencies** (see session log for detail):
+  - Lavrentiy publishes profile to Firestore → **WiM consumer not yet written**
+  - Lavrentiy L4 prompt engineering memo → **WiM `ReconstructClient.kt` needs the matching prompt update**
+  - Lavrentiy ears benchmark harness → **runs against WiM ears branches** (test-whispercpp, backup-vosk, add-qwen3-asr) for accuracy comparison before any MERGE_PLAN execution
+- **Known issues**:
+  - Python 3.14-alpha `httpx` bug breaks `huggingface_hub` downloads — stdlib urllib workaround in place but brittle; if HF changes URL structure again, the hardcoded path needs updating.
+  - Moonshine RTF ~0.35 is a single-run anecdote, not a validated measurement — Moonshine is NOT yet a case in `bench/_phase4_ears_benchmark.py`.
 ---
 
 # FAILURE LOG
