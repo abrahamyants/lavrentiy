@@ -1,7 +1,7 @@
 ; Lavrentiy Inno Setup script
 ; Builds: Lavrentiy-Setup-v1.2.0.exe
 ; Wraps: C:\Users\georg\AppData\Local\Programs\Lavrentiy\ (installed copy)
-; Runs via: Lavrentiy.vbs (no pywebview, uses Edge --app)
+; Runs via: Lavrentiy.vbs → pywebview native window (see eval-build/engine/desktop.py)
 
 [Setup]
 AppName=Lavrentiy
