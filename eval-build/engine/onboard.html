@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LAVRENTIY — Setup</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #1a1a2e;
+      color: #e2e8f0;
+      font-family: 'Outfit', system-ui, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .card {
+      background: #16213e;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 20px;
+      padding: 52px 48px;
+      width: 100%;
+      max-width: 460px;
+      text-align: center;
+    }
+
+    .logo {
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: 0.22em;
+      color: #e2e8f0;
+      margin-bottom: 6px;
+    }
+
+    .tagline {
+      color: #64748b;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      margin-bottom: 44px;
+    }
+
+    .option {
+      background: rgba(15, 52, 96, 0.5);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px;
+      padding: 24px 24px 20px;
+      text-align: left;
+    }
+
+    .option + .option { margin-top: 12px; }
+
+    .option-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #cbd5e1;
+      margin-bottom: 4px;
+    }
+
+    .option-desc {
+      font-size: 11.5px;
+      color: #64748b;
+      margin-bottom: 18px;
+      line-height: 1.5;
+    }
+
+    input[type="password"] {
+      width: 100%;
+      background: #1a1a2e;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: #e2e8f0;
+      font-size: 13px;
+      font-family: 'JetBrains Mono', monospace;
+      margin-bottom: 12px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    input[type="password"]:focus {
+      border-color: rgba(99,102,241,0.55);
+    }
+
+    button {
+      width: 100%;
+      padding: 11px 16px;
+      border-radius: 9px;
+      border: none;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: 'Outfit', sans-serif;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+
+    button:hover { opacity: 0.88; }
+    button:active { transform: scale(0.99); }
+
+    .btn-key {
+      background: #6366f1;
+      color: #fff;
+    }
+
+    .btn-google {
+      background: #ffffff;
+      color: #1e293b;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin: 14px 0;
+      color: #334155;
+      font-size: 11px;
+      letter-spacing: 0.05em;
+    }
+
+    .divider::before, .divider::after {
+      content: '';
+      flex: 1;
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .status {
+      margin-top: 20px;
+      font-size: 12px;
+      color: #64748b;
+      min-height: 18px;
+      transition: color 0.2s;
+    }
+
+    .status.error { color: #f87171; }
+    .status.ok    { color: #34d399; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">LAVRENTIY</div>
+    <div class="tagline">Voice Reconstruction Engine — First Run</div>
+
+    <div class="option">
+      <div class="option-title">Use your own OpenAI key</div>
+      <div class="option-desc">Your API key, your bill. No account needed.</div>
+      <input type="password" id="key-input" placeholder="sk-..." autocomplete="off" onkeydown="if(event.key==='Enter') submitKey()">
+      <button class="btn-key" onclick="submitKey()">Save Key &amp; Open Dashboard</button>
+    </div>
+
+    <div class="divider">or</div>
+
+    <div class="option">
+      <div class="option-title">Sign in with Google</div>
+      <div class="option-desc">Access via invite. API costs covered — no key needed.</div>
+      <button class="btn-google" onclick="googleSignIn()">
+        <svg width="17" height="17" viewBox="0 0 48 48">
+          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.08 17.74 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-3.59-13.46-8.71l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        </svg>
+        Sign in with Google
+      </button>
+    </div>
+
+    <div class="status" id="status"></div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script>
+    const API = 'http://localhost:7878';
+
+    firebase.initializeApp({
+      apiKey:        "AIzaSyCwHM69yHHWsRRbt1c4bpIjIIV4BxDiLnY",
+      authDomain:    "bakers-agent.firebaseapp.com",
+      projectId:     "bakers-agent",
+      storageBucket: "bakers-agent.firebasestorage.app",
+      appId:         "1:787543109204:web:288e7cf9a2880b682f07c1"
+    });
+
+    const auth = firebase.auth();
+    const googleProvider = new firebase.auth.GoogleAuthProvider();
+
+    function setStatus(msg, type = '') {
+      const el = document.getElementById('status');
+      el.textContent = msg;
+      el.className = 'status ' + type;
+    }
+
+    function goToDashboard() {
+      window.location.href = API + '/';
+    }
+
+    // Auto-skip if already configured
+    fetch(API + '/api/state')
+      .then(r => r.json())
+      .then(d => {
+        if (d.auth && (d.auth.has_local_key || d.auth.signed_in)) {
+          goToDashboard();
+        }
+      })
+      .catch(() => {});
+
+    // Restore existing Firebase session
+    auth.onAuthStateChanged(async user => {
+      if (user) {
+        const token = await user.getIdToken();
+        await postAuthToEngine(user, token);
+        goToDashboard();
+      }
+    });
+
+    async function postAuthToEngine(user, token) {
+      await fetch(API + '/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'sign_in',
+          id_token: token,
+          email: user.email,
+          displayName: user.displayName,
+          uid: user.uid
+        })
+      });
+    }
+
+    async function submitKey() {
+      const key = document.getElementById('key-input').value.trim();
+      if (!key) { setStatus('Paste your OpenAI key above.', 'error'); return; }
+      if (!key.startsWith('sk-')) { setStatus('Key must start with sk-', 'error'); return; }
+      setStatus('Saving...');
+      try {
+        const r = await fetch(API + '/api/set-key', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key })
+        });
+        const d = await r.json();
+        if (d.ok) {
+          setStatus('Key saved. Opening dashboard...', 'ok');
+          setTimeout(goToDashboard, 700);
+        } else {
+          setStatus(d.error || 'Failed to save key.', 'error');
+        }
+      } catch (e) {
+        setStatus('Cannot reach engine.', 'error');
+      }
+    }
+
+    function googleSignIn() {
+      setStatus('Opening sign-in in your browser...');
+      if (window.pywebview && window.pywebview.api) {
+        window.pywebview.api.open_google_signin();
+      } else {
+        window.open('http://localhost:7878/auth/google', '_blank');
+      }
+      // Poll engine state — auth page in browser posts to /api/auth
+      const poll = setInterval(async () => {
+        try {
+          const r = await fetch(API + '/api/state');
+          const d = await r.json();
+          if (d.auth && d.auth.signed_in) {
+            clearInterval(poll);
+            setStatus('Signed in. Opening dashboard...', 'ok');
+            setTimeout(goToDashboard, 700);
+          }
+        } catch (e) {}
+      }, 1000);
+      setTimeout(() => clearInterval(poll), 120000);
+    }
+        } catch (e) {}
+      }, 1000);
+      // Stop polling after 2 minutes
+      setTimeout(() => clearInterval(poll), 120000);
+    }
+  </script>
+</body>
+</html>

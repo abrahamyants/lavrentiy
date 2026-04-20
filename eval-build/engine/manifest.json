@@ -1,0 +1,17 @@
+{
+  "name": "Lavrentiy",
+  "short_name": "Lavrentiy",
+  "description": "Voice transcription",
+  "start_url": "/mobile",
+  "display": "standalone",
+  "background_color": "#d8d8dc",
+  "theme_color": "#b91c1c",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23d8d8dc'/><text x='50' y='62' font-size='40' font-weight='bold' fill='%23b91c1c' text-anchor='middle' font-family='sans-serif'>L</text></svg>",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

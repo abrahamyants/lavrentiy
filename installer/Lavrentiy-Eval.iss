@@ -1,0 +1,70 @@
+; Lavrentiy Evaluation Build — Inno Setup script
+; Builds: Lavrentiy-Eval-Setup-v1.2.0.exe
+;
+; Wraps the same Python runtime + launchers as the main Lavrentiy install,
+; BUT swaps the engine for the patched copy in eval-build/engine/.
+;
+; The three fixes applied vs the Current build:
+;   1. Command Mode tuple-unpack bug (line ~6255 was broken, now single-var)
+;   2. reconstruct() bails cleanly if no OpenAI key (no AttributeError crash)
+;   3. falcon_validate() bails cleanly if no OpenAI key
+;   + startup console message when API key is missing
+;
+; Installs as "Lavrentiy Evaluation" in Program Files\Lavrentiy-Eval, so it
+; lives SIDE-BY-SIDE with the Current install without clobbering it.
+
+[Setup]
+AppName=Lavrentiy Evaluation
+AppVersion=1.2.0
+AppVerName=Lavrentiy Evaluation 1.2.0
+AppPublisher=Gurgen Abrahamyants
+AppPublisherURL=https://github.com/gugosf114/lavrentiy
+AppSupportURL=https://github.com/gugosf114/lavrentiy/issues
+AppUpdatesURL=https://github.com/gugosf114/lavrentiy/releases
+DefaultDirName={autopf}\Lavrentiy-Eval
+DefaultGroupName=Lavrentiy Evaluation
+UninstallDisplayIcon={app}\engine\lavrentiy.ico
+UninstallDisplayName=Lavrentiy Evaluation
+Compression=lzma2/max
+SolidCompression=yes
+OutputDir=Output
+OutputBaseFilename=Lavrentiy-Eval-Setup-v1.2.0
+SetupIconFile=C:\Users\georg\AppData\Local\Programs\Lavrentiy\engine\lavrentiy.ico
+PrivilegesRequired=lowest
+PrivilegesRequiredOverridesAllowed=dialog
+WizardStyle=modern
+DisableProgramGroupPage=yes
+DisableReadyPage=no
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+
+[Languages]
+Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
+
+[Files]
+; 1) Pull launchers + bundled Python from the live install dir, SKIP its engine
+Source: "C:\Users\georg\AppData\Local\Programs\Lavrentiy\*"; DestDir: "{app}"; \
+  Flags: ignoreversion recursesubdirs createallsubdirs; \
+  Excludes: "engine\*,unins000.exe,unins000.dat,lav_err.txt,lav_out.txt,lavrentiy.pid,*\__pycache__\*"
+
+; 2) Pull the patched engine from the repo's eval-build dir
+Source: "C:\Users\georg\Documents\GitHub\lavrentiy\eval-build\engine\*"; DestDir: "{app}\engine"; \
+  Flags: ignoreversion recursesubdirs createallsubdirs; \
+  Excludes: "*\__pycache__\*,lav_err.txt,lav_out.txt,lavrentiy.pid"
+
+[Icons]
+Name: "{group}\Lavrentiy Evaluation"; Filename: "{app}\Lavrentiy.vbs"; IconFilename: "{app}\engine\lavrentiy.ico"; Comment: "Voice reconstruction engine (evaluation build)"
+Name: "{group}\Uninstall Lavrentiy Evaluation"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\Lavrentiy Evaluation"; Filename: "{app}\Lavrentiy.vbs"; IconFilename: "{app}\engine\lavrentiy.ico"; Comment: "Voice reconstruction engine (evaluation build)"; Tasks: desktopicon
+
+[Run]
+Filename: "{app}\Lavrentiy.vbs"; Description: "Launch Lavrentiy Evaluation now"; Flags: nowait shellexec postinstall skipifsilent
+
+[UninstallDelete]
+Type: files; Name: "{app}\lav_err.txt"
+Type: files; Name: "{app}\lav_out.txt"
+Type: files; Name: "{app}\engine\lavrentiy.pid"
+Type: filesandordirs; Name: "{app}\engine\__pycache__"
