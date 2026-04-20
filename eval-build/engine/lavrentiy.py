@@ -2558,10 +2558,13 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
     return resp.choices[0].message.content.strip()
 
 
-def falcon_validate(raw_text, clean_text, layer, tone="casual"):
+def falcon_validate(raw_text, clean_text, layer, tone="casual", prof=None):
     """Binary meaning check. Returns True if meaning preserved.
     Tone-aware: formal tone expands contractions, casual keeps them — Falcon must know
-    which changes are expected per tone."""
+    which changes are expected per tone.
+    At layer >= 4, the speaker's hard onsets and known trigger words are pulled from
+    prof and injected so Falcon can flag phonetically-driven avoidance substitutions
+    (e.g., "park"→"stop" when /p/ is a hard onset) that a semantics-only check misses."""
     if client is None:
         return True
     tone_note = ""
@@ -2584,15 +2587,53 @@ def falcon_validate(raw_text, clean_text, layer, tone="casual"):
             "Answer ONLY 'yes' or 'no'."
         )
     elif layer >= 4:
+        phonetic_note = ""
+        if prof:
+            onset_weights = prof.get("onset_weights", {}) or {}
+            hard_onsets = [o for o, w in sorted(onset_weights.items(), key=lambda x: -x[1])[:5] if w and w > 0.5]
+            trigger_words = (prof.get("trigger_words") or [])[:10]
+            if hard_onsets:
+                phonetic_note += (
+                    f" Speaker struggles to produce words starting with: {', '.join(hard_onsets)}. "
+                    "If the reconstruction replaces a word starting with one of these with a "
+                    "different-onset synonym (e.g., park→stop, call→ring, because→since), that is "
+                    "AVOIDANCE SUBSTITUTION — answer 'no'."
+                )
+            if trigger_words:
+                phonetic_note += (
+                    f" Known trigger words for this speaker: {', '.join(trigger_words)}. "
+                    "If any of these appear in the original but have been replaced with a "
+                    "synonym in the reconstruction, that is avoidance — answer 'no'."
+                )
+            # Covert avoidance pairs — known patterns where the speaker replaces word X
+            # with word Y to dodge a hard onset. If the reconstruction REVERSES this
+            # (raw shows Y, reconstruction uses X), that is Lavrentiy CORRECTLY resolving
+            # a tracked avoidance. Falcon should accept it, not flag it as hallucination.
+            covert = (prof.get("covert_profile") or {}).get("avoidance_pairs") or {}
+            if covert:
+                pairs = []
+                for situ, words in covert.items():
+                    for avoided, data in words.items():
+                        subs = (data or {}).get("common_substitutes") or []
+                        if subs:
+                            pairs.append(f"{avoided} (commonly dodged via: {', '.join(subs[:3])})")
+                if pairs:
+                    phonetic_note += (
+                        f" Known covert avoidance patterns: {'; '.join(pairs[:5])}. "
+                        "If the reconstruction REVERSES a known avoidance (raw transcription "
+                        "contains the substitute, reconstruction uses the original intended "
+                        "word), that is CORRECT — answer 'yes'. Only flag substitutions that "
+                        "introduce NEW avoidance away from the speaker's hard onsets."
+                    )
         prompt = (
             "Speaker stutters. Repeated syllables, prolongations, and blocks are "
             "disfluencies, not emphasis. Filler clusters before content words are "
             "postponement tactics, not meaningful hesitation. Synonym substitutions "
             "and circumlocutions are avoidance behaviors — the reconstruction should "
             "recover the intended word. Rambling run-on filler (mazes) should be "
-            "stripped." + tone_note + " "
-            "Does the reconstruction preserve intended meaning? "
-            "Answer ONLY 'yes' or 'no'."
+            "stripped." + phonetic_note + tone_note + " "
+            "Does the reconstruction preserve intended meaning without unwarranted "
+            "phonetic hallucination? Answer ONLY 'yes' or 'no'."
         )
 
     stats_inc("api_calls")
@@ -2627,8 +2668,18 @@ NATURAL_REPEATS = {
     "go go", "now now", "come come", "well well",
     "out out", "boo boo", "ha ha", "ho ho",
     "knock knock", "tsk tsk", "aye aye",
+    # Emphatic doublings that survive the 2+ repetition threshold
+    "really really", "many many", "much much", "big big",
+    "long long", "old old", "hot hot", "busy busy",
+    "right right", "sure sure", "fine fine", "okay okay",
     # Russian
     "да да", "нет нет", "ну ну",
+}
+
+# English prefixes that look like stutters but aren't (re-read ≠ stutter)
+_ENGLISH_PREFIXES = {
+    "re", "un", "pre", "de", "en", "in", "dis", "mis",
+    "sub", "ex", "non", "pro", "anti", "co",
 }
 
 
@@ -2736,19 +2787,38 @@ def strip_disfluencies(text):
         return text
 
     # Step 1: Remove stutter fragments (hyphenated false starts)
-    # "p- p- pop" → "pop",  "be- be- become" → "become"
-    cleaned = re.sub(r'(\b\w+)-\s+(?:\1-\s+)*', '', text, flags=re.IGNORECASE)
+    # Handles both spaced ("p- p- pop") and unspaced ("w-w-want", "s-schedule", "m-m-m-meeting") forms.
+    # Safety checks:
+    #   - First fragment must be a prefix of the full word (so "state-of-the-art" is safe)
+    #   - Single-fragment cases with a common English prefix (re-, un-, pre-, etc.) are preserved
+    def _strip_stutter(m):
+        frags = [f.strip() for f in m.group(1).strip().rstrip('-').split('-') if f.strip()]
+        full_word = m.group(2)
+        if not frags:
+            return m.group(0)
+        if len(frags) == 1 and frags[0].lower() in _ENGLISH_PREFIXES:
+            return m.group(0)  # "re-read", "un-done" — real prefix, not stutter
+        if full_word.lower().startswith(frags[0].lower()):
+            return full_word
+        return m.group(0)
+    cleaned = re.sub(
+        r'\b((?:\w{1,3}-\s*)+)(\w+)\b',
+        _strip_stutter,
+        text,
+        flags=re.IGNORECASE,
+    )
 
     # Step 2: Remove consecutive word repetitions
-    # "I I I want" → "I want",  "the the dog" → "the dog"
-    # Exception: naturally repeating English constructions (ha ha, bye bye, etc.)
+    # "I I I want" → "I want",  "the the dog" → "the dog",  "to to" → "to"
+    # Exception: emphatic doublings and idioms protected via NATURAL_REPEATS
     def _dedup_word(m):
         phrase = f"{m.group(1)} {m.group(1)}".lower()
         if phrase in NATURAL_REPEATS:
             return m.group(0)  # Don't strip — natural repetition
         return m.group(1)
-    # Require 3+ repetitions (2+ is often emphasis: "no no", "go go", "please please")
-    cleaned = re.sub(r'\b(\w+)(?:\s+\1){2,}\b', _dedup_word, cleaned, flags=re.IGNORECASE)
+    # 2+ repetitions (lowered from 3+ to catch "to to", "the the", "for for" — the
+    # most common stutter pattern); NATURAL_REPEATS whitelist protects emphasis.
+    cleaned = re.sub(r'\b(\w+)(?:\s+\1){1,}\b', _dedup_word, cleaned, flags=re.IGNORECASE)
 
     # Step 3: Remove phrase repetitions (2-3 word phrases repeated)
     # "I want I want to go" → "I want to go"
@@ -6005,7 +6075,7 @@ def pipeline():
                     log("Falcon: SKIPPED (text nearly identical -- no meaningful reconstruction)", "info")
                 else:
                     try:
-                        falcon_ok = falcon_validate(raw_text, clean_text, current_layer, current_tone)
+                        falcon_ok = falcon_validate(raw_text, clean_text, current_layer, current_tone, prof=profile)
                     except Exception:
                         falcon_ok = True
                     if not falcon_ok:
@@ -7458,7 +7528,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         clean_text = filtered
                     # Falcon validation (SAFE mode)
                     try:
-                        falcon_ok = falcon_validate(raw_text, clean_text, layer, tone)
+                        falcon_ok = falcon_validate(raw_text, clean_text, layer, tone, prof=profile)
                         if not falcon_ok:
                             clean_text = filtered
                     except Exception:
