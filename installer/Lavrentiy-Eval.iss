@@ -1,8 +1,13 @@
 ; Lavrentiy Evaluation Build — Inno Setup script
-; Builds: Lavrentiy-Eval-Setup-v1.2.1.exe
+; Builds: Lavrentiy-Eval-Setup-v1.3.0.exe
 ;
 ; Wraps the same Python runtime + launchers as the main Lavrentiy install,
 ; BUT swaps the engine for the patched copy in eval-build/engine/.
+;
+; v1.3.0 adds fast cold-start: HTTP server binds :7878 in ~1s via a stub
+; handler that reports live boot_stage while heavy imports load in the
+; main thread. Stub swaps to the real DashboardHandler once init completes.
+; Measured: ~9s from launch to fully ready (was ~30s).
 ;
 ; v1.2.1 fixes (8 total, vs the Current build):
 ;   1. Command Mode tuple-unpack bug (engine/lavrentiy.py line ~6255)
@@ -20,8 +25,8 @@
 
 [Setup]
 AppName=Lavrentiy Evaluation
-AppVersion=1.2.1
-AppVerName=Lavrentiy Evaluation 1.2.1
+AppVersion=1.3.0
+AppVerName=Lavrentiy Evaluation 1.3.0
 AppPublisher=Gurgen Abrahamyants
 AppPublisherURL=https://github.com/gugosf114/lavrentiy
 AppSupportURL=https://github.com/gugosf114/lavrentiy/issues
@@ -33,7 +38,7 @@ UninstallDisplayName=Lavrentiy Evaluation
 Compression=lzma2/max
 SolidCompression=yes
 OutputDir=Output
-OutputBaseFilename=Lavrentiy-Eval-Setup-v1.2.1
+OutputBaseFilename=Lavrentiy-Eval-Setup-v1.3.0
 SetupIconFile=C:\Users\georg\AppData\Local\Programs\Lavrentiy\engine\lavrentiy.ico
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog

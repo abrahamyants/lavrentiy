@@ -1,0 +1,442 @@
+[
+  {
+    "sid": 1348,
+    "ts": "2026-04-01T14:53:43.167766",
+    "raw": "I know I fucking read it exactly like you said, even worse with my accent.",
+    "historical_out": "I read it exactly as you said, though my accent might have made it worse.",
+    "original": {
+      "tone": "professional",
+      "layer": 4,
+      "falcon": 1
+    },
+    "situation": "default",
+    "editorial_distance": 0.8,
+    "words": 15,
+    "L4_by_tone": {
+      "casual": {
+        "clean": "I know, I fucking read it exactly like you said, even worse with my accent.",
+        "filtered": "I know I fucking read it exactly like you said, even worse with my accent.",
+        "falcon_ok": true,
+        "wer": 0.0667,
+        "recon_ms": 1497
+      },
+      "professional": {
+        "clean": "I know I read it exactly like you said, even worse with my accent.",
+        "filtered": "I know I fucking read it exactly like you said, even worse with my accent.",
+        "falcon_ok": true,
+        "wer": 0.0667,
+        "recon_ms": 1941
+      },
+      "formal": {
+        "clean": "I know I read it exactly as you said, even worse with my accent.",
+        "filtered": "I know I fucking read it exactly like you said, even worse with my accent.",
+        "falcon_ok": true,
+        "wer": 0.1333,
+        "recon_ms": 1079
+      },
+      "friend": {
+        "clean": "I know I fucking read it exactly like you said, even worse with my accent.",
+        "filtered": "I know I fucking read it exactly like you said, even worse with my accent.",
+        "falcon_ok": true,
+        "wer": 0.0,
+        "recon_ms": 1100
+      }
+    }
+  },
+  {
+    "sid": 1548,
+    "ts": "2026-04-02T14:18:07.146730",
+    "raw": "Oh, no shit, a bug. Ah, okay. Ah, really.",
+    "historical_out": "There appears to be a bug. Let us address it.",
+    "original": {
+      "tone": "professional",
+      "layer": 4,
+      "falcon": 1
+    },
+    "situation": "default",
+    "editorial_distance": 0.8,
+    "words": 10,
+    "L4_by_tone": {
+      "casual": {
+        "clean": "Oh, no shit, a bug. Okay, really.",
+        "filtered": "Oh, no shit, a bug. okay. really.",
+        "falcon_ok": true,
+        "wer": 0.3333,
+        "recon_ms": 1933
+      },
+      "professional": {
+        "clean": "Oh, no shit, a bug. Okay, really.",
+        "filtered": "Oh, no shit, a bug. okay. really.",
+        "falcon_ok": true,
+        "wer": 0.3333,
+        "recon_ms": 1768
+      },
+      "formal": {
+        "clean": "Oh, no shit, a bug. Okay. Really.",
+        "filtered": "Oh, no shit, a bug. okay. really.",
+        "falcon_ok": true,
+        "wer": 0.2222,
+        "recon_ms": 1008
+      },
+      "friend": {
+        "clean": "Oh, no shit, a bug. Okay, really.",
+        "filtered": "Oh, no shit, a bug. okay. really.",
+        "falcon_ok": true,
+        "wer": 0.3333,
+        "recon_ms": 995
+      }
+    }
+  },
+  {
+    "sid": 3228,
+    "ts": "2026-04-13T18:34:44.112153",
+    "raw": "Oh, the next question is this. So pretty much everything we did, can you put it in like three categories?",
+    "historical_out": "Can you put everything we did into three categories?",
+    "original": {
+      "tone": "casual",
+      "layer": 2,
+      "falcon": 1
+    },
+    "situation": "default",
+    "editorial_distance": 0.8,
+    "words": 9,
+    "L4_by_tone": {
+      "casual": {
+        "clean": "The next question is this: can you put everything we did into three categories?",
+        "filtered": "Oh, the next question is this. So pretty much everything we did, can you put it in like three categories?",
+        "falcon_ok": true,
+        "wer": 0.6,
+        "recon_ms": 1245
+      },
+      "professional": {
+        "clean": "The next question is this: Can you categorize everything we did into three categories?",
+        "filtered": "Oh, the next question is this. So pretty much everything we did, can you put it in like three categories?",
+        "falcon_ok": true,
+        "wer": 0.6,
+        "recon_ms": 1282
+      },
+      "formal": {
+        "clean": "The next question is this: Can you categorize everything we did into three categories?",
+        "filtered": "Oh, the next question is this. So pretty much everything we did, can you put it in like three categories?",
+        "falcon_ok": true,
+        "wer": 0.6,
+        "recon_ms": 1455
+      },
+      "friend": {
+        "clean": "The next question is this: can you put pretty much everything we did into three categories?",
+        "filtered": "Oh, the next question is this. So pretty much everything we did, can you put it in like three categories?",
+        "falcon_ok": true,
+        "wer": 0.6,
+        "recon_ms": 1064
+      }
+    }
+  },
+  {
+    "sid": 2688,
+    "ts": "2026-04-07T10:51:01.484987",
+    "raw": "That's great. Can we go back to Baker's agent? Rest of the session will be working on Baker's agent.",
+    "historical_out": "Can we focus on Baker's Agent for the rest of the session?",
+    "original": {
+      "tone": "casual",
+      "layer": 4,
+      "falcon": 1
+    },
+    "situation": "default",
+    "editorial_distance": 0.789,
+    "words": 12,
+    "L4_by_tone": {
+      "casual": {
+        "clean": "That's great. Can we go back to Baker's agent? The rest of the session will be working on Baker's agent.",
+        "filtered": "That's great. Can we go back to Baker's agent? Rest of the session will be working on Baker's agent.",
+        "falcon_ok": true,
+        "wer": 0.0526,
+        "recon_ms": 1317
+      },
+      "professional": {
+        "clean": "That's great. Can we go back to Baker's agent? The rest of the session will focus on working on Baker's agent.",
+        "filtered": "That's great. Can we go back to Baker's agent? Rest of the session will be working on Baker's agent.",
+        "falcon_ok": true,
+        "wer": 0.1579,
+        "recon_ms": 2343
+      },
+      "formal": {
+        "clean": "That is great. Can we go back to Baker's agent? The rest of the session will be working on Baker's agent.",
+        "filtered": "That's great. Can we go back to Baker's agent? Rest of the session will be working on Baker's agent.",
+        "falcon_ok": true,
+        "wer": 0.1579,
+        "recon_ms": 3681
+      },
+      "friend": {
+        "clean": "That's great. Can we go back to Baker's agent? The rest of the session will be working on Baker's agent.",
+        "filtered": "That's great. Can we go back to Baker's agent? Rest of the session will be working on Baker's agent.",
+        "falcon_ok": true,
+        "wer": 0.0526,
+        "recon_ms": 5929
+      }
+    }
+  },
+  {
+    "sid": 3188,
+    "ts": "2026-04-13T17:56:47.396678",
+    "raw": "I have not read your answer. This is just a clarification for something I need to be clarified. When you say Layer 1,",
+    "historical_out": "I haven't read your answer yet. I just need some clarification. When you say Layer 1, what exactly do you mean?",
+    "original": {
+      "tone": "casual",
+      "layer": 2,
+      "falcon": 1
+    },
+    "situation": "default",
+    "editorial_distance": 0.783,
+    "words": 21,
+    "L4_by_tone": {
+      "casual": {
+        "clean": "I haven't read your answer yet. I just need some clarification on something. When you say Layer 1,",
+        "filtered": "I have not read your answer. This is just a clarification for something I need to be clarified. When you say Layer 1,",
+        "falcon_ok": true,
+        "wer": 0.6087,
+        "recon_ms": 4821
+      },
+      "professional": {
+        "clean": "I have not read your answer. This is just a clarification for something I need clarified. When you say Layer 1,",
+        "filtered": "I have not read your answer. This is just a clarification for something I need to be clarified. When you say Layer 1,",
+        "falcon_ok": true,
+        "wer": 0.087,
+        "recon_ms": 5677
+      },
+      "formal": {
+        "clean": "I have not read your answer. This is just a clarification for something I need to be clarified. When you say Layer 1,",
+        "filtered": "I have not read your answer. This is just a clarification for something I need to be clarified. When you say Layer 1,",
+        "falcon_ok": true,
+        "wer": 0.0,
+        "recon_ms": 3933
+      },
+      "friend": {
+        "clean": "I haven't read your answer yet. I just need some clarification on something. When you say Layer 1,",
+        "filtered": "I have not read your answer. This is just a clarification for something I need to be clarified. When you say Layer 1,",
+        "falcon_ok": true,
+        "wer": 0.6087,
+        "recon_ms": 5988
+      }
+    }
+  },
+  {
+    "sid": 3122,
+    "ts": "2026-04-13T16:55:06.332848",
+    "raw": "and make sure that local, you know, is the same as the github.",
+    "historical_out": "Make sure the local version matches the GitHub one.",
+    "original": {
+      "tone": "casual",
+      "layer": 2,
+      "falcon": 1
+    },
+    "situation": "default",
+    "editorial_distance": 0.769,
+    "words": 9,
+    "L4_by_tone": {
+      "casual": {
+        "clean": "Make sure the local version is the same as the GitHub version.",
+        "filtered": "and make sure that local, you know, is the same as the github.",
+        "falcon_ok": true,
+        "wer": 0.5385,
+        "recon_ms": 4344
+      },
+      "professional": {
+        "clean": "Make sure that the local version is the same as the GitHub version.",
+        "filtered": "and make sure that local, you know, is the same as the github.",
+        "falcon_ok": true,
+        "wer": 0.4615,
+        "recon_ms": 4863
+      },
+      "formal": {
+        "clean": "Ensure that the local version is the same as the GitHub version.",
+        "filtered": "and make sure that local, you know, is the same as the github.",
+        "falcon_ok": true,
+        "wer": 0.6154,
+        "recon_ms": 5255
+      },
+      "friend": {
+        "clean": "Make sure the local setup is the same as the GitHub.",
+        "filtered": "and make sure that local, you know, is the same as the github.",
+        "falcon_ok": true,
+        "wer": 0.3846,
+        "recon_ms": 5223
+      }
+    }
+  },
+  {
+    "sid": 2422,
+    "ts": "2026-04-05T18:50:17.705954",
+    "raw": "meaning professional, meaning picking up them references.",
+    "historical_out": "I'm not sure what you meant by \"meaning professional, meaning picking up them references.\" Could you clarify or provide more context?",
+    "original": {
+      "tone": "casual",
+      "layer": 2,
+      "falcon": 1
+    },
+    "situation": "default",
+    "editorial_distance": 0.762,
+    "words": 21,
+    "L4_by_tone": {
+      "casual": {
+        "clean": "Meaning professional, meaning picking up those references.",
+        "filtered": "meaning professional, meaning picking up them references.",
+        "falcon_ok": true,
+        "wer": 0.1429,
+        "recon_ms": 5603
+      },
+      "professional": {
+        "clean": "Meaning professional, meaning picking up those references.",
+        "filtered": "meaning professional, meaning picking up them references.",
+        "falcon_ok": true,
+        "wer": 0.1429,
+        "recon_ms": 4179
+      },
+      "formal": {
+        "clean": "Meaning professional, meaning picking up those references.",
+        "filtered": "meaning professional, meaning picking up them references.",
+        "falcon_ok": true,
+        "wer": 0.1429,
+        "recon_ms": 4617
+      },
+      "friend": {
+        "clean": "By \"professional,\" I mean picking up those references.",
+        "filtered": "meaning professional, meaning picking up them references.",
+        "falcon_ok": true,
+        "wer": 0.7143,
+        "recon_ms": 5133
+      }
+    }
+  },
+  {
+    "sid": 2069,
+    "ts": "2026-04-04T22:44:16.995315",
+    "raw": "No more Mexican wave Okay, that's better. That's better. However right now",
+    "historical_out": "That's better. However, right now...",
+    "original": {
+      "tone": "professional",
+      "layer": 2,
+      "falcon": 1
+    },
+    "situation": "default",
+    "editorial_distance": 0.75,
+    "words": 5,
+    "L4_by_tone": {
+      "casual": {
+        "clean": "No more Mexican wave. Okay, that's better. That's better. However, right now...",
+        "filtered": "No more Mexican wave Okay, that's better. That's better. However right now",
+        "falcon_ok": true,
+        "wer": 0.25,
+        "recon_ms": 5924
+      },
+      "professional": {
+        "clean": "No more Mexican wave. Okay, that's better. That's better. However, right now...",
+        "filtered": "No more Mexican wave Okay, that's better. That's better. However right now",
+        "falcon_ok": true,
+        "wer": 0.25,
+        "recon_ms": 4166
+      },
+      "formal": {
+        "clean": "No more Mexican wave. Okay, that's better. However, right now...",
+        "filtered": "No more Mexican wave Okay, that's better. That's better. However right now",
+        "falcon_ok": true,
+        "wer": 0.4167,
+        "recon_ms": 5426
+      },
+      "friend": {
+        "clean": "No more Mexican wave. Okay, that's better. However, right now...",
+        "filtered": "No more Mexican wave Okay, that's better. That's better. However right now",
+        "falcon_ok": true,
+        "wer": 0.4167,
+        "recon_ms": 4556
+      }
+    }
+  },
+  {
+    "sid": 3301,
+    "ts": "2026-04-13T21:47:44.064086",
+    "raw": "If you and I are seeing the same thing, are we seeing the same thing actually?",
+    "historical_out": "Are we really seeing the same thing?",
+    "original": {
+      "tone": "casual",
+      "layer": 2,
+      "falcon": 1
+    },
+    "situation": "default",
+    "editorial_distance": 0.75,
+    "words": 7,
+    "L4_by_tone": {
+      "casual": {
+        "clean": "If you and I are seeing the same thing, are we actually seeing the same thing?",
+        "filtered": "If you and I are seeing the same thing, are we seeing the same thing actually?",
+        "falcon_ok": true,
+        "wer": 0.1875,
+        "recon_ms": 5159
+      },
+      "professional": {
+        "clean": "If you and I are seeing the same thing, are we actually seeing the same thing?",
+        "filtered": "If you and I are seeing the same thing, are we seeing the same thing actually?",
+        "falcon_ok": true,
+        "wer": 0.1875,
+        "recon_ms": 5127
+      },
+      "formal": {
+        "clean": "If you and I are seeing the same thing, are we actually seeing the same thing?",
+        "filtered": "If you and I are seeing the same thing, are we seeing the same thing actually?",
+        "falcon_ok": true,
+        "wer": 0.1875,
+        "recon_ms": 4992
+      },
+      "friend": {
+        "clean": "If you and I are seeing the same thing, are we actually seeing the same thing?",
+        "filtered": "If you and I are seeing the same thing, are we seeing the same thing actually?",
+        "falcon_ok": true,
+        "wer": 0.1875,
+        "recon_ms": 5503
+      }
+    }
+  },
+  {
+    "sid": 3556,
+    "ts": "2026-04-19T16:40:04.615221",
+    "raw": "Context compression threshold. Now, I think we already did a setting like this where we said no compression, no compaction, but it's asking again at 50% right now. How about never?",
+    "historical_out": "The context compression threshold is currently set to 50%. I recall we previously configured a setting where we specified no compression and no compaction. However, it is prompting us again. How about setting it to never?",
+    "original": {
+      "tone": "formal",
+      "layer": 4,
+      "falcon": 1
+    },
+    "situation": "default",
+    "editorial_distance": 0.75,
+    "words": 36,
+    "L4_by_tone": {
+      "casual": {
+        "clean": "Context compression threshold. I think we already set it to no compression, no compaction, but it's asking again at 50% right now. How about we just set it to never?",
+        "filtered": "Context compression threshold. Now, I think we already did a setting like this where we said no compression, no compaction, but it's asking again at 50% right now. How about never?",
+        "falcon_ok": true,
+        "wer": 0.4516,
+        "recon_ms": 4968
+      },
+      "professional": {
+        "clean": "Regarding the context compression threshold, I believe we previously set it to no compression and no compaction. However, it's currently prompting for a 50% threshold. Can we set it to never?",
+        "filtered": "Context compression threshold. Now, I think we already did a setting like this where we said no compression, no compaction, but it's asking again at 50% right now. How about never?",
+        "falcon_ok": true,
+        "wer": 0.9032,
+        "recon_ms": 6616
+      },
+      "formal": {
+        "clean": "The context compression threshold. I believe we already configured a setting like this where we specified no compression and no compaction. However, it is currently asking again at 50%. How about setting it to never?",
+        "filtered": "Context compression threshold. Now, I think we already did a setting like this where we said no compression, no compaction, but it's asking again at 50% right now. How about never?",
+        "falcon_ok": true,
+        "wer": 0.5806,
+        "recon_ms": 3910
+      },
+      "friend": {
+        "clean": "Context compression threshold. I think we already set it to no compression and no compaction, but it's asking again at 50% right now. How about we just set it to never?",
+        "filtered": "Context compression threshold. Now, I think we already did a setting like this where we said no compression, no compaction, but it's asking again at 50% right now. How about never?",
+        "falcon_ok": true,
+        "wer": 0.5161,
+        "recon_ms": 5288
+      }
+    }
+  }
+]

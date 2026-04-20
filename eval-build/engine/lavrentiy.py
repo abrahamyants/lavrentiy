@@ -15,24 +15,21 @@ import os
 # directory to sys.path — explicitly add it so sibling modules
 # (local.whisper_local) can be imported.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# ── Phase 1: stdlib-only imports (fast, <100ms) ───────────────────
+# Everything needed for the single-instance check + the boot stub server.
+# Heavy third-party imports (openai, numpy, scipy, sounddevice, keyboard,
+# pyautogui, etc.) are deferred to Phase 4 below so the HTTP server can
+# bind :7878 and respond within ~2s of process launch instead of ~30s.
 import re
-import openai
-import sounddevice as sd
-import soundfile as sf
-import keyboard
-import pyperclip
-import pyautogui
 import tempfile
 import threading
-import numpy
-import os
 import time
 import json
 import sqlite3
 import ctypes
 import shutil
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-from scipy.signal import resample_poly, butter, filtfilt
 from math import gcd
 from pathlib import Path
 from datetime import datetime
@@ -88,6 +85,66 @@ try:
 except Exception:
     user32.SetProcessDPIAware()
 
+# ── Phase 2: Boot stub HTTP server (bind :7878 in ~100ms) ─────────
+# Starts a minimal stub HTTP server on the dashboard port before any heavy
+# third-party library is imported. The stub responds to /api/state with
+# {"ready": false, "boot_stage": "..."} during the 15-30s initialization
+# window. desktop.py's splash polls /api/state, displays boot_stage as
+# live progress, and only navigates to the real dashboard once ready=true.
+# When initialization completes below (end of this module), the stub
+# server's RequestHandlerClass is swapped to the real DashboardHandler —
+# zero-downtime transition, same bound socket.
+DASHBOARD_PORT = 7878
+_BOOT_STATE = {"ready": False, "stage": "starting"}
+
+class _StubHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/api/state':
+            body = json.dumps({
+                "state": "warming_up",
+                "ready": _BOOT_STATE["ready"],
+                "boot_stage": _BOOT_STATE["stage"],
+            }).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_response(503)
+            self.send_header('Content-Type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'engine warming up')
+    def do_POST(self):
+        self.send_response(503)
+        self.send_header('Content-Type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b'engine warming up')
+    def log_message(self, *a, **k):
+        pass
+
+try:
+    _dashboard_server = ThreadingHTTPServer(('0.0.0.0', DASHBOARD_PORT), _StubHandler)
+    threading.Thread(target=_dashboard_server.serve_forever, daemon=True).start()
+except OSError:
+    _dashboard_server = None  # Port bind failed — will try legacy run_dashboard() at end
+
+# ── Phase 3: Heavy third-party imports (blocks main thread ~10-15s) ──
+# Stub server above continues serving /api/state during this window.
+_BOOT_STATE["stage"] = "loading Python libraries"
+import openai
+_BOOT_STATE["stage"] = "loading audio libraries"
+import sounddevice as sd
+import soundfile as sf
+_BOOT_STATE["stage"] = "loading numerical libraries"
+import numpy
+from scipy.signal import resample_poly, butter, filtfilt
+_BOOT_STATE["stage"] = "loading input hooks"
+import keyboard
+import pyperclip
+import pyautogui
+
 # -- Configuration ────────────────────────────────────────────────
 API_KEY = ""
 _key_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "api_key.txt")
@@ -135,7 +192,7 @@ LAVRENTIY_DIR = Path.home() / ".lavrentiy"
 PROFILES_ROOT = LAVRENTIY_DIR / "profiles"
 ACTIVE_FILE = LAVRENTIY_DIR / "active_profile"
 DEFAULT_PROFILE_NAME = "Default"
-DASHBOARD_PORT = 7878
+# DASHBOARD_PORT is defined earlier in the boot stub server block.
 
 def _read_active_profile_name():
     """Read active profile name from disk, or return default."""
@@ -7857,8 +7914,17 @@ print(f"Dashboard: http://localhost:{DASHBOARD_PORT}")
 print(f"\"Lavrentiy does his best. Check your shit before you send it.\"")
 print()
 
-# Start dashboard server
-threading.Thread(target=run_dashboard, daemon=True).start()
+# ── Phase 5: Hand off the boot stub server to the real dashboard ──
+# The stub server has been serving /api/state with boot progress since the
+# top of this module. Now that all init is complete, swap the handler to
+# the real DashboardHandler — same bound socket, same daemon thread, zero
+# downtime. If the stub failed to bind at startup, fall back to legacy path.
+_BOOT_STATE["stage"] = "ready"
+if _dashboard_server is not None:
+    _dashboard_server.RequestHandlerClass = DashboardHandler
+else:
+    threading.Thread(target=run_dashboard, daemon=True).start()
+_BOOT_STATE["ready"] = True
 
 _hook_start_time = time.time()
 # Open persistent audio stream so pre-roll buffer starts feeding immediately

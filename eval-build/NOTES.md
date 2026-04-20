@@ -10,7 +10,7 @@ This directory is that "what George is running + three surgical fixes" version.
 
 ## What's inside
 
-- `engine/lavrentiy.py` — patched engine (7,870 lines, from the 7,794-line Apr 13 installed snapshot + 76 lines added/changed across eight fixes)
+- `engine/lavrentiy.py` — patched engine (7,936 lines, from the 7,794-line Apr 13 installed snapshot + ~142 lines added/changed: 76 lines across fixes 1-8, plus ~66 lines for the v1.3.0 fast-boot restructure)
 - `engine/` other files — `dashboard.html`, `desktop.py`, `auth_google.html`, `mobile.html`, `onboard.html`, `manifest.json`, `sw.js`, `silero_vad.onnx`, `lavrentiy.ico`, `api_key.txt`, `gemini_api_key.txt`, `gemini_client.py`, `wim/`, `local/` — all identical copies from the current install (no changes)
 - `engine/VERSION.txt` — eval version stamp
 
@@ -31,9 +31,11 @@ The Apr 13 snapshot predates the April 19 repo work:
 
 If a future evaluation surfaces a need for any of those, revisit case-by-case.
 
-## The eight changes applied (vs the Apr 13 snapshot)
+## The eight fixes + v1.3.0 fast-boot restructure (vs the Apr 13 snapshot)
 
-v1.2.0 = fixes 1–4 (crash/UX). v1.2.1 = adds fixes 5–8 (stutter accuracy + Falcon logic-leak + covert-avoidance acceptance).
+- v1.2.0 = fixes 1–4 (crash/UX)
+- v1.2.1 = adds fixes 5–8 (stutter accuracy + Falcon logic-leak + covert-avoidance acceptance)
+- v1.3.0 = adds fast cold-start (engine restructured so `:7878` responds in ~1s with live boot_stage instead of ~30s of dead silence)
 
 ### 1. Fix: Command Mode tuple-unpack bug
 
@@ -214,6 +216,41 @@ Final question line also updated to use "unwarranted phonetic hallucination" —
 
 **Origin credit:** fix #8 was surfaced by an external model's read of the same code — it spotted the covert_profile angle that fix #7 missed. Tested in combination they cover both directions of phonetic drift: rejecting NEW avoidance (fix #7) AND accepting reconstructions that reverse tracked avoidance (fix #8).
 
+## v1.3.0 — fast cold-start restructure
+
+**File:** `engine/lavrentiy.py` — module-level reorganization
+
+The original engine did all heavy third-party imports (`openai`, `numpy`, `scipy`, `sounddevice`, `keyboard`, `pyautogui`, silero_vad model load, profile load, SQLite schema migration) BEFORE starting the HTTP server on `:7878`. That meant `localhost:7878` was dead for ~30 seconds after process launch, and `desktop.py`'s splash sat frozen showing "Almost there" with no live feedback. First impression for a foundation evaluator: "why is nothing happening."
+
+**What v1.3.0 does:**
+
+1. **Top of module — stdlib-only imports first.** Move `threading`, `json`, `http.server`, `ctypes`, etc. (all fast) above the heavy imports.
+2. **Phase 2: Single-instance mutex check** (same as before, unchanged).
+3. **Phase 3: Boot stub HTTP server.** A minimal `_StubHandler` class binds `:7878` in ~100ms and serves `/api/state` with `{"state": "warming_up", "ready": false, "boot_stage": "..."}`. All other paths return 503.
+4. **Phase 4: Heavy third-party imports run NOW.** `openai`, `sounddevice`, `numpy`, `scipy`, `keyboard`, etc. Between each group, `_BOOT_STATE["stage"]` is updated live (`"loading Python libraries"` → `"loading audio libraries"` → `"loading numerical libraries"` → `"loading input hooks"`). The stub server in its daemon thread keeps responding to polls from `desktop.py` throughout.
+5. **Phase 5: Handler swap at end of init.** Once the rest of the module has finished loading (profile, DB, silero VAD model, hotkey hooks), we swap `_dashboard_server.RequestHandlerClass = DashboardHandler` and flip `_BOOT_STATE["ready"] = True`. Zero-downtime transition — same bound socket, same daemon thread, same port.
+
+**`desktop.py` updates (paired with engine changes):**
+
+The pywebview wrapper now polls `/api/state` every 400ms, parses the JSON, and:
+- Displays `boot_stage` text in the splash in real time (instead of hardcoded fake stages)
+- Keeps the splash up until `ready:true`
+- Only then navigates to `ONBOARD_URL` for the real dashboard
+- Also handles the pythonw.exe headless case by re-using the same `sys.stdout` guard as the engine
+
+**Measured cold-start — 2026-04-20 test on this machine:**
+
+| Milestone | Before (v1.2.1) | After (v1.3.0) |
+|---|---|---|
+| First `/api/state` response | ~25-30s | **~1s** |
+| Live progress visible to user | No (frozen splash) | Yes (live stage text) |
+| Fully ready (`ready:true`) | ~25-30s | **~9s** |
+| Dashboard loads in pywebview | ~30s | ~9s |
+
+The absolute total time to ready dropped from ~30s to ~9s because the stub server starting early means no double-init overhead and Python's import cache warms faster without the intermediate subprocess dance.
+
+**Why this matters for institutional outreach:** an evaluator who installs and double-clicks the shortcut sees a branded splash with live status text within a second. Fully functional dashboard in under 10 seconds. That's the "feels like a real app" threshold. Before this change the wait was amateur-hour.
+
 ## How the installer uses this
 
 `installer/Lavrentiy-Eval.iss` pulls files from TWO places:
@@ -230,4 +267,4 @@ Installs as **Lavrentiy Evaluation** to `Program Files\Lavrentiy-Eval\`, with it
   "C:\Users\georg\Documents\GitHub\lavrentiy\installer\Lavrentiy-Eval.iss"
 ```
 
-Output: `installer\Output\Lavrentiy-Eval-Setup-v1.2.1.exe`
+Output: `installer\Output\Lavrentiy-Eval-Setup-v1.3.0.exe`

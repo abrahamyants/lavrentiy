@@ -13,10 +13,19 @@ Usage:
 import os
 import sys
 import time
+import json
 import threading
 import subprocess
 import urllib.request
 import webbrowser
+
+# Headless mode (pythonw / hidden console). Without this, print() calls fail
+# under pythonw.exe because sys.stdout is None, which silently kills pywebview's
+# init thread before the window is created.
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, 'w')
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, 'w')
 
 import webview
 import pystray
@@ -195,37 +204,38 @@ def _splash_status(win, text):
 
 def boot(win):
     """Runs in a background thread after the splash window is shown.
-    Starts the engine, waits for it, then navigates the window to the dashboard."""
-    _splash_status(win, "Spawning engine process")
+    Starts the engine, polls /api/state for ready=true (engine reports its
+    own boot_stage during the init window), shows that stage as live splash
+    text, navigates to the dashboard only once ready."""
+    _splash_status(win, "starting engine")
     print("[desktop] Starting engine subprocess...")
     start_engine()
-    _splash_status(win, "Loading audio pipeline")
-    time.sleep(0.3)  # let subprocess begin imports
-    print("[desktop] Waiting for HTTP server on :7878 ...")
-    # Poll faster than wait_for_engine so we can update status messages.
-    # Cold-start needs up to ~60s (silero_vad.onnx + numpy + all deps).
-    deadline = time.time() + 60
-    elapsed = 0
+    print("[desktop] Polling /api/state for readiness...")
+    # With the boot stub server, /api/state responds within ~1s of launch with
+    # {ready: false, boot_stage: "..."}. We follow that stage live until
+    # ready=true, then navigate to the full dashboard.
+    deadline = time.time() + 90
+    last_stage = None
+    ready = False
     while time.time() < deadline:
         try:
-            urllib.request.urlopen(READY_URL, timeout=1)
-            break
+            resp = urllib.request.urlopen(READY_URL, timeout=1)
+            data = json.loads(resp.read().decode())
+            stage = data.get("boot_stage") or data.get("state") or "starting"
+            if stage != last_stage:
+                _splash_status(win, stage)
+                print(f"[desktop] stage: {stage}")
+                last_stage = stage
+            if data.get("ready") or data.get("state") in ("idle", "recording", "processing"):
+                ready = True
+                break
         except Exception:
-            elapsed = time.time() - (deadline - 20)
-            if elapsed > 1.5 and elapsed < 3:
-                _splash_status(win, "Initializing speech recognition")
-            elif elapsed > 3 and elapsed < 4.5:
-                _splash_status(win, "Registering F9 hotkey")
-            elif elapsed > 4.5 and elapsed < 6:
-                _splash_status(win, "Loading your voice profile")
-            elif elapsed > 6 and elapsed < 7.5:
-                _splash_status(win, "Starting dashboard server")
-            elif elapsed > 7.5:
-                _splash_status(win, "Almost there")
-            time.sleep(0.3)
-    else:
-        # timed out
-        print("[desktop] ERROR: engine did not respond. Check lavrentiy.py.",
+            if last_stage != "starting engine":
+                _splash_status(win, "starting engine")
+                last_stage = "starting engine"
+        time.sleep(0.4)
+    if not ready:
+        print("[desktop] ERROR: engine did not report ready. Check lavrentiy.py.",
               file=sys.stderr)
         if engine_proc is not None:
             engine_proc.kill()
@@ -234,7 +244,7 @@ def boot(win):
         except Exception:
             pass
         return
-    _splash_status(win, "Loading dashboard")
+    _splash_status(win, "loading dashboard")
     print("[desktop] Engine ready — loading dashboard.")
     try:
         win.load_url(ONBOARD_URL)
