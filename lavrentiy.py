@@ -1161,6 +1161,20 @@ def save_profile(prof, _epoch=None):
             f.flush()
             os.fsync(f.fileno())
         tmp_path.replace(PROFILE_PATH)
+    # --- FIRESTORE DIRECT PUBLISH HOOK ---
+    try:
+        from lavrentiy.firestore_publisher import publish_profile_to_firestore
+        import threading
+        global _auth_user
+        if _auth_user and isinstance(_auth_user, dict) and "uid" in _auth_user:
+            uid = _auth_user["uid"]
+            tw = prof.get("trigger_words", [])
+            ow = prof.get("onset_weights", {})
+            cp = prof.get("covert_profile", {})
+            threading.Thread(target=publish_profile_to_firestore, args=(uid, tw, ow, cp), daemon=True).start()
+    except Exception as e:
+        log(f"Firestore publish hook failed: {e}", "error")
+        
     # Sync to Firestore in background (debounced, fire-and-forget)
     threading.Thread(target=sync_profile_to_firestore, args=(prof,), daemon=True).start()
 
