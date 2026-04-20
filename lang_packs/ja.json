@@ -1,0 +1,55 @@
+{
+  "language_code": "ja",
+  "language_name_en": "Japanese",
+  "language_name_native": "日本語",
+  "fillers": [
+    "ええと",
+    "あの",
+    "その",
+    "なんか",
+    "まあ",
+    "ていうか",
+    "えー"
+  ],
+  "natural_repeats": [
+    "そうそう",
+    "はいはい",
+    "いいえいいえ",
+    "てて"
+  ],
+  "productive_prefixes": [
+    "お",
+    "ご",
+    "大",
+    "超",
+    "真",
+    "無",
+    "不",
+    "非"
+  ],
+  "hard_onsets": {
+    "data": [
+      {
+        "onset": "/k/",
+        "difficulty_weight": 0.82,
+        "source": "Umezaki et al. 1999, Phonological characteristics of stuttering in Japanese"
+      }
+    ],
+    "quality_note": "cited"
+  },
+  "script_unicode_ranges": [
+    [
+      12352,
+      12447
+    ],
+    [
+      12448,
+      12543
+    ],
+    [
+      19968,
+      40879
+    ]
+  ],
+  "script_detection_regex": "[\\u3040-\\u309F\\u30A0-\\u30FF\\u4E00-\\u9FAF]"
+}

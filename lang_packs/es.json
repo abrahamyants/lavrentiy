@@ -1,0 +1,57 @@
+{
+  "language_code": "es",
+  "language_name_en": "Spanish",
+  "language_name_native": "Español",
+  "fillers": [
+    "este",
+    "eh",
+    "em",
+    "pues",
+    "o sea",
+    "bueno",
+    "es que",
+    "digamos"
+  ],
+  "natural_repeats": [
+    "no no",
+    "sí sí",
+    "ya ya",
+    "claro claro"
+  ],
+  "productive_prefixes": [
+    "co-",
+    "re-",
+    "pre-",
+    "sub-",
+    "des-",
+    "in-",
+    "anti-",
+    "sobre-"
+  ],
+  "hard_onsets": {
+    "data": [
+      {
+        "onset": "/p/",
+        "difficulty_weight": 0.85,
+        "source": "Howell et al. 2004, Cross-linguistic comparison of stuttering"
+      },
+      {
+        "onset": "/t/",
+        "difficulty_weight": 0.82,
+        "source": "Howell et al. 2004, Cross-linguistic comparison of stuttering"
+      }
+    ],
+    "quality_note": "cited"
+  },
+  "script_unicode_ranges": [
+    [
+      32,
+      126
+    ],
+    [
+      160,
+      255
+    ]
+  ],
+  "script_detection_regex": "[\\u00A0-\\u00FF]"
+}

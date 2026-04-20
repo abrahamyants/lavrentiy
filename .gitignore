@@ -1,5 +1,8 @@
 local/
-docs/
+docs/*
+!docs/spanish_stuttering_memo.md
+!docs/multilingual_research_notes.md
+!docs/stutterzero_checkpoint_research.md
 profile.json
 __pycache__/
 *.pyc

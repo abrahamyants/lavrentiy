@@ -1,0 +1,42 @@
+# Phase-4 benchmark dependencies
+# Install into a venv — NOT globally:
+#   cd bench/
+#   python -m venv .venv
+#   .venv\Scripts\activate    (Windows)
+#   pip install -r requirements.txt
+
+# ── Always required ──
+# stdlib only: argparse, csv, glob, json, os, re, subprocess, sys, time, wave, pathlib, sqlite3
+
+# ── OpenAI Whisper API baseline ──
+openai>=1.0.0
+
+# ── Audio I/O ──
+soundfile>=0.12.0
+numpy>=1.26.0
+
+# ── Backend: Vosk ──
+# Required only if running Vosk in --backends
+vosk>=0.3.45
+
+# ── Backend: Qwen3-ASR ONNX path ──
+# Required only if Qwen3 model dir contains .onnx files
+onnxruntime>=1.17.0
+
+# ── Backend: Qwen3-ASR PyTorch path ──
+# Required only if Qwen3 model dir contains .safetensors files (no .onnx)
+# Heavy — ~2 GB install. Skip if you only use the ONNX path.
+# torch>=2.1.0
+# transformers>=4.40.0
+
+# ── Backend: whisper.cpp ──
+# Not a Python package — whisper.cpp is a standalone binary.
+# Build from https://github.com/ggml-org/whisper.cpp and pass --whispercpp-binary
+# to the benchmark.
+
+# ── Notes ──
+# - Every backend is optional. The benchmark skips (with a reason) any backend
+#   whose deps are missing, so you can install only what you need.
+# - vosk + onnxruntime + openai + soundfile + numpy = ~200 MB, enough to run
+#   three backends (Vosk, Qwen3-ONNX, OpenAI) and the full metrics suite.
+# - Adding torch/transformers balloons the venv to ~2 GB.

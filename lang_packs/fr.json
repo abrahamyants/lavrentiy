@@ -1,0 +1,61 @@
+{
+  "language_code": "fr",
+  "language_name_en": "French",
+  "language_name_native": "Français",
+  "fillers": [
+    "euh",
+    "ben",
+    "bah",
+    "en fait",
+    "genre",
+    "tu vois",
+    "quoi",
+    "donc"
+  ],
+  "natural_repeats": [
+    "non non",
+    "oui oui",
+    "si si",
+    "et et"
+  ],
+  "productive_prefixes": [
+    "co-",
+    "re-",
+    "pré-",
+    "sous-",
+    "dé-",
+    "in-",
+    "anti-",
+    "sur-"
+  ],
+  "hard_onsets": {
+    "data": [
+      {
+        "onset": "/p/",
+        "difficulty_weight": 0.85,
+        "source": "Dworzynski et al. 2003, Phonological factors in French stuttering"
+      },
+      {
+        "onset": "/t/",
+        "difficulty_weight": 0.83,
+        "source": "Dworzynski et al. 2003, Phonological factors in French stuttering"
+      }
+    ],
+    "quality_note": "cited"
+  },
+  "script_unicode_ranges": [
+    [
+      32,
+      126
+    ],
+    [
+      160,
+      255
+    ],
+    [
+      338,
+      339
+    ]
+  ],
+  "script_detection_regex": "[\\u00A0-\\u00FF\\u0152\\u0153]"
+}
