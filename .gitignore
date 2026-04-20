@@ -6,6 +6,7 @@ docs/*
 !docs/clinical_validation_protocol.md
 !docs/l4_prompt_engineering_memo.md
 !docs/yolo_stutter_stutter_solver_evaluation.md
+!docs/foundation_grant_landscape.md
 profile.json
 __pycache__/
 *.pyc
