@@ -1,0 +1,42 @@
+{
+  "language_code": "hi",
+  "language_name_en": "Hindi",
+  "language_name_native": "हिन्दी",
+  "fillers": [
+    "मतलब",
+    "तो",
+    "हाँ",
+    "अच्छा",
+    "जैसे",
+    "यार",
+    "अरे",
+    "उम"
+  ],
+  "natural_repeats": [
+    "नहीं नहीं",
+    "हाँ हाँ",
+    "ठीक ठीक",
+    "और और"
+  ],
+  "productive_prefixes": [
+    "अ-",
+    "अनु-",
+    "अप-",
+    "अभि-",
+    "अव-",
+    "आ-",
+    "उत्-",
+    "उप-"
+  ],
+  "hard_onsets": {
+    "data": [],
+    "quality_note": "unavailable"
+  },
+  "script_unicode_ranges": [
+    [
+      2304,
+      2431
+    ]
+  ],
+  "script_detection_regex": "[\\u0900-\\u097F]"
+}

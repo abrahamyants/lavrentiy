@@ -1,0 +1,52 @@
+{
+  "language_code": "pt",
+  "language_name_en": "Portuguese",
+  "language_name_native": "Português",
+  "fillers": [
+    "é",
+    "eh",
+    "tipo",
+    "assim",
+    "meio que",
+    "sabe",
+    "né",
+    "então"
+  ],
+  "natural_repeats": [
+    "não não",
+    "sim sim",
+    "já já",
+    "e e"
+  ],
+  "productive_prefixes": [
+    "re-",
+    "pre-",
+    "in-",
+    "des-",
+    "com-",
+    "inter-",
+    "super-",
+    "anti-"
+  ],
+  "hard_onsets": {
+    "data": [
+      {
+        "onset": "/p/",
+        "difficulty_weight": 0.86,
+        "source": "Juste et al. 2007, Stuttering and language: a study on Portuguese-speaking children"
+      }
+    ],
+    "quality_note": "cited"
+  },
+  "script_unicode_ranges": [
+    [
+      32,
+      126
+    ],
+    [
+      160,
+      255
+    ]
+  ],
+  "script_detection_regex": "[\\u00C0-\\u00FF]"
+}

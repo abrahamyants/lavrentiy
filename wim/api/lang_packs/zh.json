@@ -1,0 +1,41 @@
+{
+  "language_code": "zh",
+  "language_name_en": "Mandarin Chinese",
+  "language_name_native": "中文",
+  "fillers": [
+    "那个",
+    "就是",
+    "然后",
+    "呃",
+    "啊",
+    "这",
+    "怎么说呢"
+  ],
+  "natural_repeats": [
+    "对对",
+    "是是",
+    "行行",
+    "好好"
+  ],
+  "productive_prefixes": [
+    "超",
+    "反",
+    "非",
+    "不",
+    "未",
+    "无",
+    "半",
+    "大"
+  ],
+  "hard_onsets": {
+    "data": [],
+    "quality_note": "unavailable"
+  },
+  "script_unicode_ranges": [
+    [
+      19968,
+      40959
+    ]
+  ],
+  "script_detection_regex": "[\\u4E00-\\u9FFF]"
+}

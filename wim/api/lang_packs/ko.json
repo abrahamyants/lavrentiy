@@ -1,0 +1,42 @@
+{
+  "language_code": "ko",
+  "language_name_en": "Korean",
+  "language_name_native": "한국어",
+  "fillers": [
+    "어",
+    "음",
+    "그",
+    "저",
+    "막",
+    "아",
+    "근데",
+    "사실"
+  ],
+  "natural_repeats": [
+    "아니 아니",
+    "네 네",
+    "맞아 맞아",
+    "그리고 그리고"
+  ],
+  "productive_prefixes": [
+    "개-",
+    "군-",
+    "날-",
+    "돌-",
+    "들-",
+    "막-",
+    "맨-",
+    "선-"
+  ],
+  "hard_onsets": {
+    "data": [],
+    "quality_note": "unavailable"
+  },
+  "script_unicode_ranges": [
+    [
+      44032,
+      55203
+    ]
+  ],
+  "script_detection_regex": "[\\uAC00-\\uD7A3]"
+}

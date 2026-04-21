@@ -1,0 +1,52 @@
+{
+  "language_code": "de",
+  "language_name_en": "German",
+  "language_name_native": "Deutsch",
+  "fillers": [
+    "äh",
+    "ähm",
+    "halt",
+    "sozusagen",
+    "quasi",
+    "naja",
+    "also",
+    "irgendwie"
+  ],
+  "natural_repeats": [
+    "nein nein",
+    "ja ja",
+    "doch doch",
+    "und und"
+  ],
+  "productive_prefixes": [
+    "ab-",
+    "an-",
+    "auf-",
+    "aus-",
+    "bei-",
+    "ein-",
+    "mit-",
+    "nach-"
+  ],
+  "hard_onsets": {
+    "data": [
+      {
+        "onset": "/p/",
+        "difficulty_weight": 0.85,
+        "source": "Natke et al. 2004, Linguistic stress, within-word position, and grammatical class in relation to early childhood stuttering in German"
+      }
+    ],
+    "quality_note": "cited"
+  },
+  "script_unicode_ranges": [
+    [
+      32,
+      126
+    ],
+    [
+      160,
+      255
+    ]
+  ],
+  "script_detection_regex": "[\\u00C0-\\u00FF]"
+}

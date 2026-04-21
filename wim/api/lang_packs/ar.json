@@ -1,0 +1,42 @@
+{
+  "language_code": "ar",
+  "language_name_en": "Arabic",
+  "language_name_native": "العربية",
+  "fillers": [
+    "يعني",
+    "اه",
+    "امم",
+    "طيب",
+    "طب",
+    "المهم",
+    "والله",
+    "زي"
+  ],
+  "natural_repeats": [
+    "لا لا",
+    "اه اه",
+    "ايوه ايوه",
+    "و و"
+  ],
+  "productive_prefixes": [
+    "ال",
+    "ب",
+    "ت",
+    "ي",
+    "م",
+    "ن",
+    "س",
+    "ف"
+  ],
+  "hard_onsets": {
+    "data": [],
+    "quality_note": "unavailable"
+  },
+  "script_unicode_ranges": [
+    [
+      1536,
+      1791
+    ]
+  ],
+  "script_detection_regex": "[\\u0600-\\u06FF]"
+}

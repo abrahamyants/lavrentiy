@@ -1,0 +1,52 @@
+{
+  "language_code": "it",
+  "language_name_en": "Italian",
+  "language_name_native": "Italiano",
+  "fillers": [
+    "ehm",
+    "uhm",
+    "cioè",
+    "diciamo",
+    "praticamente",
+    "insomma",
+    "niente",
+    "allora"
+  ],
+  "natural_repeats": [
+    "no no",
+    "sì sì",
+    "dai dai",
+    "e e"
+  ],
+  "productive_prefixes": [
+    "ri-",
+    "pre-",
+    "s-",
+    "in-",
+    "dis-",
+    "con-",
+    "inter-",
+    "super-"
+  ],
+  "hard_onsets": {
+    "data": [
+      {
+        "onset": "/p/",
+        "difficulty_weight": 0.84,
+        "source": "Zmarich et al. 2004, Stuttering in Italian: phonetic and linguistic variables"
+      }
+    ],
+    "quality_note": "cited"
+  },
+  "script_unicode_ranges": [
+    [
+      32,
+      126
+    ],
+    [
+      160,
+      255
+    ]
+  ],
+  "script_detection_regex": "[\\u00C0-\\u00FF]"
+}
