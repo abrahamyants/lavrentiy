@@ -1080,6 +1080,20 @@ The product was ALREADY shippable at session start. It was shippable last week. 
 
 George named this pattern directly near the end: *"what have you done today that was not done yesterday or the day before? have you created anything new?"* Honest answer: more code that doesn't unblock the actual bottleneck. That cost him a day closer to eviction while producing an installer whose core function (voice reconstruction) was already equivalent yesterday. The error is not that the code was bad; it's that I helped him avoid shipping by offering more engineering every time shipping got uncomfortable.
 
+## 30. Uncommitted Python L4 port was wiped by a stray `git reset --hard HEAD`; recovery worked but only by luck (2026-04-20 evening)
+
+A parallel Claude shell ("shell #2") completed the L4 multilingual prompt port to `lavrentiy.py` (+409 / -109 net) per `docs/l4_prompt_engineering_memo.md`. Shell #2 reported the work as "untracked, uncommitted, ready for review" — left on disk as an unstaged working-tree change on `main`. At some point after shell #2's session, a separate shell ran `git reset --hard HEAD` against the lavrentiy repo (confirmed via `git reflog` — entry `HEAD@{3}: reset: moving to HEAD`). The uncommitted diff was wiped. Three README commits then stacked on top, so the reset was not obvious from `git log` alone.
+
+**Why the loss wasn't caught immediately.** When the orchestrator session picked up, it read shell #2's handoff report verbatim — the report confidently listed `lavrentiy.py +409/-109` as "on disk, 213 Kotlin tests pass, pre-existing Python tests green." Taking the report at face value, the orchestrator started planning follow-up work (Cloud Function backend port) against a working-tree state that no longer existed. Same pattern as FAILURE LOG #23 Part B: trusting tool output / agent reports over direct inspection of actual state.
+
+**How it was eventually detected.** George asked the orchestrator to review and integrate shell #2's work. The orchestrator ran `git diff HEAD -- lavrentiy.py` → empty. `git status --short` → empty. `grep -c language_code lavrentiy.py` → 0. The most recent commit touching `lavrentiy.py` was `de9a6a8 Moonshine fallback` (-147 net), not the claimed +300 net. No stash, no branch, no worktree — the changes were simply not on disk anywhere. Ground truth disagreed with the report by a factor of everything.
+
+**Recovery.** Shell #2 still had the full `Edit` tool call sequence in its conversation buffer. It re-emitted every edit, then — critically — committed immediately as `94a5ac3 L4: language-parameterized prompt per docs/l4_prompt_engineering_memo.md`. Total recovery time: ~5 minutes. The Kotlin side of the same feature (on worktree `wim-android-l4-rewrite` branch `feat/l4-prompt-rewrite`) was never at risk — worktrees don't share a working tree with `main`, so the same `git reset` couldn't have touched it.
+
+**Why the recovery worked, and why that recipe is fragile.** Conversation-buffer recovery only works when all three hold: (a) the authoring shell is still alive, (b) its context window hasn't compacted past the Edit calls, (c) someone explicitly reads the situation and asks for the re-apply. If any one fails, the work is gone — there is no `git fsck --lost-found` for uncommitted changes, because uncommitted diffs are never written as git objects.
+
+**Rule reinforced.** When a parallel shell reports completed work on a shared repo, the authoring shell MUST commit BEFORE reporting "done," AND the orchestrator shell MUST verify on disk before building on the reported state. The Session 9 failure-log already flagged "Nothing committed. All changes are uncommitted local modifications" as an explicit risk; this is the second incidence of the same pattern within 48 hours. Cross-shell coordination on a shared working tree, without commits as the handoff currency, is the real root cause.
+
 ---
 
 ## Rules added to persistent memory during this session
