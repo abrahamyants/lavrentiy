@@ -139,7 +139,7 @@ def mine(db_path):
 
     # --- raw → output length ratio (rough proxy for how aggressively Lavrentiy is cleaning) ---
     raw_col = next((c for c in cols if c.lower() in ("raw", "raw_text", "input")), None)
-    out_col = next((c for c in cols if c.lower() in ("output", "clean", "clean_text", "final")), None)
+    out_col = next((c for c in cols if c.lower() in ("out", "output", "clean", "clean_text", "final")), None)
     if raw_col and out_col:
         ratios = []
         for s in sessions:
@@ -160,24 +160,55 @@ def mine(db_path):
             }
 
     # --- onset frequency ---
-    # If there's a trigger_words or onset_weights JSON column, parse + rank
-    # Otherwise, compute first-letter onset frequency from raw column content
+    # Two views: (1) raw over every word (dominated by function-word onsets —
+    # "the/to/it/a/in" etc.), (2) content-word only (filter out the ~100 most
+    # common English function words plus very short words). The second view
+    # is the one that actually maps to stutter-prone positions.
+    FUNCTION_WORDS = {
+        "the", "a", "an", "and", "or", "but", "if", "of", "at", "by", "for",
+        "to", "in", "on", "up", "down", "with", "from", "as", "into", "through",
+        "over", "under", "out", "off", "is", "am", "are", "was", "were", "be",
+        "been", "being", "have", "has", "had", "having", "do", "does", "did",
+        "doing", "will", "would", "shall", "should", "can", "could", "may",
+        "might", "must", "i", "me", "my", "mine", "myself", "you", "your",
+        "yours", "yourself", "he", "him", "his", "himself", "she", "her",
+        "hers", "herself", "it", "its", "itself", "we", "us", "our", "ours",
+        "ourselves", "they", "them", "their", "theirs", "themselves", "this",
+        "that", "these", "those", "what", "which", "who", "whom", "whose",
+        "where", "when", "why", "how", "all", "any", "each", "every", "some",
+        "no", "not", "so", "very", "too", "just", "than", "then", "there",
+        "here", "one", "two",
+    }
     if raw_col:
-        onset_counter = Counter()
-        word_total = 0
+        all_counter = Counter()
+        all_total = 0
+        content_counter = Counter()
+        content_total = 0
         for s in sessions:
             r = s.get(raw_col) or ""
-            if isinstance(r, str):
-                for w in r.split():
-                    w = w.strip(".,!?;:\"'()[]{}").lower()
-                    if w and w[0].isalpha():
-                        onset_counter[w[0]] += 1
-                        word_total += 1
-        if word_total:
-            top = onset_counter.most_common(15)
+            if not isinstance(r, str):
+                continue
+            for w in r.split():
+                w = w.strip(".,!?;:\"'()[]{}").lower()
+                if not (w and w[0].isalpha()):
+                    continue
+                all_counter[w[0]] += 1
+                all_total += 1
+                # Content-word filter: drop function words and very short words
+                if w not in FUNCTION_WORDS and len(w) >= 3:
+                    content_counter[w[0]] += 1
+                    content_total += 1
+        if all_total:
+            top = all_counter.most_common(15)
             report["raw_word_onset_frequency_top15"] = [
-                {"onset": k, "count": v, "pct": round(v / word_total * 100, 2)} for k, v in top
+                {"onset": k, "count": v, "pct": round(v / all_total * 100, 2)} for k, v in top
             ]
+        if content_total:
+            top_c = content_counter.most_common(15)
+            report["content_word_onset_frequency_top15"] = [
+                {"onset": k, "count": v, "pct": round(v / content_total * 100, 2)} for k, v in top_c
+            ]
+            report["content_word_total"] = content_total
 
     # --- sessions by month ---
     if ts_col:
@@ -294,10 +325,14 @@ def render_html(report, profile_name, db_path, ts):
         rows = [[stats["n"], stats["mean"], stats["median"], stats["min"], stats["max"]]]
         table_list("Clean-to-raw word ratio (proxy for how aggressively each session was cleaned)", rows, ["n", "mean", "median", "min", "max"])
 
-    # Onset frequency
+    # Onset frequency — both views
     if report.get("raw_word_onset_frequency_top15"):
         rows = [[r["onset"], r["count"], f'{r["pct"]}%'] for r in report["raw_word_onset_frequency_top15"]]
-        table_list("Raw-word onset frequency (top 15)", rows, ["Onset letter", "Count", "Pct of total words"])
+        table_list("Raw-word onset frequency — all words (top 15)", rows, ["Onset letter", "Count", "Pct of total words"])
+
+    if report.get("content_word_onset_frequency_top15"):
+        rows = [[r["onset"], r["count"], f'{r["pct"]}%'] for r in report["content_word_onset_frequency_top15"]]
+        table_list("Content-word onset frequency — function words filtered out (top 15)", rows, ["Onset letter", "Count", "Pct of content words"])
 
     parts.append('</body></html>')
     return "\n".join(parts)

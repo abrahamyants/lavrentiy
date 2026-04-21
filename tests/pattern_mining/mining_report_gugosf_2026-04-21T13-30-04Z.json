@@ -1,9 +1,9 @@
 {
-  "generated_utc": "2026-04-21T12-28-51Z",
+  "generated_utc": "2026-04-21T13-30-04Z",
   "profile": "gugosf",
   "db_path": "C:\\Users\\georg\\.lavrentiy\\profiles\\gugosf\\history.db",
   "report": {
-    "total_sessions": 3928,
+    "total_sessions": 3958,
     "columns": [
       "id",
       "ts",
@@ -25,12 +25,12 @@
       "prosodic_summary"
     ],
     "earliest_session": "2026-03-30T00:03:08.827677",
-    "latest_session": "2026-04-21T05:28:29.581379",
+    "latest_session": "2026-04-21T06:28:45.217299",
     "span_days": 22,
-    "sessions_per_day_avg": 178.55,
+    "sessions_per_day_avg": 179.91,
     "sessions_by_day_of_week": {
       "Mon": 1009,
-      "Tue": 870,
+      "Tue": 900,
       "Wed": 744,
       "Thu": 67,
       "Fri": 19,
@@ -43,8 +43,8 @@
       "2": 114,
       "3": 109,
       "4": 166,
-      "5": 89,
-      "6": 90,
+      "5": 105,
+      "6": 104,
       "7": 124,
       "8": 120,
       "9": 136,
@@ -71,28 +71,28 @@
     ],
     "numeric_aggregates": {
       "id": {
-        "n": 3928,
-        "mean": 1964.5,
-        "median": 1964.5,
+        "n": 3958,
+        "mean": 1979.5,
+        "median": 1979.5,
         "min": 1,
-        "max": 3928
+        "max": 3958
       },
       "layer": {
-        "n": 3928,
-        "mean": 1.691,
+        "n": 3958,
+        "mean": 1.686,
         "median": 1.0,
         "min": 1,
         "max": 4
       },
       "words": {
-        "n": 3928,
-        "mean": 30.608,
+        "n": 3958,
+        "mean": 30.562,
         "median": 21.0,
         "min": 1,
         "max": 451
       },
       "falcon": {
-        "n": 3928,
+        "n": 3958,
         "mean": 0.984,
         "median": 1.0,
         "min": 0,
@@ -100,102 +100,187 @@
       }
     },
     "situation_breakdown": {
-      "default": 3902,
+      "default": 3932,
       "high_stress": 24,
       "reading": 2
     },
     "tone_breakdown": {
-      "casual": 1435,
+      "casual": 1462,
       "professional": 1347,
       "friend": 691,
-      "formal": 455
+      "formal": 458
     },
     "layer_breakdown": {
-      "1": 2670,
+      "1": 2700,
       "4": 704,
       "2": 504,
       "3": 50
     },
+    "clean_to_raw_word_ratio": {
+      "n": 3958,
+      "mean": 1.009,
+      "median": 1.0,
+      "min": 0.027,
+      "max": 82.0
+    },
     "raw_word_onset_frequency_top15": [
       {
         "onset": "t",
-        "count": 19759,
-        "pct": 15.76
+        "count": 19864,
+        "pct": 15.75
       },
       {
         "onset": "i",
-        "count": 14056,
-        "pct": 11.21
+        "count": 14130,
+        "pct": 11.2
       },
       {
         "onset": "a",
-        "count": 11058,
-        "pct": 8.82
+        "count": 11140,
+        "pct": 8.83
       },
       {
         "onset": "w",
-        "count": 9720,
+        "count": 9774,
         "pct": 7.75
       },
       {
         "onset": "s",
-        "count": 7685,
+        "count": 7733,
         "pct": 6.13
       },
       {
         "onset": "y",
-        "count": 6592,
+        "count": 6636,
         "pct": 5.26
       },
       {
         "onset": "o",
-        "count": 6362,
+        "count": 6394,
         "pct": 5.07
       },
       {
         "onset": "b",
-        "count": 4974,
-        "pct": 3.97
+        "count": 4990,
+        "pct": 3.96
       },
       {
         "onset": "c",
-        "count": 4680,
-        "pct": 3.73
+        "count": 4717,
+        "pct": 3.74
       },
       {
         "onset": "d",
-        "count": 4364,
-        "pct": 3.48
+        "count": 4399,
+        "pct": 3.49
       },
       {
         "onset": "n",
-        "count": 3909,
-        "pct": 3.12
+        "count": 3928,
+        "pct": 3.11
       },
       {
         "onset": "m",
-        "count": 3904,
+        "count": 3927,
         "pct": 3.11
       },
       {
         "onset": "l",
-        "count": 3642,
-        "pct": 2.9
+        "count": 3669,
+        "pct": 2.91
       },
       {
         "onset": "f",
-        "count": 3641,
-        "pct": 2.9
+        "count": 3666,
+        "pct": 2.91
       },
       {
         "onset": "h",
-        "count": 3378,
+        "count": 3391,
         "pct": 2.69
       }
     ],
+    "content_word_onset_frequency_top15": [
+      {
+        "onset": "s",
+        "count": 6464,
+        "pct": 10.28
+      },
+      {
+        "onset": "t",
+        "count": 4947,
+        "pct": 7.87
+      },
+      {
+        "onset": "a",
+        "count": 4330,
+        "pct": 6.89
+      },
+      {
+        "onset": "w",
+        "count": 3972,
+        "pct": 6.32
+      },
+      {
+        "onset": "c",
+        "count": 3889,
+        "pct": 6.19
+      },
+      {
+        "onset": "i",
+        "count": 3828,
+        "pct": 6.09
+      },
+      {
+        "onset": "l",
+        "count": 3566,
+        "pct": 5.67
+      },
+      {
+        "onset": "k",
+        "count": 3229,
+        "pct": 5.14
+      },
+      {
+        "onset": "g",
+        "count": 2854,
+        "pct": 4.54
+      },
+      {
+        "onset": "b",
+        "count": 2829,
+        "pct": 4.5
+      },
+      {
+        "onset": "r",
+        "count": 2827,
+        "pct": 4.5
+      },
+      {
+        "onset": "m",
+        "count": 2737,
+        "pct": 4.35
+      },
+      {
+        "onset": "p",
+        "count": 2674,
+        "pct": 4.25
+      },
+      {
+        "onset": "f",
+        "count": 2575,
+        "pct": 4.1
+      },
+      {
+        "onset": "d",
+        "count": 2419,
+        "pct": 3.85
+      }
+    ],
+    "content_word_total": 62869,
     "sessions_by_month": {
       "2026-03": 802,
-      "2026-04": 3126
+      "2026-04": 3156
     }
   }
 }
