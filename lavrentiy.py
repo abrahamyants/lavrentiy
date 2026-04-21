@@ -1284,7 +1284,8 @@ def is_authenticated():
 def reconstruct_via_backend(raw_text, tone, layer, prof, situation="default", mode="SAFE",
                             whisper_low_conf=None, whisper_disagreements=None,
                             speech_severity_mod=0.0,
-                            paralinguistic_events=None, prosodic_context=None):
+                            paralinguistic_events=None, prosodic_context=None,
+                            language_code="en"):
     """Reconstruct via Cloud Function backend (uses server-side API key).
     Called when user is signed in via Google instead of using a local API key."""
     import urllib.request
@@ -1295,6 +1296,7 @@ def reconstruct_via_backend(raw_text, tone, layer, prof, situation="default", mo
         "situation": situation,
         "mode": mode,
         "speech_severity_mod": speech_severity_mod,
+        "language_code": language_code,
         "profile": {
             "vocabulary": prof.get("vocabulary", [])[:20],
             "corrections": dict(list(prof.get("corrections", {}).items())[:10]),
@@ -6234,8 +6236,10 @@ def pipeline():
             # Pass Whisper confidence data so L4 can target uncertain segments
             # Pass paralinguistic events so L5 can guide hallucination removal
             try:
-                if is_authenticated() and not API_KEY:
-                    # Signed in via Google — use backend proxy (server holds API key)
+                clean_text = None
+                if is_authenticated():
+                    # Signed in → route through backend (rules live server-side).
+                    # Local API key is dev-only per product decision 2026-04-20.
                     clean_text, _backend_falcon, _backend_result = reconstruct_via_backend(
                         filtered_text, current_tone, current_layer, profile,
                         current_situation, current_mode,
@@ -6245,13 +6249,14 @@ def pipeline():
                         paralinguistic_events=para_events if paralinguistic_enabled else None,
                         prosodic_context=prosodic_ctx if prosodic_enabled else None,
                     )
-                    if clean_text is None:
-                        log("Backend reconstruct returned None — using raw", "error")
-                        used_fallback = True
-                    elif current_mode == "SAFE":
+                    if clean_text is not None and current_mode == "SAFE":
                         falcon_ok = _backend_falcon  # backend already ran Falcon
-                else:
-                    # Local API key — call OpenAI directly
+                    elif clean_text is None and API_KEY:
+                        log("Backend unreachable — falling back to local API key", "info")
+                        # clean_text stays None; drop through to the direct-OpenAI branch below
+
+                if clean_text is None and API_KEY:
+                    # Local API key path: either not signed in, or backend failed.
                     clean_text = reconstruct(
                         filtered_text, current_tone, current_layer, profile, current_situation,
                         whisper_low_conf=whisper_low_conf,
@@ -6260,6 +6265,10 @@ def pipeline():
                         paralinguistic_events=para_events if paralinguistic_enabled else None,
                         prosodic_context=prosodic_ctx if prosodic_enabled else None
                     )
+
+                if clean_text is None:
+                    log("No backend auth and no local API key — using raw", "error")
+                    used_fallback = True
             except Exception as e:
                 log(f"Reconstruct failed ({e}) -- using raw", "error")
                 used_fallback = True
