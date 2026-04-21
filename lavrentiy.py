@@ -442,6 +442,301 @@ HIGH_RISK_ONSETS_RU = {
 HIGH_RISK_ONSETS_ALL = HIGH_RISK_ONSETS | HIGH_RISK_ONSETS_RU
 
 
+# ─── Multilingual L4 helpers (docs/l4_prompt_engineering_memo.md) ───
+# Lang packs live in lang_packs/{code}.json; mirrored into the wim-android
+# APK under app/src/main/assets/lang_packs/. The two sets MUST stay in sync.
+_LANG_PACK_CACHE = {}  # code -> dict or None (None = not found)
+
+
+def _lang_packs_dir():
+    # Lazy: resolve only when needed so exec-based test harnesses that lack
+    # __file__ (e.g. test_fuzz.py) don't fail at import time.
+    return Path(__file__).resolve().parent / "lang_packs"
+
+
+def _load_lang_pack(code):
+    """Return the parsed lang-pack dict for `code`, or None for English/unknown."""
+    normalized = _normalize_lang_code(code)
+    if normalized in _LANG_PACK_CACHE:
+        return _LANG_PACK_CACHE[normalized]
+    if normalized == "en":
+        _LANG_PACK_CACHE[normalized] = None
+        return None
+    try:
+        path = _lang_packs_dir() / f"{normalized}.json"
+        if not path.exists():
+            _LANG_PACK_CACHE[normalized] = None
+            return None
+        with open(path, "r", encoding="utf-8") as f:
+            pack = json.load(f)
+    except Exception:
+        pack = None
+    _LANG_PACK_CACHE[normalized] = pack
+    return pack
+
+
+def _normalize_lang_code(raw):
+    """Collapse 'en-US' → 'en', 'es-ES' → 'es'. Empty/None → 'en'."""
+    if not raw:
+        return "en"
+    head = raw.strip().split("-", 1)[0].split("_", 1)[0].lower()
+    return head or "en"
+
+
+def _lang_name(code):
+    normalized = _normalize_lang_code(code)
+    if normalized == "en":
+        return "English"
+    pack = _load_lang_pack(normalized)
+    return (pack or {}).get("language_name_en", normalized) or normalized
+
+
+def _get_lang_fillers(code):
+    pack = _load_lang_pack(code)
+    return list((pack or {}).get("fillers", []))
+
+
+def _get_lang_natural_repeats(code):
+    pack = _load_lang_pack(code)
+    return list((pack or {}).get("natural_repeats", []))
+
+
+def _get_lang_hard_onsets(code):
+    """Cited onset→weight map from lang pack. Empty when unavailable."""
+    pack = _load_lang_pack(code)
+    if not pack:
+        return {}
+    ho = pack.get("hard_onsets") or {}
+    if ho.get("quality_note") == "unavailable":
+        return {}
+    out = {}
+    for entry in ho.get("data") or []:
+        onset = (entry.get("onset") or "").strip().strip("/").lower()
+        weight = entry.get("difficulty_weight") or 0.0
+        if onset and weight:
+            out[onset] = weight
+    return out
+
+
+def _lang_has_no_onset_research(code):
+    normalized = _normalize_lang_code(code)
+    if normalized == "en":
+        return False
+    pack = _load_lang_pack(normalized)
+    if not pack:
+        return False
+    return (pack.get("hard_onsets") or {}).get("quality_note") == "unavailable"
+
+
+def _get_lang_part_word_example(code):
+    c = _normalize_lang_code(code)
+    return {
+        "es": "'p-p-pues entonces qu-qu-quiero ir al trabajo' → 'Pues, quiero ir al trabajo'",
+        "fr": "'P-p-peut-être qu'on devrait...' → 'Peut-être qu'on devrait...'",
+        "de": "'P-p-Peter hat mir gesagt...' → 'Peter hat mir gesagt...'",
+        "it": "'P-p-posso andare a-a-adesso?' → 'Posso andare adesso?'",
+        "pt": "'P-p-posso te falar a-a-agora?' → 'Posso te falar agora?'",
+        "ja": "'か-か-かく に つ い て は...' → 'かくについては...' (mora-level repetition)",
+        "zh": "'我-我-我 想 去' → '我想去'",
+        "hi": "'म-म-मैं जाना चाहता हूँ' → 'मैं जाना चाहता हूँ'",
+        "ar": "'ب-ب-بدي أروح' → 'بدي أروح'",
+        "ko": "'ㄱ-ㄱ-가고 싶어요' → '가고 싶어요'",
+    }.get(c, "'b-b-b-buy' → 'buy', 'Ca-ca-ca-can' → 'Can'")
+
+
+def _get_lang_prolongation_example(code):
+    c = _normalize_lang_code(code)
+    return {
+        "es": "'Sssssseñor, necesito...' → 'Señor, necesito...'",
+        "fr": "'Ssssalut, je voulais...' → 'Salut, je voulais...'",
+        "de": "'Mmmmontag kommt er zurück' → 'Montag kommt er zurück'",
+        "it": "'Mmmmmamma mia' → 'Mamma mia'",
+        "pt": "'Sssssenhor, preciso...' → 'Senhor, preciso...'",
+        "ja": "prolonged initial mora: 'かーーーく' → 'かく'",
+    }.get(c, "'mmmmaybe' → 'maybe', 'Sssssscience' → 'Science'")
+
+
+def _get_lang_epenthesis_note(code):
+    c = _normalize_lang_code(code)
+    return {
+        "es": "Spanish epenthetic /e/ during blocked clusters (e.g. 'p-eh-lanta' for 'planta', 't-eh-rabajo' for 'trabajo') — NOT English schwa /ə/",
+        "fr": "French epenthetic /ə/ during blocked clusters, but this is the French 'e muet', not the neutral English schwa",
+        "de": "German epenthetic /ə/ possible at morpheme boundaries in compounds",
+        "it": "Italian may insert a transitional /i/ or /e/ at blocked clusters",
+        "pt": "Portuguese may insert a transitional /i/ (BP) or /ə/ (EP) at blocked clusters",
+        "hi": "Hindi: inherent /a/ vowel of Devanagari consonants can be extended during blocks",
+    }.get(c, "schwa substitution: 'guh-guh-goat' → 'goat' (neutral /ə/ inserted in repeated clusters)")
+
+
+def _get_lang_dialect_avoidance_note(code):
+    c = _normalize_lang_code(code)
+    return {
+        "es": "- Spanish dialect avoidance: if speaker uses 'vos tenés' but context suggests 'tú tienes', they may be using voseo to avoid the /t/ onset. Do NOT reconstruct voseo into tuteo — preserve the speaker's dialect.",
+        "fr": "- French tu/vous register: an unexpected vous-form when tu is established may be avoidance of a /t/ onset. Do NOT reconstruct vous into tu.",
+        "de": "- German du/Sie register: an unexpected Sie-form when du is established MAY indicate avoidance of a /d/ onset (speculative — not established in German stuttering literature). Preserve the speaker's chosen form.",
+        "ja": "- Japanese casual/keigo register: an unexpected keigo form on a content word MAY indicate avoidance of a feared initial consonant (speculative — not established in Japanese stuttering literature). Preserve the speaker's chosen form.",
+        "ko": "- Korean 반말/존댓말 register: an unexpected register shift MAY indicate phonemic avoidance (speculative — not established in Korean stuttering literature). Preserve the speaker's chosen form.",
+        "ar": "- Arabic diglossia: an unexpected colloquial→MSA (عامية→فصحى) shift on a specific word MAY indicate register avoidance (speculative — not established in Arabic stuttering literature). Preserve the speaker's chosen register.",
+    }.get(c, "")
+
+
+def _get_lang_syllable_timing_note(code):
+    c = _normalize_lang_code(code)
+    if c in ("es", "fr", "it", "pt"):
+        return f"- {_lang_name(c)} is syllable-timed — anticipatory pauses are less prosodically marked than in English. Require both a filler cluster AND a hard-onset match before treating a pause as anticipatory."
+    if c == "de":
+        return "- German is stress-timed — anticipatory pauses have predictive weight similar to English."
+    if c == "ja":
+        return "- Japanese is mora-timed — stuttering occurs at mora boundaries, not English-style word-initial position."
+    return ""
+
+
+def _get_lang_epenthesis_corruption_note(code):
+    c = _normalize_lang_code(code)
+    return {
+        "es": "EPENTHETIC VOWEL CORRUPTION: blocked clusters (/tr/, /pl/, /pr/) → Whisper may transcribe 'p-eh-lanta' as 'Pelanta', 't-eh-rabajo' as 'Terabajo' — these are hallucinations of epenthesis, reconstruct to the target word",
+        "fr": "LIAISON HALLUCINATION: Whisper may insert liaison consonants mid-block (e.g. transcribing a /t/ the speaker was blocked on as the onset of the next vowel-initial word)",
+        "de": "COMPOUND BOUNDARY CORRUPTION: blocks at morpheme boundaries of long compounds (e.g. 'Arbeits…losigkeit') may be transcribed as two separate words or as a different compound",
+        "it": "GEMINATE CONFUSION: stuttered /p/ may be transcribed as the Italian geminate /pp/ ('la papa' vs. 'la pappa') — geminates are phonemic, verify against context",
+        "pt": "EPENTHETIC /i/ CORRUPTION: blocked clusters in BP may be transcribed with an intrusive /i/ (e.g. 'p-i-lanta' for 'planta')",
+        "ja": "MORA CORRUPTION: repeated moras ('か-か-かく') may collapse into a single mora or a different katakana/hiragana character",
+        "zh": "TONE CORRUPTION: repeated syllables in Mandarin may be transcribed with a wrong tone, producing a different word (same pinyin, different character)",
+    }.get(c, "SCHWA CORRUPTION: neutral vowel in repeated clusters → transcribed as a real word (e.g. 'buh-buh-blue' → 'but but blue' or 'above blue')")
+
+
+def _get_lang_onset_caveat(code):
+    c = _normalize_lang_code(code)
+    return {
+        "es": "Onset weights cite Howell et al. 2004 and are extrapolated from English aspiration data — may be slightly inflated for Spanish unaspirated plosives. Additionally, the trilled /rr/ (perro, ratón) is a high-frequency block site not captured in these weights.",
+        "fr": "Onset weights cite Dworzynski et al. 2003. French is unaspirated — treat with moderate extrapolation risk relative to English.",
+        "de": "Onset weights cite Natke et al. 2004. Only /p/ is documented as a primary hard onset in German — do NOT apply English-derived /t/ difficulty weighting.",
+        "it": "Onset weights cite Zmarich et al. 2004. Italian is unaspirated — moderate extrapolation risk.",
+        "pt": "Onset weights cite Juste et al. 2007, a pediatric study — adult onset weights are extrapolated; treat with lower confidence for adult users.",
+        "ja": "Onset weights cite Umezaki et al. 1999. /k/ is the documented hard onset; words beginning with か行 (ka, ki, ku, ke, ko) are elevated-risk.",
+    }.get(c, "")
+
+
+# Few-shot example blocks per language (memo Section 4.4).
+_LANG_FEW_SHOT = {
+    "es": (
+        "DISFLUENCY EXAMPLES (Spanish):\n"
+        "  REPETITION:  'P-p-pues este... quiero ir a la re-re-reunión'\n"
+        "  RESULT:      'Quiero ir a la reunión'\n\n"
+        "  EMPHATIC (PRESERVE):  'No no, eso no me parece bien'\n"
+        "  RESULT:      'No no, eso no me parece bien'\n\n"
+        "  WHISPER /rr/ BLOCK:  'Necesito el r-r-... el documento del er rrr... del jefe'\n"
+        "  RESULT:      'Necesito el documento del jefe'\n\n"
+        "  CIRCUMLOCUTION:  'Quiero hablar con el... con la persona que lleva los números'\n"
+        "  RESULT:      'Quiero hablar con el contador'  [if context is clear — else preserve circumlocution literally]"
+    ),
+    "fr": (
+        "DISFLUENCY EXAMPLES (French):\n"
+        "  REPETITION:  'Je je je voulais te te te dire quelque chose'\n"
+        "  RESULT:      'Je voulais te dire quelque chose'\n\n"
+        "  EMPHATIC (PRESERVE):  'Non non, ce n'est pas correct'\n"
+        "  RESULT:      'Non non, ce n'est pas correct'\n\n"
+        "  BLOCK + LIAISON:  'Les... euh... [block]... petits enfants arrivent'\n"
+        "  RESULT:      'Les petits enfants arrivent'\n\n"
+        "  CIRCUMLOCUTION:  'J'ai besoin du... de la chose qu'on met sur la tête'\n"
+        "  RESULT:      'J'ai besoin du chapeau'  [if context is clear]"
+    ),
+    "de": (
+        "DISFLUENCY EXAMPLES (German):\n"
+        "  REPETITION:  'P-p-Peter, ich brauche den Ber-ber-Bericht bis Freitag'\n"
+        "  RESULT:      'Peter, ich brauche den Bericht bis Freitag'\n\n"
+        "  EMPHATIC (PRESERVE):  'Nein nein, das ist nicht richtig'\n"
+        "  RESULT:      'Nein nein, das ist nicht richtig'\n\n"
+        "  COMPOUND BLOCK:  'Ich brauche die Ar-ar-Arbeits... die Bescheinigung'\n"
+        "  RESULT:      'Ich brauche die Arbeitsbescheinigung'\n\n"
+        "  WHISPER HALLUCINATION:  'Ich dachte dass... thank you... der Termin morgen ist'\n"
+        "  RESULT:      'Ich dachte, der Termin ist morgen'  [discard 'thank you' — Whisper hallucination]"
+    ),
+    "it": (
+        "DISFLUENCY EXAMPLES (Italian):\n"
+        "  REPETITION:  'P-p-posso andare a-a-adesso?'\n"
+        "  RESULT:      'Posso andare adesso?'\n\n"
+        "  EMPHATIC (PRESERVE):  'Sì sì, è proprio così'\n"
+        "  RESULT:      'Sì sì, è proprio così'\n\n"
+        "  GEMINATE DISAMBIGUATION:  'La p-p-papa parla' (stuttered /p/)\n"
+        "  RESULT:      'Il papa parla'  [stuttered /p/, NOT the geminate 'pappa' (porridge)]\n\n"
+        "  CIRCUMLOCUTION:  'Ho bisogno del... di quella cosa per scrivere'\n"
+        "  RESULT:      'Ho bisogno della penna'  [if context is clear]"
+    ),
+    "pt": (
+        "DISFLUENCY EXAMPLES (Portuguese):\n"
+        "  REPETITION:  'P-p-posso te falar a-a-agora sobre o pro-projeto?'\n"
+        "  RESULT:      'Posso te falar agora sobre o projeto?'\n\n"
+        "  EMPHATIC (PRESERVE):  'Não não, isso não está certo'\n"
+        "  RESULT:      'Não não, isso não está certo'\n\n"
+        "  DIALECT PRESERVATION:  'Vou pegar o ônibus' (BP) — do NOT normalize to 'autocarro' (EP)\n"
+        "  RESULT:      'Vou pegar o ônibus'\n\n"
+        "  CIRCUMLOCUTION:  'Preciso do... daquilo que a gente assina na entrada'\n"
+        "  RESULT:      'Preciso do formulário da entrada'"
+    ),
+    "ja": (
+        "DISFLUENCY EXAMPLES (Japanese):\n"
+        "  MORA REPETITION:  'か-か-かく に つ い て は...'\n"
+        "  RESULT:      'かくについては...'\n\n"
+        "  EMPHATIC (PRESERVE):  'そうそう、それが正しいです'\n"
+        "  RESULT:      'そうそう、それが正しいです'\n\n"
+        "  /k/ BLOCK:  'きょう の... えーと... かいぎ は なんじ ですか'\n"
+        "  RESULT:      'きょうのかいぎはなんじですか'"
+    ),
+    "zh": (
+        "DISFLUENCY EXAMPLES (Mandarin):\n"
+        "  REPETITION:  '我-我-我 想 去 开-开-开会'\n"
+        "  RESULT:      '我想去开会'\n\n"
+        "  EMPHATIC (PRESERVE):  '对对，这个就是正确的'\n"
+        "  RESULT:      '对对，这个就是正确的'\n\n"
+        "  ASPECTUAL REDUPLICATION (PRESERVE):  '我去看看' (take a look — NOT stutter)\n"
+        "  RESULT:      '我去看看'\n\n"
+        "  TONE-LEVEL SUBSTITUTION RISK: suspect single-syllable content-word substitutions"
+    ),
+    "hi": (
+        "DISFLUENCY EXAMPLES (Hindi):\n"
+        "  REPETITION:  'म-म-मैं जाना चाहता हूँ'\n"
+        "  RESULT:      'मैं जाना चाहता हूँ'\n\n"
+        "  EMPHATIC (PRESERVE):  'नहीं नहीं, यह सही नहीं है'\n"
+        "  RESULT:      'नहीं नहीं, यह सही नहीं है'\n\n"
+        "  CIRCUMLOCUTION:  'मुझे वो... जो लिखने के लिए होता है... चाहिए'\n"
+        "  RESULT:      'मुझे पेन चाहिए'  [if context is clear]"
+    ),
+    "ar": (
+        "DISFLUENCY EXAMPLES (Arabic):\n"
+        "  REPETITION:  'ب-ب-بدي أ-أ-أروح'\n"
+        "  RESULT:      'بدي أروح'\n\n"
+        "  EMPHATIC (PRESERVE):  'لا لا، هذا مش صحيح'\n"
+        "  RESULT:      'لا لا، هذا مش صحيح'\n\n"
+        "  WHISPER ENGLISH HALLUCINATION:  'كنت أفكر... thank you... في الموعد'\n"
+        "  RESULT:      'كنت أفكر في الموعد'  [discard 'thank you' — Whisper hallucination]"
+    ),
+    "ko": (
+        "DISFLUENCY EXAMPLES (Korean):\n"
+        "  REPETITION:  '가-가-가고 싶-싶-싶어요'\n"
+        "  RESULT:      '가고 싶어요'\n\n"
+        "  EMPHATIC (PRESERVE):  '아니 아니, 그게 맞지 않아요'\n"
+        "  RESULT:      '아니 아니, 그게 맞지 않아요'\n\n"
+        "  CIRCUMLOCUTION:  '그... 쓰는 거 있잖아요... 필요해요'\n"
+        "  RESULT:      '펜 필요해요'  [if context is clear]"
+    ),
+    "en": (
+        "DISFLUENCY EXAMPLES (English):\n"
+        "  BLOCK:       'I need the... [silence]... computer from the office'\n"
+        "  RESULT:      'I need the computer from the office'\n\n"
+        "  REPETITION:  'Ca-ca-ca-can you p-p-please send the re-report'\n"
+        "  RESULT:      'Can you please send the report'\n\n"
+        "  WORD REPS:   'I I I want to to to go to the the meeting'\n"
+        "  RESULT:      'I want to go to the meeting'\n\n"
+        "  WHISPER:     'I was trying to come put her the file'\n"
+        "  RESULT:      'I was trying to get the computer file'"
+    ),
+}
+
+
+def _get_lang_few_shot_examples(code):
+    return _LANG_FEW_SHOT.get(_normalize_lang_code(code), _LANG_FEW_SHOT["en"])
+
+
 def detect_word_language(word):
     """Detect language of a single word by character analysis.
     Returns 'ru' for Cyrillic, 'en' for Latin, 'unknown' for other."""
@@ -2203,7 +2498,7 @@ def log(text, kind="info"):
 def reconstruct(raw_text, tone, layer, prof, situation=None,
                 whisper_low_conf=None, whisper_disagreements=None,
                 speech_severity_mod=0.0, paralinguistic_events=None,
-                prosodic_context=None):
+                prosodic_context=None, language_code="en"):
     """Layer 2+: Rebuild raw transcription into clean output."""
     # Detect if input contains Cyrillic (bilingual speaker)
     has_cyrillic = any('\u0400' <= c <= '\u04ff' for c in raw_text)
@@ -2406,106 +2701,98 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
 
         # Whisper confidence injection now at Layer 2+ (above)
 
-        parts.append(
-            "\nThe speaker stutters. Raw transcription is evidence, not truth. "
-            "Reconstruct intended meaning, not literal word sequence."
-            "\n\nOvert disfluencies — strip and reconstruct:"
-            "\n- Part-word repetitions: 'b-b-b-buy' → 'buy', 'Ca-ca-ca-can' → 'Can'"
-            "\n- Whole-word repetitions: 'I I I want' → 'I want', 'I want... I want to go' → 'I want to go'"
-            "\n- Prolongations: 'mmmmaybe' → 'maybe', 'Sssssscience' → 'Science'"
-            "\n- Schwa substitution: 'guh-guh-goat' → 'goat' (neutral /ə/ replaces natural vowel in repeats)"
-            "\n- Consonant cluster breaks: failed blends inject schwa, e.g. 'bə-bə-blue' → 'blue'"
-            "\n- Blocks: silence or frozen onset before a word (locked articulators, no sound)"
-            "\n- Tremors: lip/jaw quivering during a fixation"
-            "\n- Secondary behaviors: eye blinks, foot taps, head movements during blocks"
-            "\n- False starts and restarts"
-            "\n\nCovert stuttering — recognize as avoidance, not content:"
-            "\n- Filler clusters before a content word = delay tactic (starters), not hesitation"
-            "\n- Synonym substitution = avoiding a feared word"
-            "\n- Circumlocution = talking around a feared word"
-            "\n- Sentence abandonment = dropping thought before feared word ('Oh, never mind')"
-            "\n- Covert interruption = jumping in while someone talks to mask onset difficulty"
-            "\n- Mazes/cluttering = rambling run-on filler adding no information"
-            "\n  e.g. 'I think of uh - it's something you say as it comes out of - that sort of thing'"
-            "\n- Pause before a word = anticipatory fear (scanning ahead), not thinking"
-            "\n\nPhonetic triggers (common block locations — 90%+ occur on initial sounds):"
-            "\n- Stop plosives: /p/, /b/, /t/, /d/, /k/, /g/ (unvoiced > voiced)"
-            "\n- Affricates: /tʃ/, /dʒ/"
-            "\n- Consonant clusters at onset: bl-, br-, cr-, str-, spl-, thr-, etc."
-            "\n- Initial position of words and clauses (clause boundary = high risk)"
-            "\n- Content words (nouns, verbs, adjectives) >> function words (articles, conjunctions)"
-            "\n- Consonant-vowel transitions (speaker starts vowel but can't coarticulate to next sound)"
-            "\n\nAnticipatory behavior (cognitive pattern — CRITICAL):"
-            "\n- A pause or silence BEFORE a content word is likely ANTICIPATORY FEAR, not thinking"
-            "\n- The speaker scans ahead, detects a feared word coming, and freezes"
-            "\n- Ellipsis, trailing off, or sudden topic change before a specific word = avoidance"
-            "\n- 'I need the... uh... that thing' = speaker feared the next word, not searching for it"
-            "\n- Treat pre-word pauses on content words as blocks, not as natural hesitation"
-            "\n\nWhisper ASR failure modes on stuttered speech (correct these artifacts):"
-            "\n- HALLUCINATION DURING BLOCKS: silence/frozen onset → Whisper invents words to fill the gap"
-            "\n  e.g. block before 'computer' → Whisper outputs 'come to' or 'come put her'"
-            "\n- SYLLABLE DELETION: repeated syllables get collapsed or dropped"
-            "\n  e.g. 'Ca-ca-ca-can I' → Whisper outputs 'Can I' (correct) or just 'I' (dropped too much)"
-            "\n- PHANTOM INSERTIONS: during prolongations, Whisper hallucinates phonetically similar words"
-            "\n  e.g. 'sssscience' → Whisper outputs 'signs' or 'silence'"
-            "\n- SCHWA CORRUPTION: neutral vowel in repeated clusters gets transcribed as a real word"
-            "\n  e.g. 'buh-buh-blue' → Whisper outputs 'but but blue' or 'above blue'"
-            "\n- PAUSE HALLUCINATION: long pauses → Whisper generates filler text, thanks, or topic shifts"
-            "\n  e.g. 3-second block → Whisper adds 'Thank you' or 'Okay' or repeats the previous phrase"
-            "\n- WORD BOUNDARY ERRORS: disfluent onset merged with previous word"
-            "\n  e.g. 'the c-c-contract' → Whisper outputs 'the contract' (fine) or 'they contract' (merged)"
-            "\nIf a word seems phonetically plausible but semantically wrong, suspect a Whisper artifact."
-            "\n\n=== FEW-SHOT EXAMPLES (by disfluency type) ==="
-            "\n"
-            "\nBLOCKS (silent fixation before word — Whisper may hallucinate or skip):"
-            "\n  IN:  'I need the... [silence]... computer from the office'"
-            "\n  OUT: 'I need the computer from the office'"
-            "\n  IN:  'Can you get me the, the, the uh come put her from IT'"
-            "\n  OUT: 'Can you get me the computer from IT'"
-            "\n"
-            "\nSOUND/SYLLABLE REPETITIONS (part-word):"
-            "\n  IN:  'I was g-g-g-going to the st-store'"
-            "\n  OUT: 'I was going to the store'"
-            "\n  IN:  'Ca-ca-ca-can you p-p-please send the re-report'"
-            "\n  OUT: 'Can you please send the report'"
-            "\n"
-            "\nWORD REPETITIONS:"
-            "\n  IN:  'I I I want to to to go to the the meeting'"
-            "\n  OUT: 'I want to go to the meeting'"
-            "\n  IN:  'My my my mother uh my parents are coming'"
-            "\n  OUT: 'My parents are coming'"
-            "\n"
-            "\nPROLONGATIONS (stretched sounds):"
-            "\n  IN:  'I was thinking about the sssssschedule for next week'"
-            "\n  OUT: 'I was thinking about the schedule for next week'"
-            "\n  IN:  'We need to fffffinish this by Friday'"
-            "\n  OUT: 'We need to finish this by Friday'"
-            "\n"
-            "\nFILLER STACKING + POSTPONEMENT:"
-            "\n  IN:  'So um uh like basically uh the thing is we need more time'"
-            "\n  OUT: 'We need more time'"
-            "\n  IN:  'Can you give me the, uh, the paper for the thing you sign at the front desk'"
-            "\n  OUT: 'Can you give me the form you sign at the front desk'"
-            "\n"
-            "\nAVOIDANCE / CIRCUMLOCUTION / ABANDONMENT:"
-            "\n  IN:  'I need the b-... the document from yesterday'"
-            "\n  OUT: 'I need the document from yesterday'"
-            "\n  IN:  'I think of uh it's something the - you can't - that sort of thing'"
-            "\n  OUT: [reconstruct intended meaning from surrounding context]"
-            "\n  IN:  'The... oh never mind... yeah so anyway the other thing'"
-            "\n  OUT: [recover abandoned thought if context allows, else skip]"
-            "\n"
-            "\nWHISPER ARTIFACTS (misheard stuttered speech):"
-            "\n  IN:  'I was trying to come put her the file' (block on 'computer')"
-            "\n  OUT: 'I was trying to compute the file' or 'I was trying to get the file'"
-            "\n  IN:  'We but but blue print needs to be ready' (schwa corruption)"
-            "\n  OUT: 'The blueprint needs to be ready'"
-            "\n"
-            "\n=== END EXAMPLES ==="
-            "\n\nDo not mistake disfluency for emphasis. "
-            "Do not invent meaning beyond what was intended. "
-            "When uncertain, prefer conservative cleanup over aggressive rewriting."
+        # Language-parameterized L4 block (docs/l4_prompt_engineering_memo.md § 4–5)
+        _lang_code = _normalize_lang_code(language_code)
+        _lang_name_str = _lang_name(_lang_code)
+        _lang_fillers = _get_lang_fillers(_lang_code)
+        _lang_natural_repeats = _get_lang_natural_repeats(_lang_code)
+        _dialect_note = _get_lang_dialect_avoidance_note(_lang_code)
+        _timing_note = _get_lang_syllable_timing_note(_lang_code)
+
+        _l4 = []
+        _l4.append(
+            f"\nThe speaker has a speech disfluency. Language: {_lang_code.upper()} ({_lang_name_str}). "
+            "Raw transcription is evidence of intent, not truth. "
+            "Reconstruct the intended message. Preserve FULL meaning."
         )
+        if _lang_fillers:
+            _l4.append(f"\n\nFILLERS TO STRIP ({_lang_code}): {', '.join(_lang_fillers)}")
+        if _lang_natural_repeats:
+            _l4.append(
+                f"\n\nEMPHATIC PATTERNS — DO NOT STRIP in {_lang_code}: {', '.join(_lang_natural_repeats)}"
+                f"\nThese are pragmatically meaningful in {_lang_name_str}, not stuttering."
+            )
+        _l4.append("\n\nOvert disfluencies — strip and reconstruct:")
+        _l4.append(f"\n- Part-word repetitions: {_get_lang_part_word_example(_lang_code)}")
+        _l4.append("\n- Whole-word repetitions (NOT matching the emphatic allow-list above)")
+        _l4.append(f"\n- Prolongations: {_get_lang_prolongation_example(_lang_code)}")
+        _l4.append(f"\n- Epenthetic insertions during blocks: {_get_lang_epenthesis_note(_lang_code)}")
+        _l4.append("\n- Blocks: silence or frozen onset before a word (locked articulators)")
+        _l4.append("\n- Tremors: lip/jaw quivering during a fixation")
+        _l4.append("\n- Secondary behaviors: eye blinks, foot taps, head movements during blocks")
+        _l4.append("\n- False starts and restarts")
+
+        _l4.append("\n\nCovert avoidance — recognize as avoidance behavior, not content:")
+        _l4.append("\n- Filler clusters before a content word = postponement (see filler list above)")
+        _l4.append("\n- Synonym substitution = avoiding a feared word")
+        _l4.append("\n- Circumlocution = talking around a feared word")
+        _l4.append("\n- Sentence abandonment = dropping thought before feared word ('Oh, never mind')")
+        _l4.append("\n- Covert interruption = jumping in while someone talks to mask onset difficulty")
+        _l4.append(
+            "\n- Mazes: extended filler runs adding no information. DISTINCT from cluttered "
+            "rapid speech — do not over-strip if the speaker's speech is globally rapid."
+        )
+        if _dialect_note:
+            _l4.append(f"\n{_dialect_note}")
+
+        _l4.append("\n\nAnticipatory behavior:")
+        _l4.append(
+            "\n- A pause or silence BEFORE a content word with a hard onset MAY INDICATE anticipatory fear"
+        )
+        _l4.append(
+            "\n- Confidence increases when a filler cluster appears in the preceding 1–3 words "
+            "AND the following word begins with a documented hard onset"
+        )
+        _l4.append("\n- Treat as a block candidate, not certainty")
+        if _timing_note:
+            _l4.append(f"\n{_timing_note}")
+
+        _l4.append("\n\nWhisper ASR failure modes on disfluent speech:")
+        _l4.append("\n- HALLUCINATION DURING BLOCKS: silence → Whisper generates phantom text.")
+        _l4.append(
+            "\n  Known hallucination strings to discard: 'thank you', 'thanks for watching', "
+            "'subscribe', 'like and subscribe', 'transcribed by', 'captions by', 'otter.ai'."
+        )
+        if _lang_code != "en":
+            _l4.append(
+                f"\n  In {_lang_name_str} transcripts, English phrases appearing mid-utterance "
+                "are likely Whisper hallucinations — discard them."
+            )
+        _l4.append("\n- SYLLABLE DELETION: repeated syllables collapsed or dropped")
+        _l4.append("\n- PHANTOM INSERTIONS: prolongations → Whisper hallucinates similar-sounding words")
+        _l4.append(f"\n- {_get_lang_epenthesis_corruption_note(_lang_code)}")
+        _l4.append("\n- PAUSE HALLUCINATION: long pauses → Whisper generates filler text (see above)")
+
+        _l4.append("\n\n")
+        _l4.append(_get_lang_few_shot_examples(_lang_code))
+
+        _l4.append(
+            "\n\nDo not mistake disfluency for emphasis — but PRESERVE the emphatic patterns listed above."
+            "\nReconstruct within the speaker's established dialect — do not substitute dialectal forms."
+            "\nWhen uncertain, prefer conservative cleanup over aggressive rewriting."
+        )
+
+        _onset_caveat = _get_lang_onset_caveat(_lang_code)
+        if _onset_caveat:
+            _l4.append(f"\n{_onset_caveat}")
+        if _lang_has_no_onset_research(_lang_code):
+            _l4.append(
+                f"\n\nONSET NOTE: No published phoneme-difficulty research exists for {_lang_code} "
+                "as of April 2026. Do not apply English-derived onset assumptions. Focus on word-level "
+                "repetitions, prolongations, filler clusters, and Whisper hallucination strings."
+            )
+
+        parts.append("".join(_l4))
         if prof.get("trigger_words"):
             parts.append(f"\nKnown trigger words: {', '.join(prof['trigger_words'])}")
         # Personal phonetic pattern: tell the LLM which sounds this user blocks on
@@ -2574,7 +2861,7 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
     return resp.choices[0].message.content.strip()
 
 
-def falcon_validate(raw_text, clean_text, layer, tone="casual"):
+def falcon_validate(raw_text, clean_text, layer, tone="casual", onset_weights=None, language_code="en"):
     """Binary meaning check. Returns True if meaning preserved.
     Tone-aware: formal tone expands contractions, casual keeps them — Falcon must know
     which changes are expected per tone."""
@@ -2598,15 +2885,28 @@ def falcon_validate(raw_text, clean_text, layer, tone="casual"):
             "Answer ONLY 'yes' or 'no'."
         )
     elif layer >= 4:
+        # Phonetic guard first, high-level criteria after. Does not re-specify
+        # the L4 rules already given to the reconstruction prompt.
+        _lc = _normalize_lang_code(language_code)
+        if onset_weights:
+            _top = ", ".join(
+                f"/{o}/" for o, _ in sorted(onset_weights.items(), key=lambda x: -x[1])[:5]
+            )
+        else:
+            _top = "(no personal onset data)"
+        _nr = _get_lang_natural_repeats(_lc)
+        _nr_str = ", ".join(_nr) if _nr else "none defined"
         prompt = (
-            "Speaker stutters. Repeated syllables, prolongations, and blocks are "
-            "disfluencies, not emphasis. Filler clusters before content words are "
-            "postponement tactics, not meaningful hesitation. Synonym substitutions "
-            "and circumlocutions are avoidance behaviors — the reconstruction should "
-            "recover the intended word. Rambling run-on filler (mazes) should be "
-            "stripped." + tone_note + " "
-            "Does the reconstruction preserve intended meaning? "
-            "Answer ONLY 'yes' or 'no'."
+            f"Validate a layer-4 speech-disfluency reconstruction. Language: {_lc.upper()}. "
+            f"Near the speaker's hardest phonemes ({_top}), the reconstruction MUST NOT "
+            "substitute a different-phoneme word — phonetic drift is the primary failure mode. "
+            "The reconstruction should also have: "
+            "(1) stripped overt disfluencies (part-word repetitions, prolongations, blocks, false starts); "
+            f"(2) preserved emphatic patterns that are NOT stuttering: {_nr_str}; "
+            "(3) NOT normalized the speaker's dialect or register forms; "
+            "(4) discarded Whisper hallucination strings ('thank you', 'subscribe', etc.)."
+            + tone_note
+            + " Does the reconstruction satisfy all criteria? Answer ONLY 'yes' or 'no'."
         )
 
     stats_inc("api_calls")
