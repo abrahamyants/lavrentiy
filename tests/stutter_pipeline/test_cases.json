@@ -1,0 +1,78 @@
+{
+  "description": "Disfluent-speech reconstruction test corpus. Each case covers a documented speech-disfluency pattern. Inputs are text representations of what an ASR would produce from real disfluent speech.",
+  "sources": "Patterns drawn from peer-reviewed stuttering research (Brown 1945, Howell 2004, Apple ML 2023) and public stutterer communications (Drew Lynch / Joe Biden / Emily Blunt / Ed Sheeran are well-documented PWS with public speech examples).",
+  "date": "2026-04-21",
+  "cases": [
+    {
+      "id": "c01_part_word_repetition",
+      "type": "part-word repetition (Drew-Lynch-style)",
+      "intended": "I want to call my doctor about the appointment",
+      "disfluent": "I w-w-want to c-c-call my my d-d-doctor about the the appointment",
+      "notes": "Classic part-word repetitions on /w/, /k/, /d/ onsets plus whole-word repetition on function words."
+    },
+    {
+      "id": "c02_whole_word_repetition",
+      "type": "whole-word repetition on function words",
+      "intended": "I need to schedule a meeting with the team next Thursday",
+      "disfluent": "I I I need to schedule a a meeting with the the team next next Thursday",
+      "notes": "Repetitions concentrated on short function words (I, a, the, next)."
+    },
+    {
+      "id": "c03_prolongation",
+      "type": "prolongation",
+      "intended": "Can you send me the contract by Friday please",
+      "disfluent": "Can you ssssend me the contract by Fffffriday please",
+      "notes": "Prolonged /s/ and /f/ onsets — common sound-specific difficulty pattern."
+    },
+    {
+      "id": "c04_silent_block",
+      "type": "silent block (Biden-style, George-style)",
+      "intended": "I want to say that this decision is extremely important",
+      "disfluent": "I want to... to say that... that this decision is extremely important",
+      "notes": "Pauses + restarts where a silent block would occur before hard-onset content words."
+    },
+    {
+      "id": "c05_filler_stacking",
+      "type": "filler stacking (postponement)",
+      "intended": "I disagree with the proposal",
+      "disfluent": "Um um uh well you know uh I I disagree with the proposal",
+      "notes": "Filler cluster used as postponement before a feared content word (disagree)."
+    },
+    {
+      "id": "c06_covert_avoidance",
+      "type": "covert avoidance (synonym substitution)",
+      "intended": "I need to visit my hometown next month",
+      "disfluent": "I need to visit the place where I grew up next month",
+      "notes": "'Hometown' avoided — substituted with circumlocution 'the place where I grew up'. Tests L4 covert profile reconstruction."
+    },
+    {
+      "id": "c07_sentence_abandonment",
+      "type": "false start + restart",
+      "intended": "Please let me know if you have any questions",
+      "disfluent": "Please let me- let me know if you- if you have any questions",
+      "notes": "Aborted phrases then restarted. Tests disfluency-boundary recognition."
+    },
+    {
+      "id": "c08_mixed_pattern",
+      "type": "mixed (most realistic)",
+      "intended": "Thank you for meeting with me today I appreciate your time",
+      "disfluent": "Th- th- thank you for m-m-meeting with me today I I uh appreciate your your time",
+      "notes": "Combines part-word repetition, whole-word repetition, and filler insertion in one utterance."
+    },
+    {
+      "id": "c09_high_stress_interview",
+      "type": "high-stress situational",
+      "intended": "My strongest skill is problem solving under pressure",
+      "disfluent": "My my uh strongest s-s-skill is is um p-problem solving under under uh pressure",
+      "notes": "Simulates interview-context disfluency. Test the high_stress situation modifier.",
+      "situation": "high_stress"
+    },
+    {
+      "id": "c10_bilingual_mixed",
+      "type": "bilingual EN-RU mixed (George profile)",
+      "intended": "Can you please pass me the book on the table",
+      "disfluent": "Can you нуу please p-pass me the the book on the эээ table",
+      "notes": "Russian fillers (ну, ээ) mixed into English utterance. Tests bilingual filler handling."
+    }
+  ]
+}
