@@ -127,9 +127,9 @@ WHISPER_MULTI_TEMPS = [0.0, 0.2, 0.4]  # Temperature schedule for voting passes
 # Default endpointer cuts off PWS 23.8% of the time. Extending to 4.5s reduces to <3%.
 PATIENCE_DEFAULT = 2.0   # seconds — normal silence threshold
 PATIENCE_STUTTER = 4.5   # seconds — Layer 4 / High Stress
-LOCAL_WHISPER = False                # Primary mode: API. Local Moonshine (ONNX) is auto-loaded as fallback only.
+LOCAL_WHISPER = True                 # Primary mode: local Moonshine (ONNX). Cloud Whisper API kicks in as fallback when local path fails.
 LOCAL_WHISPER_MODEL_SIZE = "base"    # tiny|base (Moonshine ONNX sizes; larger keys map to base)
-# Load local Moonshine as fallback (not primary) — kicks in when API fails (key disabled, no internet).
+# Load local Moonshine as primary — cloud Whisper API now the fallback when local load/transcribe errors.
 # The module still re-exports `transcribe` as `_local_transcribe_fn` so the existing
 # fallback dispatch calls don't change.
 try:
