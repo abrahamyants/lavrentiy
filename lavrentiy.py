@@ -130,12 +130,18 @@ PATIENCE_STUTTER = 4.5   # seconds — Layer 4 / High Stress
 LOCAL_WHISPER = True                 # Primary mode: local Moonshine (ONNX). Cloud Whisper API kicks in as fallback when local path fails.
 LOCAL_WHISPER_MODEL_SIZE = "base"    # tiny|base (Moonshine ONNX sizes; larger keys map to base)
 # Load local Moonshine as primary — cloud Whisper API now the fallback when local load/transcribe errors.
-# The module still re-exports `transcribe` as `_local_transcribe_fn` so the existing
-# fallback dispatch calls don't change.
+# Layered local ASR: Moonshine (primary) -> Vosk (fallback) -> raise (caller
+# falls through to cloud). The composite dispatcher in local/asr_local.py
+# exposes the same `transcribe` signature so the existing call sites below
+# don't change. If the composite module can't import, fall back to Moonshine
+# alone so legacy installs keep working.
 try:
-    from local.whisper_local import transcribe as _local_transcribe_fn  # noqa: F401
+    from local.asr_local import transcribe as _local_transcribe_fn  # noqa: F401
 except ImportError:
-    _local_transcribe_fn = None
+    try:
+        from local.whisper_local import transcribe as _local_transcribe_fn  # noqa: F401
+    except ImportError:
+        _local_transcribe_fn = None
 
 LAVRENTIY_DIR = Path.home() / ".lavrentiy"
 PROFILES_ROOT = LAVRENTIY_DIR / "profiles"
