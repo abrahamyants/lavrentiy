@@ -1846,7 +1846,7 @@ def calibration_save_audio(prompt_id, audio_data, sample_rate):
         else:
             with open(str(wav_path), "rb") as f:
                 result = client.audio.transcriptions.create(
-                    model="whisper-1", file=f, language=LANGUAGE
+                    model="gpt-4o-transcribe", file=f, language=LANGUAGE
                 )
             whisper_raw = result.text.strip()
             stats_inc("api_calls")
@@ -2125,7 +2125,7 @@ def augment_calibration_data():
                     else:
                         with open(str(wav_path), "rb") as f:
                             w_result = client.audio.transcriptions.create(
-                                model="whisper-1", file=f, language=LANGUAGE
+                                model="gpt-4o-transcribe", file=f, language=LANGUAGE
                             )
                         whisper_raw = w_result.text.strip()
                         stats_inc("api_calls")
@@ -4483,7 +4483,7 @@ def _whisper_single_call(filepath, temperature, prompt_text, max_retries=3):
         try:
             with open(filepath, "rb") as f:
                 result = client.audio.transcriptions.create(
-                    model="whisper-1",
+                    model="gpt-4o-transcribe",
                     file=f,
                     language=LANGUAGE,
                     prompt=prompt_text,
