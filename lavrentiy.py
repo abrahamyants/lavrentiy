@@ -1853,22 +1853,17 @@ def calibration_save_audio(prompt_id, audio_data, sample_rate):
     wav_path = CALIBRATION_DIR / f"{base}.wav"
     meta_path = CALIBRATION_DIR / f"{base}.json"
     sf.write(str(wav_path), audio_data, sample_rate)
-    # Run through Whisper to capture raw ASR for WER comparison
+    # Run through local ASR to capture raw transcription for WER comparison
     whisper_raw = ""
     try:
-        if LOCAL_WHISPER and _local_transcribe_fn is not None:
+        if _local_transcribe_fn is not None:
             r = _local_transcribe_fn(str(wav_path), 0.0, None, LANGUAGE, LOCAL_WHISPER_MODEL_SIZE)
             whisper_raw = r["text"]
             stats_inc("local_transcriptions")
         else:
-            with open(str(wav_path), "rb") as f:
-                result = client.audio.transcriptions.create(
-                    model="gpt-4o-transcribe", file=f, language=LANGUAGE
-                )
-            whisper_raw = result.text.strip()
-            stats_inc("api_calls")
+            stats_inc("local_transcribe_unavailable")
     except Exception as e:
-        log(f"Calibration Whisper pass failed: {e}", "error")
+        log(f"Calibration local ASR pass failed: {e}", "error")
     wer_val = None
     if whisper_raw:
         wer_val, _, _, _ = compute_wer(prompt["text"], whisper_raw)
@@ -2132,22 +2127,17 @@ def augment_calibration_data():
                 response.stream_to_file(str(wav_path))
                 stats_inc("api_calls")
 
-                # Run through Whisper to capture how ASR handles the disfluent audio
+                # Run through local ASR to capture how the engine handles disfluent audio
                 whisper_raw = ""
                 try:
-                    if LOCAL_WHISPER and _local_transcribe_fn is not None:
+                    if _local_transcribe_fn is not None:
                         r = _local_transcribe_fn(str(wav_path), 0.0, None, LANGUAGE, LOCAL_WHISPER_MODEL_SIZE)
                         whisper_raw = r["text"]
                         stats_inc("local_transcriptions")
                     else:
-                        with open(str(wav_path), "rb") as f:
-                            w_result = client.audio.transcriptions.create(
-                                model="gpt-4o-transcribe", file=f, language=LANGUAGE
-                            )
-                        whisper_raw = w_result.text.strip()
-                        stats_inc("api_calls")
+                        stats_inc("local_transcribe_unavailable")
                 except Exception as e:
-                    log(f"Augment Whisper pass failed for {base}: {e}", "error")
+                    log(f"Augment local ASR pass failed for {base}: {e}", "error")
 
                 # Save metadata
                 aug_meta = {
@@ -2867,22 +2857,27 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
     use_model = MODEL_L4 if layer >= 4 else MODEL
     system_prompt = "\n".join(parts)
 
-    # L2/L3 go local first (Gemma via Ollama). L4 always goes to cloud GPT-4o.
-    # If the local LLM isn't running or errors, fall back to the cloud path
-    # below (transparent — raw_text is still returned clean by the cloud call).
-    if layer in (2, 3) and _local_llm_complete is not None and _local_llm_available():
-        local_out = _local_llm_complete(
-            system_prompt=system_prompt,
-            user_text=raw_text,
-            temperature=temp,
-            max_tokens=1000,
-        )
-        if local_out:
-            _last_recon_model = "gemma2:2b (local)"
-            stats_inc("local_llm_calls")
-            return local_out
+    # L2/L3 are LOCAL. Gemma via Ollama, no cloud fallback. If Ollama is
+    # down, return the pre-cleaned raw text (L1-equivalent output) rather
+    # than calling the cloud — "local layers stay local" (2026-04-21).
+    if layer in (2, 3):
+        if _local_llm_complete is not None and _local_llm_available():
+            local_out = _local_llm_complete(
+                system_prompt=system_prompt,
+                user_text=raw_text,
+                temperature=temp,
+                max_tokens=1000,
+            )
+            if local_out:
+                _last_recon_model = "gemma2:2b (local)"
+                stats_inc("local_llm_calls")
+                return local_out
+        # Local LLM unavailable — return raw (same as L1 output). No cloud.
+        stats_inc("local_llm_unavailable")
+        _last_recon_model = "local-unavailable (raw passthrough)"
+        return raw_text
 
-    # Cloud path: L4 always, and L2/L3 when local LLM is down
+    # L4 stays on cloud GPT-4o by design.
     stats_inc("api_calls")
     resp = client.chat.completions.create(
         model=use_model,
@@ -4502,51 +4497,31 @@ def _whisper_single_call(filepath, temperature, prompt_text, max_retries=3):
 
     Retries up to max_retries on 5xx server errors and rate limits.
     """
-    # Primary mode: OpenAI Whisper API. Local faster-whisper is fallback-only —
-    # it's slower on consumer CPUs than the API round-trip in most cases.
-    # The fallback kicks in automatically when the API fails (see retry block below).
-    if LOCAL_WHISPER and _local_transcribe_fn is not None:
+    # Local ASR only. Chain: Moonshine -> Vosk (handled inside asr_local).
+    # No cloud fallback — "local layers stay local" (2026-04-21).
+    # Kept the retry shape so transient local errors (e.g. model file
+    # locked) still retry a few times before raising.
+    if _local_transcribe_fn is None:
+        raise RuntimeError(
+            "Local ASR not available. Install Moonshine and/or Vosk: "
+            "see local/whisper_local.py + local/vosk_local.py for setup."
+        )
+
+    last_err = None
+    for attempt in range(max_retries):
         try:
             result = _local_transcribe_fn(filepath, temperature, prompt_text, LANGUAGE, LOCAL_WHISPER_MODEL_SIZE)
             stats_inc("local_transcriptions")
             return result
-        except Exception as _e:
-            log(f"Local Whisper failed ({str(_e)[:80]}), falling back to API", "warn")
-
-    for attempt in range(max_retries):
-        try:
-            with open(filepath, "rb") as f:
-                result = client.audio.transcriptions.create(
-                    model="gpt-4o-transcribe",
-                    file=f,
-                    language=LANGUAGE,
-                    prompt=prompt_text,
-                    temperature=temperature,
-                    response_format="verbose_json",
-                )
-            stats_inc("api_calls")
-            # OpenAI SDK returns a Transcription object; normalize to dict
-            if hasattr(result, 'model_dump'):
-                return result.model_dump()
-            elif hasattr(result, '__dict__'):
-                return result.__dict__
-            return {"text": result.text if hasattr(result, 'text') else str(result), "segments": []}
         except Exception as e:
-            err_str = str(e)
-            track_api_error(f"Whisper: {err_str[:100]}")
-            is_retryable = any(code in err_str for code in ("500", "502", "503", "429"))
-            if is_retryable and attempt < max_retries - 1:
+            last_err = e
+            if attempt < max_retries - 1:
                 wait = 2 ** attempt  # 1s, 2s, 4s
-                log(f"Whisper API error ({err_str[:80]}), retry {attempt+1}/{max_retries} in {wait}s", "warn")
+                log(f"Local ASR error ({str(e)[:80]}), retry {attempt+1}/{max_retries} in {wait}s", "warn")
                 time.sleep(wait)
                 continue
-            # API exhausted — fall back to local Whisper if available
-            if _local_transcribe_fn is not None:
-                log(f"Whisper API failed ({err_str[:80]}), falling back to local", "warn")
-                result = _local_transcribe_fn(filepath, temperature, prompt_text, LANGUAGE, LOCAL_WHISPER_MODEL_SIZE)
-                stats_inc("local_transcriptions")
-                return result
-            raise
+            log(f"Local ASR exhausted retries: {str(e)[:120]}", "error")
+            raise last_err
 
 
 def get_patience_timeout() -> float:
