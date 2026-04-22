@@ -756,6 +756,81 @@ Parallel-session work continued from the eval-build entry above. Eleven commits 
 - **Known issues**:
   - Python 3.14-alpha `httpx` bug breaks `huggingface_hub` downloads — stdlib urllib workaround in place but brittle; if HF changes URL structure again, the hardcoded path needs updating.
   - Moonshine RTF ~0.35 is a single-run anecdote, not a validated measurement — Moonshine is NOT yet a case in `bench/_phase4_ears_benchmark.py`.
+
+### 2026-04-21 — Local-everything except L4: Moonshine+Vosk for ASR, Gemma (Ollama) for L2/L3 reconstruction
+
+Architectural flip: L1-L3 are now **fully local**. L4 stays cloud by design. No cloud fallbacks on local layers — if the local engine is down, the app returns pre-cleaned raw text rather than silently calling the cloud. *"Local layers stay local"* (George, 2026-04-21).
+
+**Pipeline now:**
+
+| Layer | Engine | Cloud? |
+|-------|--------|--------|
+| L1 transcribe | Moonshine (primary) → Vosk (local fallback) | None |
+| L2 reconstruct | Gemma 2 2B via Ollama | None (returns raw if Ollama down) |
+| L3 profile | Gemma 2 2B via Ollama | None (returns raw if Ollama down) |
+| L4 clinical stutter | GPT-4o via `wim-reconstruct` Cloud Function | Yes (by design) |
+
+**Commits landed (13, `94a5ac3..1695817`):**
+
+- **`94a5ac3` L4 multilingual Python port.** Shell #2 ported the L4 prompt memo's language-parameterized rewrite into `lavrentiy.py` (+409/-109). Near-loss incident — see FAILURE LOG #30.
+- **`82c6012` Cloud Function source restored + L4 port.** Source was missing from `wim/api/` (only `__pycache__` remained); pulled from `gs://gcf-v2-sources-787543109204-us-central1/wim-reconstruct/function-source.zip` and restored to documented location. Ported the same L4 multilingual prompt server-side. 10 lang packs bundled into `wim/api/lang_packs/` for the deploy zip. Smoke-tested — Mandarin/Hindi/Arabic/Korean prompts correctly emit the "No published phoneme-difficulty research" safety flag.
+- **`8fcb2f8` FAILURE LOG #30 forensic note.** See failure log section.
+- **`03c2070` Desktop routes through backend when signed in.** Changed `reconstruct_via_backend` dispatch from `if authenticated and not API_KEY` to `if authenticated`. Collapses rule duplication — when signed in, L4 rules come from the server regardless of whether a local `api_key.txt` exists. Added `language_code` to the payload.
+- **`57984a6` Disfluent-speech reconstruction pipeline test harness.** 10 curated disfluency patterns (part-word rep, whole-word rep, prolongation, silent block, filler stacking, covert avoidance, false start, mixed, high-stress, bilingual EN/RU) × L1-L4 = 40 runs. First run: 38/40 Falcon OK; 2 FAIL both legitimate (c03 L3 prolongation not stripped, c06 L4 covert-avoidance not reversed). Runner at `tests/stutter_pipeline/run_test.py`, re-runnable with `export OPENAI_API_KEY=$(cat ../../api_key.txt) && PYTHONIOENCODING=utf-8 python3 run_test.py`.
+- **`c7c769c` Cross-session pattern mining harness.** `tests/pattern_mining/mine.py` — pure SQL over `history.db`. No API calls, no new deps.
+- **`f621fbe` Pattern mining bugfixes.** Fixed `out_col` probe (actual column is `out`, was probing `output`/`clean`/`final`) so clean-to-raw ratio populates. Added content-word onset filter (function-word + <3-char drop) alongside the raw onset view. Both views now in the HTML report.
+- **`4b97f7c` Moonshine primary ASR.** Flipped `LOCAL_WHISPER = False → True` in `lavrentiy.py:130`. Local Moonshine now fires first; cloud Whisper API was the fallback on failure. Warm RTF ~0.27-0.30 verified on 26.3s sample, cold start ~25-30s (model load).
+- **`72b30a0` Cloud transcription: whisper-1 → gpt-4o-transcribe.** Three hardcoded call sites updated. `gpt-4o-transcribe` is OpenAI's purpose-built audio model (separate architecture from `gpt-4o`), better WER on disfluent speech per WiM Session 6 notes. WiM already migrated earlier; Lavrentiy was stale.
+- **`911ec7e` Vosk as intermediate local fallback.** New `local/vosk_local.py` + `local/asr_local.py` composite dispatcher. Chain is now `Moonshine → Vosk → (cloud, now unreachable)`. Uses same `vosk-model-small-en-us-0.15` (~68 MB) that WiM Android ships, auto-downloaded on first use to `~/.cache/vosk/`. Vosk load: ~2s, RTF ~0.70 warm.
+- **`fa5f6ba` gitignore cleanup.** Broadened `api_key.txt` → `api_key*.txt` (covers `api_key_ZToA.txt`-style backups), added `_test_*.wav` pattern for transient synthetic wavs.
+- **`0da0cd2` L2/L3 reconstruction: local Gemma via Ollama.** New `local/llm_local.py` (Ollama HTTP client, gitignored). Added L2/L3 branch in `reconstruct()` that tries Gemma first, falls through to cloud GPT-4o on Ollama unreachable/empty. L4 unchanged (always cloud). Warm Gemma 2 2B latency ~8-15s on CPU, zero API cost.
+- **`1695817` Cloud fallback ripped out of L1 + L2/L3.** Matches "local layers stay local" principle: L2/L3 now return raw pre-cleaned text if Ollama is down (no cloud fallback). L1 `whisper_transcribe` dispatcher simplified to local-only with retry — removed the cloud `client.audio.transcriptions.create` block entirely. Net: -71 lines of cloud fallback gone. `used_fallback = raw` is now the degrade path, not a silent cloud round-trip.
+
+**New on-disk assets:**
+- `~/.cache/moonshine/base/` — 236 MB ONNX files (encoder + decoder), pre-existing from 2026-04-20.
+- `~/.cache/vosk/vosk-model-small-en-us-0.15/` — 68 MB, downloaded 2026-04-21.
+- `~/.ollama/` — Ollama model cache; `gemma2:2b` pulled (~1.6 GB).
+- `tests/stutter_pipeline/` — test corpus + runner + first-run JSON + HTML report, committed.
+- `tests/pattern_mining/` — mining harness + first-run report over 3,958 sessions, committed.
+
+**Packages installed this session (system Python 3.14 + bundled Python 3.13):**
+- `useful-moonshine-onnx` (module name: `moonshine_onnx`) — the real PyPI name; `moonshine_onnx` alone returns no match.
+- `vosk` 0.3.45.
+- Into bundled `Lavrentiy-Eval/python/python.exe` via `pip install` — required so the installed engine can import `local/asr_local.py` without ImportError.
+
+**Installed-app sync (per FAILURE LOG #23):**
+- Backed up `AppData\Local\Programs\Lavrentiy-Eval\engine/` → `engine.bak.20260421_204604/`.
+- Copied `lavrentiy.py` + all 5 files in `local/` from repo into installed engine dir. Byte-sizes verified matching.
+- `LOCAL_WHISPER = True` confirmed in installed file.
+- Desktop cleanup: recycled 5 screenshots + 3 stale launchers (`Lavrentiy Evaluation.lnk`, `zz Lavrentiy.lnk`, `zzz Lavrentiy.lnk`). Only `Lavrentiy Eval.lnk` remains.
+- Launcher target flipped from `python.exe` → `pythonw.exe` so no background console window appears at launch. Eval v1.3.0's `desktop.py` already has the stdout/stderr None-guard (per FAILURE LOG #27), so pythonw is safe.
+
+**Pattern mining headline findings (gugosf profile, 3,958 sessions, 22 days):**
+- **178.5 sessions/day average.** Real daily-driver usage, not test environment.
+- **Thu/Fri usage cliff:** Mon 1,009 / Tue 870 / Wed 744 / Sat 674 / Sun 545 vs **Thu 67 / Fri 19**. Unexplained 95% drop on two specific weekdays.
+- **L1 is 68% of usage** (2,670/3,958). L4 is 18%. L2 is 13%. **L3 is 1.3% (50 sessions).** L3 is effectively dead.
+- **High-stress situation barely used:** 24/3,958 (0.6%). Reading: 2/3,958. Both are removal candidates.
+- **Tone split:** casual 36.5% / professional 34.3% / friend 17.6% / formal 11.6%. Casual+pro = 70%.
+- **Clean-to-raw word ratio:** mean 1.009, median 1.0 across 3,958 sessions. **One session had ratio 82.0×** — full-paragraph hallucination logged; possibly pre-dates the length-explosion guard, or a gap in the guard exists for Lavrentiy.
+- **Content-word onset frequency (function words filtered):** `/s/` 10.3%, `/t/` 7.9%, `/a/` 6.9%, `/w/` 6.3%, `/c/` 6.2%, `/i/` 6.1%, `/l/` 5.7%, `/k/` 5.1%, `/g/` 4.5%, `/b/` 4.5%. Plosives `/k/` and `/g/` in top 10 match known hard-onset patterns; `/p/` conspicuously absent from top 10.
+
+**Architecture decision captured to memory (`project_layer_architecture.md`):**
+- L1 fully local (clean).
+- L2/L3 going fully local. "Going local" = on-device LLM (B) OR collapsing into fancier L1 (C). As of tonight, (B) is live via Gemma 2 2B.
+- L4 stays server. Today's decision.
+
+**Known issues (new):**
+- One 82× length-explosion session in `history.db` — did Lavrentiy ever have the length-explosion guard WiM added in Session 7, or is there a gap?
+- L3 has only 50 sessions across all time. Either the feature is unusable (UX gap), or users don't know it exists, or it's redundant with L2. Candidate for removal or redesign.
+- High-stress + Reading situations are almost unused. Simplify or drop.
+- Bundled Python 3.13 ≠ system Python 3.14.2. Installing packages into each requires two separate `pip install` calls. If a new package is added to the pipeline, both environments need it.
+
+**Not done tonight:**
+- Cloud Function deploy (`gcloud functions deploy wim-reconstruct ...`) — source committed, NOT pushed live. Signed-in WiM users still hit the pre-multilingual version of the server.
+- LoRA fine-tune on George's voice — blocked on audio-archive being opt-in (only 69 / 3,958 sessions have paired WAVs).
+- `ru.json` lang pack — Russian still falls through to English defaults for L4.
+- Benchmark harness run against live ears branches.
+
 ---
 
 # SESSION LOG 2026-04-20
