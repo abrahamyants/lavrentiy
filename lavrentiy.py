@@ -143,6 +143,17 @@ except ImportError:
     except ImportError:
         _local_transcribe_fn = None
 
+# Local LLM for L2/L3 reconstruction (Gemma via Ollama). L4 stays on cloud
+# GPT-4o. If the local LLM isn't available or returns None, L2/L3 fall
+# back to the pre-cleaned raw text (strip_disfluencies + profile corrections)
+# rather than the cloud — per the "local layers stay local" principle.
+try:
+    from local.llm_local import complete as _local_llm_complete  # noqa: F401
+    from local.llm_local import is_available as _local_llm_available  # noqa: F401
+except ImportError:
+    _local_llm_complete = None
+    _local_llm_available = lambda: False  # noqa: E731
+
 LAVRENTIY_DIR = Path.home() / ".lavrentiy"
 PROFILES_ROOT = LAVRENTIY_DIR / "profiles"
 ACTIVE_FILE = LAVRENTIY_DIR / "active_profile"
@@ -2855,6 +2866,23 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
     global _last_recon_model
     use_model = MODEL_L4 if layer >= 4 else MODEL
     system_prompt = "\n".join(parts)
+
+    # L2/L3 go local first (Gemma via Ollama). L4 always goes to cloud GPT-4o.
+    # If the local LLM isn't running or errors, fall back to the cloud path
+    # below (transparent — raw_text is still returned clean by the cloud call).
+    if layer in (2, 3) and _local_llm_complete is not None and _local_llm_available():
+        local_out = _local_llm_complete(
+            system_prompt=system_prompt,
+            user_text=raw_text,
+            temperature=temp,
+            max_tokens=1000,
+        )
+        if local_out:
+            _last_recon_model = "gemma2:2b (local)"
+            stats_inc("local_llm_calls")
+            return local_out
+
+    # Cloud path: L4 always, and L2/L3 when local LLM is down
     stats_inc("api_calls")
     resp = client.chat.completions.create(
         model=use_model,
