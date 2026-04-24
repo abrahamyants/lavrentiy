@@ -127,14 +127,16 @@ WHISPER_MULTI_TEMPS = [0.0, 0.2, 0.4]  # Temperature schedule for voting passes
 # Default endpointer cuts off PWS 23.8% of the time. Extending to 4.5s reduces to <3%.
 PATIENCE_DEFAULT = 2.0   # seconds — normal silence threshold
 PATIENCE_STUTTER = 4.5   # seconds — Layer 4 / High Stress
-LOCAL_WHISPER = True                 # Primary mode: local Moonshine (ONNX). Cloud Whisper API kicks in as fallback when local path fails.
-LOCAL_WHISPER_MODEL_SIZE = "base"    # tiny|base (Moonshine ONNX sizes; larger keys map to base)
-# Load local Moonshine as primary — cloud Whisper API now the fallback when local load/transcribe errors.
-# Layered local ASR: Moonshine (primary) -> Vosk (fallback) -> raise (caller
-# falls through to cloud). The composite dispatcher in local/asr_local.py
-# exposes the same `transcribe` signature so the existing call sites below
-# don't change. If the composite module can't import, fall back to Moonshine
-# alone so legacy installs keep working.
+LOCAL_WHISPER = True                 # L1 ASR runs locally (no cloud fallback at L1 — local layers stay local).
+LOCAL_WHISPER_MODEL_SIZE = "base"    # Moonshine fallback size (kept for the secondary fallback path)
+LOCAL_FW_MODEL_SIZE = os.environ.get("LAV_FW_MODEL_SIZE", "large-v3-turbo")  # faster-whisper primary (real Whisper, full verbose JSON)
+LOCAL_FW_COMPUTE_TYPE = os.environ.get("LAV_FW_COMPUTE_TYPE", "int8")         # CPU-friendly quantization
+LOCAL_FW_DEVICE = os.environ.get("LAV_FW_DEVICE", "cpu")                       # target eval hardware
+LOCAL_LLM_MODEL = os.environ.get("LAV_LOCAL_LLM", "llama3.2:3b-instruct-q4_K_M")  # L2/L3 brain
+# Layered local ASR: faster-whisper (primary) -> Moonshine (secondary) -> Vosk
+# (tertiary) -> raise. Composite dispatcher in local/asr_local.py exposes the
+# same `transcribe` signature so call sites below don't change. If the composite
+# module can't import, fall back to Moonshine alone so legacy installs keep working.
 try:
     from local.asr_local import transcribe as _local_transcribe_fn  # noqa: F401
 except ImportError:
@@ -2503,6 +2505,69 @@ def log(text, kind="info"):
     except Exception:
         pass
 
+# -- Post-processing for local-LLM chattiness ───────────────────
+# Small local models (Llama 3.2 3B, Qwen 2.5 3B, Gemma 2 2B) add preambles
+# ("Here's the cleaned sentence:"), markdown bold/emphasis, bullet lists,
+# and emojis despite system-prompt instructions to output plain text.
+# Any of that pastes into the user's active app. Strip deterministically.
+_MD_BOLD_RE = re.compile(r'\*\*([^*]+)\*\*')
+_MD_ITAL_RE = re.compile(r'(?<!\*)\*([^*\n]+)\*(?!\*)')
+_MD_CODE_RE = re.compile(r'`([^`]+)`')
+_MD_HEADER_RE = re.compile(r'^#{1,6}\s+', re.MULTILINE)
+_MD_BULLET_RE = re.compile(r'^\s*[-*+]\s+', re.MULTILINE)
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F600-\U0001F64F"
+    "\U0001F300-\U0001F5FF"
+    "\U0001F680-\U0001F6FF"
+    "\U0001F700-\U0001F77F"
+    "\U0001F780-\U0001F7FF"
+    "\U0001F800-\U0001F8FF"
+    "\U0001F900-\U0001F9FF"
+    "\U0001FA00-\U0001FA6F"
+    "\U0001FA70-\U0001FAFF"
+    "\U00002702-\U000027B0"
+    "\U000024C2-\U0001F251"
+    "]+", flags=re.UNICODE
+)
+_PREAMBLE_RE = re.compile(
+    r"^(here(?:'s| is)?|the cleaned(?:[-\s]up)? (?:sentence|text)|cleaned(?:[-\s]up)?|reconstructed|output|result)[^\n]*[:.]\s*",
+    re.IGNORECASE
+)
+
+
+def _postprocess_local_llm(text):
+    """Strip small-model chattiness before the output reaches the paste target.
+    Takes first non-empty line, removes preamble/markdown/emoji, normalizes
+    whitespace. Returns empty string if nothing meaningful remains (caller
+    falls back to raw L1 text)."""
+    if not text:
+        return text
+    t = text.strip()
+    # First non-empty line is the answer. If the model wrote multiple
+    # paragraphs, the rest is commentary.
+    lines = [ln for ln in t.split("\n") if ln.strip()]
+    if not lines:
+        return ""
+    t = lines[0]
+    # Strip preamble ("Here's the cleaned sentence:")
+    t = _PREAMBLE_RE.sub("", t, count=1)
+    # Strip surrounding quotes that models love to add
+    if len(t) >= 2 and t[0] in '"“\'' and t[-1] in '"”\'':
+        t = t[1:-1]
+    # Strip markdown formatting
+    t = _MD_BOLD_RE.sub(r'\1', t)
+    t = _MD_ITAL_RE.sub(r'\1', t)
+    t = _MD_CODE_RE.sub(r'\1', t)
+    t = _MD_HEADER_RE.sub("", t)
+    t = _MD_BULLET_RE.sub("", t)
+    # Strip emojis
+    t = _EMOJI_RE.sub("", t)
+    # Normalize whitespace
+    t = re.sub(r'\s{2,}', ' ', t).strip()
+    return t
+
+
 # -- LLM Calls ───────────────────────────────────────────────────
 def reconstruct(raw_text, tone, layer, prof, situation=None,
                 whisper_low_conf=None, whisper_disagreements=None,
@@ -2580,7 +2645,11 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
         "If the speaker said 'fuck', output 'fuck'. If the speaker said 'steal', output 'steal'. "
         "Do not substitute softer synonyms (e.g. do not change 'steal' to 'borrow'). "
         "Your job is to clean up SPEECH ARTIFACTS, not to edit the speaker's word choices.",
-        "Output ONLY the reconstructed text."
+        "Output ONLY the reconstructed text.",
+        "Do not include any preamble, explanation, meta-commentary, or notes about what you changed.",
+        "Do not use Markdown formatting: no asterisks, no backticks, no bullet points, no headers, no quotation marks around the output.",
+        "Do not use emojis or emoticons.",
+        "Output exactly one line containing only the reconstructed sentence or paragraph, with no leading or trailing whitespace.",
     ]
 
     # Always pass filler list at Layer 2+ (bilingual fillers matter everywhere)
@@ -2857,22 +2926,26 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
     use_model = MODEL_L4 if layer >= 4 else MODEL
     system_prompt = "\n".join(parts)
 
-    # L2/L3 are LOCAL. Gemma via Ollama, no cloud fallback. If Ollama is
-    # down, return the pre-cleaned raw text (L1-equivalent output) rather
-    # than calling the cloud — "local layers stay local" (2026-04-21).
+    # L2/L3 are LOCAL. Llama 3.2 3B (or Qwen 2.5 3B via LAV_LOCAL_LLM) via Ollama.
+    # No cloud fallback — if Ollama is down, return the pre-cleaned raw text
+    # (L1-equivalent output) rather than calling the cloud. "Local layers stay local."
     if layer in (2, 3):
         if _local_llm_complete is not None and _local_llm_available():
             local_out = _local_llm_complete(
                 system_prompt=system_prompt,
                 user_text=raw_text,
+                model=LOCAL_LLM_MODEL,
                 temperature=temp,
                 max_tokens=1000,
+                stop_tokens=["\n\n", "\nNote:", "\nExplanation:", "\n---", "\nHere", "```"],
             )
-            if local_out:
-                _last_recon_model = "gemma2:2b (local)"
+            cleaned_out = _postprocess_local_llm(local_out) if local_out else ""
+            if cleaned_out:
+                _last_recon_model = f"{LOCAL_LLM_MODEL} (local)"
                 stats_inc("local_llm_calls")
-                return local_out
-        # Local LLM unavailable — return raw (same as L1 output). No cloud.
+                return cleaned_out
+        # Local LLM unavailable OR produced empty output after cleanup.
+        # Return raw (L1-equivalent). No cloud fallback.
         stats_inc("local_llm_unavailable")
         _last_recon_model = "local-unavailable (raw passthrough)"
         return raw_text
@@ -2940,6 +3013,27 @@ def falcon_validate(raw_text, clean_text, layer, tone="casual", onset_weights=No
             + " Does the reconstruction satisfy all criteria? Answer ONLY 'yes' or 'no'."
         )
 
+    # L2/L3 Falcon runs on local Llama — "local layers stay local" covers
+    # validation too, not just reconstruction. L4 Falcon stays cloud GPT-4o.
+    if layer in (2, 3):
+        if _local_llm_complete is None or not _local_llm_available():
+            # Local LLM unreachable — pass through. Never silently escape to cloud.
+            return True
+        local_resp = _local_llm_complete(
+            system_prompt=prompt,
+            user_text=f"Original: {raw_text}\nReconstruction: {clean_text}",
+            model=LOCAL_LLM_MODEL,
+            temperature=0.0,
+            max_tokens=5,
+            timeout=15,
+            stop_tokens=["\n"],
+        )
+        if local_resp is None:
+            return True  # pass through on timeout/error, never cloud-escape
+        stats_inc("local_llm_calls")
+        return "yes" in local_resp.strip().lower()
+
+    # L4 → cloud GPT-4o (unchanged)
     stats_inc("api_calls")
     resp = client.chat.completions.create(
         model=MODEL,
@@ -4562,9 +4656,15 @@ def _extract_low_confidence_segments(verbose_result, risk_threshold=-0.7):
     words_so_far = 0
 
     for seg in segments:
-        avg_lp = seg.get("avg_logprob", 0.0)
-        no_speech = seg.get("no_speech_prob", 0.0)
-        compression_ratio = seg.get("compression_ratio", 1.0)
+        # Cloud Whisper emits floats for these; local Moonshine emits None because
+        # the ONNX decoder doesn't surface per-segment confidence. Coerce None →
+        # safe defaults so downstream comparisons don't crash:
+        #   avg_logprob=0.0 → max confidence (won't flag as low-conf)
+        #   no_speech_prob=0.0 → definitely speech (won't flag as block suspect)
+        #   compression_ratio=1.0 → normal entropy (won't flag as repetition loop)
+        avg_lp = seg.get("avg_logprob") or 0.0
+        no_speech = seg.get("no_speech_prob") or 0.0
+        compression_ratio = seg.get("compression_ratio") or 1.0
         seg_text = seg.get("text", "").strip()
 
         if not seg_text:
@@ -6131,7 +6231,10 @@ def pipeline():
         global _last_low_conf_segments, _last_avg_logprob
         _last_low_conf_segments = whisper_low_conf or []
         if whisper_segments:
-            logprobs = [s.get("avg_logprob", 0) for s in whisper_segments if "avg_logprob" in s]
+            # Filter out None — Moonshine segments have avg_logprob=None because
+            # the ONNX decoder doesn't surface per-segment confidence. "in s"
+            # check alone passes (key is present) but sum() on Nones crashes.
+            logprobs = [s["avg_logprob"] for s in whisper_segments if s.get("avg_logprob") is not None]
             _last_avg_logprob = round(sum(logprobs) / len(logprobs), 3) if logprobs else 0.0
         else:
             _last_avg_logprob = 0.0
