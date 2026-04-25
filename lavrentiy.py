@@ -1371,13 +1371,21 @@ class ClipboardPredictor:
 
 _clipboard_predictor = None  # initialized after profile load
 
-client = openai.OpenAI(api_key=API_KEY) if API_KEY else None
+# Per-call ceiling for ALL cloud SDK requests. When a network round-trip
+# stalls (server hung, NAT dropped the connection, anything that wedges
+# without erroring), the SDK's default behavior is to wait forever — which
+# locks up the engine pipeline (every subsequent recording stacks on the
+# stuck thread). 90s is ~3x the slowest expected legitimate L4 Sonnet ET
+# call, so anything past it is "stuck", not "slow".
+CLOUD_TIMEOUT_SEC = 90
+
+client = openai.OpenAI(api_key=API_KEY, timeout=CLOUD_TIMEOUT_SEC) if API_KEY else None
 
 # Anthropic client for cross-vendor Falcon validation (different blind spots
 # from OpenAI's reconstruction → catches errors a self-eval would miss).
 try:
     import anthropic
-    anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY) if ANTHROPIC_KEY else None
+    anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY, timeout=CLOUD_TIMEOUT_SEC) if ANTHROPIC_KEY else None
 except ImportError:
     anthropic_client = None
 
@@ -8291,7 +8299,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             key = (body or {}).get('key', '').strip()
             if key:
                 API_KEY = key
-                client = openai.OpenAI(api_key=API_KEY)
+                client = openai.OpenAI(api_key=API_KEY, timeout=CLOUD_TIMEOUT_SEC)
                 try:
                     with open(_key_file, 'w') as f:
                         f.write(key)
