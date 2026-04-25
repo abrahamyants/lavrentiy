@@ -718,7 +718,8 @@ body::before {
 .tone-stack, .layer-stack { display: flex; flex-direction: column; gap: 2px; }
 
 /* Enhancement toggles */
-.toggle-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.toggle-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; transition: opacity 0.15s ease; }
+.toggle-row.toggle-disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
 .toggle-label { font-family: var(--font); font-size: 11px; color: var(--text); font-weight: 500; }
 .toggle-hint { font-family: var(--mono); font-size: 8px; color: var(--red-bright); margin-left: 3px; white-space: nowrap; font-weight: 700; }
 .toggle-switch { position: relative; display: inline-block; width: 32px; height: 18px; flex-shrink: 0; }
@@ -2678,15 +2679,13 @@ body::before {
       <div class="tone-stack">
         <button class="tone-btn" data-tone="casual">Casual</button>
         <button class="tone-btn" data-tone="professional">Professional</button>
-        <button class="tone-btn" data-tone="friend">Friend</button>
-        <button class="tone-btn" data-tone="formal">Formal</button>
       </div>
     </div>
 
     <div class="sidebar-section">
       <div class="sidebar-section-title">Layer</div>
       <div class="layer-stack">
-        <div class="layer-opt" data-layer="1"><div class="l-info"><div class="l-name">I. Transcribe</div><div class="l-desc">Whisper only</div></div></div>
+        <div class="layer-opt" data-layer="1"><div class="l-info"><div class="l-name">I. Transcribe</div><div class="l-desc">Moonshine local</div></div></div>
         <div class="layer-opt" data-layer="2"><div class="l-info"><div class="l-name">II. Reconstruct</div><div class="l-desc">LLM + tone</div></div></div>
         <div class="layer-opt" data-layer="3"><div class="l-info"><div class="l-name">III. Profile</div><div class="l-desc">+ vocabulary</div></div></div>
         <div class="layer-opt" data-layer="4"><div class="l-info"><div class="l-name">IV. Stutter</div><div class="l-desc">+ disfluency</div></div></div>
@@ -2697,18 +2696,9 @@ body::before {
       <div class="sidebar-section-title">Enhancements</div>
       <div class="engine-section-card">
         <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-quiet-mode"><span class="toggle-slider"></span></label><span class="toggle-label">Quiet Mode</span><span class="toggle-hint">whispered/soft speech</span></div>
-        <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-paralinguistic"><span class="toggle-slider"></span></label><span class="toggle-label">Paralinguistic</span><span class="toggle-hint">cough/laugh</span></div>
+        <div class="toggle-row" id="paralinguistic-row" title=""><label class="toggle-switch"><input type="checkbox" id="toggle-paralinguistic"><span class="toggle-slider"></span></label><span class="toggle-label">Paralinguistic</span><span class="toggle-hint">cough/laugh</span></div>
         <div class="toggle-row toggle-sub" id="para-transcribe-row" style="display:none"><label class="toggle-switch"><input type="checkbox" id="toggle-para-transcribe"><span class="toggle-slider"></span></label><span class="toggle-label">Transcribe</span><span class="toggle-hint">inject [tags] in text</span></div>
-        <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-prosodic"><span class="toggle-slider"></span></label><span class="toggle-label">Prosodic</span><span class="toggle-hint">pitch/energy/rate</span></div>
-      </div>
-    </div>
-
-    <div class="sidebar-section" id="mode-section">
-      <div class="sidebar-section-title">Mode <span class="section-note" id="mode-note"></span></div>
-      <div class="tone-stack">
-        <button class="tone-btn mode-btn" data-mode="RAW">RAW <span class="mode-desc">paste as-is</span></button>
-        <button class="tone-btn mode-btn" data-mode="FAST">FAST <span class="mode-desc">skip validation</span></button>
-        <button class="tone-btn mode-btn" data-mode="SAFE">SAFE <span class="mode-desc">+ Falcon check</span></button>
+        <div class="toggle-row" id="prosodic-row" title=""><label class="toggle-switch"><input type="checkbox" id="toggle-prosodic"><span class="toggle-slider"></span></label><span class="toggle-label">Prosodic</span><span class="toggle-hint">pitch/energy/rate</span></div>
       </div>
     </div>
 
@@ -2717,7 +2707,6 @@ body::before {
       <div class="tone-stack">
         <div class="layer-opt sit-btn" data-situation="default"><div class="l-info"><div class="l-name">Default</div><div class="l-desc">+ everyday use</div></div></div>
         <div class="layer-opt sit-btn" data-situation="high_stress"><div class="l-info"><div class="l-name">High Stress</div><div class="l-desc">+ full assist</div></div></div>
-        <div class="layer-opt sit-btn" data-situation="reading"><div class="l-info"><div class="l-name">Reading</div><div class="l-desc">+ near-fluent</div></div></div>
       </div>
     </div>
 
@@ -3189,7 +3178,7 @@ const I18N={
   tone_friend:{en:'Friend',ru:'Дружеский'},
   tone_formal:{en:'Formal',ru:'Формальный'},
   // Layers
-  layer1:{en:'I. Transcribe',ru:'I. Транскрипция'},layer1d:{en:'Whisper only',ru:'Только Whisper'},
+  layer1:{en:'I. Transcribe',ru:'I. Транскрипция'},layer1d:{en:'Moonshine local',ru:'Moonshine локально'},
   layer2:{en:'II. Reconstruct',ru:'II. Реконструкция'},layer2d:{en:'LLM + tone',ru:'LLM + тон'},
   layer3:{en:'III. Profile',ru:'III. Профиль'},layer3d:{en:'+ vocabulary',ru:'+ словарь'},
   layer4:{en:'IV. Stutter',ru:'IV. Заикание'},layer4d:{en:'+ disfluency',ru:'+ дисфлюенция'},
@@ -3785,6 +3774,28 @@ function updateUI(){
   const now=Date.now();
   const paraToggle=document.getElementById('toggle-paralinguistic');
   const prosToggle=document.getElementById('toggle-prosodic');
+  // Paralinguistic + Prosodic only do anything at L4 (need Whisper segments).
+  // Grey out + disable the toggles outside L4 so the UI matches reality.
+  const _isL4 = (state.layer||0) >= 4;
+  const paraRow = document.getElementById('paralinguistic-row');
+  const prosRow = document.getElementById('prosodic-row');
+  const paraSubRow = document.getElementById('para-transcribe-row');
+  if(paraRow){
+    paraRow.classList.toggle('toggle-disabled', !_isL4);
+    paraRow.title = _isL4 ? '' : 'Layer 4 only — needs Whisper segment data';
+  }
+  if(prosRow){
+    prosRow.classList.toggle('toggle-disabled', !_isL4);
+    prosRow.title = _isL4 ? '' : 'Layer 4 only — needs Whisper segment data';
+  }
+  if(paraSubRow){
+    paraSubRow.classList.toggle('toggle-disabled', !_isL4);
+    paraSubRow.title = _isL4 ? '' : 'Layer 4 only';
+  }
+  if(paraToggle){paraToggle.disabled = !_isL4;}
+  if(prosToggle){prosToggle.disabled = !_isL4;}
+  const paraTransSub = document.getElementById('toggle-para-transcribe');
+  if(paraTransSub){paraTransSub.disabled = !_isL4;}
   if(paraToggle&&!(_toggleCooldown.para>now)&&document.activeElement!==paraToggle)paraToggle.checked=!!state.paralinguistic_enabled;
   const paraTransToggle=document.getElementById('toggle-para-transcribe');
   if(paraTransToggle&&!(_toggleCooldown.paraTrans>now)&&document.activeElement!==paraTransToggle)paraTransToggle.checked=!!state.paralinguistic_transcribe;

@@ -49,25 +49,74 @@ if sys.stderr is None:
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
 
+# -- Lifecycle audit logger ────────────────────────────────────────
+# Writes a one-line entry every time the engine process starts. Records PID,
+# parent PID, command line, time. Survives crashes (line-buffered append).
+# Lets us correlate "engine died" events with what actually launched the
+# replacement instance — desktop.py wrapper? user double-click? something else?
+try:
+    import datetime as _dt
+    _lifecycle_log = os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine_lifecycle.log")
+    _ppid = os.getppid() if hasattr(os, "getppid") else -1
+    with open(_lifecycle_log, "a", encoding="utf-8") as _f:
+        _f.write(f"[{_dt.datetime.now().isoformat(timespec='seconds')}] STARTUP pid={os.getpid()} ppid={_ppid} argv={sys.argv}\n")
+        _f.flush()
+    # Also register an exit hook so we know when this PID went away cleanly.
+    import atexit as _atexit
+    def _log_exit():
+        try:
+            with open(_lifecycle_log, "a", encoding="utf-8") as f:
+                f.write(f"[{_dt.datetime.now().isoformat(timespec='seconds')}] EXIT pid={os.getpid()} (atexit)\n")
+        except Exception:
+            pass
+    _atexit.register(_log_exit)
+except Exception:
+    pass
+
+
 # -- Single-instance enforcement ──────────────────────────────────
 def _check_existing_engine():
-    """Return True if a healthy engine is already serving on DASHBOARD_PORT."""
+    """Return True if a healthy engine is already serving on DASHBOARD_PORT.
+    Generous 5s timeout — during a long LLM call the /api/state endpoint can
+    be queued behind the cloud round-trip. A 2s timeout was producing false
+    negatives that triggered the (now-removed) kill-all-pythonw nuclear path
+    and made running engines suicide on near-simultaneous launches."""
     import urllib.request
     try:
-        resp = urllib.request.urlopen(f"http://localhost:7878/api/state", timeout=2)
+        resp = urllib.request.urlopen(f"http://localhost:7878/api/state", timeout=5)
         return resp.status == 200
     except Exception:
         return False
 
-def _kill_stale_pythonw():
-    """Kill all pythonw.exe processes (stale mutex holders)."""
+def _kill_engine_on_port(port):
+    """Kill ONLY the PID currently listening on the given port. Safe — does
+    not touch unrelated pythonw.exe processes. Returns True if a kill ran.
+
+    Replaces the prior `_kill_stale_pythonw()` which ran
+    `taskkill /IM pythonw.exe /F` and nuked every pythonw on the system
+    (including the desktop wrapper and any sibling tooling), causing the
+    engine to suicide whenever a near-simultaneous launch hit the mutex."""
     import subprocess
     try:
-        subprocess.run(["taskkill", "/IM", "pythonw.exe", "/F"],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(1)
+        result = subprocess.run(
+            ["netstat", "-ano"],
+            capture_output=True, text=True, check=False, timeout=5,
+        )
+        for line in result.stdout.splitlines():
+            if f":{port}" in line and "LISTENING" in line:
+                parts = line.split()
+                pid = parts[-1] if parts else ""
+                if pid.isdigit():
+                    subprocess.run(
+                        ["taskkill", "/F", "/PID", pid],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        check=False, timeout=5,
+                    )
+                    time.sleep(1)
+                    return True
     except Exception:
         pass
+    return False
 
 mutex_name = "Global\\LAVRENTIY_SINGLE_INSTANCE"
 mutex_handle = kernel32.CreateMutexW(None, True, mutex_name)
@@ -77,9 +126,9 @@ if kernel32.GetLastError() == 183:
         kernel32.CloseHandle(mutex_handle)
         os._exit(0)
     else:
-        print("Stale mutex detected (no healthy engine). Cleaning up...")
+        print("Stale mutex detected (no healthy engine). Cleaning up port 7878 only...")
         kernel32.CloseHandle(mutex_handle)
-        _kill_stale_pythonw()
+        _kill_engine_on_port(7878)
         mutex_handle = kernel32.CreateMutexW(None, True, mutex_name)
         if kernel32.GetLastError() == 183:
             print("Could not reclaim mutex after cleanup. Exiting.")
@@ -105,6 +154,24 @@ if not API_KEY:
     except Exception:
         pass
 
+# Anthropic key — used for cross-vendor Falcon validation (Claude Haiku 4.5).
+# Optional: if not set, falcon_validate falls back to GPT-4o on L2/L3.
+ANTHROPIC_KEY = ""
+_anthropic_key_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "anthropic_key.txt")
+if os.path.exists(_anthropic_key_file):
+    ANTHROPIC_KEY = open(_anthropic_key_file, "r").read().strip()
+if not ANTHROPIC_KEY:
+    ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+FALCON_HAIKU_MODEL = "claude-haiku-4-5-20251001"
+
+# L4 clinical reconstruction uses Anthropic Sonnet 4.6 with extended thinking.
+# Reasoning trace is the validator — Falcon is skipped at L4 (the model
+# self-checks during the thinking phase). Fallback to GPT-4o if Anthropic
+# unavailable. Thinking budget 8000 tokens; max output 16000 (must exceed budget).
+SONNET_THINK_MODEL = "claude-sonnet-4-6"
+SONNET_THINK_BUDGET = 8000
+SONNET_THINK_MAX_TOKENS = 16000
+
 _last_recon_model = ""  # updated by reconstruct() — shows in log status line
 
 LANGUAGE = "en"
@@ -115,8 +182,8 @@ LAYER_KEY = "f11"
 STATS_KEY = "f12"
 QUIT_KEY = "f3"
 COMMAND_KEY = "f8"  # Command Mode: highlight text + say command → transforms selection
-MODEL = "gpt-4o"
-MODEL_L4 = "gpt-4o"                  # L4 stutter reconstruction uses stronger model
+MODEL = "gpt-4o"                     # L2/L3 reconstruction — full GPT-4o (most accurate)
+MODEL_L4 = "gpt-4o"                  # L4 stutter reconstruction (same model, different prompt)
 WHISPER_TEMP = 0.0                   # Whisper decoder temperature (0.0=deterministic, 1.0=creative)
 WHISPER_NO_SPEECH_THRESHOLD = 0.15   # Post-hoc filter: segments with no_speech_prob > this are flagged as block suspects
                                      # OpenAI API doesn't expose no_speech_threshold — we filter client-side
@@ -1291,6 +1358,14 @@ _clipboard_predictor = None  # initialized after profile load
 
 client = openai.OpenAI(api_key=API_KEY) if API_KEY else None
 
+# Anthropic client for cross-vendor Falcon validation (different blind spots
+# from OpenAI's reconstruction → catches errors a self-eval would miss).
+try:
+    import anthropic
+    anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY) if ANTHROPIC_KEY else None
+except ImportError:
+    anthropic_client = None
+
 # -- Google Sign-In / Backend reconstruction ─────────────────────
 BACKEND_URL = "https://us-central1-bakers-agent.cloudfunctions.net/wim-reconstruct"
 _firebase_id_token = None  # set by /api/auth when user signs in via Google
@@ -1461,20 +1536,24 @@ def save_profile(prof, _epoch=None):
             f.flush()
             os.fsync(f.fileno())
         tmp_path.replace(PROFILE_PATH)
-    # --- FIRESTORE DIRECT PUBLISH HOOK ---
-    try:
-        from lavrentiy.firestore_publisher import publish_profile_to_firestore
-        import threading
-        global _auth_user
-        if _auth_user and isinstance(_auth_user, dict) and "uid" in _auth_user:
-            uid = _auth_user["uid"]
-            tw = prof.get("trigger_words", [])
-            ow = prof.get("onset_weights", {})
-            cp = prof.get("covert_profile", {})
-            threading.Thread(target=publish_profile_to_firestore, args=(uid, tw, ow, cp), daemon=True).start()
-    except Exception as e:
-        log(f"Firestore publish hook failed: {e}", "error")
-        
+    # FIRESTORE DIRECT PUBLISH HOOK — REMOVED 2026-04-24
+    # The original code did `from lavrentiy.firestore_publisher import ...`. When
+    # this script runs as `lavrentiy.py` (the entry-point script, sys.modules
+    # name is __main__ not lavrentiy), `import lavrentiy` finds lavrentiy.py
+    # again and RE-EXECUTES the entire module — which re-runs the mutex check
+    # (sees the original engine on port 7878, prints "Lavrentiy is already
+    # running") and calls os._exit(0), killing the original process.
+    #
+    # That's the silent engine-death bug we've been chasing. Sign-in (or any
+    # other code path that calls save_profile) was triggering it. Symptoms:
+    # (a) two STARTUP entries with same PID in lifecycle.log, (b) "[SWP] A"
+    # logged but never "[SWP] B" — the recursive import killed it inside
+    # save_profile before it could continue.
+    #
+    # The cross-device profile sync happens via the cloud function path below
+    # (sync_profile_to_firestore), which uses urllib + the BACKEND_URL — no
+    # broken `import lavrentiy.*` involved. So nothing of value is lost.
+
     # Sync to Firestore in background (debounced, fire-and-forget)
     threading.Thread(target=sync_profile_to_firestore, args=(prof,), daemon=True).start()
 
@@ -1556,39 +1635,42 @@ def switch_profile(name):
     if not name or '/' in name or '\\' in name or '..' in name:
         raise ValueError(f"Invalid profile name: {name}")
 
-    # Save current profile before switching
-    # NOTE: do NOT wrap in _profile_lock here — save_profile() acquires it internally
-    # and threading.Lock is not re-entrant (would deadlock).
+    log(f"[SWP] A: enter switch_profile('{name}')", "info")
     save_profile(profile)
+    log(f"[SWP] B: save_profile done", "info")
 
-    # Bump epoch so stale background threads skip their save_profile() calls
     _profile_switch_epoch += 1
+    log(f"[SWP] C: epoch bumped", "info")
 
-    # Close current DB and reinitialize under the SAME lock hold.
-    # Releasing _db_lock between close and reinit would let concurrent callers
-    # (log_session, db_get_sessions) hit the closed connection.
+    log(f"[SWP] D: acquiring _db_lock", "info")
     with _db_lock:
+        log(f"[SWP] E: _db_lock acquired", "info")
         try:
             _db.close()
-        except Exception:
-            pass
+        except Exception as _e:
+            log(f"[SWP] F: _db.close exception (ignored): {_e}", "warn")
+        log(f"[SWP] G: _db closed", "info")
 
-        # Update paths (inside lock so DB_PATH is consistent with _db)
         _active_profile_name = name
         PROFILE_DIR, PROFILE_PATH, DB_PATH, BACKUP_DIR = _resolve_profile_paths(name)
         PROFILE_DIR.mkdir(parents=True, exist_ok=True)
         _write_active_profile_name(name)
+        log(f"[SWP] H: paths updated, active_profile written", "info")
 
-        # Load new profile
         profile = load_profile()
+        log(f"[SWP] I: load_profile done", "info")
         profile = migrate_profile(profile)
+        log(f"[SWP] J: migrate_profile done", "info")
         if normalize_profile(profile):
             save_profile(profile)
+        log(f"[SWP] K: normalize+save done", "info")
         migrate_fillers(profile)
+        log(f"[SWP] L: migrate_fillers done", "info")
         learn_onset_weights(profile.get("trigger_words", []))
+        log(f"[SWP] M: learn_onset_weights done", "info")
 
-        # Reinitialize DB (still under _db_lock)
         _db = _init_db(DB_PATH)
+        log(f"[SWP] N: _init_db done", "info")
 
     # Reset transient state
     _shadow_history.clear() if isinstance(_shadow_history, list) else None
@@ -2926,31 +3008,33 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
     use_model = MODEL_L4 if layer >= 4 else MODEL
     system_prompt = "\n".join(parts)
 
-    # L2/L3 are LOCAL. Llama 3.2 3B (or Qwen 2.5 3B via LAV_LOCAL_LLM) via Ollama.
-    # No cloud fallback — if Ollama is down, return the pre-cleaned raw text
-    # (L1-equivalent output) rather than calling the cloud. "Local layers stay local."
-    if layer in (2, 3):
-        if _local_llm_complete is not None and _local_llm_available():
-            local_out = _local_llm_complete(
-                system_prompt=system_prompt,
-                user_text=raw_text,
-                model=LOCAL_LLM_MODEL,
-                temperature=temp,
-                max_tokens=1000,
-                stop_tokens=["\n\n", "\nNote:", "\nExplanation:", "\n---", "\nHere", "```"],
+    # L4 clinical reconstruction → Anthropic Sonnet 4.6 with extended thinking.
+    # The reasoning trace IS the differentiator — for severe stutterers and
+    # SLP audit, the model walks through Whisper's confidence signals + the
+    # speaker's phoneme map + covert avoidance + Brown risk + prosodic state
+    # in its scratchpad before producing the reconstruction. Falcon at L4 is
+    # dropped because extended thinking is itself self-validation.
+    # Falls through to GPT-4o on Anthropic error or unavailability.
+    if layer >= 4 and anthropic_client is not None:
+        try:
+            msg = anthropic_client.messages.create(
+                model=SONNET_THINK_MODEL,
+                max_tokens=SONNET_THINK_MAX_TOKENS,
+                thinking={"type": "enabled", "budget_tokens": SONNET_THINK_BUDGET},
+                system=system_prompt,
+                messages=[{"role": "user", "content": raw_text}],
             )
-            cleaned_out = _postprocess_local_llm(local_out) if local_out else ""
-            if cleaned_out:
-                _last_recon_model = f"{LOCAL_LLM_MODEL} (local)"
-                stats_inc("local_llm_calls")
-                return cleaned_out
-        # Local LLM unavailable OR produced empty output after cleanup.
-        # Return raw (L1-equivalent). No cloud fallback.
-        stats_inc("local_llm_unavailable")
-        _last_recon_model = "local-unavailable (raw passthrough)"
-        return raw_text
+            text_blocks = [b.text for b in msg.content if getattr(b, "type", None) == "text"]
+            clean_text = "\n".join(text_blocks).strip()
+            if clean_text:
+                stats_inc("anthropic_calls")
+                _last_recon_model = f"{SONNET_THINK_MODEL} (ext-think)"
+                return clean_text
+            # Empty Sonnet output — fall through to GPT-4o
+        except Exception as e:
+            log(f"Sonnet 4.6 ext-think failed ({str(e)[:120]}), falling back to GPT-4o", "warn")
 
-    # L4 stays on cloud GPT-4o by design.
+    # L2/L3 cloud reconstruction (and L4 fallback): GPT-4o single-pass.
     stats_inc("api_calls")
     resp = client.chat.completions.create(
         model=use_model,
@@ -3013,27 +3097,34 @@ def falcon_validate(raw_text, clean_text, layer, tone="casual", onset_weights=No
             + " Does the reconstruction satisfy all criteria? Answer ONLY 'yes' or 'no'."
         )
 
-    # L2/L3 Falcon runs on local Llama — "local layers stay local" covers
-    # validation too, not just reconstruction. L4 Falcon stays cloud GPT-4o.
-    if layer in (2, 3):
-        if _local_llm_complete is None or not _local_llm_available():
-            # Local LLM unreachable — pass through. Never silently escape to cloud.
-            return True
-        local_resp = _local_llm_complete(
-            system_prompt=prompt,
-            user_text=f"Original: {raw_text}\nReconstruction: {clean_text}",
-            model=LOCAL_LLM_MODEL,
-            temperature=0.0,
-            max_tokens=5,
-            timeout=15,
-            stop_tokens=["\n"],
-        )
-        if local_resp is None:
-            return True  # pass through on timeout/error, never cloud-escape
-        stats_inc("local_llm_calls")
-        return "yes" in local_resp.strip().lower()
+    # L4 reconstruction uses Sonnet 4.6 with extended thinking — the reasoning
+    # trace IS the validator. A separate yes/no Falcon check after that adds
+    # latency without adding signal. Skip Falcon at L4.
+    if layer >= 4:
+        return True
 
-    # L4 → cloud GPT-4o (unchanged)
+    # L2/L3 Falcon → Claude Haiku 4.5 (Anthropic) for cross-vendor validation.
+    # Different vendor = different blind spots → catches errors that self-eval misses.
+    # If Anthropic key isn't configured, fall back to GPT-4o (same vendor as recon).
+    if layer in (2, 3) and anthropic_client is not None:
+        try:
+            msg = anthropic_client.messages.create(
+                model=FALCON_HAIKU_MODEL,
+                max_tokens=5,
+                messages=[{
+                    "role": "user",
+                    "content": prompt + f"\n\nOriginal: {raw_text}\nReconstruction: {clean_text}",
+                }],
+            )
+            stats_inc("anthropic_calls")
+            return "yes" in msg.content[0].text.strip().lower()
+        except Exception:
+            pass  # fall through to OpenAI on Haiku error
+
+    # L4 Falcon (clinical) → GPT-4o (rich phonetic-rules prompt; keep on the
+    # same family that produced the reconstruction so the eval stays consistent
+    # with the reconstruction prompt's structure). Also used as L2/L3 fallback
+    # when anthropic_client is unavailable.
     stats_inc("api_calls")
     resp = client.chat.completions.create(
         model=MODEL,
@@ -4583,18 +4674,53 @@ def _build_whisper_prompt():
 
 
 def _whisper_single_call(filepath, temperature, prompt_text, max_retries=3):
-    """Single Whisper API call returning verbose JSON with segment data.
+    """Single ASR call returning verbose JSON with segment data.
 
-    Returns dict with:
-      text: full transcription
-      segments: list of {text, avg_logprob, no_speech_prob, ...}
+    Layer-conditional dispatch:
+      - L4 (clinical): cloud whisper-1 with verbose_json — gives the full
+        per-segment metadata (avg_logprob, no_speech_prob, timestamps) that the
+        Sonnet-4.6-extended-thinking reconstructor needs to reason about block
+        suspects, multi-temp disagreements, prosodic stress windows, etc.
+        Moonshine's flat output is useless for this — verified empirically
+        that gpt-4o-transcribe also doesn't return verbose_json (HTTP 400).
+      - L1/L2/L3: local ASR (Moonshine -> Vosk via asr_local). Fast paste path.
 
-    Retries up to max_retries on 5xx server errors and rate limits.
+    Returns dict with: text, segments, engine.
+    Retries up to max_retries on transient errors.
     """
-    # Local ASR only. Chain: Moonshine -> Vosk (handled inside asr_local).
-    # No cloud fallback — "local layers stay local" (2026-04-21).
-    # Kept the retry shape so transient local errors (e.g. model file
-    # locked) still retry a few times before raising.
+    # L4 → cloud whisper-1 for rich segment metadata
+    if current_layer >= 4 and client is not None:
+        last_err = None
+        for attempt in range(max_retries):
+            try:
+                with open(filepath, "rb") as f:
+                    resp = client.audio.transcriptions.create(
+                        file=f,
+                        model="whisper-1",
+                        response_format="verbose_json",
+                        temperature=float(temperature) if temperature is not None else 0.0,
+                        prompt=prompt_text or "",
+                    )
+                d = resp.model_dump() if hasattr(resp, "model_dump") else dict(resp)
+                stats_inc("api_calls")
+                stats_inc("cloud_transcriptions")
+                return {
+                    "text": (d.get("text") or "").strip(),
+                    "segments": d.get("segments", []) or [],
+                    "engine": "whisper-1",
+                }
+            except Exception as e:
+                last_err = e
+                if attempt < max_retries - 1:
+                    wait = 2 ** attempt
+                    log(f"Cloud whisper-1 error ({str(e)[:80]}), retry {attempt+1}/{max_retries} in {wait}s", "warn")
+                    time.sleep(wait)
+                    continue
+                log(f"Cloud whisper-1 exhausted retries: {str(e)[:120]} — falling back to local", "warn")
+                break  # fall through to local path below
+        # If we got here after exhausting cloud retries, drop into local fallback.
+
+    # L1/L2/L3 (and L4 fallback): local ASR chain (Moonshine -> Vosk)
     if _local_transcribe_fn is None:
         raise RuntimeError(
             "Local ASR not available. Install Moonshine and/or Vosk: "
@@ -4610,7 +4736,7 @@ def _whisper_single_call(filepath, temperature, prompt_text, max_retries=3):
         except Exception as e:
             last_err = e
             if attempt < max_retries - 1:
-                wait = 2 ** attempt  # 1s, 2s, 4s
+                wait = 2 ** attempt
                 log(f"Local ASR error ({str(e)[:80]}), retry {attempt+1}/{max_retries} in {wait}s", "warn")
                 time.sleep(wait)
                 continue
@@ -6474,7 +6600,7 @@ def pipeline():
             log(f"-> \"{output}\"  [{wc}w]", "out")
         flags_tag = f" flags:[{','.join(decision['risk_flags'])}]" if decision['risk_flags'] else ""
         model_tag = f" [{_last_recon_model}]" if _last_recon_model and current_layer > 1 and current_mode != "RAW" else ""
-        log(f"[{decision['mode']}] {decision['decision']} | {timings['total_ms']}ms (asr:{timings['asr_ms']} recon:{timings['reconstruct_ms']} val:{timings['validate_ms']}){model_tag}{flags_tag}", "info")
+        log(f"{decision['decision']} | {timings['total_ms']}ms (asr:{timings['asr_ms']} recon:{timings['reconstruct_ms']} val:{timings['validate_ms']}){model_tag}{flags_tag}", "info")
 
         # Inject paralinguistic tags into output if transcribe toggle is ON
         if paralinguistic_transcribe and para_events:
@@ -7183,7 +7309,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'tone': current_tone,
                 'layer': current_layer,
                 'layer_name': LAYER_NAMES.get(current_layer, '?'),
-                'mode': current_mode,
                 'situation': current_situation,
                 'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0),
                 'stats': stats,
@@ -7517,6 +7642,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         body = self._read_body()
         if self.path == '/api/auth':
             global _firebase_id_token, _auth_user
+            _action_str = (body or {}).get('action', 'NONE') if body else 'NO_BODY'
+            _has_token = bool((body or {}).get('id_token')) if body else False
+            log(f"[AUTH] /api/auth received: action={_action_str} has_token={_has_token}", "info")
             if body and body.get('action') == 'sign_in' and body.get('id_token'):
                 _firebase_id_token = body['id_token']
                 _auth_user = {
@@ -7530,12 +7658,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 if email:
                     profile_name = email.split('@')[0]  # "george" from "george@gmail.com"
                     try:
-                        if profile_name not in list_profiles():
+                        log(f"[AUTH] step1: checking if profile '{profile_name}' exists", "info")
+                        existing = list_profiles()
+                        log(f"[AUTH] step2: existing profiles = {existing}", "info")
+                        if profile_name not in existing:
+                            log(f"[AUTH] step3: creating profile '{profile_name}'", "info")
                             create_profile(profile_name)
-                            log(f"Created profile for {email}: {profile_name}", "info")
+                            log(f"[AUTH] step4: created profile for {email}: {profile_name}", "info")
+                        log(f"[AUTH] step5: about to switch_profile('{profile_name}')", "info")
                         switch_profile(profile_name)
+                        log(f"[AUTH] step6: switch_profile returned successfully", "info")
                     except Exception as e:
-                        log(f"Profile switch on sign-in failed: {e}", "error")
+                        import traceback
+                        log(f"[AUTH] Profile switch FAILED: {type(e).__name__}: {e}", "error")
+                        log(f"[AUTH] Traceback: {traceback.format_exc()[:600]}", "error")
                 self._json({'signed_in': True, 'user': _auth_user, 'profile': _active_profile_name})
             elif body and body.get('action') == 'sign_out':
                 _firebase_id_token = None
@@ -7554,15 +7690,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json({'signed_in': is_authenticated(), 'user': _auth_user})
         elif self.path == '/api/open-signin':
             # Open Google sign-in in the system default browser.
-            # Edge --app= mode is detected by Google as an embedded browser and
-            # refuses OAuth. Popping the real system browser lets OAuth complete
-            # normally; auth_google.html posts the token back to /api/auth.
+            # Edge --app= mode + pywebview both register as embedded browsers and
+            # Google refuses OAuth there. Popping the real system browser lets
+            # OAuth complete normally; auth_google.html posts the token back to /api/auth.
             import webbrowser
             try:
-                webbrowser.open('http://localhost:7878/auth/google', new=2)
-                self._json({'ok': True})
+                opened = webbrowser.open('http://localhost:7878/auth/google', new=2)
+                log(f"[AUTH] /api/open-signin called — webbrowser.open returned {opened}", "info")
+                self._json({'ok': True, 'browser_opened': bool(opened)})
             except Exception as e:
-                log(f"open-signin failed: {e}", "error")
+                log(f"[AUTH] /api/open-signin EXCEPTION: {e}", "error")
                 self._json({'ok': False, 'error': str(e)[:200]})
         elif self.path == '/api/tone':
             if body and isinstance(body.get('tone'), str):
