@@ -1,39 +1,38 @@
 ; Lavrentiy Evaluation Build — Inno Setup script
 ; Builds: Lavrentiy-Eval-Setup-v1.4.0.exe
 ;
-; Wraps the same Python runtime + launchers as the main Lavrentiy install,
-; BUT swaps the engine for the patched copy in eval-build/engine/.
+; v1.4.0 (TRULY-LOCAL L1):
+;   - L1 ASR (Transcribe): Moonshine BASE-en (Useful Sensors, ONNX). Fully on
+;     device, runs without internet. Model files (~236 MB total: encoder 77 MB
+;     + decoder 159 MB) are BUNDLED into the installer and installed into
+;     {userprofile}\.cache\moonshine\base\ so first launch works offline.
+;   - L2 / L3 (Reconstruct, Profile): cloud GPT-4o + cross-vendor Anthropic
+;     Haiku 4.5 Falcon validation. Requires internet. Falls back to raw text
+;     if offline.
+;   - L4 (Disfluency clinical): cloud whisper-1 verbose_json + Anthropic Sonnet
+;     4.6 with extended thinking + cloud GPT-4o cross-vendor Falcon. Requires
+;     internet. Falls back to raw text if offline.
 ;
-; v1.4.0: Full-local L1-L3. Cloud leaks closed.
-;   - L1 ASR: faster-whisper large-v3-turbo (real Whisper, full verbose JSON
-;     per-segment confidence — block detection, multi-temp voting, paralinguistic,
-;     prosodic analysis all re-activate). Bundled as ~1.6 GB model.bin + metadata.
-;     Moonshine + Vosk kept as layered fallbacks.
-;   - L2/L3 reconstruction: Llama 3.2 3B Instruct Q4_K_M. Bundled as Ollama
-;     blobs (~2 GB).
-;   - L2/L3 Falcon validation: runs on local Llama. No cloud call. Previously
-;     falcon_validate() always hit GPT-4o regardless of layer — that leak is closed.
-;   - System prompt hardening + stop tokens + post-processing strip markdown,
-;     preambles, emojis from local LLM output before paste target.
+;   Net result: open the app, hit F9, dictate — L1 always works. L2-L4 require
+;   internet but degrade gracefully when it's not there.
 ;
-; v1.3.0 (previous): Fast cold-start — HTTP server binds :7878 in ~1s via a stub
-;   handler that reports live boot_stage while heavy imports load in the main
-;   thread. Stub swaps to the real DashboardHandler once init completes.
+; Engine source: repo root C:\Users\georg\Documents\GitHub\lavrentiy\ — single
+; source of truth (per CLAUDE.md). The eval-build\engine\ dir is no longer
+; used as a separate frozen snapshot.
 ;
-; v1.2.1 (previous): 8 stability fixes on the Current build
-;   1. Command Mode tuple-unpack bug (engine/lavrentiy.py line ~6255)
-;   2. reconstruct() bails cleanly if no OpenAI key
-;   3. falcon_validate() bails cleanly if no OpenAI key
-;   4. Startup console message when API key is missing
-;   5. L1 hyphenated-stutter regex (catches w-w-want, s-schedule, m-m-meeting)
-;   6. L1 word-repetition threshold lowered to 2+ (catches "to to", "the the")
-;   7. Falcon L4 sees hard onsets + triggers (catch NEW avoidance substitutions)
-;   8. Falcon L4 sees covert_profile.avoidance_pairs (ACCEPT reconstructions that
-;      reverse tracked avoidance — don't flag them as phonetic hallucinations)
+; Launchers + bundled Python: pulled from the live install dir at
+; %LOCALAPPDATA%\Programs\Lavrentiy-Eval\, minus the engine + transient files.
 ;
-; Installs as "Lavrentiy Evaluation" in Program Files\Lavrentiy-Eval, so it
-; lives SIDE-BY-SIDE with the Current install without clobbering it.
-; Installer size: ~5 GB (engine + Python runtime + 3 bundled AI models).
+; Installer size: ~600 MB (engine + Python runtime + Moonshine model). Down
+; from the v1.3.0 plan that bundled faster-whisper (1.6 GB) and Llama Ollama
+; blobs (2 GB) — both reverted in the 2026-04-24 evening pivot back to cloud
+; L2-L4.
+;
+; --- Previous releases ---
+; v1.3.0: Fast cold-start — HTTP server binds :7878 in ~1s via a stub handler
+;   that reports live boot_stage while heavy imports load in main thread.
+;   Stub swaps to the real DashboardHandler once init completes.
+; v1.2.1: 8 stability fixes on the v1.0 baseline.
 
 [Setup]
 AppName=Lavrentiy Evaluation
@@ -51,7 +50,7 @@ Compression=lzma2/max
 SolidCompression=yes
 OutputDir=Output
 OutputBaseFilename=Lavrentiy-Eval-Setup-v1.4.0
-SetupIconFile=C:\Users\georg\AppData\Local\Programs\Lavrentiy\engine\lavrentiy.ico
+SetupIconFile=C:\Users\georg\AppData\Local\Programs\Lavrentiy-Eval\engine\lavrentiy.ico
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 WizardStyle=modern
@@ -67,33 +66,41 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
 
 [Files]
-; 1) Pull launchers + bundled Python from the live install dir, SKIP its engine
-Source: "C:\Users\georg\AppData\Local\Programs\Lavrentiy\*"; DestDir: "{app}"; \
+; 1) Pull launchers + bundled Python from the live Lavrentiy-Eval install,
+;    SKIP the engine dir (we bundle a fresh engine from repo below) and any
+;    transient runtime files (logs, pid, caches, prior backup snapshots).
+Source: "C:\Users\georg\AppData\Local\Programs\Lavrentiy-Eval\*"; DestDir: "{app}"; \
   Flags: ignoreversion recursesubdirs createallsubdirs; \
-  Excludes: "engine\*,unins000.exe,unins000.dat,lav_err.txt,lav_out.txt,lavrentiy.pid,*\__pycache__\*"
+  Excludes: "engine\*,engine.bak.*\*,unins000.exe,unins000.dat,lav_err.txt,lav_out.txt,lavrentiy.pid,*\__pycache__\*,*.log"
 
-; 2) Pull the patched engine from the repo's eval-build dir
-Source: "C:\Users\georg\Documents\GitHub\lavrentiy\eval-build\engine\*"; DestDir: "{app}\engine"; \
-  Flags: ignoreversion recursesubdirs createallsubdirs; \
-  Excludes: "*\__pycache__\*,lav_err.txt,lav_out.txt,lavrentiy.pid,_backup_pre_fw_swap\*"
+; 2) Engine: pull from REPO ROOT — current source of truth.
+;    Explicitly listed file-by-file rather than recursesubdirs so we don't
+;    accidentally ship .git, tests, eval-build, installer, README, CLAUDE.md,
+;    or any *_key.txt / *.pid / log files.
+Source: "C:\Users\georg\Documents\GitHub\lavrentiy\lavrentiy.py";    DestDir: "{app}\engine"; Flags: ignoreversion
+Source: "C:\Users\georg\Documents\GitHub\lavrentiy\dashboard.html";  DestDir: "{app}\engine"; Flags: ignoreversion
+Source: "C:\Users\georg\Documents\GitHub\lavrentiy\desktop.py";      DestDir: "{app}\engine"; Flags: ignoreversion
+Source: "C:\Users\georg\Documents\GitHub\lavrentiy\lavrentiy.ico";   DestDir: "{app}\engine"; Flags: ignoreversion
+Source: "C:\Users\georg\Documents\GitHub\lavrentiy\silero_vad.onnx"; DestDir: "{app}\engine"; Flags: ignoreversion
+Source: "C:\Users\georg\Documents\GitHub\lavrentiy\auth_google.html"; DestDir: "{app}\engine"; Flags: ignoreversion
+Source: "C:\Users\georg\Documents\GitHub\lavrentiy\onboard.html";    DestDir: "{app}\engine"; Flags: ignoreversion
+Source: "C:\Users\georg\Documents\GitHub\lavrentiy\manifest.json";   DestDir: "{app}\engine"; Flags: ignoreversion
+Source: "C:\Users\georg\Documents\GitHub\lavrentiy\sw.js";           DestDir: "{app}\engine"; Flags: ignoreversion
+Source: "C:\Users\georg\Documents\GitHub\lavrentiy\mobile.html";     DestDir: "{app}\engine"; Flags: ignoreversion
 
-; 3) Bundle the faster-whisper large-v3-turbo model next to the engine so
-;    local/fw_local.py finds it at <engine>/models/faster-whisper/<size>/.
-;    ~1.6 GB. Required for L1 ASR to hit the new primary path.
-Source: "C:\Users\georg\Documents\GitHub\lavrentiy\eval-build\models\faster-whisper\large-v3-turbo\*"; \
-  DestDir: "{app}\engine\models\faster-whisper\large-v3-turbo"; \
-  Flags: ignoreversion recursesubdirs createallsubdirs
+; 3) Local-pipeline modules. Excludes any *_key.txt files defensively.
+Source: "C:\Users\georg\Documents\GitHub\lavrentiy\local\*.py"; DestDir: "{app}\engine\local"; \
+  Flags: ignoreversion; \
+  Excludes: "*\__pycache__\*"
 
-; 4) Bundle Llama 3.2 3B into the user's Ollama cache so the engine can
-;    call it immediately without a post-install "ollama pull" step.
-;    ~2 GB. Blobs are content-addressed, so if the user already has them,
-;    Inno Setup's ignoreversion flag is a no-op.
-Source: "C:\Users\georg\Documents\GitHub\lavrentiy\eval-build\ollama-bundle\blobs\*"; \
-  DestDir: "{userprofile}\.ollama\models\blobs"; \
-  Flags: ignoreversion recursesubdirs
-Source: "C:\Users\georg\Documents\GitHub\lavrentiy\eval-build\ollama-bundle\manifests\registry.ollama.ai\library\llama3.2\*"; \
-  DestDir: "{userprofile}\.ollama\models\manifests\registry.ollama.ai\library\llama3.2"; \
-  Flags: ignoreversion
+; 4) BUNDLED MOONSHINE MODEL (~236 MB) — what makes L1 work offline.
+;    Engine code at local/whisper_local.py looks for these files at
+;    {userprofile}\.cache\moonshine\base\. With ignoreversion, if the user
+;    already has them (existing install / prior download), Inno Setup is a
+;    no-op. Fresh-machine first launch: files already on disk, no internet
+;    needed for L1.
+Source: "C:\Users\georg\.cache\moonshine\base\encoder_model.onnx";        DestDir: "{userprofile}\.cache\moonshine\base"; Flags: ignoreversion
+Source: "C:\Users\georg\.cache\moonshine\base\decoder_model_merged.onnx"; DestDir: "{userprofile}\.cache\moonshine\base"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Lavrentiy Evaluation"; Filename: "{app}\Lavrentiy.vbs"; IconFilename: "{app}\engine\lavrentiy.ico"; Comment: "Voice reconstruction engine (evaluation build)"
@@ -108,3 +115,4 @@ Type: files; Name: "{app}\lav_err.txt"
 Type: files; Name: "{app}\lav_out.txt"
 Type: files; Name: "{app}\engine\lavrentiy.pid"
 Type: filesandordirs; Name: "{app}\engine\__pycache__"
+Type: filesandordirs; Name: "{app}\engine\local\__pycache__"
