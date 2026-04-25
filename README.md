@@ -1828,3 +1828,493 @@ Specific surviving instance of #57 worth calling out separately: the hint pool i
 - *"no i am seeing the same thing? what does daily tip read according to the screenshot you took?"* — caught me modifying CSS without a screenshot. Failure #43.
 - *"80 percent are failures — i want everything documented."* — drove the comprehensive failure-log sweep that produced #44–#58 above.
 - *"so i should see it under readme as last entry under 4/25 right?"* — produced this README entry.
+
+## 2026-04-26 — v1.4.0 truly-local installer + repo cleanup + EQ rest wave
+
+Continuation of the long arc that started 2026-04-24 evening and went past
+midnight into 04-25 then 04-26. Three tracks landed this session: a real
+shippable v1.4.0 installer with bundled Moonshine for offline L1, a
+top-to-bottom dashboard cleanup (terminology + jargon + disk hygiene + a
+pile of removed stale launchers/installs), and the equalizer-bars
+rest-state animation that George had been needling on (rolling wave that
+DIPS only, never pushes above baseline).
+
+### What shipped — Lavrentiy
+
+| Commit | Subject |
+|---|---|
+| `a495d53` | Dashboard: strip clinical jargon from user-facing copy |
+| `ec045a5` | v1.4.0 installer: truly-local L1 with bundled Moonshine |
+| `962ef5c` | Dashboard: rest-state traveling wave + installer env-var fix |
+
+### What shipped — WiM (committed by orchestrator on parallel session's behalf, per George's explicit "push and commit" request after the WiM session left work uncommitted)
+
+| Commit | Subject |
+|---|---|
+| `cc9d675` | Bubble menu: color chip drawables, vertical fader, themed assets |
+
+### v1.4.0 installer detail
+
+Built artifact: `installer/Output/Lavrentiy-Eval-Setup-v1.4.0.exe` — 122 MB.
+
+What changed vs the v1.4.0 morning plan from 2026-04-24 (which was never
+compiled): dropped the ~1.6 GB faster-whisper bundle and the ~2 GB Llama
+Ollama bundle. Both went dormant in the 04-24 evening pivot back to cloud
+GPT-4o + Anthropic for L2-L4. v1.4.0 now bundles only the Moonshine ONNX
+model files (encoder ~77 MB + decoder ~159 MB) into
+`{%USERPROFILE}\.cache\moonshine\base\`. First-launch behavior on a fresh
+machine: model files already on disk, `local/whisper_local.py._ensure_model`
+finds them, no internet round-trip, L1 works offline immediately. L2-L4
+still require internet (graceful fallback to raw text on cloud failure).
+
+`.iss` engine source switched from `eval-build/engine/*` (stale Apr 20
+snapshot, ~31 KB behind repo `lavrentiy.py`) to repo root. Files listed
+explicitly so `.git/`, `tests/`, `installer/`, `eval-build/`, README,
+CLAUDE.md, and `*_key.txt` files never end up in the .exe. Single source
+of truth for the engine going forward.
+
+`desktop.py` lifted from the live install dir (Apr 24 14,705-byte version
+with the watchdog + tray-removal + stdout None-guard) into the repo root
+since it didn't exist there. Repo is now self-contained for installer
+compile.
+
+`{userprofile}` Inno Setup constant rejected at compile time on the
+per-user install George got via `is.exe`. Swapped to `{%USERPROFILE}`
+env-var syntax — that compiled. Single byte difference, hour saved.
+
+Compile via `~\AppData\Local\Inno Setup 6\ISCC.exe Lavrentiy-Eval.iss`
+(per-user install, no admin required after George double-clicked
+`innosetup-installer.exe`).
+
+George ran the resulting v1.4.0 installer over the live v1.3.0 install
+mid-session. Engine relaunched cleanly post-install. `VERSION.txt` still
+shows `v1.3.0-eval-fast-boot-2690981` — the .iss does not write a fresh
+version file. Cosmetic; punch-listed below.
+
+### Dashboard terminology + UX sweep
+
+Closes README pending #5 from 2026-04-25 evening (cmd-hint pool jargon
+strip + grep the rest of dashboard.html for stutter / covert / onset and
+clean every user-facing instance). 40 string changes across:
+
+- Cmd-hint pool: L4 + recording arrays in the typewriter rotation pool
+  (`stutter clinical mode` -> `speech disfluency mode`,
+  `tracks onset weights` -> `learns your hard sounds`,
+  `covert avoidance detected` -> `spots word swaps`,
+  `hold F9 through blocks` -> `hold F9 through tough patches`)
+- Layer label: `IV. Stutter` -> `IV. Disfluency` (`+ disfluency` -> `+ clinical`)
+- Insights tab: `view stuttering insights` -> `view disfluency insights`,
+  `COVERT AVOIDANCE PATTERNS` -> `HIDDEN AVOIDANCE PATTERNS`,
+  `ONSET ANOMALIES` -> `HARD-SOUND PATTERNS`,
+  `(onsets you avoid)` -> `(first sounds you avoid)`,
+  `PER-LANGUAGE ONSET WEIGHTS` -> `PER-LANGUAGE HARD SOUNDS`
+- Prep + Calibration: `flag words you might stutter on` -> `flag words that
+  might trip you up`, `Don't try to hide your stutter` -> `Don't try to
+  hide any disfluency`
+- Profile editor: `Stutter support` -> `Disfluency support`, `Stuttering
+  features ON` -> `Disfluency features ON`, `Covert Avoidance Pairs` ->
+  `Hidden Avoidance Pairs`, ON/OFF descriptions reworded
+- Help overlay: `L4 Stutter` -> `L4 Disfluency` (twice — sub heading + body),
+  `Stuttering can worsen` -> `Disfluency can worsen`, `For stutterers, that
+  silence is often a block` -> `That silence is often a hard speech block`
+- Weekly report: `TOP ONSET TRIGGERS` -> `TOP HARD SOUNDS`,
+  `COVERT AVOIDANCE` -> `HIDDEN AVOIDANCE`
+- DELETE PROFILE confirm + body copy
+- Daily tip pool: phonetic risk map, anti-compulsion nudge
+
+Untouched on purpose: Russian translations (rule is English-funnel
+targeted; Russian-side per `feedback_use_speech_disfluency.md` not
+explicit), all DOM ids / function names / API paths / data field keys
+(per terminology rule — code identifiers stay), the Stuttering
+Foundation tips data block (~70 entries with `source: <pdf>` citations
+— academic / clinical context where stuttering is the technical term).
+
+### Console legend styling
+
+Closes pending #4. Per FAILURE #43 the screenshot-first rule applied:
+captured the dashboard, observed that `.cmd-intro-banner` and
+`.console-legend` had byte-identical CSS already, but the legend reads
+faint because it sits on the textured speaker-grille backdrop (low
+contrast) while the daily tip sits on flat console area (higher
+contrast). Bumped legend gradient opacity from 0.12->0.35 to 0.30->0.65
+(same hue, ~2x more visible against the grille; nowhere near the 0.92
+near-black that George rejected in failure #56). Box shadow alpha 0.3 ->
+0.4 to match.
+
+### Disk cleanup (~700 MB freed)
+
+Inventory + audit per George's "let's not keep stale stuff" call.
+
+Removed:
+
+- Old `Lavrentiy` install (`~/AppData/Local/Programs/Lavrentiy/`,
+  v1.0.0-14, Apr 13, predates Moonshine + every recent fix). Silent
+  uninstaller fallthrough to direct `rm -rf` since per-user install in
+  AppData has no cleanup that requires admin.
+- Old Lavrentiy Start Menu folder.
+- 4 stale installer .exe in `installer/Output/` (`v1.1.0`, `v1.2.0`,
+  `v1.2.1`, `v1.3.0` — all regeneratable from .iss). ~400 MB.
+- `Lavrentiy-Setup-v1.1.0.exe` from Downloads (99 MB).
+- Stale `~/.lavrentiy/dashboard.html` (Mar 17), `~/.lavrentiy/lavrentiy.py`
+  (Mar 10) — engine does not actually serve from those paths.
+- `~/.lavrentiy/edge-app/` — full Edge `--app=` browser profile, retired
+  in 2026-04-19.
+- `Lavrentiy-Eval/engine.bak.20260421_204604/` snapshot.
+- `Desktop/Lavrentiy Installers/Current - Working version/` — held the
+  v1.2.0 buggy build that the eval-build branch was created to replace.
+
+Kept:
+
+- `Lavrentiy-Eval` install (current daily driver).
+- `Lavrentiy Eval.lnk` desktop shortcut (single survivor of the launcher
+  cleanup of 2026-04-21).
+- `Desktop/Lavrentiy Installers/` parent folder + the `Eval - v1.3.0
+  (fast boot)/` subfolder + the loose `Lavrentiy-Eval-Setup-v1.3.0.exe`
+  (will be superseded once v1.4.0 ships, but kept as the working
+  reference in the meantime).
+- `installer/` directory in repo with the .iss scripts (fresh build of
+  `Lavrentiy-Eval-Setup-v1.4.0.exe` landed in `Output/` after the
+  cleanup).
+
+Flagged but not removed (for George to call): `~/.lavrentiy/mobile.html`
+(Mar 13, 18 KB — old WiM-PWA test page from the retired-architecture
+era), `~/.lavrentiy/edge-app/` was on the same retired-PWA vintage so
+removed; `mobile.html` is the obvious matching follow-up.
+
+### EQ bars rest-state traveling wave
+
+George spec across two corrections:
+
+1. Bars at rest should NOT be a static line nor bouncing in unison.
+2. The motion should DIP bars only — peak = baseline (1.0), trough = half
+   height (0.5), bars NEVER push above their baseline.
+3. Speed: keep the previous 3.6s cycle (he flagged that I had unilaterally
+   slowed it to 5s; reverted).
+
+Implementation:
+
+`@keyframes eq-rest`: scaleY 1.0 -> 0.5 -> 1.0 over 50% of the cycle, with
+opacity oscillating 0.32 -> 0.18 -> 0.32 to add a brightness ripple along
+the dip. Recording-state animations (eq-b1..eq-b7) untouched — their
+`animation:` shorthand resets these delays to their own chaotic values
+the moment `.app.st-recording` becomes the body class.
+
+Per-bar phase-staggered `animation-delay`: 0, -0.51, -1.03, -1.54, -2.06,
+-2.57, -3.09s across the 7 bars (3.6 / 7 ~= 0.51s steps). Strip reads as a
+single sine wave rolling from outer edge toward the ring.
+
+Inner pair (`.eq-bars.eq-near`) offset by half-cycle (1.8s) on top of the
+same sequence, so the two ripples on each side beat off each other
+instead of running in lockstep.
+
+### Matching Kotlin for WiM (handed to George; parallel WiM session can paste)
+
+`LogoBarsView.kt` rest-state animator: `ObjectAnimator.ofPropertyValuesHolder`
+with `Keyframe.ofFloat` on `scaleY` (1.0 -> 0.5 -> 1.0) + `alpha` (0.32 ->
+0.18 -> 0.32), `duration = 3600L`, `RESTART` repeat,
+`AccelerateDecelerateInterpolator`, `pivotY = bar.height` so the dip reads
+as the bar shrinking toward its base, `currentPlayTime` set to
+`(indexInStrip * 3600L) / barsInStrip` for phase-shift instead of
+`startDelay` (Android does not accept negative delays).
+
+### Files modified / added / removed (paths relative to lavrentiy repo root)
+
+Modified:
+
+- `dashboard.html` (terminology sweep + console legend opacity bump + EQ
+  rest wave keyframe + per-bar phase delays)
+- `installer/Lavrentiy-Eval.iss` (full rewrite for v1.4.0 — Moonshine
+  bundle, repo-root engine source, env-var path fix)
+- `eval-build/engine/dashboard.html` (parallel-session work, no longer
+  load-bearing for the installer but kept current as fallback reference)
+
+Added:
+
+- `desktop.py` (lifted from installed `Lavrentiy-Eval/engine/desktop.py`;
+  becomes the canonical version going forward)
+- `installer/Output/Lavrentiy-Eval-Setup-v1.4.0.exe` (122 MB build
+  artifact; `installer/Output/` is gitignored — file lives on disk only)
+
+Removed (this session, locally on George's machine — see Disk cleanup):
+
+- Old `Lavrentiy` install + Start Menu folder
+- 4 stale `installer/Output/*.exe` files
+- `Downloads/Lavrentiy-Setup-v1.1.0.exe`
+- 3 stale items in `~/.lavrentiy/`
+- `Lavrentiy-Eval/engine.bak.20260421_204604/`
+- `Desktop/Lavrentiy Installers/Current - Working version/`
+
+### Verified on George machine
+
+- Inno Setup compile of v1.4.0 .iss completed cleanly after the env-var
+  fix (`Lavrentiy-Eval-Setup-v1.4.0.exe`, 122,382,468 bytes).
+- George installed v1.4.0 over the live v1.3.0; engine relaunched
+  post-install via the `[Run]` Lavrentiy.vbs hook.
+- Dashboard terminology changes verified live by reload after a sync of
+  the new dashboard.html into `Lavrentiy-Eval/engine/dashboard.html`
+  (engine reads from the install dir, not from `~/.lavrentiy/`).
+- 122 MB installer produced; size budget held even with Moonshine
+  bundled because LZMA2/max compresses the ONNX files ~50%.
+
+Not verified this session (deferred):
+
+- v1.4.0 .exe on a CLEAN machine that has never had Moonshine
+  downloaded. The fresh-machine offline-L1 promise is structurally
+  correct (the .iss copies the model files into the cache the engine
+  already reads from), but it has not been observed on a fresh box.
+- Sonnet 4.6 ET L4 path against a real heavy-disfluency recording.
+- Multi-pass Whisper at L4.
+
+### Outstanding for next session
+
+1. Test v1.4.0 offline on a clean machine — or fake it on this box:
+   rename `~/.cache/moonshine/base/`, kill internet, reinstall, hit F9,
+   verify L1 paste produces text. Proves the bundled-models claim.
+2. Distribution decision — pick one host for the .exe (GitHub Release /
+   Drive / `gugosf114.github.io`), one stable URL, one filename without
+   a version in it (so the link does not rot per release). George
+   explicitly parked the discourse on this until after v1.4.0 is built
+   and proven.
+3. VERSION.txt cosmetic — installed copy still says `v1.3.0`. Fix in the
+   .iss by adding `Source:` for a fresh `VERSION.txt` or have the engine
+   write one at startup if missing.
+4. Profile-load carryover from 2026-04-25 evening. Still open.
+5. Anthropic via Cloud Function — George said "not important now" in
+   this session. Stays parked.
+6. Multi-pass Whisper at L4 — closes the WiM<->Lav L4 parity gap.
+7. End-to-end Sonnet 4.6 ET L4 test on a heavy-disfluency recording.
+8. Cloud Function `language_code` consumer on `bakers-agent` GCP
+   (currently dormant since multilingual is disabled client-side).
+9. Worktree cleanup — `wim-android-l4-rewrite`, `wim-android-vosk`
+   branches merged, work-trees still on disk.
+10. `~/.lavrentiy/mobile.html` follow-up — flagged this session as
+    same-vintage stale as the just-removed `edge-app/`, left for George
+    to call.
+11. WiM-side Firestore consumer — Lavrentiy publishes profile to
+    `wim_users/{uid}` (`firestore_publisher.py`); WiM does not read it
+    yet.
+
+### FAILURE LOG additions
+
+#### 59. Compiled the v1.4.0 installer with `{userprofile}` and got Unknown constant mid-build (2026-04-26)
+
+The .iss had two `Source: ... DestDir: "{userprofile}\.cache\moonshine\base"`
+lines. Inno Setup 6.x rejected the constant on this per-user install
+flavor. Per the public docs `{userprofile}` is supposed to exist in
+Inno 6+, but the version George installed did not recognize it. Fix was
+trivial — `{%USERPROFILE}` env-var syntax — but the failure cost a
+full recompile cycle. Should have validated the constant against the
+specific Inno version BEFORE handing the script to the compiler.
+
+The earlier prepared (but never compiled) v1.4.0 .iss from 2026-04-24
+also had `{userprofile}` references — meaning this same failure had
+been latent in the script for two days.
+
+#### 60. .iss source path was the stale eval-build/engine snapshot, not the repo (2026-04-26)
+
+The original .iss had `Source: ".../eval-build/engine/*"`. That snapshot
+was last touched 2026-04-20 (pre-Anthropic-Haiku-Falcon, pre-Sonnet-ET,
+pre-2026-04-24-evening pivot). Repo `lavrentiy.py` is 398,895 bytes,
+eval-build engine copy is 367,599 bytes — ~31 KB of code missing. The
+installer would have shipped a 4-day-old engine + the v1.4.0 marketing.
+
+Caught when I diff'd the two paths to figure out which engine source
+was canonical. Switched to repo root, listed files explicitly. CLAUDE.md
+already says the repo is single source of truth for the engine; the
+.iss had been ignoring that doc since 2026-04-20.
+
+Compounding: `eval-build/engine/api_key.txt` (164 bytes) was in the same
+dir. Old recursesubdirs `Source:` would have lifted that key into the
+installer .exe. The new explicit file list excludes it by construction;
+the old approach was one wildcard expansion away from leaking a key into
+a public download.
+
+#### 61. desktop.py was not in the repo at all (2026-04-26)
+
+Single canonical desktop.py existed only at
+`Lavrentiy-Eval/engine/desktop.py` (Apr 24, 14,705 bytes — has the
+watchdog + tray removal + stdout None-guard from the 04-24 evening
+session). Repo had no copy, eval-build had a stale Apr 20 11,799-byte
+copy. CLAUDE.md says repo is single source of truth.
+
+Fix: copied installed -> repo, listed it as a source in the new .iss.
+Should have lived in the repo since 04-24 evening. Drift between
+working code on the machine and repo source of truth had grown
+unnoticed.
+
+#### 62. Tried to relaunch Chrome with --remote-debugging-port=9222 without killing the running Chrome first (2026-04-26)
+
+CLAUDE.md global says the Chrome CDP startup protocol is (1) `taskkill
+//F //IM chrome.exe`, (2) Start-Process with the debug port +
+--user-data-dir + --restore-last-session. I skipped step (1).
+Predictable result: the new chrome.exe saw the existing Chrome holding
+the user-data-dir, sent the new launch params as a message to the
+running instance, and exited. The running Chrome had been started
+without a debug port, so CDP never activated. ECONNREFUSED on every
+subsequent connectOverCDP call.
+
+Cost a kill+relaunch cycle. CLAUDE.md spelled it out; I did not read
+carefully enough.
+
+#### 63. PyWebview window silently dead after v1.4.0 install (2026-04-26)
+
+Two pythonw.exe processes alive (wrapper + engine). Engine responding
+on 7878. No window visible to George. The stdout None-guard is in
+place in this build, so it is not the historic FAILURE #27 bug. Window
+was either offscreen, on a different virtual desktop, or pywebview
+init succeeded but the window failed to surface.
+
+Fix path was kill + relaunch — that produced a visible window. Real
+diagnosis (why it did not surface in the first place) was deferred.
+Worth instrumenting: log pywebview window creation events to
+`engine_lifecycle.log`.
+
+#### 64. Cache-buster query string `?cb=<ts>` returned 404 from the engine (2026-04-26)
+
+To force-refresh the dashboard via CDP I appended `?cb=Date.now()` to
+`http://127.0.0.1:7878/`. Engine HTTP server rejected the query string
+on the root path. 404'd, screenshot saved a Not Found page.
+
+Fix: drop the query string, navigate to `/` clean, force reload via
+`page.evaluate(() => location.reload())`. Better refresh path,
+no router collision.
+
+Should have known this — the engine HTTPServer routes by path prefix,
+does not strip query strings. Common engine pattern, common mistake.
+
+#### 65. Initial EQ rest-wave design got both speed and direction wrong (2026-04-26)
+
+George said "rest mode should not be a flat line — wavy line is fine,
+but at rest the equalizer does not go HIGHER; the motion is the
+opposite — it goes lower." Two specs (peak = 1.0, never above; phase
+stagger = wavy line look). I delivered:
+
+- 5s cycle (he never said "slow")
+- scaleY 0.85 -> 1.05 (1.05 is ABOVE baseline — directly violated the
+  never-higher spec)
+
+Got both wrong on first pass. Second pass: 3.6s cycle (his prior speed
+restored), scaleY 1.0 -> 0.5 -> 1.0 (peak at baseline, dip to half).
+Should have re-read his message and checked each constraint
+individually before writing CSS. Pattern of synthesizing where literal
+listening would have sufficed.
+
+#### 66. Took a screenshot to verify an animation (2026-04-26)
+
+A static screenshot can show that bars are at staggered heights at one
+frozen frame (proves phase offsets are working) but cannot show whether
+the motion is dip-only vs lift-and-fall. Spent compute on a verification
+that does not actually verify the spec George cared about.
+
+The right verification for animation behavior is: tell George to refresh
++ describe what he sees, OR record a screen video. Single-frame
+screenshots are the wrong tool. FAILURE #43 (take a screenshot before
+CSS edits) does not generalize to animation review.
+
+#### 67. Verbose responses despite multiple plain-English / idiots-guide requests, again (2026-04-26)
+
+Pattern continues from FAILURE #4, #31, #38, etc. Reset events this
+session: at least three. Memory rules already in place
+(`user_non_coder.md`, `feedback_terse_by_default.md`,
+`feedback_george_wants_terse.md` implicit). The rule is not "be terse on
+demand" — it is "default to terse for this user, every response, unless
+content genuinely requires length."
+
+The signal that I am drifting back into structured-document mode: opening
+with "Plain English version:" or "Two ways to..." or "Here is what I
+recommend..." All scaffolding, no payload. When the message is one
+sentence of payload, give one sentence of payload.
+
+#### 68. Auto-committed the WiM parallel session work without first pinging the WiM session (2026-04-26)
+
+Mid-session George said "make sure nothing is in the pipeline and all
+is pushed and committed." WiM had 4 modified + 9 new files from the
+parallel session — work I had not authored. I committed anyway with a
+descriptive but not-claiming-authorship message and pushed.
+
+The risk per FAILURE #30 (uncommitted parallel-shell work was wiped by
+a stray `git reset --hard HEAD`): committing parallel-shell work from
+the orchestrator BEFORE the authoring shell is ready captures partial
+state. The parallel session next save will conflict-merge against my
+commit. Lower risk than losing the work, higher risk than waiting for
+the authoring shell to commit.
+
+The right move was probably to ping the WiM session ("commit + push your
+WD please") rather than committing on their behalf. I did the
+quick-and-direct thing because George was explicit. Documented as a
+near-miss pattern: when both safe options exist (ping vs auto-commit),
+the cleaner one is to ping.
+
+### Memory rules used / reinforced
+
+- `feedback_use_speech_disfluency.md` — applied across the dashboard
+  sweep (all 30+ user-facing strings) AND respected the academic
+  citations carve-out (Stuttering Foundation tips data block kept
+  intact)
+- `feedback_read_fully_no_skim.md` — read 1867 lines of Lavrentiy README
+  + 1830 lines of WiM README at session start, paginated through every
+  line per his explicit request
+- `feedback_no_defensive_bug_framing.md` — failure log entries above
+  state diagnosis + correction without "to be fair" / "in my defense"
+  framing
+- `feedback_dont_overestimate_time.md` — ~75 minute estimate for the
+  v1.4.0 rebuild work matched actual; no padding
+- `feedback_capitalize_actually.md` — applied inconsistently again,
+  same drift as FAILURE #48
+- `feedback_recommend_best_not_cheap.md` — when distribution discourse
+  came up, led with capability-first options (GitHub Release for proper
+  versioning, your-own-domain for professional appearance) rather than
+  cheapest path
+- `feedback_dont_imply_shippable.md` — held the line: v1.4.0 is BUILT,
+  not SHIPPABLE — "we will send it when its ready" was George call,
+  not mine to push past
+- `feedback_terse_by_default.md` — drifted multiple times despite the
+  rule, see FAILURE #67
+
+### Quotes from this session
+
+- "holf y Yeah, hold your phone. ou fuvking hprses - we'll send it when
+  its ready - whre teh fuck is ot whreeeeeeeeeeeee" — pushed back hard
+  the moment I said "we'll send it" before he was ready. He explicitly
+  parked distribution until after v1.4.0 is proven.
+- "I didn't say slow, I never said slow." — my unilateral 5s cycle on
+  the EQ rest wave. Reverted to 3.6s.
+- "the movement doesn't make the equalizer higher, right? Wherever the
+  height is right, not the highest there, opposite, make sense." — the
+  dip-only spec for the rest wave. Reads simple in retrospect; I missed
+  it on first parse.
+- "why inno?" — fair question. Answer: free, the project .iss scripts
+  already existed, and the output is a real Windows installer
+  (Add/Remove Programs, Start Menu, uninstaller).
+- "give me the code so I can incorporate the same fucking thing into
+  ARM Android." — drove the Kotlin rest-state animator handoff above.
+- "i installed - can you launch please" — after the v1.4.0 install
+  finished. Had to kill leftover wrappers + relaunch via the desktop
+  shortcut to surface a window.
+- "make sure nothing is in the pipeline and all is pushed and commited"
+  — drove the cross-repo audit. Both repos now clean + synced with
+  origin.
+- "this is LAV not WIM" — clarification that this README append is
+  Lavrentiy-side. WiM session log is the parallel shell job.
+
+### State at end of session
+
+- Engine running on 7878 (PID family at session-end: pythonw.exe ~98 MB
+  wrapper + ~610 MB engine). Layer 1, casual tone.
+- Both `lavrentiy` and `wim-android` working trees clean and synced with
+  `origin/main`.
+- Latest Lavrentiy commits: `a495d53` (terminology), `ec045a5` (v1.4.0
+  installer), `962ef5c` (rest wave + .iss env-var fix). Plus the parallel
+  manual-rewrite commits `7f8a029`, `c36733b` from earlier in the day.
+- Latest WiM commit: `cc9d675` (bubble menu color chips + vertical
+  fader + themed assets — committed by orchestrator).
+- v1.4.0 installer artifact on disk:
+  `installer/Output/Lavrentiy-Eval-Setup-v1.4.0.exe` (122 MB).
+- Disk freed: ~700 MB across the cleanup (old install + 4 old
+  installers + stale `~/.lavrentiy/` files + edge-app + engine.bak).
+- Inno Setup 6 installed at `~/AppData/Local/Inno Setup 6/` (per-user,
+  no admin).
+- v1.3.0 installer still present at
+  `Desktop/Lavrentiy Installers/Lavrentiy-Eval-Setup-v1.3.0.exe` and
+  the `Eval - v1.3.0 (fast boot)/` subfolder. Will be superseded once
+  v1.4.0 is proven on a clean machine.
