@@ -719,7 +719,9 @@ body::before {
 
 /* Enhancement toggles */
 .toggle-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; transition: opacity 0.15s ease; }
-.toggle-row.toggle-disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
+/* Generic disabled-state — applies to toggle rows AND any other element
+   that gets greyed out outside its supported layer (e.g. WHISPER panel). */
+.toggle-disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; transition: opacity 0.15s ease; }
 .toggle-label { font-family: var(--font); font-size: 11px; color: var(--text); font-weight: 500; }
 .toggle-hint { font-family: var(--mono); font-size: 8px; color: var(--red-bright); margin-left: 3px; white-space: nowrap; font-weight: 700; }
 .toggle-switch { position: relative; display: inline-block; width: 32px; height: 18px; flex-shrink: 0; }
@@ -1250,6 +1252,48 @@ body::before {
   display: none; flex: 1; overflow-y: auto;
   scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.06) transparent;
   position: relative;
+  /* Text selection enabled. Right-click triggers our custom menu (#ctx-menu)
+     since pywebview/WebView2 suppresses the native context menu. */
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+/* Custom right-click menu — pywebview hides the native one. */
+.ctx-menu {
+  position: fixed; z-index: 9999;
+  display: none;
+  background: linear-gradient(180deg, #2a2a2f 0%, #1f1f24 100%);
+  border: 1px solid rgba(212,165,116,0.3);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  padding: 4px 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  min-width: 140px;
+  user-select: none;
+}
+.ctx-menu.open { display: block; }
+.ctx-menu-item {
+  padding: 6px 14px;
+  color: #d4d0c8;
+  cursor: pointer;
+  letter-spacing: 1px;
+  display: flex; justify-content: space-between; gap: 12px;
+}
+.ctx-menu-item:hover { background: rgba(212,165,116,0.15); color: #ffe0a0; }
+.ctx-menu-item.disabled { color: #555; cursor: default; pointer-events: none; }
+.ctx-menu-shortcut { color: #777; font-size: 10px; }
+.ctx-menu-sep { height: 1px; background: rgba(255,255,255,0.06); margin: 4px 0; }
+.tab-panel * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+/* Buttons and toggles inside the panels stay click-through (override above). */
+.tab-panel button, .tab-panel .layer-opt, .tab-panel .toggle-switch,
+.tab-panel .add-btn, .tab-panel input[type="checkbox"] {
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: pointer;
 }
 /* speaker behind grille — linear gradients on rings for 3D depth */
 .tab-panel.active::before {
@@ -2650,6 +2694,16 @@ body::before {
       <div class="theme-toggle"><button class="theme-tog-btn" data-theme-set="dark" onclick="setTheme('dark')">D</button><button class="theme-tog-btn" data-theme-set="light" onclick="setTheme('light')">L</button></div>
       <div class="lang-toggle"><button class="lang-btn active" data-lang="en" onclick="setLang('en')">EN</button><button class="lang-btn" data-lang="ru" onclick="setLang('ru')">RU</button></div>
       <button class="help-btn" onclick="toggleHelp()" title="Manual">?</button>
+      <script>
+        // Backup keyboard shortcuts: F5 and Ctrl+R reload the dashboard.
+        // pywebview/WebView2 sometimes swallows F5 — wire explicitly.
+        document.addEventListener('keydown', function(e) {
+          if (e.key === 'F5' || (e.ctrlKey && (e.key === 'r' || e.key === 'R'))) {
+            e.preventDefault();
+            location.reload();
+          }
+        });
+      </script>
       <div class="eq-bars eq-left" aria-hidden="true">
         <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
       </div>
@@ -2736,8 +2790,10 @@ body::before {
           oninput="updatePatience(this.value)">
         <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-muted);margin-top:2px;font-family:var(--font-mono)"><span>&#9664; 1.0s</span><span id="patience-pct">2.0s</span><span>6.0s &#9654;</span></div>
       </div>
-      <!-- Whisper settings -->
-      <div class="engine-section-card">
+      <!-- Whisper settings — only meaningful at L4 (cloud whisper-1).
+           At L1/L2/L3 (Moonshine), no segment metadata exists so all values
+           stay 0. Greyed out outside L4 so users aren't confused by dead numbers. -->
+      <div class="engine-section-card" id="whisper-card">
         <span class="engine-group-label">WHISPER</span>
         <div class="engine-grid">
           <div class="engine-row"><span>Multi-Temp</span><div class="hw-toggle" id="multitemp-toggle" onclick="toggleMultiTemp()" title="Multi-temperature voting (3x cost)" style="transform:scale(0.65)"></div></div>
@@ -2833,8 +2889,7 @@ body::before {
         <button class="tab-btn" data-tab="prep">Prep</button>
         <button class="tab-btn" data-tab="calibrate">Calibrate</button>
         <button class="tab-btn" data-tab="tips">Tips</button>
-        <button class="tab-btn" data-tab="you">You</button>
-        <button class="tab-btn" data-tab="profile">The File</button>
+        <button class="tab-btn" data-tab="profile">Profile</button>
       </div>
     </div>
 
@@ -2866,9 +2921,12 @@ body::before {
       <div class="tab-panel" id="tab-learning">
         <div class="learning-wrap" id="learn-feed"><div class="learn-empty">No patterns learned yet. Keep talking.</div></div>
         <div style="padding:16px 24px;border-top:1px solid var(--border)">
+          <!-- Clinical Profile button removed 2026-04-24 — produced a zero-filled
+               raw-aggregation report that was redundant with the Weekly Report
+               (GPT-4o narrative). Weekly Report stays here as the canonical
+               clinical view, also surfaced in the Insights tab below. -->
           <div style="display:flex;gap:8px;margin-bottom:12px">
             <button class="aug-btn" id="report-btn" onclick="generateReport()" style="flex:1">📊 WEEKLY REPORT</button>
-            <button class="aug-btn" id="clinical-btn" onclick="generateClinicalProfile()" style="flex:1">🩺 CLINICAL PROFILE</button>
           </div>
           <div id="report-output" style="display:none;font-family:var(--mono);font-size:11px;color:var(--text-muted);line-height:1.8;white-space:pre-wrap;padding:12px 16px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius)"></div>
         </div>
@@ -3001,12 +3059,13 @@ body::before {
         <div class="tips-wrap" id="tips-content"></div>
       </div>
 
-      <div class="tab-panel" id="tab-you">
-        <div class="you-wrap" id="you-content"><div class="learn-empty">Loading your profile...</div></div>
-      </div>
-
+      <!-- "You" tab removed (was empty placeholder).
+           "The File" tab renamed to "Profile" and put back in the console tabs.
+           New WiM-mirror sections (Stutter support / Mostly Use For / Industry /
+           Work Hours / Stats) injected at the top via JS on first render
+           (function _seedProfileTabExtras below). -->
       <div class="tab-panel" id="tab-profile">
-        <div class="profile-wrap">
+        <div class="profile-wrap" id="profile-wrap">
           <div id="gdpr-controls" style="display:none;padding:12px 16px;margin-bottom:12px;background:rgba(212,165,116,0.05);border:1px solid rgba(212,165,116,0.2);border-radius:6px">
             <div style="font-family:var(--mono);font-size:9px;letter-spacing:2px;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px">Your cloud data</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -3222,7 +3281,7 @@ const I18N={
   tab_console:{en:'Console',ru:'Консоль'},tab_sessions:{en:'Sessions',ru:'Сессии'},
   tab_learning:{en:'Learning',ru:'Обучение'},tab_insights:{en:'Insights',ru:'Анализ'},
   tab_prep:{en:'Prep',ru:'Подготовка'},tab_calibrate:{en:'Calibrate',ru:'Калибровка'},
-  tab_tips:{en:'Tips',ru:'Подсказки'},tab_profile:{en:'The File',ru:'Профиль'},
+  tab_tips:{en:'Tips',ru:'Подсказки'},tab_profile:{en:'Profile',ru:'Профиль'},
   // Tab empties & labels
   console_empty:{en:'Waiting for input...',ru:'Ожидание ввода...'},
   learn_empty:{en:'No patterns learned yet. Keep talking.',ru:'Паттерны ещё не найдены. Продолжайте говорить.'},
@@ -3740,7 +3799,7 @@ function updateUI(){
     modeSec.classList.toggle('inactive',noLLM2);
     if(modeNote)modeNote.innerHTML=noLLM2?t('note_select'):'';
   }
-  document.querySelectorAll('.layer-opt:not(.sit-btn)').forEach(b=>b.classList.toggle('active',parseInt(b.dataset.layer)===state.layer));
+  document.querySelectorAll('.layer-opt:not(.sit-btn):not(.use-opt):not(.ind-opt):not(.hr-opt)').forEach(b=>b.classList.toggle('active',parseInt(b.dataset.layer)===state.layer));
   document.querySelectorAll('.mode-btn').forEach(b=>b.classList.toggle('active',b.dataset.mode===state.mode));
   document.querySelectorAll('.sit-btn').forEach(b=>b.classList.toggle('active',b.dataset.situation===(state.situation||'default')));
   const st=state.stats;
@@ -3791,6 +3850,12 @@ function updateUI(){
   if(paraSubRow){
     paraSubRow.classList.toggle('toggle-disabled', !_isL4);
     paraSubRow.title = _isL4 ? '' : 'Layer 4 only';
+  }
+  // Same treatment for the Whisper diagnostic panel — only meaningful at L4.
+  const whisperCard = document.getElementById('whisper-card');
+  if(whisperCard){
+    whisperCard.classList.toggle('toggle-disabled', !_isL4);
+    whisperCard.title = _isL4 ? '' : 'Layer 4 only — Whisper signals only fire at L4';
   }
   if(paraToggle){paraToggle.disabled = !_isL4;}
   if(prosToggle){prosToggle.disabled = !_isL4;}
@@ -4516,7 +4581,7 @@ async function fetchPatience(){
 }
 
 document.querySelectorAll('.tone-btn:not(.mode-btn):not(.sit-btn)').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/tone',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tone:btn.dataset.tone})});}catch(e){}});});
-document.querySelectorAll('.layer-opt:not(.sit-btn)').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/layer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layer:parseInt(btn.dataset.layer)})});}catch(e){}});});
+document.querySelectorAll('.layer-opt:not(.sit-btn):not(.use-opt):not(.ind-opt):not(.hr-opt)').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/layer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layer:parseInt(btn.dataset.layer)})});}catch(e){}});});
 document.querySelectorAll('.mode-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:btn.dataset.mode})});}catch(e){}});});
 document.querySelectorAll('.sit-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/situation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({situation:btn.dataset.situation})});}catch(e){}});});
 
@@ -5226,7 +5291,7 @@ function toggleTipsEnabled(){
     l2: ['GPT rewrites with tone', 'F10 cycles tone', 'fillers stripped', 'F8 to transform text'],
     l3: ['uses your vocabulary', 'learns your corrections', 'same as L2 + profile'],
     l4: ['stutter clinical mode', 'tracks onset weights', 'covert avoidance detected', 'use High Stress preset', 'hold F9 through blocks'],
-    idle_default: ['F9 to record', 'hold F8 to transform', 'click "idle" to toggle', 'F10 tone · F11 layer', 'click any stat to jump'],
+    idle_default: ['F9 to record', 'hold F8 to transform', 'click "idle" to toggle', 'F10 tone · F11 layer', 'click any stat to jump', 'F5 or Ctrl+R to refresh dashboard'],
     para_on: ['cough/laugh detected', 'non-speech tagged'],
     prosodic_on: ['pitch & energy tracked', 'feeds L4 severity'],
     quiet_on: ['audio boosted +6dB', 'dictate in public'],
@@ -5349,11 +5414,149 @@ function toggleHelp(){
   document.getElementById('help-overlay').classList.toggle('open');
   document.getElementById('help-backdrop').classList.toggle('open');
 }
-document.addEventListener('keydown',e=>{if(e.key==='Escape')closeHelp();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeHelp();closeProfile();}});
 function closeHelp(){
   document.getElementById('help-overlay').classList.remove('open');
   document.getElementById('help-backdrop').classList.remove('open');
 }
+
+// ── Profile tab — seed the WiM-mirror sections at the top of the existing
+// profile editor (Stutter support / Mostly Use For / Industry / Work Hours /
+// Stats). Runs once after DOM is ready. The original profile sections
+// (Trigger Words, Fillers, Vocabulary, Corrections, Covert Avoidance Pairs,
+// GDPR, Danger Zone) stay below, untouched, with their wired event handlers.
+function _seedProfileTabExtras(){
+  const wrap = document.getElementById('profile-wrap');
+  if (!wrap || document.getElementById('profile-extras-seeded')) return;
+  const extras = document.createElement('div');
+  extras.id = 'profile-extras-seeded';
+  // Use the same .layer-opt button structure as Layer / Situation in the
+  // sidebar — same active-state styling (deep red gradient, gold LED dot,
+  // copper accent strip on the left). Matches the rest of the dashboard.
+  extras.innerHTML = `
+    <div class="profile-section" style="margin-top:6px">
+      <div class="profile-header" style="cursor:default"><span><span class="ph-title">Stutter support</span></span></div>
+      <div class="profile-body" style="display:block">
+        <div class="toggle-row" style="padding:8px 0">
+          <label class="toggle-switch"><input type="checkbox" id="toggle-stutter-support" checked><span class="toggle-slider"></span></label>
+          <span class="toggle-label">Stuttering features ON</span>
+          <span class="toggle-hint">trigger learning, exposure scoring</span>
+        </div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);line-height:1.6;margin-top:6px">
+          ON: pipeline learns trigger words, onset weights, covert avoidance patterns. Use for severe stutter or hard speech blocks.<br>
+          OFF: skip stutter-specific learners, run as plain dictation cleanup.
+        </div>
+      </div>
+    </div>
+
+    <div class="profile-section" style="margin-top:14px">
+      <div class="profile-header" style="cursor:default"><span><span class="ph-title">Mostly use for</span></span></div>
+      <div class="profile-body" style="display:block">
+        <div class="tone-stack" style="display:flex;flex-direction:column;gap:4px">
+          <div class="layer-opt use-opt" data-use="work"><div class="l-info"><div class="l-name">Work</div><div class="l-desc">+ professional vocabulary</div></div></div>
+          <div class="layer-opt use-opt" data-use="life"><div class="l-info"><div class="l-name">Life</div><div class="l-desc">+ casual everyday</div></div></div>
+          <div class="layer-opt use-opt active" data-use="both"><div class="l-info"><div class="l-name">Both</div><div class="l-desc">+ mixed contexts</div></div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:0 4px">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--orange);width:14px">W</span>
+          <input type="range" id="use-slider" min="0" max="100" value="50" style="flex:1;accent-color:var(--copper)">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--copper);width:14px">L</span>
+          <span id="use-slider-val" style="font-family:var(--mono);font-size:10px;color:var(--text-dim);min-width:40px;text-align:right">50/50</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="profile-section" style="margin-top:14px">
+      <div class="profile-header" style="cursor:default"><span><span class="ph-title">Industry</span></span></div>
+      <div class="profile-body" style="display:block">
+        <div class="tone-stack" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
+          <div class="layer-opt ind-opt" data-ind="finance" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Finance</div></div></div>
+          <div class="layer-opt ind-opt" data-ind="legal" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Legal</div></div></div>
+          <div class="layer-opt ind-opt" data-ind="medical" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Medical</div></div></div>
+          <div class="layer-opt ind-opt" data-ind="tech" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Tech</div></div></div>
+          <div class="layer-opt ind-opt" data-ind="sales" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Sales</div></div></div>
+          <div class="layer-opt ind-opt" data-ind="trades" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Trades</div></div></div>
+          <div class="layer-opt ind-opt" data-ind="food" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Food</div></div></div>
+          <div class="layer-opt ind-opt" data-ind="education" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Education</div></div></div>
+          <div class="layer-opt ind-opt" data-ind="other" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Other</div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="profile-section" style="margin-top:14px">
+      <div class="profile-header" style="cursor:default"><span><span class="ph-title">Work hours</span></span></div>
+      <div class="profile-body" style="display:block">
+        <div class="tone-stack" style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+          <div class="layer-opt hr-opt" data-hr="morning"><div class="l-info"><div class="l-name">Morning</div><div class="l-desc">5-12</div></div></div>
+          <div class="layer-opt hr-opt" data-hr="9-5"><div class="l-info"><div class="l-name">9-5</div><div class="l-desc">standard</div></div></div>
+          <div class="layer-opt hr-opt" data-hr="evening"><div class="l-info"><div class="l-name">Evening</div><div class="l-desc">5-11</div></div></div>
+          <div class="layer-opt hr-opt" data-hr="flexible"><div class="l-info"><div class="l-name">Flexible</div><div class="l-desc">any time</div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="profile-section" style="margin-top:14px">
+      <div class="profile-header" style="cursor:default"><span><span class="ph-title">Stats</span></span></div>
+      <div class="profile-body" style="display:block">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-family:var(--mono);font-size:11px">
+          <div><div style="color:var(--text-dim);font-size:9px;letter-spacing:1px">WORDS</div><div id="ps-words" style="color:var(--orange);font-size:14px">—</div></div>
+          <div><div style="color:var(--text-dim);font-size:9px;letter-spacing:1px">SESSIONS</div><div id="ps-sessions" style="color:var(--orange);font-size:14px">—</div></div>
+          <div><div style="color:var(--text-dim);font-size:9px;letter-spacing:1px">WPM</div><div id="ps-wpm" style="color:var(--orange);font-size:14px">—</div></div>
+          <div><div style="color:var(--text-dim);font-size:9px;letter-spacing:1px">API CALLS</div><div id="ps-api" style="color:var(--orange);font-size:14px">—</div></div>
+          <div><div style="color:var(--text-dim);font-size:9px;letter-spacing:1px">AVG DIFFIC.</div><div id="ps-diff" style="color:var(--orange);font-size:14px">—</div></div>
+          <div><div style="color:var(--text-dim);font-size:9px;letter-spacing:1px">EST. COST</div><div id="ps-cost" style="color:var(--orange);font-size:14px">—</div></div>
+        </div>
+      </div>
+    </div>`;
+  wrap.insertBefore(extras, wrap.firstChild);
+}
+function _refreshProfileStats(){
+  fetch('/api/state').then(r=>r.json()).then(d=>{
+    const s = d.stats || {};
+    const setStat = (id,v) => { const el=document.getElementById(id); if(el) el.textContent = v; };
+    setStat('ps-words', s.words || 0);
+    setStat('ps-sessions', s.sessions || 0);
+    const dur = (Date.now()/1000) - (s.start_time || Date.now()/1000);
+    const wpm = dur > 60 ? Math.round((s.words || 0) / (dur / 60)) : 0;
+    setStat('ps-wpm', wpm);
+    setStat('ps-api', s.api_calls || 0);
+    setStat('ps-diff', '0.00');
+    setStat('ps-cost', '$' + ((s.api_calls || 0) * 0.003).toFixed(2));
+  }).catch(()=>{});
+}
+document.addEventListener('DOMContentLoaded', _seedProfileTabExtras);
+setInterval(_refreshProfileStats, 2000);
+// Wire the profile-meta button selectors (Mostly Use For / Industry / Work Hours).
+// Uses .layer-opt structure now (matches Layer/Situation styling), so we look
+// for div.use-opt / div.ind-opt / div.hr-opt instead of buttons.
+document.addEventListener('click', e => {
+  const opt = e.target.closest('.use-opt, .ind-opt, .hr-opt');
+  if (!opt) return;
+  const cls = opt.classList.contains('use-opt') ? 'use-opt' :
+              opt.classList.contains('ind-opt') ? 'ind-opt' : 'hr-opt';
+  document.querySelectorAll('.' + cls).forEach(b => b.classList.remove('active'));
+  opt.classList.add('active');
+  const key = cls === 'use-opt' ? 'mostly_use' : cls === 'ind-opt' ? 'industry' : 'work_hours';
+  const val = opt.dataset.use || opt.dataset.ind || opt.dataset.hr;
+  fetch('/api/profile', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({preferences: {[key]: val}})}).catch(()=>{});
+});
+// Wire the W↔L slider
+document.addEventListener('input', e => {
+  if (e.target && e.target.id === 'use-slider') {
+    const v = parseInt(e.target.value, 10);
+    document.getElementById('use-slider-val').textContent = v + '/' + (100 - v);
+    fetch('/api/profile', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({preferences: {use_split: v}})}).catch(()=>{});
+  }
+});
+// Wire the stutter-support toggle
+document.addEventListener('change', e => {
+  if (e.target && e.target.id === 'toggle-stutter-support') {
+    fetch('/api/profile', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({preferences: {stutter_support: !!e.target.checked}})}).catch(()=>{});
+  }
+});
 function toggleHa(header){
   const row=header.closest('.ha-row');
   const wasOpen=row.classList.contains('open');
@@ -5783,5 +5986,73 @@ function _checkProfileSync(){
   </div>
 </div>
 
+<!-- Custom right-click context menu — pywebview suppresses the native one,
+     so we draw our own with Copy / Select All / Paste. Shows when user
+     right-clicks anywhere inside a .tab-panel. -->
+<div class="ctx-menu" id="ctx-menu">
+  <div class="ctx-menu-item" id="ctx-copy" onclick="ctxAct('copy')">Copy<span class="ctx-menu-shortcut">Ctrl+C</span></div>
+  <div class="ctx-menu-item" onclick="ctxAct('selectAll')">Select All<span class="ctx-menu-shortcut">Ctrl+A</span></div>
+  <div class="ctx-menu-sep"></div>
+  <div class="ctx-menu-item" onclick="ctxAct('paste')">Paste<span class="ctx-menu-shortcut">Ctrl+V</span></div>
+</div>
+<script>
+(function() {
+  const menu = document.getElementById('ctx-menu');
+  const copyItem = document.getElementById('ctx-copy');
+  let _ctxTarget = null;
+  document.addEventListener('contextmenu', function(e) {
+    // Only inside tab panels — outside, let any default behavior pass.
+    const inPanel = e.target.closest('.tab-panel');
+    if (!inPanel) { menu.classList.remove('open'); return; }
+    e.preventDefault();
+    _ctxTarget = e.target;
+    const sel = window.getSelection().toString();
+    copyItem.classList.toggle('disabled', !sel);
+    // Position so it stays in viewport
+    const w = 160, h = 110;
+    const x = Math.min(e.clientX, window.innerWidth - w - 4);
+    const y = Math.min(e.clientY, window.innerHeight - h - 4);
+    menu.style.left = x + 'px';
+    menu.style.top = y + 'px';
+    menu.classList.add('open');
+  });
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('.ctx-menu')) menu.classList.remove('open');
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') menu.classList.remove('open');
+  });
+  window.ctxAct = function(action) {
+    menu.classList.remove('open');
+    if (action === 'copy') {
+      const sel = window.getSelection().toString();
+      if (sel) {
+        navigator.clipboard.writeText(sel).catch(() => {
+          // Fallback for environments without clipboard API
+          document.execCommand('copy');
+        });
+      }
+    } else if (action === 'selectAll') {
+      if (_ctxTarget) {
+        const range = document.createRange();
+        const panel = _ctxTarget.closest('.tab-panel');
+        if (panel) {
+          range.selectNodeContents(panel);
+          window.getSelection().removeAllRanges();
+          window.getSelection().addRange(range);
+        }
+      }
+    } else if (action === 'paste') {
+      navigator.clipboard.readText().then(t => {
+        if (_ctxTarget && _ctxTarget.tagName === 'INPUT' || _ctxTarget.tagName === 'TEXTAREA') {
+          _ctxTarget.value = t;
+        } else {
+          document.execCommand('paste');
+        }
+      }).catch(() => {});
+    }
+  };
+})();
+</script>
 </body>
 </html>

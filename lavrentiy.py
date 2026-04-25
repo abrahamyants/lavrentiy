@@ -38,7 +38,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from scipy.signal import resample_poly, butter, filtfilt
 from math import gcd
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # -- Headless mode (pythonw / hidden window) ──────────────────────
 if sys.stdout is None:
@@ -230,19 +230,34 @@ DEFAULT_PROFILE_NAME = "Default"
 DASHBOARD_PORT = 7878
 
 def _read_active_profile_name():
-    """Read active profile name from disk, or return default."""
-    try:
-        if ACTIVE_FILE.exists():
-            name = ACTIVE_FILE.read_text(encoding='utf-8').strip()
-            if name:
-                return name
-    except (IOError, OSError):
-        pass
+    """Always boot to Default. The disk active_profile file is intentionally
+    ignored on cold start so the "last user on this machine" doesn't persist
+    as the implicit signed-in identity across restarts. Sign-in via /api/auth
+    swaps the runtime profile to the email-matched one for the session;
+    sign-out swaps back to Default; engine shutdown rewrites the file to
+    Default (atexit + F3-x-3 paths) so even the disk state stays clean.
+    """
     return DEFAULT_PROFILE_NAME
 
 def _write_active_profile_name(name):
     LAVRENTIY_DIR.mkdir(exist_ok=True)
     ACTIVE_FILE.write_text(name, encoding='utf-8')
+
+# Reset active_profile to Default at engine shutdown so a cold restart
+# never inherits "last person who used this machine" as the implicit
+# signed-in user. Catches non-F3-quit exits (window close, signal, etc.).
+# F3-x-3 path also calls _write_active_profile_name(DEFAULT_PROFILE_NAME)
+# explicitly before os._exit(0) for the same reason.
+try:
+    import atexit as _atexit_profile
+    @_atexit_profile.register
+    def _reset_active_profile_at_exit():
+        try:
+            _write_active_profile_name(DEFAULT_PROFILE_NAME)
+        except Exception:
+            pass
+except Exception:
+    pass
 
 def _resolve_profile_paths(name):
     """Return (PROFILE_DIR, PROFILE_PATH, DB_PATH, BACKUP_DIR) for a given profile name."""
@@ -1821,12 +1836,25 @@ def log_session(prof, raw, output, tone, layer, decision=None, timings=None,
     falcon = decision["falcon_ok"] if decision else True
     words = len(output.split())
     sit = situation or current_situation
+    # Trigger-word event detection — record which of the user's profile triggers
+    # actually appeared in this session's raw transcript. Lightweight: simple
+    # case-insensitive substring scan, no API calls. Powers per-trigger event
+    # counts in the Weekly Report and Insights tab.
+    triggers_fired = []
+    try:
+        raw_lower = (raw or "").lower()
+        for trig in (prof.get("trigger_words", []) or []):
+            t_norm = (trig or "").strip().lower()
+            if t_norm and t_norm in raw_lower:
+                triggers_fired.append(trig)
+    except Exception:
+        triggers_fired = []
     with _db_lock:
         _db.execute(
             "INSERT INTO sessions (ts, raw, out, tone, layer, words, falcon, decision, timings, "
             "situation, disfluency_counts, exposure_difficulty, editorial_distance, "
-            "speech_metrics, lang, paralinguistic_events, prosodic_summary) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "speech_metrics, lang, paralinguistic_events, prosodic_summary, triggers_fired) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (ts, raw, output, tone, layer, words, int(falcon),
              json.dumps(decision) if decision else None,
              json.dumps(timings) if timings else None,
@@ -1837,7 +1865,8 @@ def log_session(prof, raw, output, tone, layer, decision=None, timings=None,
              json.dumps(speech_metrics) if speech_metrics else None,
              lang or 'en',
              json.dumps(paralinguistic_events) if paralinguistic_events else None,
-             json.dumps(prosodic_summary) if prosodic_summary else None)
+             json.dumps(prosodic_summary) if prosodic_summary else None,
+             json.dumps(triggers_fired) if triggers_fired else None)
         )
         _db.commit()
 
@@ -2337,6 +2366,7 @@ def _init_db(db_path=None):
         "ALTER TABLE sessions ADD COLUMN lang TEXT DEFAULT 'en'",
         "ALTER TABLE sessions ADD COLUMN paralinguistic_events TEXT",
         "ALTER TABLE sessions ADD COLUMN prosodic_summary TEXT",
+        "ALTER TABLE sessions ADD COLUMN triggers_fired TEXT",
     ]:
         try:
             db.execute(col_sql)
@@ -6467,6 +6497,39 @@ def pipeline():
         if filtered_text != raw_text and current_layer == 1:
             log(f"Filter: \"{raw_text}\" → \"{filtered_text}\"", "info")
 
+        # Layer 1 polish — Haiku reads Moonshine output and fixes obvious errors.
+        # Adds ~500ms–1s. No tone, no profile injection — just "fix obvious typos
+        # / mishears / truncations." Runs only when Anthropic is configured.
+        # Output replaces filtered_text so the paste reflects the corrected version.
+        if current_layer == 1 and anthropic_client is not None and filtered_text.strip():
+            try:
+                _polish_t0 = time.time()
+                _polish_msg = anthropic_client.messages.create(
+                    model=FALCON_HAIKU_MODEL,
+                    max_tokens=400,
+                    messages=[{
+                        "role": "user",
+                        "content": (
+                            "You are a quick proofreader for voice transcription output. "
+                            "The text below came from a local speech-to-text engine and may contain: "
+                            "wrong-word substitutions (homophones, similar-sounding words), "
+                            "truncated sentences, missing punctuation, obvious mishears. "
+                            "Your job: fix ONLY clear errors. Do NOT rewrite, do NOT change tone, "
+                            "do NOT add or remove content. Preserve casual speech, profanity, slang. "
+                            "Output ONLY the corrected text — no preamble, no explanation, no markdown.\n\n"
+                            f"Text: {filtered_text}"
+                        ),
+                    }],
+                )
+                _polished = "".join(b.text for b in _polish_msg.content if getattr(b, "type", None) == "text").strip()
+                if _polished:
+                    if _polished != filtered_text:
+                        log(f"L1 polish: \"{filtered_text}\" → \"{_polished}\" ({int((time.time()-_polish_t0)*1000)}ms)", "info")
+                    filtered_text = _polished
+                    stats_inc("anthropic_calls")
+            except Exception as _e:
+                log(f"L1 polish failed (using raw filtered): {_e}", "warn")
+
         if current_layer > 1 and current_mode != "RAW":
             log(f"Raw: \"{raw_text}\"", "raw")
 
@@ -8324,6 +8387,13 @@ def on_key_event(event):
             if _clipboard_predictor:
                 _clipboard_predictor.stop()
             print("Lavrentiy out.")
+            # Reset active_profile so the next cold start boots into Default.
+            # atexit also covers this, but os._exit(0) bypasses atexit hooks —
+            # write explicitly here.
+            try:
+                _write_active_profile_name(DEFAULT_PROFILE_NAME)
+            except Exception:
+                pass
             kernel32.CloseHandle(mutex_handle)
             os._exit(0)
         return
