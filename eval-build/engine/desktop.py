@@ -3,11 +3,12 @@
 
 Starts lavrentiy.py as a subprocess, waits for its HTTP server on :7878,
 then opens a native pywebview window showing the existing dashboard.
-A pystray system-tray icon lets the user show/hide/quit.
+Single-instance (Windows mutex). Closing the window terminates the engine
+subprocess cleanly.
 
 Usage:
     python desktop.py          (shows console — good for debugging)
-    pythonw desktop.py         (silent — production mode via desktop.bat)
+    pythonw desktop.py         (silent — production mode via VBS / .lnk)
 """
 
 import os
@@ -27,14 +28,22 @@ if sys.stdout is None:
 if sys.stderr is None:
     sys.stderr = open(os.devnull, 'w')
 
+# Single-instance mutex — prevents duplicate desktop.py processes from stacking
+# up with zombie windows (the failure mode that put PIDs 17464 + 12668 on
+# screen with MainWindowHandle=0). Same pattern the engine uses; exit before
+# importing webview if another copy is already alive.
+import ctypes
+_kernel32 = ctypes.windll.kernel32
+_desktop_mutex = _kernel32.CreateMutexW(None, True, "Global\\LAVRENTIY_DESKTOP_SINGLE_INSTANCE")
+if _kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+    _kernel32.CloseHandle(_desktop_mutex)
+    sys.exit(0)
+
 import webview
-import pystray
-from PIL import Image
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ENGINE_PY  = os.path.join(SCRIPT_DIR, "lavrentiy.py")
-ICON_PATH  = os.path.join(SCRIPT_DIR, "lavrentiy.ico")
 READY_URL    = "http://127.0.0.1:7878/api/state"
 ONBOARD_URL  = "http://localhost:7878/"
 
@@ -88,11 +97,9 @@ var i=0;
 window._stageTimer=setInterval(function(){i++;if(i<stages.length)setStatus(stages[i]);},1400);
 </script></body></html>"""
 
-# ── Shared state (touched from main + tray threads) ───────────────────────────
+# ── Shared state ──────────────────────────────────────────────────────────────
 engine_proc = None   # subprocess.Popen
 window      = None   # webview.Window
-tray_icon   = None   # pystray.Icon
-_quitting   = False  # set True to let the closing event allow real close
 _shutdown   = threading.Event()
 
 
@@ -122,20 +129,12 @@ def wait_for_engine(timeout=60):
 
 # ── Shutdown ──────────────────────────────────────────────────────────────────
 
-def quit_app(icon=None, item=None):
-    """Clean shutdown: stop tray, kill engine, destroy window."""
-    global engine_proc, tray_icon, _quitting
+def quit_app():
+    """Clean shutdown: kill engine subprocess, destroy window."""
+    global engine_proc
     if _shutdown.is_set():
         return
     _shutdown.set()
-    _quitting = True
-
-    if tray_icon is not None:
-        try:
-            tray_icon.stop()
-        except Exception:
-            pass
-        tray_icon = None
 
     if engine_proc is not None:
         engine_proc.terminate()
@@ -150,37 +149,6 @@ def quit_app(icon=None, item=None):
             window.destroy()  # unblocks webview.start() on the main thread
         except Exception:
             pass
-
-
-# ── Window events ─────────────────────────────────────────────────────────────
-
-def on_closing():
-    """Intercept the X button: hide to tray instead of exiting."""
-    if _quitting:
-        return True   # allow the real destroy() call from quit_app
-    if window is not None:
-        window.hide()
-    return False      # cancel the close
-
-
-# ── Tray callbacks ────────────────────────────────────────────────────────────
-
-def show_dashboard(icon=None, item=None):
-    if window is not None:
-        window.show()
-
-
-def build_and_run_tray():
-    """Build the pystray icon and block this thread on its event loop."""
-    global tray_icon
-    img = Image.open(ICON_PATH)
-    menu = pystray.Menu(
-        pystray.MenuItem("Show Dashboard", show_dashboard, default=True),
-        pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Quit", quit_app),
-    )
-    tray_icon = pystray.Icon("lavrentiy", img, "LAVRENTIY", menu=menu)
-    tray_icon.run()   # blocks until tray_icon.stop()
 
 
 # ── JS API (exposed to page as window.pywebview.api) ─────────────────────────
@@ -255,13 +223,13 @@ def boot(win):
 def main():
     global window
 
-    # System tray runs in a daemon thread so it doesn't block main
-    tray_thread = threading.Thread(target=build_and_run_tray, daemon=True)
-    tray_thread.start()
-
     api = Api()
 
-    # Create the window with inline splash HTML — appears IMMEDIATELY
+    # Create the window with inline splash HTML — appears IMMEDIATELY.
+    # No tray thread: pystray.Icon.run() requires the main thread (per its API
+    # contract), and so does webview.start() on Windows. Running them together
+    # scrambled both GUI loops — window object got created but never registered
+    # with the OS (MainWindowHandle stayed 0). Tray is gone. X button = exit.
     window = webview.create_window(
         title="LAVRENTIY",
         html=SPLASH_HTML,            # splash shows instantly, no server needed
@@ -273,7 +241,6 @@ def main():
         text_select=True,
         js_api=api,
     )
-    window.events.closing += on_closing
 
     # webview.start(func, window) runs func in a background thread AFTER the
     # GUI loop starts. boot() spawns the engine subprocess, waits for it, then
