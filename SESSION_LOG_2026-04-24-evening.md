@@ -61,13 +61,38 @@ UX cleanup work that wasn't committed to the README.
 
 ## Pending (carry-forward)
 
-1. **Consolidate Weekly Report + Insights tab.** Currently:
+1. **Anthropic calls bypass the Cloud Function — both apps.** New TODO,
+   surfaced this evening when George set up a fresh Anthropic key.
+   - Per `project_wim_user_path.md`: "Local API key is dev-only; design
+     WiM around Google sign-in + Cloud Function path." OpenAI was already
+     wired correctly — when the user is signed in, OpenAI calls route
+     through `wim-reconstruct` Cloud Function with a server-side key.
+   - **Anthropic was added today (Haiku Falcon at L2/L3, Sonnet 4.6 with
+     extended thinking at L4) but goes DIRECT from device.** Both apps:
+     - Lavrentiy desktop: `anthropic_client = Anthropic(api_key=ANTHROPIC_KEY)`
+       reads from `anthropic_key.txt`; calls go direct from the user's
+       machine to `api.anthropic.com`.
+     - WiM Android: app reads key from SharedPreferences and hits
+       `api.anthropic.com` directly from the phone.
+   - **Fix:** extend `wim-reconstruct` Cloud Function to proxy Anthropic
+     calls. Cloud Function authenticates the Firebase token, then calls
+     Anthropic with the server-side key (`lavrentiy-anthropic-key` /
+     `wim-anthropic-api-key` in `bakers-agent` Secret Manager). Returns
+     the response. Same pattern OpenAI already uses.
+   - **Net:** API key stays server-side, evaluators don't need their own
+     keys, server controls billing + rate limits.
+   - **Effort:** Cloud Function source change (already known territory) +
+     wire both clients to call the new endpoint when signed in. The
+     existing local-key path stays as a fallback for dev/unsigned-in.
+
+2. **Consolidate Weekly Report + Insights tab.** Currently:
    - Insights tab: tile view of fluency analytics (FLUENCY TREND, AVG PAUSE,
      etc.) — gated to L4
    - Learning tab: 📊 WEEKLY REPORT button generates GPT-4o narrative
    - Both use the same underlying data, different presentation
    - Should fold the Weekly Report INTO the Insights tab so there's one
      home for clinical analytics, not two.
+   - **Done this session** — Weekly Report button moved into Insights tab.
 2. **Profile-loading-without-sign-in fix.** Engine boots into whichever
    profile was last active, leaks data across users on shared machines.
    Plan written + paste-prompt provided earlier in the conversation. Not
