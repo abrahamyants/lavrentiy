@@ -2753,7 +2753,7 @@ body::before {
         <div class="layer-opt" data-layer="1"><div class="l-info"><div class="l-name">I. Transcribe</div><div class="l-desc">raw text, no cleanup</div></div></div>
         <div class="layer-opt" data-layer="2"><div class="l-info"><div class="l-name">II. Reconstruct</div><div class="l-desc">LLM + tone</div></div></div>
         <div class="layer-opt" data-layer="3"><div class="l-info"><div class="l-name">III. Profile</div><div class="l-desc">+ vocabulary</div></div></div>
-        <div class="layer-opt" data-layer="4"><div class="l-info"><div class="l-name">IV. Stutter</div><div class="l-desc">+ disfluency</div></div></div>
+        <div class="layer-opt" data-layer="4"><div class="l-info"><div class="l-name">IV. Disfluency</div><div class="l-desc">+ clinical</div></div></div>
       </div>
     </div>
 
@@ -2937,7 +2937,7 @@ body::before {
            Learning + Insights as separate panels showing the same data. -->
       <div class="tab-panel" id="tab-insights">
         <div class="insights-wrap" id="insights">
-          <div class="learn-empty">Switch to Layer 4 to view stuttering insights.</div>
+          <div class="learn-empty">Switch to Layer 4 to view disfluency insights.</div>
         </div>
         <div style="padding:16px 24px;border-top:1px solid var(--border)">
           <div style="display:flex;gap:8px;margin-bottom:12px">
@@ -2950,15 +2950,15 @@ body::before {
           <div id="phoneme-bars" style="display:flex;flex-wrap:wrap;gap:4px;align-items:flex-end"></div>
         </div>
         <div id="covert-section" style="display:none;padding:16px 24px;border-top:1px solid var(--border)">
-          <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">COVERT AVOIDANCE PATTERNS</div>
+          <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">HIDDEN AVOIDANCE PATTERNS</div>
           <div id="covert-pairs" style="font-family:var(--mono);font-size:11px;line-height:2"></div>
         </div>
         <div id="anomaly-section" style="display:none;padding:16px 24px;border-top:1px solid var(--border)">
-          <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">ONSET ANOMALIES <span style="color:var(--text-muted);font-size:8px">(onsets you avoid)</span></div>
+          <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">HARD-SOUND PATTERNS <span style="color:var(--text-muted);font-size:8px">(first sounds you avoid)</span></div>
           <div id="anomaly-list" style="font-family:var(--mono);font-size:11px;line-height:2"></div>
         </div>
         <div id="lang-onset-section" style="display:none;padding:16px 24px;border-top:1px solid var(--border)">
-          <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">PER-LANGUAGE ONSET WEIGHTS</div>
+          <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">PER-LANGUAGE HARD SOUNDS</div>
           <div id="lang-onset-content" style="display:flex;gap:24px;flex-wrap:wrap"></div>
         </div>
         <div id="fingerprint-section" style="display:none;padding:16px 24px;border-top:1px solid var(--border)">
@@ -2991,7 +2991,7 @@ body::before {
       <div class="tab-panel" id="tab-prep">
         <div class="prep-wrap">
           <div class="prep-input-area">
-            <textarea class="prep-textarea" id="prep-input" placeholder="Paste your script, talking points, or email here. Lavrentiy will flag words you might stutter on and suggest safer alternatives."></textarea>
+            <textarea class="prep-textarea" id="prep-input" placeholder="Paste your script, talking points, or email here. Lavrentiy will flag words that might trip you up and suggest safer alternatives."></textarea>
             <button class="prep-btn" id="prep-btn" onclick="runPrep()">PREP</button>
           </div>
           <div class="prep-legend">
@@ -3022,7 +3022,7 @@ body::before {
             <div class="cal-prompt-area" id="cal-prompt-area" style="display:none">
               <div class="cal-category" id="cal-category"></div>
               <div class="cal-prompt-text" id="cal-prompt-text"></div>
-              <div class="cal-instruction">Read this sentence aloud, naturally. Don't try to hide your stutter.</div>
+              <div class="cal-instruction">Read this sentence aloud, naturally. Don't try to hide any disfluency.</div>
               <div class="cal-rec-controls">
                 <button class="cal-rec-btn" id="cal-rec-btn" onclick="calToggleRecord()">
                   <span class="cal-rec-dot"></span> RECORD
@@ -3070,7 +3070,7 @@ body::before {
 
       <!-- "You" tab removed (was empty placeholder).
            "The File" tab renamed to "Profile" and put back in the console tabs.
-           New WiM-mirror sections (Stutter support / Mostly Use For / Industry /
+           New WiM-mirror sections (Disfluency support / Mostly Use For / Industry /
            Work Hours / Stats) injected at the top via JS on first render
            (function _seedProfileTabExtras below). -->
       <div class="tab-panel" id="tab-profile">
@@ -3100,7 +3100,7 @@ body::before {
             <div class="profile-body" id="body-corrections"><div id="corrections-list"></div><div class="add-row" style="margin-top:10px"><input class="add-input" id="input-corr-from" placeholder="Heard as..." style="flex:1" onkeydown="if(event.key==='Enter')document.getElementById('input-corr-to').focus()"><span style="color:var(--text-muted);font-size:11px;padding:0 4px;font-family:var(--mono)">&rarr;</span><input class="add-input" id="input-corr-to" placeholder="Should be..." style="flex:1" onkeydown="if(event.key==='Enter')addCorrection()"><button class="add-btn" onclick="addCorrection()">+</button></div></div>
           </div>
           <div class="profile-section" id="sec-covert">
-            <div class="profile-header" onclick="toggleSection('covert')"><span><span class="ph-title">Covert Avoidance Pairs</span><span class="ph-count" id="cnt-covert">(0)</span></span><span class="arrow">&#9654;</span></div>
+            <div class="profile-header" onclick="toggleSection('covert')"><span><span class="ph-title">Hidden Avoidance Pairs</span><span class="ph-count" id="cnt-covert">(0)</span></span><span class="arrow">&#9654;</span></div>
             <div class="profile-body" id="body-covert"><div id="covert-pairs-list"></div></div>
           </div>
 
@@ -3112,7 +3112,7 @@ body::before {
             </div>
             <div style="font-family:var(--mono);font-size:9px;line-height:1.6;color:var(--text-dim)">
               <strong style="color:var(--yellow)">RESET HISTORY</strong> — clears session log &amp; counters (Words, Sessions, API calls, etc). Keeps all learned data (corrections, vocabulary, triggers).<br>
-              <strong style="color:var(--red-bright)">DELETE PROFILE</strong> — wipes EVERYTHING the engine learned about you: trigger words, corrections, vocabulary, covert avoidance patterns, onset weights, session history. Cannot be undone.
+              <strong style="color:var(--red-bright)">DELETE PROFILE</strong> — wipes EVERYTHING the engine learned about you: trigger words, corrections, vocabulary, hidden avoidance patterns, hard-sound weights, session history. Cannot be undone.
             </div>
             <div id="reset-status" style="margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--text-dim)"></div>
           </div>
@@ -3249,7 +3249,7 @@ const I18N={
   layer1:{en:'I. Transcribe',ru:'I. Транскрипция'},layer1d:{en:'raw text, no cleanup',ru:'сырой текст, без обработки'},
   layer2:{en:'II. Reconstruct',ru:'II. Реконструкция'},layer2d:{en:'LLM + tone',ru:'LLM + тон'},
   layer3:{en:'III. Profile',ru:'III. Профиль'},layer3d:{en:'+ vocabulary',ru:'+ словарь'},
-  layer4:{en:'IV. Stutter',ru:'IV. Заикание'},layer4d:{en:'+ disfluency',ru:'+ дисфлюенция'},
+  layer4:{en:'IV. Disfluency',ru:'IV. Заикание'},layer4d:{en:'+ clinical',ru:'+ дисфлюенция'},
   // Enhancement toggles
   lbl_para:{en:'Paralinguistic',ru:'Паралингвистика'},hint_para:{en:'cough/laugh',ru:'кашель/смех'},
   lbl_transcribe:{en:'Transcribe',ru:'Транскрипция'},hint_transcribe:{en:'inject [tags] in text',ru:'вставить [теги] в текст'},
@@ -3295,15 +3295,15 @@ const I18N={
   console_empty:{en:'Waiting for input...',ru:'Ожидание ввода...'},
   learn_empty:{en:'No patterns learned yet. Keep talking.',ru:'Паттерны ещё не найдены. Продолжайте говорить.'},
   learn_report:{en:'\uD83D\uDCCA WEEKLY REPORT',ru:'\uD83D\uDCCA НЕДЕЛЬНЫЙ ОТЧЁТ'},
-  insights_empty:{en:'Switch to Layer 4 to view stuttering insights.',ru:'Переключитесь на уровень 4 для анализа заикания.'},
+  insights_empty:{en:'Switch to Layer 4 to view disfluency insights.',ru:'Переключитесь на уровень 4 для анализа заикания.'},
   insights_nodata:{en:'Not enough data yet. Keep using Layer 4.',ru:'Недостаточно данных. Продолжайте использовать уровень 4.'},
   sessions_empty:{en:'Start dictating. Sessions appear here.',ru:'Начните диктовку. Сессии появятся здесь.'},
   // Insights section titles
   phoneme_title:{en:'PHONEME DIFFICULTY MAP',ru:'КАРТА СЛОЖНОСТИ ФОНЕМ'},
-  covert_title:{en:'COVERT AVOIDANCE PATTERNS',ru:'СКРЫТЫЕ ПАТТЕРНЫ ИЗБЕГАНИЯ'},
-  onset_title:{en:'ONSET ANOMALIES',ru:'АНОМАЛИИ НАЧАЛА СЛОВ'},
-  onset_sub:{en:'(onsets you avoid)',ru:'(начала, которых вы избегаете)'},
-  lang_onset_title:{en:'PER-LANGUAGE ONSET WEIGHTS',ru:'ВЕСА НАЧАЛ СЛОВ ПО ЯЗЫКАМ'},
+  covert_title:{en:'HIDDEN AVOIDANCE PATTERNS',ru:'СКРЫТЫЕ ПАТТЕРНЫ ИЗБЕГАНИЯ'},
+  onset_title:{en:'HARD-SOUND PATTERNS',ru:'АНОМАЛИИ НАЧАЛА СЛОВ'},
+  onset_sub:{en:'(first sounds you avoid)',ru:'(начала, которых вы избегаете)'},
+  lang_onset_title:{en:'PER-LANGUAGE HARD SOUNDS',ru:'ВЕСА НАЧАЛ СЛОВ ПО ЯЗЫКАМ'},
   fingerprint_title:{en:'SUBSTITUTION FINGERPRINT',ru:'ОТПЕЧАТОК ЗАМЕН'},
   shadow_title:{en:'AVOIDANCE DRIFT',ru:'ДРЕЙФ ИЗБЕГАНИЯ'},
   lowconf_title:{en:'LOW CONFIDENCE SEGMENTS',ru:'СЕГМЕНТЫ С НИЗКОЙ УВЕРЕННОСТЬЮ'},
@@ -3312,7 +3312,7 @@ const I18N={
   fl_pause:{en:'AVG PAUSE',ru:'СР. ПАУЗА'},fl_rate:{en:'AVG RATE',ru:'СР. ТЕМП'},
   fl_sev:{en:'AVG SEV+',ru:'СР. ТЯЖ+'},fl_sessions:{en:'SESSIONS',ru:'СЕССИИ'},
   // Prep tab
-  prep_ph:{en:'Paste your script, talking points, or email here. Lavrentiy will flag words you might stutter on and suggest safer alternatives.',ru:'Вставьте текст, тезисы или письмо. Лаврентий найдёт слова, на которых вы можете заикаться, и предложит замены.'},
+  prep_ph:{en:'Paste your script, talking points, or email here. Lavrentiy will flag words that might trip you up and suggest safer alternatives.',ru:'Вставьте текст, тезисы или письмо. Лаврентий найдёт слова, на которых вы можете заикаться, и предложит замены.'},
   prep_btn:{en:'PREP',ru:'АНАЛИЗ'},prep_scanning:{en:'SCANNING...',ru:'СКАНИРОВАНИЕ...'},
   prep_safe:{en:'SAFE',ru:'БЕЗОПАСНО'},prep_risky:{en:'RISKY',ru:'РИСКОВАННО'},prep_trigger:{en:'KNOWN TRIGGER',ru:'ИЗВЕСТНЫЙ ТРИГГЕР'},
   prep_seed:{en:'\u26A1 WHISPER SEEDED \u2014 decoder will use this text as context',ru:'\u26A1 WHISPER ПОДГОТОВЛЕН \u2014 декодер использует этот текст как контекст'},
@@ -3325,7 +3325,7 @@ const I18N={
   cal_start:{en:'BEGIN CALIBRATION',ru:'НАЧАТЬ КАЛИБРОВКУ'},cal_resume:{en:'RESUME CALIBRATION',ru:'ПРОДОЛЖИТЬ КАЛИБРОВКУ'},
   cal_record:{en:'RECORD',ru:'ЗАПИСЬ'},cal_stop:{en:'STOP',ru:'СТОП'},cal_saving:{en:'SAVING...',ru:'СОХРАНЕНИЕ...'},
   cal_skip:{en:'SKIP',ru:'ПРОПУСТИТЬ'},
-  cal_instruction:{en:'Read this sentence aloud, naturally. Don\'t try to hide your stutter.',ru:'Прочитайте это предложение вслух, естественно. Не пытайтесь скрыть заикание.'},
+  cal_instruction:{en:'Read this sentence aloud, naturally. Don\'t try to hide any disfluency.',ru:'Прочитайте это предложение вслух, естественно. Не пытайтесь скрыть заикание.'},
   cal_complete:{en:'CALIBRATION COMPLETE',ru:'КАЛИБРОВКА ЗАВЕРШЕНА'},
   cal_wer_title:{en:'Calibration WER Summary',ru:'Результаты калибровки WER'},
   aug_title:{en:'DATA AUGMENTATION',ru:'АУГМЕНТАЦИЯ ДАННЫХ'},
@@ -3339,7 +3339,7 @@ const I18N={
   // Profile (The File)
   prof_triggers:{en:'Trigger Words',ru:'Триггерные слова'},prof_fillers:{en:'Filler Words',ru:'Слова-паразиты'},
   prof_vocab:{en:'Vocabulary',ru:'Словарь'},prof_corrections:{en:'Corrections',ru:'Коррекции'},
-  prof_covert:{en:'Covert Avoidance Pairs',ru:'Пары скрытого избегания'},
+  prof_covert:{en:'Hidden Avoidance Pairs',ru:'Пары скрытого избегания'},
   prof_add_trigger:{en:'Add trigger word...',ru:'Добавить триггер...'},
   prof_add_filler:{en:'Add filler word...',ru:'Добавить паразит...'},
   prof_add_vocab:{en:'Add preferred term...',ru:'Добавить термин...'},
@@ -3360,8 +3360,8 @@ const I18N={
   help_title:{en:'Guide',ru:'Руководство'},help_sub:{en:'OPERATIONS MANUAL',ru:'РУКОВОДСТВО ПОЛЬЗОВАТЕЛЯ'},
   help_search:{en:'Search...',ru:'Поиск...'},
   // Help sections
-  ha_layers:{en:'Layers',ru:'Уровни'},ha_layers_sub:{en:'L1 Transcribe through L4 Stutter',ru:'L1 Транскрипция \u2014 L4 Заикание'},
-  ha_layers_body:{en:'<strong>L1 Transcribe</strong> \u2014 Whisper only. Raw speech-to-text, no AI cleanup. Fastest.<br><strong>L2 Reconstruct</strong> \u2014 GPT rewrites using your tone. Strips fillers, fixes grammar. ~1-2s slower.<br><strong>L3 Profile</strong> \u2014 Same as L2 + your personal vocabulary and corrections map.<br><strong>L4 Stutter</strong> \u2014 Full clinical mode. Disfluency tracking, exposure scoring, severity-scaled rewrites.<div class="ha-example"><span class="he-in">You say:</span> "So uh basically the the thing is um working"<br><span class="he-out">L1:</span> "So uh basically the the thing is um working"<br><span class="he-out">L2:</span> "The thing is working."</div>',ru:'<strong>L1 Транскрипция</strong> \u2014 Только Whisper. Сырой текст, без ИИ-обработки. Самый быстрый.<br><strong>L2 Реконструкция</strong> \u2014 GPT переписывает в вашем тоне. Убирает паразиты, исправляет грамматику. На ~1-2с медленнее.<br><strong>L3 Профиль</strong> \u2014 L2 + ваш личный словарь и карта коррекций.<br><strong>L4 Заикание</strong> \u2014 Клинический режим. Отслеживание дисфлюенций, оценка экспозиции, масштабированные правки.<div class="ha-example"><span class="he-in">Вы говорите:</span> "Ну э-э в общем-то это это вещь э-э работает"<br><span class="he-out">L1:</span> "Ну э-э в общем-то это это вещь э-э работает"<br><span class="he-out">L2:</span> "Эта вещь работает."</div>'},
+  ha_layers:{en:'Layers',ru:'Уровни'},ha_layers_sub:{en:'L1 Transcribe through L4 Disfluency',ru:'L1 Транскрипция \u2014 L4 Заикание'},
+  ha_layers_body:{en:'<strong>L1 Transcribe</strong> \u2014 Whisper only. Raw speech-to-text, no AI cleanup. Fastest.<br><strong>L2 Reconstruct</strong> \u2014 GPT rewrites using your tone. Strips fillers, fixes grammar. ~1-2s slower.<br><strong>L3 Profile</strong> \u2014 Same as L2 + your personal vocabulary and corrections map.<br><strong>L4 Disfluency</strong> \u2014 Full clinical mode. Disfluency tracking, exposure scoring, severity-scaled rewrites.<div class="ha-example"><span class="he-in">You say:</span> "So uh basically the the thing is um working"<br><span class="he-out">L1:</span> "So uh basically the the thing is um working"<br><span class="he-out">L2:</span> "The thing is working."</div>',ru:'<strong>L1 Транскрипция</strong> \u2014 Только Whisper. Сырой текст, без ИИ-обработки. Самый быстрый.<br><strong>L2 Реконструкция</strong> \u2014 GPT переписывает в вашем тоне. Убирает паразиты, исправляет грамматику. На ~1-2с медленнее.<br><strong>L3 Профиль</strong> \u2014 L2 + ваш личный словарь и карта коррекций.<br><strong>L4 Заикание</strong> \u2014 Клинический режим. Отслеживание дисфлюенций, оценка экспозиции, масштабированные правки.<div class="ha-example"><span class="he-in">Вы говорите:</span> "Ну э-э в общем-то это это вещь э-э работает"<br><span class="he-out">L1:</span> "Ну э-э в общем-то это это вещь э-э работает"<br><span class="he-out">L2:</span> "Эта вещь работает."</div>'},
   ha_tone:{en:'Tone',ru:'Тон'},ha_tone_sub:{en:'How GPT rewrites your speech (L2+)',ru:'Как GPT переписывает вашу речь (L2+)'},
   ha_tone_body:{en:'<strong>Casual</strong> \u2014 Conversational. Contractions, simple words.<br><strong>Professional</strong> \u2014 Business-ready. Clean, precise language.<br><strong>Friend</strong> \u2014 Relaxed. Like texting a friend.<br><strong>Formal</strong> \u2014 Academic/legal. No contractions, precise.<br><br>Has no effect on L1 (collapses when L1 is selected).',ru:'<strong>Обычный</strong> \u2014 Разговорный стиль. Простые слова, сокращения.<br><strong>Деловой</strong> \u2014 Для бизнеса. Чистый, точный язык.<br><strong>Дружеский</strong> \u2014 Расслабленный. Как переписка с другом.<br><strong>Формальный</strong> \u2014 Академический/юридический. Без сокращений, точный.<br><br>Не влияет на L1 (сворачивается при выборе L1).'},
   ha_mode:{en:'Mode',ru:'Режим'},ha_mode_sub:{en:'Pipeline steps: RAW, FAST, SAFE',ru:'Шаги конвейера: RAW, FAST, SAFE'},
@@ -4177,7 +4177,7 @@ function renderFingerprint(){
   // Onset heat
   const heat=fp.onset_heat||{};
   if(Object.keys(heat).length){
-    html+=`<div style="margin-bottom:8px"><span style="color:var(--text-dim);font-size:9px">Most avoided onsets: </span>`;
+    html+=`<div style="margin-bottom:8px"><span style="color:var(--text-dim);font-size:9px">Most avoided first sounds: </span>`;
     html+=Object.entries(heat).slice(0,6).map(([o,c])=>`<span style="color:var(--red-bright)">/${esc(o)}/</span><span style="color:var(--text-muted);font-size:8px">×${c}</span>`).join('  ');
     html+=`</div>`;
   }
@@ -4525,10 +4525,10 @@ async function generateClinicalProfile(){
       `SITUATIONAL BREAKDOWN:`,
       ...Object.entries(d.situational_breakdown||{}).map(([s,v])=>`  ${s}: ${v.rate}/min ${v.vs_baseline||v.label||''}`),
       ``,
-      `TOP ONSET TRIGGERS:`,
+      `TOP HARD SOUNDS:`,
       ...(d.top_onset_triggers||[]).map(t=>`  ${t.onset} weight=${t.weight} events=${t.events}`),
       ``,
-      `COVERT AVOIDANCE: ${d.covert_avoidance?.active_pairs} pairs | rate ${d.covert_avoidance?.avoidance_rate}% (${d.covert_avoidance?.trend})`,
+      `HIDDEN AVOIDANCE: ${d.covert_avoidance?.active_pairs} pairs | rate ${d.covert_avoidance?.avoidance_rate}% (${d.covert_avoidance?.trend})`,
       ``,
       `EDITORIAL DISTANCE: avg=${d.editorial_distance?.average} (${d.editorial_distance?.trend})`,
       `FLUENCY IMPROVEMENT: ${d.fluency_trend?.improvement > 0 ? '+' : ''}${d.fluency_trend?.improvement}%`,
@@ -5216,7 +5216,7 @@ async function resetSessionHistory(){
   }catch(e){s.textContent='Reset failed: '+e.message;s.style.color='var(--red-bright)';}
 }
 async function deleteProfile(){
-  if(!confirm('DELETE PROFILE: This wipes ALL learned data — corrections, vocabulary, trigger words, covert avoidance patterns, onset weights, session history. The engine will start completely fresh.\n\nThis cannot be undone. Continue?'))return;
+  if(!confirm('DELETE PROFILE: This wipes ALL learned data — corrections, vocabulary, trigger words, hidden avoidance patterns, hard-sound weights, session history. The engine will start completely fresh.\n\nThis cannot be undone. Continue?'))return;
   if(!confirm('Are you absolutely sure? Everything the engine has learned about your speech will be erased.'))return;
   const s=document.getElementById('reset-status');
   s.textContent='Deleting profile...';s.style.color='var(--text-dim)';
@@ -5238,8 +5238,8 @@ const _LAV_TIPS = [
   {title:"Quiet Mode for whispered speech", body:"Voice section → Quiet Mode. Boosts gain to -6dB and tightens high-pass to 100Hz for dictating in libraries, offices, late at night."},
   {title:"The engine learns your avoidance patterns", body:"When you swap 'door' for 'entrance' to avoid a /d/ block, the engine detects it via Script Prep comparison. Layer 4 uses this to reconstruct the word you meant."},
   {title:"F10 cycles tone, F11 cycles layer", body:"Don't touch the dashboard. F10 rotates Casual → Professional → Friend → Formal. F11 rotates Layer I → II → III → IV. F12 prints stats."},
-  {title:"Your personal phonetic risk map", body:"The engine tracks which initial sounds you block on (k, p, br, etc.) and builds personalized onset weights. Feeds into trigger prediction at Layer 4."},
-  {title:"Anti-compulsion nudge", body:"Re-record similar content 3+ times in a row and the engine flags it. Stuttering can trigger obsessive redo loops — this pushes you to accept and move on."},
+  {title:"Your personal hard-sound map", body:"The engine tracks which first sounds you get stuck on (k, p, br, etc.) and builds your personal hard-sound map. Feeds into trigger prediction at Layer 4."},
+  {title:"Anti-compulsion nudge", body:"Re-record similar content 3+ times in a row and the engine flags it. Disfluency can trigger obsessive redo loops — this pushes you to accept and move on."},
   {title:"Weekly clinical report", body:'Learning tab → "Weekly Report" button. GPT-generated summary of your week: disfluency trends, trigger patterns, progress. Uses real session data.'},
   {title:"Voice Profile unlocks at 500 words", body:'The "You" tab shows your headline, catchphrase, peak dictation time, day streak, and superpower. Celebrates what you accomplished, not what went wrong.'},
   {title:"Whisper hallucinations auto-stripped", body:"When audio is silent or whispered, Whisper sometimes injects 'Transcribed by otter.ai' or 'Thanks for watching' — training data leaks. Engine catches and removes them."},
@@ -5301,12 +5301,12 @@ function toggleTipsEnabled(){
   // Contextual hint pools by current state
   const HINTS_BY_CTX = {
     command: ['select text + hold F8', 'say: make this formal', 'say: fix grammar', 'say: translate', 'transforms selection'],
-    recording: ['speak naturally', 'release when done', 'hold through blocks'],
+    recording: ['speak naturally', 'release when done', 'hold through tough patches'],
     processing: ['reconstructing...'],
     l1: ['raw transcription', 'no GPT call', 'fastest, cheapest', 'F11 = next layer'],
     l2: ['GPT rewrites with tone', 'F10 cycles tone', 'fillers stripped', 'F8 to transform text'],
     l3: ['uses your vocabulary', 'learns your corrections', 'same as L2 + profile'],
-    l4: ['stutter clinical mode', 'tracks onset weights', 'covert avoidance detected', 'use High Stress preset', 'hold F9 through blocks'],
+    l4: ['speech disfluency mode', 'learns your hard sounds', 'spots word swaps', 'use High Stress preset', 'hold F9 through tough patches'],
     idle_default: ['F9 to record', 'hold F8 to transform', 'click "idle" to toggle', 'F10 tone · F11 layer', 'click any stat to jump', 'F5 or Ctrl+R to refresh dashboard'],
     para_on: ['cough/laugh detected', 'non-speech tagged'],
     prosodic_on: ['pitch & energy tracked', 'feeds L4 severity'],
@@ -5437,9 +5437,9 @@ function closeHelp(){
 }
 
 // ── Profile tab — seed the WiM-mirror sections at the top of the existing
-// profile editor (Stutter support / Mostly Use For / Industry / Work Hours /
+// profile editor (Disfluency support / Mostly Use For / Industry / Work Hours /
 // Stats). Runs once after DOM is ready. The original profile sections
-// (Trigger Words, Fillers, Vocabulary, Corrections, Covert Avoidance Pairs,
+// (Trigger Words, Fillers, Vocabulary, Corrections, Hidden Avoidance Pairs,
 // GDPR, Danger Zone) stay below, untouched, with their wired event handlers.
 function _seedProfileTabExtras(){
   const wrap = document.getElementById('profile-wrap');
@@ -5451,16 +5451,16 @@ function _seedProfileTabExtras(){
   // copper accent strip on the left). Matches the rest of the dashboard.
   extras.innerHTML = `
     <div class="profile-section" style="margin-top:6px">
-      <div class="profile-header" style="cursor:default"><span><span class="ph-title">Stutter support</span></span></div>
+      <div class="profile-header" style="cursor:default"><span><span class="ph-title">Disfluency support</span></span></div>
       <div class="profile-body" style="display:block">
         <div class="toggle-row" style="padding:8px 0">
           <label class="toggle-switch"><input type="checkbox" id="toggle-stutter-support" checked><span class="toggle-slider"></span></label>
-          <span class="toggle-label">Stuttering features ON</span>
+          <span class="toggle-label">Disfluency features ON</span>
           <span class="toggle-hint">trigger learning, exposure scoring</span>
         </div>
         <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);line-height:1.6;margin-top:6px">
-          ON: pipeline learns trigger words, onset weights, covert avoidance patterns. Use for severe stutter or hard speech blocks.<br>
-          OFF: skip stutter-specific learners, run as plain dictation cleanup.
+          ON: pipeline learns trigger words, hard-sound weights, hidden avoidance patterns. Use for severe disfluency or hard speech blocks.<br>
+          OFF: skip disfluency-specific learners, run as plain dictation cleanup.
         </div>
       </div>
     </div>
@@ -5690,14 +5690,14 @@ function _checkProfileSync(){
   <div class="ha-row open" data-ha>
     <div class="ha-header" onclick="toggleHa(this)">
       <div class="ha-icon">&#9776;</div>
-      <div class="ha-info"><div class="ha-name">Layers</div><div class="ha-sub">L1 Transcribe through L4 Stutter</div></div>
+      <div class="ha-info"><div class="ha-name">Layers</div><div class="ha-sub">L1 Transcribe through L4 Disfluency</div></div>
       <div class="ha-chevron">&#9654;</div>
     </div>
     <div class="ha-body"><div class="ha-content">
       <strong>L1 Transcribe</strong> &#8212; Whisper only. Raw speech-to-text, no AI cleanup. Fastest.<br>
       <strong>L2 Reconstruct</strong> &#8212; GPT rewrites using your tone. Strips fillers, fixes grammar. ~1-2s slower.<br>
       <strong>L3 Profile</strong> &#8212; Same as L2 + your personal vocabulary and corrections map.<br>
-      <strong>L4 Stutter</strong> &#8212; Full clinical mode. Disfluency tracking, exposure scoring, severity-scaled rewrites.
+      <strong>L4 Disfluency</strong> &#8212; Full clinical mode. Disfluency tracking, exposure scoring, severity-scaled rewrites.
       <div class="ha-example">
         <span class="he-in">You say:</span> "So uh basically the the thing is um working"<br>
         <span class="he-out">L1:</span> "So uh basically the the thing is um working"<br>
@@ -5919,7 +5919,7 @@ function _checkProfileSync(){
       Toggle in the <strong>Voice</strong> section of the sidebar. When ON:<br>
       &#8226; High-pass filter tightens from 70Hz to 100Hz (kills more room noise since whispers have no low-frequency content)<br>
       &#8226; Audio gain doubles (-6dB vs -12dB target) to boost soft speech<br><br>
-      Use it when dictating in shared spaces where you don't want to be heard (library, open office, late at night). Stuttering can worsen under social pressure &#8212; this lets you dictate without drawing attention.
+      Use it when dictating in shared spaces where you don't want to be heard (library, open office, late at night). Disfluency can worsen under social pressure &#8212; this lets you dictate without drawing attention.
     </div></div>
   </div>
 
@@ -5950,7 +5950,7 @@ function _checkProfileSync(){
     <div class="ha-body"><div class="ha-content">
       <strong>Your voice audio is never stored.</strong> It's sent to Whisper for transcription, then discarded.<br><br>
       <strong>Your transcripts stay on YOUR computer</strong> (in <code>~/.lavrentiy/</code>). They never leave your device.<br><br>
-      <strong>If you sign in with Google:</strong> Only pattern metadata syncs to the cloud (trigger words, filler words, vocabulary, corrections, onset weights). Never raw text or audio.<br><br>
+      <strong>If you sign in with Google:</strong> Only pattern metadata syncs to the cloud (trigger words, filler words, vocabulary, corrections, hard-sound weights). Never raw text or audio.<br><br>
       <strong>Export / Delete:</strong> Sign in, go to <strong>The File</strong> tab, click EXPORT to download all your data as JSON, or DELETE CLOUD DATA to wipe your Firestore record (local data stays).<br><br>
       <strong>Retention:</strong> Cloud data auto-deletes after 24 months of inactivity.
     </div></div>
@@ -5964,7 +5964,7 @@ function _checkProfileSync(){
     </div>
     <div class="ha-body"><div class="ha-content">
       <strong>Loops</strong> (learn bar) &#8212; Count of Whisper hallucination loops this session. When Whisper gets stuck repeating ("bad bad bad..." / "Thank you Thank you..."), its compression ratio spikes. We detect + strip these segments automatically.<br><br>
-      <strong>Block suspects</strong> (console, brown text) &#8212; Segments where Whisper nearly classified the audio as silence but output text anyway. For stutterers, that "silence" is often a block. We strip short phrases (&le;3 words) Whisper hallucinated into blocks.<br><br>
+      <strong>Block suspects</strong> (console, brown text) &#8212; Segments where Whisper nearly classified the audio as silence but output text anyway. That "silence" is often a hard speech block. We strip short phrases (&le;3 words) Whisper hallucinated into blocks.<br><br>
       <strong>Known hallucinations auto-stripped:</strong> "Transcribed by otter.ai", "Thank you for watching", "Subscribe to my channel", "Subtitles by Amara.org" &#8212; these leak in from Whisper's YouTube training data.
     </div></div>
   </div>
