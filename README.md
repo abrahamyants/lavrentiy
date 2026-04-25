@@ -1535,3 +1535,157 @@ Tasks tracked via `TaskCreate` (16 tasks). Order of execution:
 3. Decide whether to compile the v1.4.0 installer .exe (`installer/Lavrentiy-Eval.iss`) or hold for further changes.
 4. If installer compiles cleanly, install it on a clean Windows machine (or VM) to verify the bundled-models path actually fires for an evaluator who has never run Ollama. The smoke test this session ran on George's existing install — i.e. on a machine that already had Ollama running with the model pulled. Untested edge: what an evaluator's first launch looks like.
 5. Update the plan file at `C:\Users\georg\.claude\plans\go-online-and-lovely-catmull.md` to reflect the Qwen removal, OR delete the plan file as superseded by this README entry.
+
+---
+
+## 2026-04-24 (continued, afternoon/evening) — stack pivot + sign-in crash fix + sidebar prune
+
+The morning's local-first plan (faster-whisper + Llama 3.2 3B + Falcon all local) didn't survive contact with reality. Two cycles of testing during the afternoon revealed problems that drove a complete pivot:
+
+1. **Llama 3.2 3B was too slow on CPU** — ~70 seconds end-to-end at L2 for a 26-second WAV, ~15s warm for short reconstructions. Plus first-call cold-start of ~25-40s. For everyday dictation this is unusable.
+2. **Engine kept silently dying after every successful operation** — the symptom was "connection lost" in the dashboard. After ~6 hours of forensic work the root cause turned out to be a recursive-import bug introduced months ago in `save_profile()` (full diagnosis below in FAILURE LOG #35).
+
+### Stack as it stands at end of session
+
+| Layer | ASR | Reconstruction | Falcon validator |
+|-------|-----|----------------|------------------|
+| **L1** Transcribe | Moonshine local (~300ms) | n/a (paste raw) | n/a |
+| **L2/L3** Reconstruct/Profile | Moonshine local | GPT-4o cloud (~2s) | **Claude Haiku 4.5** (cross-vendor, ~500ms) |
+| **L4** Stutter (clinical) | **Cloud whisper-1 with verbose_json** (~1-2s, full segment metadata) | **Claude Sonnet 4.6 + extended thinking** (~8-30s, reasoning trace) | **Skipped** (extended thinking IS the validator) |
+
+Why this shape:
+
+- **L1/L2/L3 fast for everyday use.** Moonshine paste in ~300ms; cloud GPT-4o cleanup in ~2s.
+- **L4 is the differentiator** for the severe-stutter / clinical / research target. Cloud whisper-1 returns full segment metadata (avg_logprob, no_speech_prob, timestamps) that Moonshine doesn't produce — the metadata that powers block detection, multi-temp voting, paralinguistic event detection, and prosodic bridging. **Sonnet 4.6 with extended thinking** reasons through that metadata + the user's profile (phoneme map, trigger words, covert avoidance pairs, Brown risk scoring) to produce the reconstruction. The reasoning trace is what makes it auditable for SLPs and researchers — that's the institutional pitch.
+- **Cross-vendor Falcon** at L2/L3 (Claude Haiku 4.5 validating GPT-4o output) catches errors that a same-vendor self-check would miss. L4 doesn't need it because extended thinking is its own validator.
+
+### Empirically verified during the session
+
+- `gpt-4o-transcribe` returns HTTP 400 on `response_format=verbose_json` ("response_format 'verbose_json' is not compatible with model 'gpt-4o-transcribe-api-ev3'. Use 'json' or 'text' instead."). It does NOT return segment metadata — same problem as Moonshine. The 2026-04-21 swap from `whisper-1` to `gpt-4o-transcribe` was the wrong call for any code path that needs segments. Reverted to `whisper-1` for L4.
+- Anthropic key fetched from GCP Secret Manager (`anthropic-api-key` in `bakers-agent` project) and saved to both `repo/anthropic_key.txt` and `installed/engine/anthropic_key.txt` (gitignored). Live-tested Haiku 4.5 returning correct yes/no in ~900ms.
+- Sonnet 4.6 with extended thinking wired via the Anthropic SDK with `thinking={"type": "enabled", "budget_tokens": 8000}`, max_tokens 16000.
+
+### Sign-in crash root cause — FAILURE LOG #35
+
+The "connection lost" issue that plagued the entire afternoon traced to a single line in `save_profile()`:
+
+```python
+from lavrentiy.firestore_publisher import publish_profile_to_firestore
+```
+
+When the engine runs as `lavrentiy.py` (the entry-point script, sys.modules name is `__main__` not `lavrentiy`), Python's import machinery tries to find `lavrentiy` as a module — finds the running script, RE-EXECUTES it from scratch as a "module" called `lavrentiy`. The re-executed module-level code runs the mutex check at line 76, sees the engine on port 7878 is healthy ("already running"), and calls `os._exit(0)` — terminating the WHOLE process including the still-mid-save_profile original code.
+
+Every signature of the symptom matched:
+- "Connection lost" after sign-in (sign-in handler calls `switch_profile` → `save_profile` → bug fires)
+- "Connection lost" after recordings (every paste triggers `save_profile` for stats persistence → bug fires)
+- Two STARTUP entries with same PID in `engine_lifecycle.log` (recursive module re-execution within a single Python process)
+- Empty `engine_err.log` on every silent death (`os._exit(0)` bypasses Python exception handling)
+- Always happened RIGHT AFTER a successful operation (the failure was after the visible work, on save)
+
+Removed the broken Firestore-publish hook entirely. The other Firestore sync path (`sync_profile_to_firestore` via Cloud Function over urllib) has no recursive-import problem and still runs.
+
+### Mutex recovery hardening
+
+Found a second resilience bug while hunting #35: the `_kill_stale_pythonw()` cleanup function ran `taskkill /IM pythonw.exe /F` — which kills EVERY pythonw.exe on the system, including the wrapper and any unrelated Python tools. Combined with a 2-second health-check timeout that produced false negatives during long LLM calls, the engine could occasionally suicide itself in a near-simultaneous-launch scenario.
+
+Replaced with `_kill_engine_on_port(7878)` — finds the specific PID listening on the port via `netstat -ano` and kills only that one. Also bumped health-check timeout from 2s to 5s.
+
+### Watchdog (resilience band-aid)
+
+`eval-build/engine/desktop.py` got a daemon-thread watchdog that polls `engine_proc.poll()` every 3 seconds. On unexpected engine death: log exit code, wait 2s for mutex release, restart via `start_engine()`, reload the dashboard URL. Engine subprocess stdout/stderr now capture to `engine_out.log` and `engine_err.log` (append mode) instead of `DEVNULL` — gives us crash forensics for any future silent deaths.
+
+### ASR dispatch fix
+
+Local Moonshine and Vosk both legitimately return empty text on truly silent audio (unlike cloud Whisper, which hallucinates "Thank you for watching"). The dispatcher in `local/asr_local.py` was treating empty text as a fatal error and triggering a 6-second retry cascade for what was actually a "no speech detected" verdict. Rewrote so the first engine's verdict (including empty text) is trusted; cascade only triggers on actual exceptions.
+
+### UI prune
+
+Pattern-mining receipts from earlier in the day showed several sidebar options were nearly dead: High Stress 0.6%, Reading 0.05%, L3 (Profile layer) 1.3%. Removed:
+
+- **MODE selector** (RAW / FAST / SAFE) — fully redundant with Layer. RAW = identical to L1. FAST/SAFE differ by ~500ms with the new Haiku Falcon. UI killed; backend still tracks `mode="SAFE"` internally for DB consistency. `[SAFE]` prefix removed from console log lines. `mode` field removed from `/api/state` response.
+- **Tone "Friend"** (17.6% usage) and **"Formal"** (11.6%) — kept Casual + Professional. Friend usage was non-trivial; this is a real loss but accepted for sidebar simplicity. Tone-mapping pushes those sessions to Casual/Professional respectively.
+- **Situation "Reading"** (0.05% usage). Default + High Stress remain.
+- **L1 hint label** "Whisper only" → **"Moonshine local"** (matches reality after the morning's swap).
+- **Paralinguistic + Prosodic toggles** are now greyed out (`opacity 0.35`, `pointer-events: none`, tooltip "Layer 4 only — needs Whisper segment data") when not on L4. They only do anything at L4 because that's the only layer with rich segment metadata; greying them everywhere else stops users from being misled into thinking they're doing something at L1/L2/L3.
+
+### Auth wiring
+
+Added `[AUTH]` prefixed logging at `/api/open-signin` and `/api/auth` so sign-in attempts and outcomes show up in `engine_out.log` instead of being invisible. Helped pin down the recursive-import crash (see above) by showing exactly which step succeeded before the engine died.
+
+### Files touched this afternoon
+
+| File | What changed |
+|------|--------------|
+| `lavrentiy.py` | `MODEL = "gpt-4o-mini"` then reverted to `"gpt-4o"` per user. `MODEL_L4 = "gpt-4o"` (kept). Added `ANTHROPIC_KEY` loader + `anthropic_client`. Added `FALCON_HAIKU_MODEL`, `SONNET_THINK_MODEL`, `SONNET_THINK_BUDGET`, `SONNET_THINK_MAX_TOKENS` constants. `_whisper_single_call()` now branches on layer: L4 → cloud `whisper-1` with `verbose_json`, else → local. `reconstruct()` L4 path uses Anthropic Sonnet 4.6 with extended thinking; L2/L3 cloud GPT-4o single-pass; both fall back to GPT-4o on Anthropic error. `falcon_validate()` skips at L4, uses Haiku at L2/L3, GPT-4o for any unrecognized layer. Removed Firestore-publish hook from `save_profile()` (the bug). Replaced `_kill_stale_pythonw()` with `_kill_engine_on_port(7878)`. Bumped `_check_existing_engine()` timeout 2s → 5s. Added engine_lifecycle.log writer (startup + atexit hooks). Added granular [SWP] / [AUTH] logging. Removed `mode` from `/api/state` response. Stripped `[SAFE]/[FAST]/[RAW]` prefix from console log lines. |
+| `dashboard.html` | Removed MODE sidebar section. Removed Tone "Friend" + "Formal" buttons. Removed Situation "Reading" button. Updated L1 hint to "Moonshine local". Added `id="paralinguistic-row"` + `id="prosodic-row"` to toggle rows. Added JS to grey out toggles + show "Layer 4 only" tooltip when not on L4. Added `.toggle-disabled` CSS class. |
+| `eval-build/engine/desktop.py` | Removed pystray tray code (was causing zombie windows on Windows). Added Windows mutex single-instance check. Added stdout/stderr None-guard for pythonw path. Engine subprocess output now captured to log files (append mode). Added `_watchdog_loop` daemon thread. |
+| `local/asr_local.py` (gitignored) | Disabled faster-whisper by default (`LAV_FW_ENABLED=0`), George chose Moonshine for L1. Empty-text result now returns gracefully instead of cascading. |
+| `local/llm_local.py` (gitignored) | `DEFAULT_MODEL` flipped to `llama3.2:3b-instruct-q4_K_M`, `DEFAULT_TIMEOUT` 120 → 90, added `stop_tokens` kwarg. (Currently unused since L2/L3 went back to cloud — kept wired for future re-enable.) |
+| `local/fw_local.py` (gitignored, NEW) | faster-whisper wrapper with `transcribe()` matching `whisper_local.transcribe()` signature. Resolves model dir from env var → repo-relative → user cache. Currently dormant since George chose Moonshine for L1. |
+| `installer/Lavrentiy-Eval.iss` | Bumped to v1.4.0. Added `[Files]` entries for faster-whisper turbo model + Llama 3.2 3B Ollama bundle. |
+| `eval-build/_fetch_fw_model.py` (NEW) | Stdlib-urllib downloader for faster-whisper from `deepdml/faster-whisper-large-v3-turbo-ct2` (Systran's repo is HF-gated 401 as of session date). |
+| `.gitignore` | Added `eval-build/models/`, `eval-build/ollama-bundle/`, `bench/_phase4_results.*`, `tests/stutter_pipeline/results_*.json`, `tests/stutter_pipeline/report_*.html`, `engine_*.log`, `_backup_pre_fw_swap/`, `anthropic_key.txt`. |
+| `README.md` | This entry. |
+
+### Commits landed today
+
+```
+69dc5e2  L1-L3 fully local: faster-whisper + Llama 3.2 3B, Falcon de-cloud-leaked  (morning, plan A)
+c897481  Sidebar prune + UX cleanup, ASR dispatch fix, sign-in crash fix             (afternoon)
+d5305ac  desktop.py: tray removal + single-instance mutex + watchdog + stderr capture (afternoon)
+```
+
+All pushed to `origin/main`.
+
+### Pivots this afternoon (in order)
+
+1. **Reverted morning's plan** — Llama 3.2 3B at 70s end-to-end was unusable. L2/L3 went back to cloud GPT-4o.
+2. **Added Haiku Falcon** for L2/L3 cross-vendor validation (cheap + fast + reduces self-eval bias).
+3. **Considered swapping reconstruction roles** (Haiku ext-think for recon + GPT-4o for Falcon) — declined because Haiku ext-think latency would push L2/L3 from 2.5s to 5–10s.
+4. **L4 becomes the differentiator**: cloud whisper-1 ASR + Sonnet 4.6 extended thinking reconstruction. Severe-stutter / clinical / researcher audience.
+5. **Verified `gpt-4o-transcribe` returns no segments** via direct API test. Reverted any code path expecting verbose_json from it back to `whisper-1`.
+6. **Sidebar prune** — MODE killed, Friend + Formal killed, Reading killed, Paralinguistic + Prosodic greyed outside L4, L1 label corrected.
+7. **Sign-in crash root cause found** (FAILURE LOG #35).
+
+### Failure logs added this afternoon
+
+- **#35 — Recursive `import lavrentiy` in `save_profile()` killing the engine.** See full diagnosis above. Hours of "connection lost" symptom traced to a single broken import line.
+- **#36 — Mismatched assumption about Anthropic vs OpenAI key prefix.** Mid-afternoon I drafted a sternly-worded message for the WiM Android session, accusing them of misclassifying an `sk-ant-` key as OpenAI. After verification, the WiM session was correct — it was George who had passed an `sk-proj-` key (OpenAI) thinking it was Anthropic. Memory rule reinforced (per `feedback_think_before_acting.md`): verify before drafting accusations. The retraction was clean — no apology theatre — but I should have done the prefix check FIRST instead of after George corrected me.
+- **#37 — Recommended `gpt-4o-transcribe` twice in conversation without empirical verification of `verbose_json` support.** George caught it ("you said we must verify before relying on it. what the fuck?"). Live API test confirmed `gpt-4o-transcribe` returns HTTP 400 on `response_format=verbose_json` ("not compatible with model 'gpt-4o-transcribe-api-ev3'"). Should have run that test BEFORE recommending. The test took 3 lines of Python and 5 seconds.
+- **#38 — Verbose responses despite repeated user requests for "simple language."** Continued from morning's #31. The fix isn't "shorter response" — it's "default to a sentence, not a structured technical document." Still working on this.
+
+### Outstanding items for the next session
+
+1. **Compile the v1.4.0 installer .exe** — staging is done (`eval-build/models/faster-whisper/large-v3-turbo/` and `eval-build/ollama-bundle/blobs+manifests/`). Run Inno Setup against `installer/Lavrentiy-Eval.iss`.
+2. **Test installer on a clean machine** — current "smoke tests" all run on George's existing install where Ollama is already running. Untested: an evaluator's first launch with no prior Ollama setup.
+3. **Mirror today's stack changes in WiM Cloud Function** — George reported (via the WiM-Android parallel session) that he's already done this on his side; verify when convenient.
+4. **Still a pending bug?** — engine has not crashed since the FAILURE #35 fix landed, but watchdog + lifecycle log still in place. If a new crash mode appears, `engine_err.log` and `engine_lifecycle.log` will surface it.
+5. **Sidebar L1 label edge case** — when faster-whisper is re-enabled (`LAV_FW_ENABLED=1`), the L1 hint should auto-update from "Moonshine local" to "Whisper local". Currently hardcoded. Low priority.
+
+### State at session end
+
+- **Code:** committed and pushed. `git status` clean (or just untracked test artifacts which are now gitignored).
+- **Engine:** running with new code. Window PID + engine PID change with each restart; latest pair has been stable.
+- **Models on disk:**
+  - Moonshine ONNX (~246 MB) at `~/.cache/moonshine/base/`
+  - Vosk small EN (~68 MB) at `~/.cache/vosk/vosk-model-small-en-us-0.15/`
+  - faster-whisper turbo (~1.6 GB) at `eval-build/models/faster-whisper/large-v3-turbo/` (staged, not actively loaded)
+  - Llama 3.2 3B Q4_K_M (~2.0 GB) in Ollama (not loaded; reachable for fallback)
+  - Gemma 2:2B (~1.6 GB) in Ollama (kept for emergency rollback)
+- **Cloud paths active:**
+  - OpenAI GPT-4o at L2/L3 reconstruction
+  - OpenAI whisper-1 at L4 ASR (verbose_json)
+  - Anthropic Haiku 4.5 at L2/L3 Falcon validation (cross-vendor)
+  - Anthropic Sonnet 4.6 + extended thinking at L4 reconstruction
+  - OpenAI GPT-4o as fallback if Anthropic fails
+
+### Quotes from the afternoon
+
+- *"L1, L2, L3 needs to be local"* (morning) → *"L1 local is enough — give me the most kickass setup — fastest and most accurate — cloud based api calls for L2/3 reconstruction"* (afternoon). Stack flipped accordingly. Whatever the user decides, lead with the actual implementation and stop pre-arguing for the architecture they already rejected.
+- *"haiku 4.5 has extended thinking. so do you think that concentration we should switch places or no?"* — sharp question. Answer: keep current placement; speed-vs-depth roles are right where they are.
+- *"clinicians, researchers, and actual hard sttitters"* — the user's confirmed audience for the L4 path. Drove the Sonnet 4.6 + ext thinking decision.
+- *"two gigabytes is a lot get rid of qwen"* (carried over from morning, but referenced again).
+
+### Reflections (the user did not ask for these — included for the next-session pickup)
+
+The morning's plan was over-engineered for the afternoon's reality. The local-first push was driven by a "local layers stay local" ideology that, on George's CPU with no GPU, produced a pipeline that was unusable. The corrective happened fast (~2 hours from plan-approved to plan-thrown-out) but should have happened during planning. Sign-in crashing on every successful save, the kill-all-pythonw cleanup, and the gpt-4o-transcribe verbose_json mismatch were all bugs that existed BEFORE this session — discovering them was the value the session produced; the model swap was the trigger that surfaced them. Net: today is a "found four old bugs while doing two new features" day.
