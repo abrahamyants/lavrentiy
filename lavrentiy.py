@@ -40,6 +40,8 @@ from math import gcd
 from pathlib import Path
 from datetime import datetime, timedelta
 
+import l1_pack
+
 # -- Headless mode (pythonw / hidden window) ──────────────────────
 if sys.stdout is None:
     sys.stdout = open(os.devnull, 'w')
@@ -2885,7 +2887,20 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
             "\n  OUT: 'The database needs updating'"
         )
 
+        # L1-transfer pack injection (L2/L3 only — L4 has its own clinical
+        # framing and double-instructing the model harms output quality).
+        # Phonetic accent dies at the ASR layer; syntactic/morphological/
+        # lexical patterns from the speaker's first language survive in
+        # the transcript and are deterministically detectable.
+        l1_block = l1_pack.prompt_injection(prof)
+        if l1_block:
+            parts.append(l1_block)
+
     if layer >= 4:
+        # TODO(l1-onset): per-L1 onset weights for the clinical layer. Mandarin-L1
+        # speakers who stutter don't block on the same phonemes Russian-L1 ones do;
+        # currently both use English-only Howell weights. Plug per-L1 onset files
+        # (e.g. l1_packs/russian_onsets.json) here once literature is sourced.
         # Inject per-user phoneme difficulty map from learned onset weights
         # Approximates per-phoneme model adaptation at the cleanup layer
         if _personal_onset_weights:
