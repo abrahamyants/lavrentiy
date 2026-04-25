@@ -1473,11 +1473,11 @@ body::before {
   line-height: 1.0;
   color: var(--text-muted);
   pointer-events: none; z-index: 2;
-  background: linear-gradient(135deg, rgba(185,28,28,0.12) 0%, rgba(92,42,42,0.35) 100%);
+  background: linear-gradient(135deg, rgba(185,28,28,0.30) 0%, rgba(92,42,42,0.65) 100%);
   border: 1px solid rgba(212,165,116,0.35);
   border-left: 3px solid #d4a574;
   border-radius: 4px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04);
 }
 .console-legend > div { padding: 2px 0; }
 /* Only show legend when console tab is active */
@@ -2549,6 +2549,29 @@ body::before {
   padding: 2px 7px; border-radius: 3px; border: 1px solid var(--border);
   box-shadow: 0 2px 0 rgba(0,0,0,0.1); margin: 0 2px;
 }
+.pipe-flow {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 4px; margin: 14px 0;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 1px;
+}
+.pipe-box {
+  flex: 1; min-width: 76px;
+  padding: 8px 6px; border: 1px solid var(--border); border-radius: 6px;
+  background: rgba(255,255,255,0.02); text-align: center;
+}
+.pipe-box.pipe-cloud { border-color: rgba(185,28,28,0.35); }
+.pipe-name { color: var(--red-bright); font-weight: 600; letter-spacing: 2px; }
+.pipe-sub { color: var(--text-dim); font-size: 8px; margin-top: 3px; line-height: 1.4; }
+.pipe-arrow { color: var(--text-muted); font-size: 14px; flex-shrink: 0; }
+.layer-cmp {
+  display: grid; grid-template-columns: 60px 1fr; gap: 6px 12px;
+  margin: 14px 0; font-family: var(--mono); font-size: 10px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: rgba(255,255,255,0.02); padding: 12px 14px;
+}
+.layer-cmp .lc-tag { color: var(--red-bright); font-weight: 600; letter-spacing: 2px; font-size: 9px; align-self: center; }
+.layer-cmp .lc-row { color: var(--text-dim); line-height: 1.6; padding: 4px 0; border-top: 1px solid rgba(255,255,255,0.04); }
+.layer-cmp .lc-row:first-of-type, .layer-cmp .lc-tag:first-of-type { border-top: none; padding-top: 0; }
 .help-backdrop {
   position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 999;
   background: rgba(0,0,0,0.25); opacity: 0; pointer-events: none; transition: opacity 0.3s;
@@ -3361,15 +3384,13 @@ const I18N={
   help_search:{en:'Search...',ru:'Поиск...'},
   // Help sections
   ha_layers:{en:'Layers',ru:'Уровни'},ha_layers_sub:{en:'L1 Transcribe through L4 Disfluency',ru:'L1 Транскрипция \u2014 L4 Заикание'},
-  ha_layers_body:{en:'<strong>L1 Transcribe</strong> \u2014 Whisper only. Raw speech-to-text, no AI cleanup. Fastest.<br><strong>L2 Reconstruct</strong> \u2014 GPT rewrites using your tone. Strips fillers, fixes grammar. ~1-2s slower.<br><strong>L3 Profile</strong> \u2014 Same as L2 + your personal vocabulary and corrections map.<br><strong>L4 Disfluency</strong> \u2014 Full clinical mode. Disfluency tracking, exposure scoring, severity-scaled rewrites.<div class="ha-example"><span class="he-in">You say:</span> "So uh basically the the thing is um working"<br><span class="he-out">L1:</span> "So uh basically the the thing is um working"<br><span class="he-out">L2:</span> "The thing is working."</div>',ru:'<strong>L1 Транскрипция</strong> \u2014 Только Whisper. Сырой текст, без ИИ-обработки. Самый быстрый.<br><strong>L2 Реконструкция</strong> \u2014 GPT переписывает в вашем тоне. Убирает паразиты, исправляет грамматику. На ~1-2с медленнее.<br><strong>L3 Профиль</strong> \u2014 L2 + ваш личный словарь и карта коррекций.<br><strong>L4 Заикание</strong> \u2014 Клинический режим. Отслеживание дисфлюенций, оценка экспозиции, масштабированные правки.<div class="ha-example"><span class="he-in">Вы говорите:</span> "Ну э-э в общем-то это это вещь э-э работает"<br><span class="he-out">L1:</span> "Ну э-э в общем-то это это вещь э-э работает"<br><span class="he-out">L2:</span> "Эта вещь работает."</div>'},
+  ha_layers_body:{en:'<div class="layer-cmp"><div class="lc-tag">L1</div><div class="lc-row"><strong>Transcribe</strong> \u2014 Local Moonshine on-device. Quick disfluency cleanup. No cloud, no cost.</div><div class="lc-tag">L2</div><div class="lc-row"><strong>Reconstruct</strong> \u2014 GPT-4o rewrites in your tone. Haiku 4.5 cross-checks meaning. ~2\u20134s.</div><div class="lc-tag">L3</div><div class="lc-row"><strong>Profile</strong> \u2014 Same as L2 + your personal vocabulary &amp; corrections.</div><div class="lc-tag">L4</div><div class="lc-row"><strong>Disfluency</strong> \u2014 Cloud Whisper (verbose) + Sonnet 4.6 with extended thinking. Hard-sound map, hidden avoidance, exposure scoring. The clinical engine.</div></div><div class="ha-example"><span class="he-in">You say:</span> "So uh basically the the thing is um working"<br><span class="he-out">L1:</span> "So basically the thing is working" <span style="opacity:0.6">(auto-cleanup)</span><br><span class="he-out">L2:</span> "The thing is working."</div>',ru:'<strong>L1 Транскрипция</strong> \u2014 Только Whisper. Сырой текст, без ИИ-обработки. Самый быстрый.<br><strong>L2 Реконструкция</strong> \u2014 GPT переписывает в вашем тоне. Убирает паразиты, исправляет грамматику. На ~1-2с медленнее.<br><strong>L3 Профиль</strong> \u2014 L2 + ваш личный словарь и карта коррекций.<br><strong>L4 Заикание</strong> \u2014 Клинический режим. Отслеживание дисфлюенций, оценка экспозиции, масштабированные правки.<div class="ha-example"><span class="he-in">Вы говорите:</span> "Ну э-э в общем-то это это вещь э-э работает"<br><span class="he-out">L1:</span> "Ну э-э в общем-то это это вещь э-э работает"<br><span class="he-out">L2:</span> "Эта вещь работает."</div>'},
   ha_tone:{en:'Tone',ru:'Тон'},ha_tone_sub:{en:'How GPT rewrites your speech (L2+)',ru:'Как GPT переписывает вашу речь (L2+)'},
-  ha_tone_body:{en:'<strong>Casual</strong> \u2014 Conversational. Contractions, simple words.<br><strong>Professional</strong> \u2014 Business-ready. Clean, precise language.<br><strong>Friend</strong> \u2014 Relaxed. Like texting a friend.<br><strong>Formal</strong> \u2014 Academic/legal. No contractions, precise.<br><br>Has no effect on L1 (collapses when L1 is selected).',ru:'<strong>Обычный</strong> \u2014 Разговорный стиль. Простые слова, сокращения.<br><strong>Деловой</strong> \u2014 Для бизнеса. Чистый, точный язык.<br><strong>Дружеский</strong> \u2014 Расслабленный. Как переписка с другом.<br><strong>Формальный</strong> \u2014 Академический/юридический. Без сокращений, точный.<br><br>Не влияет на L1 (сворачивается при выборе L1).'},
-  ha_mode:{en:'Mode',ru:'Режим'},ha_mode_sub:{en:'Pipeline steps: RAW, FAST, SAFE',ru:'Шаги конвейера: RAW, FAST, SAFE'},
-  ha_mode_body:{en:'<strong>RAW</strong> <code>paste as-is</code> \u2014 GPT runs for analytics but pastes Whisper\'s original text.<br><strong>FAST</strong> <code>skip validation</code> \u2014 GPT rewrites, trust it, paste. Best speed/quality.<br><strong>SAFE</strong> <code>+ Falcon check</code> \u2014 GPT rewrites, Falcon verifies meaning preserved. Slowest, safest.<br><br>All three produce identical output on L1. Collapses when L1 is selected.',ru:'<strong>RAW</strong> <code>вставить как есть</code> \u2014 GPT работает для аналитики, но вставляет оригинальный текст Whisper.<br><strong>FAST</strong> <code>без проверки</code> \u2014 GPT переписывает, доверяем, вставляем. Лучший баланс скорости/качества.<br><strong>SAFE</strong> <code>+ проверка Falcon</code> \u2014 GPT переписывает, Falcon проверяет сохранение смысла. Медленнее, но безопаснее.<br><br>Все три дают одинаковый результат на L1. Сворачивается при выборе L1.'},
+  ha_tone_body:{en:'<strong>Casual</strong> \u2014 Conversational. Contractions, simple words.<br><strong>Professional</strong> \u2014 Business-ready. Clean, precise language.<br><br>Has no effect on L1 (collapses when L1 is selected).',ru:'<strong>Обычный</strong> \u2014 Разговорный стиль. Простые слова, сокращения.<br><strong>Деловой</strong> \u2014 Для бизнеса. Чистый, точный язык.<br><strong>Дружеский</strong> \u2014 Расслабленный. Как переписка с другом.<br><strong>Формальный</strong> \u2014 Академический/юридический. Без сокращений, точный.<br><br>Не влияет на L1 (сворачивается при выборе L1).'},
   ha_enhance:{en:'Enhancements',ru:'Улучшения'},ha_enhance_sub:{en:'Paralinguistic + Prosodic analysis',ru:'Паралингвистический + просодический анализ'},
-  ha_enhance_body:{en:'<strong>Paralinguistic</strong> \u2014 Detects cough, laugh, sigh, throat-clear, breathing, pause. Independent of layer.<br>&nbsp;&nbsp;\u2022 <strong>Transcribe sub-toggle:</strong> ON = tags injected in text (<code>[Laughter]</code>). OFF = logged only.<br><br><strong>Prosodic</strong> \u2014 Tracks pitch (F0), energy, speaking rate. Feeds severity modifier on L4. Auto-enables on L4 and High Stress.<div class="ha-example"><span class="he-out">Console:</span> "Speech: pause_ratio=47% rate=3.4syl/s \u2192 severity +0.4"<br><span class="he-out">Console:</span> "Prosodic: Vocal tension (erratic pitch in 100%)"</div>',ru:'<strong>Паралингвистика</strong> \u2014 Определяет кашель, смех, вздох, прочистку горла, дыхание, паузу. Независимо от уровня.<br>&nbsp;&nbsp;\u2022 <strong>Транскрипция:</strong> ВКЛ = теги в тексте (<code>[Смех]</code>). ВЫКЛ = только в логе.<br><br><strong>Просодика</strong> \u2014 Отслеживает тон (F0), энергию, темп речи. Влияет на модификатор тяжести на L4. Авто-включается на L4 и при Стрессе.<div class="ha-example"><span class="he-out">Консоль:</span> "Речь: pause_ratio=47% rate=3.4syl/s \u2192 severity +0.4"<br><span class="he-out">Консоль:</span> "Просодика: Вокальное напряжение (хаотичный тон в 100%)"</div>'},
+  ha_enhance_body:{en:'Both toggles only do work at <strong>L4</strong> \u2014 greyed out at L1/L2/L3 because nothing else consumes them.<br><br><strong>Paralinguistic</strong> \u2014 Detects cough, laugh, sigh, throat-clear, breathing, pause.<br>&nbsp;&nbsp;\u2022 <strong>Transcribe sub-toggle:</strong> ON = tags injected in text (<code>[Laughter]</code>). OFF = logged only.<br><br><strong>Prosodic</strong> \u2014 Tracks pitch (F0), energy, speaking rate. Feeds severity modifier on L4. Auto-enables on L4 and High Stress.<div class="ha-example"><span class="he-out">Console:</span> "Speech: pause_ratio=47% rate=3.4syl/s \u2192 severity +0.4"<br><span class="he-out">Console:</span> "Prosodic: Vocal tension (erratic pitch in 100%)"</div>',ru:'<strong>Паралингвистика</strong> \u2014 Определяет кашель, смех, вздох, прочистку горла, дыхание, паузу. Независимо от уровня.<br>&nbsp;&nbsp;\u2022 <strong>Транскрипция:</strong> ВКЛ = теги в тексте (<code>[Смех]</code>). ВЫКЛ = только в логе.<br><br><strong>Просодика</strong> \u2014 Отслеживает тон (F0), энергию, темп речи. Влияет на модификатор тяжести на L4. Авто-включается на L4 и при Стрессе.<div class="ha-example"><span class="he-out">Консоль:</span> "Речь: pause_ratio=47% rate=3.4syl/s \u2192 severity +0.4"<br><span class="he-out">Консоль:</span> "Просодика: Вокальное напряжение (хаотичный тон в 100%)"</div>'},
   ha_situation:{en:'Situation',ru:'Ситуация'},ha_situation_sub:{en:'One-click engine presets',ru:'Пресеты движка в одно нажатие'},
-  ha_situation_body:{en:'<strong>Default</strong> \u2014 Everyday dictation. Severity 1.0. No auto-toggles.<br><strong>High Stress</strong> \u2014 Phone, interview, presentation. Auto-enables L4, DAF 100ms, all toggles. Severity 1.5.<br><strong>Reading</strong> \u2014 Reading aloud. Near-fluent. Severity 0.3, light L3 touch.',ru:'<strong>Обычная</strong> \u2014 Повседневная диктовка. Тяжесть 1.0. Без авто-переключений.<br><strong>Стресс</strong> \u2014 Телефон, собеседование, презентация. Авто-включает L4, DAF 100мс, все переключатели. Тяжесть 1.5.<br><strong>Чтение</strong> \u2014 Чтение вслух. Уверенная речь. Тяжесть 0.3, лёгкий L3.'},
+  ha_situation_body:{en:'<strong>Default</strong> \u2014 Everyday dictation. Severity 1.0. No auto-toggles.<br><strong>High Stress</strong> \u2014 Phone, interview, presentation. Auto-enables L4, DAF 100ms, paralinguistic + prosodic. Severity 1.5.',ru:'<strong>Обычная</strong> \u2014 Повседневная диктовка. Тяжесть 1.0. Без авто-переключений.<br><strong>Стресс</strong> \u2014 Телефон, собеседование, презентация. Авто-включает L4, DAF 100мс, все переключатели. Тяжесть 1.5.<br><strong>Чтение</strong> \u2014 Чтение вслух. Уверенная речь. Тяжесть 0.3, лёгкий L3.'},
   ha_daf:{en:'DAF',ru:'DAF'},ha_daf_sub:{en:'Delayed Auditory Feedback for fluency',ru:'Задержанная слуховая обратная связь'},
   ha_daf_body:{en:'Plays your voice back through headphones with a slight delay. The delay tricks the brain into slowing down, improving fluency. Independent of all other settings.<br><br><strong>Toggle:</strong> ON/OFF &nbsp; <strong>Dial:</strong> Delay in milliseconds (default 100ms). More = stronger effect.',ru:'Воспроизводит ваш голос через наушники с небольшой задержкой. Задержка заставляет мозг замедлиться, улучшая плавность речи. Независимо от других настроек.<br><br><strong>Переключатель:</strong> ВКЛ/ВЫКЛ &nbsp; <strong>Регулятор:</strong> Задержка в миллисекундах (по умолчанию 100мс). Больше = сильнее эффект.'},
   ha_whisper:{en:'Whisper Diagnostics',ru:'Диагностика Whisper'},ha_whisper_sub:{en:'Multi-temp, blocks, confidence',ru:'Мульти-темп, блоки, уверенность'},
@@ -3381,9 +3402,9 @@ const I18N={
   ha_colors:{en:'Console Colors',ru:'Цвета консоли'},ha_colors_sub:{en:'What the colored text means',ru:'Значение цветного текста'},
   ha_colors_body:{en:'<strong style="color:#222">White</strong> \u2014 Your transcribed speech (with word count)<br><strong style="color:#16a34a">Green</strong> \u2014 Pipeline status, recording, paste timing<br><strong style="color:#a16207">Yellow</strong> \u2014 Speech analytics and Whisper diagnostics<br><strong style="color:#dc2626">Red</strong> \u2014 Prosodic alerts (vocal tension, erratic pitch)<br><strong style="color:#92400e">Brown</strong> \u2014 Block suspect (Whisper hallucinated over silence)',ru:'<strong style="color:#222">Белый</strong> \u2014 Ваша транскрибированная речь (с количеством слов)<br><strong style="color:#16a34a">Зелёный</strong> \u2014 Статус конвейера, запись, время вставки<br><strong style="color:#a16207">Жёлтый</strong> \u2014 Аналитика речи и диагностика Whisper<br><strong style="color:#dc2626">Красный</strong> \u2014 Просодические предупреждения (голосовое напряжение, хаотичный тон)<br><strong style="color:#92400e">Коричневый</strong> \u2014 Подозрение на блок (Whisper галлюцинировал в тишине)'},
   ha_pipeline:{en:'How It Works',ru:'Как это работает'},ha_pipeline_sub:{en:'What happens when you press Record',ru:'Что происходит при нажатии Запись'},
-  ha_pipeline_body:{en:'<strong style="color:var(--red-bright)">1. You speak</strong><br>Your voice is captured through the microphone. The audio is cleaned up (background noise removed, volume leveled) before anything else touches it.<br><br><strong style="color:var(--red-bright)">2. Whisper listens</strong><br>OpenAI\u2019s Whisper converts your speech to text. It also reports <em>how confident</em> it is about each word. Quiet moments (blocks, pauses) are flagged rather than guessed at.<br><span style="opacity:0.6;font-size:0.9em">If you use Script Prep, your intended text helps Whisper guess better \u2014 like giving it the answer key.</span><br><br><strong style="color:var(--red-bright)">3. Quick cleanup</strong><br>Before any AI gets involved, obvious disfluencies are stripped automatically (zero cost, instant):<br>\u2022 Repeated syllables: \u201cp-p-pop\u201d \u2192 \u201cpop\u201d<br>\u2022 Repeated words: \u201cI I I want\u201d \u2192 \u201cI want\u201d<br>\u2022 Fillers: \u201cum\u201d, \u201cuh\u201d, \u201clike\u201d, \u201cyou know\u201d<br>\u2022 False starts: \u201cgoing to\u2014 I went\u201d \u2192 \u201cI went\u201d<br>\u2022 Prolongations: \u201cmmmmaybe\u201d \u2192 \u201cmaybe\u201d<br><span style="opacity:0.6;font-size:0.9em">Natural phrases like \u201cbye bye\u201d and \u201chad had\u201d are kept \u2014 real grammar, not disfluencies.</span><br><br><strong style="color:var(--red-bright)">4. Depends on your Layer:</strong><br><br><strong>Layer 1</strong> \u2014 Done. The cleaned text is pasted. No AI, no cost beyond transcription.<br><br><strong>Layer 2</strong> \u2014 GPT rewrites using your chosen tone (casual, professional, etc). It knows the text came from a microphone, so it\u2019s forgiving about messiness. No personal data used.<br><br><strong>Layer 3</strong> \u2014 Same as L2, plus GPT knows <em>your</em> preferred words and learned corrections.<br><br><strong>Layer 4</strong> \u2014 The full engine. A stronger AI model gets a detailed briefing:<br>\u2022 Which sounds are hardest for you<br>\u2022 Words you tend to avoid and swap<br>\u2022 Where Whisper was uncertain or detected a block<br>\u2022 Non-verbal events (coughs, pauses) so it doesn\u2019t make up words<br>\u2022 Your pitch, energy, and speaking rate patterns<br><br><strong style="color:var(--red-bright)">5. Safety check</strong><br>In SAFE mode, a second AI reads both your original words and the rewrite, and asks: \u201cDid the meaning change?\u201d If yes, the rewrite is rejected and your original text is used. Numbers, dollar amounts, and percentages are double-checked separately.<br><br><strong style="color:var(--red-bright)">6. Paste</strong><br>The final text goes to your clipboard and is pasted into whatever app you\u2019re using.',ru:'<strong style="color:var(--red-bright)">1. \u0412\u044b \u0433\u043e\u0432\u043e\u0440\u0438\u0442\u0435</strong><br>\u0412\u0430\u0448 \u0433\u043e\u043b\u043e\u0441 \u0437\u0430\u043f\u0438\u0441\u044b\u0432\u0430\u0435\u0442\u0441\u044f \u0447\u0435\u0440\u0435\u0437 \u043c\u0438\u043a\u0440\u043e\u0444\u043e\u043d. \u0410\u0443\u0434\u0438\u043e \u043e\u0447\u0438\u0449\u0430\u0435\u0442\u0441\u044f \u043f\u0435\u0440\u0435\u0434 \u043e\u0431\u0440\u0430\u0431\u043e\u0442\u043a\u043e\u0439.'},
+  ha_pipeline_body:{en:'<div class="pipe-flow"><div class="pipe-box"><div class="pipe-name">MIC</div><div class="pipe-sub">audio in</div></div><div class="pipe-arrow">\u2192</div><div class="pipe-box"><div class="pipe-name">ASR</div><div class="pipe-sub">Moonshine local<br>(Whisper at L4)</div></div><div class="pipe-arrow">\u2192</div><div class="pipe-box"><div class="pipe-name">CLEANUP</div><div class="pipe-sub">strip fillers<br>+ repeats</div></div><div class="pipe-arrow">\u2192</div><div class="pipe-box pipe-cloud"><div class="pipe-name">REWRITE</div><div class="pipe-sub">GPT-4o (L2/3)<br>Sonnet ET (L4)</div></div><div class="pipe-arrow">\u2192</div><div class="pipe-box pipe-cloud"><div class="pipe-name">FALCON</div><div class="pipe-sub">meaning<br>cross-check</div></div><div class="pipe-arrow">\u2192</div><div class="pipe-box"><div class="pipe-name">PASTE</div><div class="pipe-sub">\u2192 active app</div></div></div><strong style="color:var(--red-bright)">1. You speak</strong><br>Mic captures audio. Background noise removed, volume leveled. Cleanup happens before anything else touches it.<br><br><strong style="color:var(--red-bright)">2. ASR listens</strong><br><strong>L1/L2/L3:</strong> Moonshine on-device transcribes \u2014 no cloud, no cost. <strong>L4:</strong> Cloud Whisper with verbose JSON returns per-segment confidence (<code>avg_logprob</code>, <code>no_speech_prob</code>) the clinical prompt depends on.<br><span style="opacity:0.6;font-size:0.9em">If you use Script Prep, your intended text seeds the decoder \u2014 like giving it the answer key.</span><br><br><strong style="color:var(--red-bright)">3. Quick cleanup</strong><br>Before any AI gets involved, obvious disfluencies are stripped (zero cost, instant):<br>\u2022 Repeated syllables: \u201cp-p-pop\u201d \u2192 \u201cpop\u201d<br>\u2022 Repeated words: \u201cI I I want\u201d \u2192 \u201cI want\u201d<br>\u2022 Fillers: \u201cum\u201d, \u201cuh\u201d, \u201clike\u201d, \u201cyou know\u201d<br>\u2022 False starts: \u201cgoing to\u2014 I went\u201d \u2192 \u201cI went\u201d<br>\u2022 Prolongations: \u201cmmmmaybe\u201d \u2192 \u201cmaybe\u201d<br><span style="opacity:0.6;font-size:0.9em">Natural phrases like \u201cbye bye\u201d and \u201chad had\u201d are kept \u2014 real grammar, not disfluencies.</span><br><br><strong style="color:var(--red-bright)">4. Rewrite (depends on Layer)</strong><br><br><strong>Layer 1</strong> \u2014 Done. Cleaned text pasted. No AI, no cost.<br><br><strong>Layer 2</strong> \u2014 GPT-4o rewrites in your tone. It knows the text came from a mic, so it is forgiving about messiness. No personal data.<br><br><strong>Layer 3</strong> \u2014 Same as L2, plus GPT knows <em>your</em> preferred words and learned corrections.<br><br><strong>Layer 4</strong> \u2014 Sonnet 4.6 with extended thinking. Reasons through a detailed briefing:<br>\u2022 Which first sounds are hardest for you (your hard-sound map)<br>\u2022 Words you tend to avoid and swap (hidden avoidance pairs)<br>\u2022 Where Whisper was uncertain or detected a hard speech block<br>\u2022 Non-verbal events (coughs, laughter, pauses) so it does not hallucinate words over them<br>\u2022 Your pitch, energy, and speaking rate patterns<br><br><strong style="color:var(--red-bright)">5. Cross-check</strong><br>A second AI reads both your original words and the rewrite, and asks: \u201cDid the meaning change?\u201d If yes, the rewrite is rejected and your original text is used. <strong>L2/L3:</strong> Claude Haiku 4.5 (cross-vendor \u2014 Anthropic checks OpenAI). <strong>L4:</strong> GPT-4o (cross-vendor \u2014 OpenAI checks Anthropic). Numbers, dollar amounts, and percentages double-checked separately.<br><br><strong style="color:var(--red-bright)">6. Paste</strong><br>Final text \u2192 clipboard \u2192 pasted into the active app.',ru:'<strong style="color:var(--red-bright)">1. \u0412\u044b \u0433\u043e\u0432\u043e\u0440\u0438\u0442\u0435</strong><br>\u0412\u0430\u0448 \u0433\u043e\u043b\u043e\u0441 \u0437\u0430\u043f\u0438\u0441\u044b\u0432\u0430\u0435\u0442\u0441\u044f \u0447\u0435\u0440\u0435\u0437 \u043c\u0438\u043a\u0440\u043e\u0444\u043e\u043d. \u0410\u0443\u0434\u0438\u043e \u043e\u0447\u0438\u0449\u0430\u0435\u0442\u0441\u044f \u043f\u0435\u0440\u0435\u0434 \u043e\u0431\u0440\u0430\u0431\u043e\u0442\u043a\u043e\u0439.'},
   ha_tips:{en:'Tips',ru:'Подсказки'},ha_tips_sub:{en:'Power user tricks',ru:'Трюки для продвинутых'},
-  ha_tips_body:{en:'\u2022 Click the <strong>timer</strong> in the status ring to reset it.<br>\u2022 <strong>Compact toggle</strong> (top-left) collapses to a minimal bar with clickable chips.<br>\u2022 Tone and Mode <strong>auto-collapse</strong> on L1 (they have no effect).<br>\u2022 <strong>High Stress</strong> situation is a one-click panic button: L4 + DAF + all toggles.<br>\u2022 Click any <strong>stat/learn bar cell</strong> to jump to its detail tab.',ru:'\u2022 Нажмите на <strong>таймер</strong> в кольце статуса для сброса.<br>\u2022 <strong>Компактный режим</strong> (вверху слева) сворачивает в минимальную полосу с кликабельными чипами.<br>\u2022 Тон и Режим <strong>автоматически сворачиваются</strong> на L1 (они не влияют).<br>\u2022 <strong>Стресс</strong> \u2014 кнопка паники в одно нажатие: L4 + DAF + все переключатели.<br>\u2022 Нажмите на любую <strong>ячейку статистики/обучения</strong> для перехода к вкладке.'},
+  ha_tips_body:{en:'\u2022 Click the <strong>timer</strong> in the status ring to reset it.<br>\u2022 <strong>Compact toggle</strong> (top-left) collapses to a minimal bar with clickable chips.<br>\u2022 Tone <strong>auto-collapses</strong> on L1 (no effect there).<br>\u2022 <strong>High Stress</strong> situation is a one-click panic button: L4 + DAF + paralinguistic + prosodic.<br>\u2022 Paralinguistic + Prosodic toggles only do work at L4 (greyed out elsewhere).<br>\u2022 Click any <strong>stat/learn bar cell</strong> to jump to its detail tab.<br>\u2022 <strong>F8</strong> = Command Mode (transform selection), <strong>F9</strong> = Dictate.',ru:'\u2022 Нажмите на <strong>таймер</strong> в кольце статуса для сброса.<br>\u2022 <strong>Компактный режим</strong> (вверху слева) сворачивает в минимальную полосу с кликабельными чипами.<br>\u2022 Тон и Режим <strong>автоматически сворачиваются</strong> на L1 (они не влияют).<br>\u2022 <strong>Стресс</strong> \u2014 кнопка паники в одно нажатие: L4 + DAF + все переключатели.<br>\u2022 Нажмите на любую <strong>ячейку статистики/обучения</strong> для перехода к вкладке.'},
 };
 function t(key){return I18N[key]?.[currentLang]||I18N[key]?.en||key;}
 function _setFirstText(el,text){for(const n of el.childNodes){if(n.nodeType===3&&n.textContent.trim()){n.textContent=text;return;}}el.prepend(document.createTextNode(text));}
@@ -3522,7 +3543,7 @@ function applyI18n(){
   if(helpSub)helpSub.textContent=t('help_sub');
   // Help accordion sections
   const haRows=document.querySelectorAll('.ha-row[data-ha]');
-  const haKeys=['ha_layers','ha_tone','ha_mode','ha_enhance','ha_situation','ha_daf','ha_whisper','ha_stats','ha_hotkeys','ha_colors','ha_pipeline','ha_tips'];
+  const haKeys=['ha_layers','ha_tone','ha_enhance','ha_situation','ha_daf','ha_whisper','ha_stats','ha_hotkeys','ha_colors','ha_pipeline','ha_tips'];
   haRows.forEach((row,i)=>{
     if(!haKeys[i])return;
     const name=row.querySelector('.ha-name');
@@ -5694,13 +5715,19 @@ function _checkProfileSync(){
       <div class="ha-chevron">&#9654;</div>
     </div>
     <div class="ha-body"><div class="ha-content">
-      <strong>L1 Transcribe</strong> &#8212; Whisper only. Raw speech-to-text, no AI cleanup. Fastest.<br>
-      <strong>L2 Reconstruct</strong> &#8212; GPT rewrites using your tone. Strips fillers, fixes grammar. ~1-2s slower.<br>
-      <strong>L3 Profile</strong> &#8212; Same as L2 + your personal vocabulary and corrections map.<br>
-      <strong>L4 Disfluency</strong> &#8212; Full clinical mode. Disfluency tracking, exposure scoring, severity-scaled rewrites.
+      <div class="layer-cmp">
+        <div class="lc-tag">L1</div>
+        <div class="lc-row"><strong>Transcribe</strong> &#8212; Local Moonshine on-device. Quick disfluency cleanup. No cloud, no cost.</div>
+        <div class="lc-tag">L2</div>
+        <div class="lc-row"><strong>Reconstruct</strong> &#8212; GPT-4o rewrites in your tone. Haiku 4.5 cross-checks meaning. ~2&#8211;4s.</div>
+        <div class="lc-tag">L3</div>
+        <div class="lc-row"><strong>Profile</strong> &#8212; Same as L2 + your personal vocabulary &amp; corrections.</div>
+        <div class="lc-tag">L4</div>
+        <div class="lc-row"><strong>Disfluency</strong> &#8212; Cloud Whisper (verbose) + Sonnet 4.6 with extended thinking. Hard-sound map, hidden avoidance, exposure scoring. The clinical engine.</div>
+      </div>
       <div class="ha-example">
         <span class="he-in">You say:</span> "So uh basically the the thing is um working"<br>
-        <span class="he-out">L1:</span> "So uh basically the the thing is um working"<br>
+        <span class="he-out">L1:</span> "So basically the thing is working" <span style="opacity:0.6">(auto-cleanup)</span><br>
         <span class="he-out">L2:</span> "The thing is working."
       </div>
     </div></div>
@@ -5714,24 +5741,8 @@ function _checkProfileSync(){
     </div>
     <div class="ha-body"><div class="ha-content">
       <strong>Casual</strong> &#8212; Conversational. Contractions, simple words.<br>
-      <strong>Professional</strong> &#8212; Business-ready. Clean, precise language.<br>
-      <strong>Friend</strong> &#8212; Relaxed. Like texting a friend.<br>
-      <strong>Formal</strong> &#8212; Academic/legal. No contractions, precise.<br><br>
+      <strong>Professional</strong> &#8212; Business-ready. Clean, precise language.<br><br>
       Has no effect on L1 (collapses when L1 is selected).
-    </div></div>
-  </div>
-
-  <div class="ha-row" data-ha>
-    <div class="ha-header" onclick="toggleHa(this)">
-      <div class="ha-icon">&#9881;</div>
-      <div class="ha-info"><div class="ha-name">Mode</div><div class="ha-sub">Pipeline steps: RAW, FAST, SAFE</div></div>
-      <div class="ha-chevron">&#9654;</div>
-    </div>
-    <div class="ha-body"><div class="ha-content">
-      <strong>RAW</strong> <code>paste as-is</code> &#8212; GPT runs for analytics but pastes Whisper's original text.<br>
-      <strong>FAST</strong> <code>skip validation</code> &#8212; GPT rewrites, trust it, paste. Best speed/quality.<br>
-      <strong>SAFE</strong> <code>+ Falcon check</code> &#8212; GPT rewrites, Falcon verifies meaning preserved. Slowest, safest.<br><br>
-      All three produce identical output on L1. Collapses when L1 is selected.
     </div></div>
   </div>
 
@@ -5742,7 +5753,8 @@ function _checkProfileSync(){
       <div class="ha-chevron">&#9654;</div>
     </div>
     <div class="ha-body"><div class="ha-content">
-      <strong>Paralinguistic</strong> &#8212; Detects cough, laugh, sigh, throat-clear, breathing, pause. Independent of layer.<br>
+      Both toggles only do work at <strong>L4</strong> &#8212; greyed out at L1/L2/L3 because nothing else consumes them.<br><br>
+      <strong>Paralinguistic</strong> &#8212; Detects cough, laugh, sigh, throat-clear, breathing, pause.<br>
       &nbsp;&nbsp;&#8226; <strong>Transcribe sub-toggle:</strong> ON = tags injected in text (<code>[Laughter]</code>). OFF = logged only.<br><br>
       <strong>Prosodic</strong> &#8212; Tracks pitch (F0), energy, speaking rate. Feeds severity modifier on L4. Auto-enables on L4 and High Stress.
       <div class="ha-example">
@@ -5760,8 +5772,7 @@ function _checkProfileSync(){
     </div>
     <div class="ha-body"><div class="ha-content">
       <strong>Default</strong> &#8212; Everyday dictation. Severity 1.0. No auto-toggles.<br>
-      <strong>High Stress</strong> &#8212; Phone, interview, presentation. Auto-enables L4, DAF 100ms, all toggles. Severity 1.5.<br>
-      <strong>Reading</strong> &#8212; Reading aloud. Near-fluent. Severity 0.3, light L3 touch.
+      <strong>High Stress</strong> &#8212; Phone, interview, presentation. Auto-enables L4, DAF 100ms, paralinguistic + prosodic. Severity 1.5.
     </div></div>
   </div>
 
@@ -5846,44 +5857,54 @@ function _checkProfileSync(){
       <div class="ha-chevron">&#9654;</div>
     </div>
     <div class="ha-body"><div class="ha-content" style="line-height:1.7">
-      <strong style="color:var(--red-bright)">1. You speak</strong><br>
-      Your voice is captured through the microphone. The audio is cleaned up (background noise removed, volume leveled) before anything else touches it.<br><br>
+      <div class="pipe-flow">
+        <div class="pipe-box"><div class="pipe-name">MIC</div><div class="pipe-sub">audio in</div></div>
+        <div class="pipe-arrow">&#8594;</div>
+        <div class="pipe-box"><div class="pipe-name">ASR</div><div class="pipe-sub">Moonshine local<br>(Whisper at L4)</div></div>
+        <div class="pipe-arrow">&#8594;</div>
+        <div class="pipe-box"><div class="pipe-name">CLEANUP</div><div class="pipe-sub">strip fillers<br>+ repeats</div></div>
+        <div class="pipe-arrow">&#8594;</div>
+        <div class="pipe-box pipe-cloud"><div class="pipe-name">REWRITE</div><div class="pipe-sub">GPT-4o (L2/3)<br>Sonnet ET (L4)</div></div>
+        <div class="pipe-arrow">&#8594;</div>
+        <div class="pipe-box pipe-cloud"><div class="pipe-name">FALCON</div><div class="pipe-sub">meaning<br>cross-check</div></div>
+        <div class="pipe-arrow">&#8594;</div>
+        <div class="pipe-box"><div class="pipe-name">PASTE</div><div class="pipe-sub">&rarr; active app</div></div>
+      </div>
 
-      <strong style="color:var(--red-bright)">2. Whisper listens</strong><br>
-      OpenAI's Whisper converts your speech to text. It also reports <em>how confident</em> it is about each word. Quiet moments (blocks, pauses) are flagged rather than guessed at.<br>
-      <div class="ha-example">If you use <strong>Script Prep</strong>, your intended text helps Whisper guess better &#8212; like giving it the answer key.</div>
+      <strong style="color:var(--red-bright)">1. You speak</strong><br>
+      Mic captures audio. Background noise removed, volume leveled. Cleanup happens before anything else touches it.<br><br>
+
+      <strong style="color:var(--red-bright)">2. ASR listens</strong><br>
+      <strong>L1/L2/L3:</strong> Moonshine on-device transcribes &#8212; no cloud, no cost. <strong>L4:</strong> Cloud Whisper with verbose JSON returns per-segment confidence (<code>avg_logprob</code>, <code>no_speech_prob</code>) the clinical prompt depends on.<br>
+      <div class="ha-example">If you use <strong>Script Prep</strong>, your intended text seeds the decoder &#8212; like giving it the answer key.</div>
 
       <strong style="color:var(--red-bright)">3. Quick cleanup</strong><br>
-      Before any AI gets involved, obvious disfluencies are stripped automatically (zero cost, instant):<br>
+      Before any AI gets involved, obvious disfluencies are stripped (zero cost, instant):<br>
       &#8226; Repeated syllables: "p-p-pop" &#8594; "pop"<br>
       &#8226; Repeated words: "I I I want" &#8594; "I want"<br>
       &#8226; Fillers: "um", "uh", "like", "you know"<br>
       &#8226; False starts: "going to&#8212; I went" &#8594; "I went"<br>
       &#8226; Prolongations: "mmmmaybe" &#8594; "maybe"<br>
-      <div class="ha-example">Natural phrases like "bye bye" and "had had" are kept &#8212; they're real grammar, not disfluencies.</div>
+      <div class="ha-example">Natural phrases like "bye bye" and "had had" are kept &#8212; real grammar, not disfluencies.</div>
 
-      <strong style="color:var(--red-bright)">4. What happens next depends on your Layer:</strong><br><br>
-
+      <strong style="color:var(--red-bright)">4. Rewrite (depends on Layer)</strong><br><br>
       <div style="margin-left:12px">
-        <strong>Layer 1</strong> &#8212; Done. The cleaned text is pasted. No AI, no internet after Whisper, no cost beyond transcription.<br><br>
-
-        <strong>Layer 2</strong> &#8212; GPT rewrites your text using your chosen <em>tone</em> (casual, professional, etc). It knows the text came from a microphone, not a keyboard, so it's forgiving about messiness. No personal data is used.<br><br>
-
-        <strong>Layer 3</strong> &#8212; Same as Layer 2, plus GPT knows <em>your</em> preferred words and corrections. If it's learned that you always say "gonna" but mean "going to" in professional mode, it fixes that automatically.<br><br>
-
-        <strong>Layer 4</strong> &#8212; The full engine. GPT switches to a stronger model and gets a detailed briefing:<br>
-        &#8226; Which sounds are hardest for you (your personal phoneme map)<br>
-        &#8226; Words you tend to avoid and swap for easier ones<br>
-        &#8226; Where Whisper was uncertain or detected a block<br>
+        <strong>Layer 1</strong> &#8212; Done. Cleaned text pasted. No AI, no cost.<br><br>
+        <strong>Layer 2</strong> &#8212; GPT-4o rewrites in your tone. It knows the text came from a mic, not a keyboard, so it's forgiving. No personal data.<br><br>
+        <strong>Layer 3</strong> &#8212; Same as L2, plus GPT knows <em>your</em> preferred words and learned corrections.<br><br>
+        <strong>Layer 4</strong> &#8212; Sonnet 4.6 with extended thinking. Reasons through a detailed briefing:<br>
+        &#8226; Which first sounds are hardest for you (your personal hard-sound map)<br>
+        &#8226; Words you tend to avoid and swap for easier ones (hidden avoidance pairs)<br>
+        &#8226; Where Whisper was uncertain or detected a hard speech block<br>
         &#8226; Non-verbal events (coughs, laughter, pauses) so it doesn't hallucinate words over them<br>
         &#8226; Your pitch, energy, and speaking rate patterns<br>
       </div><br>
 
-      <strong style="color:var(--red-bright)">5. Safety check</strong><br>
-      In <strong>SAFE</strong> mode, a second AI (Falcon) reads both your original words and the rewrite, and asks: "Did the meaning change?" If yes, the rewrite is rejected and your original text is used instead. Numbers, dollar amounts, and percentages are double-checked separately.<br><br>
+      <strong style="color:var(--red-bright)">5. Cross-check</strong><br>
+      A second AI reads both your original words and the rewrite, and asks: "Did the meaning change?" If yes, the rewrite is rejected and your original text is used. <strong>L2/L3:</strong> Claude Haiku 4.5 (cross-vendor &#8212; Anthropic checks OpenAI). <strong>L4:</strong> GPT-4o (cross-vendor &#8212; OpenAI checks Anthropic). Numbers, dollar amounts, and percentages double-checked separately.<br><br>
 
       <strong style="color:var(--red-bright)">6. Paste</strong><br>
-      The final text goes to your clipboard and is pasted into whatever app you're using.
+      Final text &#8594; clipboard &#8594; pasted into the active app.
     </div></div>
   </div>
 
@@ -5925,24 +5946,6 @@ function _checkProfileSync(){
 
   <div class="ha-row" data-ha>
     <div class="ha-header" onclick="toggleHa(this)">
-      <div class="ha-icon">&#9733;</div>
-      <div class="ha-info"><div class="ha-name">You Tab</div><div class="ha-sub">Your dictation profile</div></div>
-      <div class="ha-chevron">&#9654;</div>
-    </div>
-    <div class="ha-body"><div class="ha-content">
-      Celebratory stats about your dictation, not clinical metrics. Unlocks at 500 words.<br><br>
-      <strong>What you'll see:</strong><br>
-      &#8226; Total words dictated (emails you didn't have to type)<br>
-      &#8226; Your catchphrase (most-used 2-3 word combination)<br>
-      &#8226; Peak dictation time (your most productive hour/day)<br>
-      &#8226; Dictation superpower (your style: long-form, formal, daily habit, etc.)<br>
-      &#8226; Day streak (consecutive days of usage)<br><br>
-      All derived from your local session history. Zero API cost.
-    </div></div>
-  </div>
-
-  <div class="ha-row" data-ha>
-    <div class="ha-header" onclick="toggleHa(this)">
       <div class="ha-icon">&#9919;</div>
       <div class="ha-info"><div class="ha-name">Privacy &amp; Your Data</div><div class="ha-sub">What we keep, how to export/delete</div></div>
       <div class="ha-chevron">&#9654;</div>
@@ -5951,7 +5954,7 @@ function _checkProfileSync(){
       <strong>Your voice audio is never stored.</strong> It's sent to Whisper for transcription, then discarded.<br><br>
       <strong>Your transcripts stay on YOUR computer</strong> (in <code>~/.lavrentiy/</code>). They never leave your device.<br><br>
       <strong>If you sign in with Google:</strong> Only pattern metadata syncs to the cloud (trigger words, filler words, vocabulary, corrections, hard-sound weights). Never raw text or audio.<br><br>
-      <strong>Export / Delete:</strong> Sign in, go to <strong>The File</strong> tab, click EXPORT to download all your data as JSON, or DELETE CLOUD DATA to wipe your Firestore record (local data stays).<br><br>
+      <strong>Export / Delete:</strong> Sign in, go to <strong>Profile</strong> tab, click EXPORT to download all your data as JSON, or DELETE CLOUD DATA to wipe your Firestore record (local data stays).<br><br>
       <strong>Retention:</strong> Cloud data auto-deletes after 24 months of inactivity.
     </div></div>
   </div>
@@ -5981,8 +5984,9 @@ function _checkProfileSync(){
       &#8226; <strong>Compact toggle</strong> (top-left) collapses to a minimal bar.<br>
       &#8226; <strong>D/L toggle</strong> (next to compact) switches dark/light mode.<br>
       &#8226; <strong>EN/RU toggle</strong> (top-right) switches interface language.<br>
-      &#8226; Tone and Mode <strong>auto-collapse</strong> on L1 (they have no effect).<br>
-      &#8226; <strong>High Stress</strong> situation is a one-click panic button: L4 + DAF + all toggles.<br>
+      &#8226; Tone <strong>auto-collapses</strong> on L1 (no effect there).<br>
+      &#8226; <strong>High Stress</strong> situation is a one-click panic button: L4 + DAF + paralinguistic + prosodic.<br>
+      &#8226; Paralinguistic + Prosodic toggles only do work at L4 (greyed out elsewhere).<br>
       &#8226; Click any <strong>stat/learn bar cell</strong> to jump to its detail tab.<br>
       &#8226; <strong>F8</strong> = Command Mode (transform selection), <strong>F9</strong> = Dictate.
     </div></div>
