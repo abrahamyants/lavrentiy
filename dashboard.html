@@ -1454,19 +1454,30 @@ body::before {
 .log-line.kind-out { color: var(--text); }
 .log-line.kind-info { color: var(--yellow); }
 .log-line.kind-error { color: var(--red-bright); text-shadow: 0 0 8px rgba(248,113,113,0.3); }
+/* L1 Haiku polish — pre-built HTML diff with .diff-removed (red strikethrough)
+   and .diff-added (green) spans showing what changed. */
+.log-line.kind-polish { color: var(--text-muted); }
+.log-line.kind-polish .diff-removed {
+  color: #f87171; text-decoration: line-through; text-decoration-color: rgba(248,113,113,0.5);
+  background: rgba(248,113,113,0.08); padding: 0 2px; border-radius: 2px;
+}
+.log-line.kind-polish .diff-added {
+  color: #4ade80; background: rgba(74,222,128,0.08);
+  padding: 0 2px; border-radius: 2px; font-weight: 500;
+}
 .console-empty { color: var(--text-muted); font-size: 11px; text-align: center; padding: 40px 0; letter-spacing: 1px; }
 .console-legend {
-  position: absolute; bottom: 0; right: 0;
-  padding: 6px 10px 6px 12px;
+  position: absolute; bottom: 12px; right: 16px;
+  padding: 10px 14px 10px 16px;
   font-family: var(--mono); font-size: 10px; letter-spacing: 0.5px;
   line-height: 1.0;
   color: var(--text-muted);
   pointer-events: none; z-index: 2;
-  background: var(--console-bg);
-  border-top: 1px solid rgba(238,90,36,0.2);
-  border-left: 1px solid rgba(238,90,36,0.2);
-  border-top-left-radius: 6px;
-  box-shadow: -2px -2px 8px rgba(0,0,0,0.3);
+  background: linear-gradient(135deg, rgba(185,28,28,0.12) 0%, rgba(92,42,42,0.35) 100%);
+  border: 1px solid rgba(212,165,116,0.35);
+  border-left: 3px solid #d4a574;
+  border-radius: 4px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04);
 }
 .console-legend > div { padding: 2px 0; }
 /* Only show legend when console tab is active */
@@ -2739,7 +2750,7 @@ body::before {
     <div class="sidebar-section">
       <div class="sidebar-section-title">Layer</div>
       <div class="layer-stack">
-        <div class="layer-opt" data-layer="1"><div class="l-info"><div class="l-name">I. Transcribe</div><div class="l-desc">Moonshine local</div></div></div>
+        <div class="layer-opt" data-layer="1"><div class="l-info"><div class="l-name">I. Transcribe</div><div class="l-desc">raw text, no cleanup</div></div></div>
         <div class="layer-opt" data-layer="2"><div class="l-info"><div class="l-name">II. Reconstruct</div><div class="l-desc">LLM + tone</div></div></div>
         <div class="layer-opt" data-layer="3"><div class="l-info"><div class="l-name">III. Profile</div><div class="l-desc">+ vocabulary</div></div></div>
         <div class="layer-opt" data-layer="4"><div class="l-info"><div class="l-name">IV. Stutter</div><div class="l-desc">+ disfluency</div></div></div>
@@ -3235,7 +3246,7 @@ const I18N={
   tone_friend:{en:'Friend',ru:'Дружеский'},
   tone_formal:{en:'Formal',ru:'Формальный'},
   // Layers
-  layer1:{en:'I. Transcribe',ru:'I. Транскрипция'},layer1d:{en:'Moonshine local',ru:'Moonshine локально'},
+  layer1:{en:'I. Transcribe',ru:'I. Транскрипция'},layer1d:{en:'raw text, no cleanup',ru:'сырой текст, без обработки'},
   layer2:{en:'II. Reconstruct',ru:'II. Реконструкция'},layer2d:{en:'LLM + tone',ru:'LLM + тон'},
   layer3:{en:'III. Profile',ru:'III. Профиль'},layer3d:{en:'+ vocabulary',ru:'+ словарь'},
   layer4:{en:'IV. Stutter',ru:'IV. Заикание'},layer4d:{en:'+ disfluency',ru:'+ дисфлюенция'},
@@ -3974,7 +3985,14 @@ function renderConsole(){
   // Preserve pinned banner across re-renders (e.g. command mode intro)
   const banner=document.getElementById('cmd-intro-banner');
   // Newest entries at top — reverse the array before rendering
-  el.innerHTML=[...logLines].reverse().map(e=>{const d=new Date(e.ts*1000);const ts=d.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});return `<div class="log-line kind-${e.kind}"><span class="log-ts">${ts}</span>${esc(e.text)}</div>`;}).join('');
+  el.innerHTML=[...logLines].reverse().map(e=>{
+    const d=new Date(e.ts*1000);
+    const ts=d.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    // "polish" kind contains pre-built HTML diff spans — render as raw HTML.
+    // All other kinds get HTML-escaped to prevent injection.
+    const body = (e.kind === 'polish') ? e.text : esc(e.text);
+    return `<div class="log-line kind-${e.kind}"><span class="log-ts">${ts}</span>${body}</div>`;
+  }).join('');
   if(banner)el.insertBefore(banner, el.firstChild);
   if(atTop)el.scrollTop=0;
 }

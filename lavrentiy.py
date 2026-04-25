@@ -6399,7 +6399,10 @@ def pipeline():
             state = 'idle'
             return
 
-        # Log Whisper pipeline details
+        # Log ASR pipeline details. The user-visible log doesn't name the
+        # engine — it's an implementation detail that changes between
+        # layers (Moonshine local at L1/L2/L3, cloud whisper-1 at L4).
+        # Surfaces the prompt source + low-conf/disagreement signals only.
         used_local = (LOCAL_WHISPER and _local_transcribe_fn is not None) or whisper_meta['n_api_calls'] == 0
         source_label = "local" if used_local else f"{whisper_meta['n_api_calls']}calls"
         meta_tag = f"[{whisper_meta['prompt_source']}|{source_label}]"
@@ -6407,7 +6410,7 @@ def pipeline():
             meta_tag += f" low_conf:{len(whisper_low_conf)}"
         if whisper_disagreements:
             meta_tag += f" disagree:{len(whisper_disagreements)}"
-        log(f"Whisper {meta_tag}", "info")
+        log(f"ASR {meta_tag}", "info")
 
         used_fallback = False
         clean_text = None
@@ -6524,7 +6527,29 @@ def pipeline():
                 _polished = "".join(b.text for b in _polish_msg.content if getattr(b, "type", None) == "text").strip()
                 if _polished:
                     if _polished != filtered_text:
-                        log(f"L1 polish: \"{filtered_text}\" → \"{_polished}\" ({int((time.time()-_polish_t0)*1000)}ms)", "info")
+                        # Character-level diff — word-level was lighting up
+                        # whole tokens for tiny changes ("this," vs "this." or
+                        # "you" vs "You" got flagged as full word swaps).
+                        # Character diff highlights ONLY the chars that
+                        # actually changed.
+                        try:
+                            import difflib as _dl, html as _html
+                            _sm = _dl.SequenceMatcher(None, filtered_text, _polished)
+                            _parts = []
+                            for tag, i1, i2, j1, j2 in _sm.get_opcodes():
+                                if tag == 'equal':
+                                    _parts.append(_html.escape(filtered_text[i1:i2]))
+                                elif tag == 'delete':
+                                    _parts.append(f"<span class='diff-removed'>{_html.escape(filtered_text[i1:i2])}</span>")
+                                elif tag == 'insert':
+                                    _parts.append(f"<span class='diff-added'>{_html.escape(_polished[j1:j2])}</span>")
+                                elif tag == 'replace':
+                                    _parts.append(f"<span class='diff-removed'>{_html.escape(filtered_text[i1:i2])}</span>")
+                                    _parts.append(f"<span class='diff-added'>{_html.escape(_polished[j1:j2])}</span>")
+                            _diff_html = "".join(_parts)
+                            log(f"L1 polish ({int((time.time()-_polish_t0)*1000)}ms): {_diff_html}", "polish")
+                        except Exception:
+                            log(f"L1 polish: \"{filtered_text}\" → \"{_polished}\" ({int((time.time()-_polish_t0)*1000)}ms)", "info")
                     filtered_text = _polished
                     stats_inc("anthropic_calls")
             except Exception as _e:
@@ -8442,6 +8467,44 @@ print()
 
 # Start dashboard server
 threading.Thread(target=run_dashboard, daemon=True).start()
+
+# Pre-warm Moonshine (loads ~250 MB ONNX into RAM) and Anthropic Haiku
+# (TLS handshake + connection pool) at boot so the first user recording
+# isn't a 15-30 second wait. Runs in a daemon thread — engine startup
+# isn't blocked, but first F9 press finds both already warm.
+def _prewarm_l1():
+    try:
+        # Moonshine warmup: synthesize 1 second of silence and run a transcribe.
+        # Triggers _get_model() which loads encoder+decoder ONNX into memory.
+        if _local_transcribe_fn is not None:
+            import tempfile, soundfile as _sf, numpy as _np
+            _silence = _np.zeros(16000, dtype=_np.float32)
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as _tmp:
+                _sf.write(_tmp.name, _silence, 16000)
+                _tmp_path = _tmp.name
+            try:
+                _local_transcribe_fn(_tmp_path, 0.0, None, LANGUAGE, LOCAL_WHISPER_MODEL_SIZE)
+                print("Moonshine pre-warmed")
+            finally:
+                try: os.unlink(_tmp_path)
+                except OSError: pass
+    except Exception as _e:
+        print(f"Moonshine pre-warm failed (non-fatal): {str(_e)[:80]}")
+
+def _prewarm_haiku():
+    try:
+        if anthropic_client is not None:
+            anthropic_client.messages.create(
+                model=FALCON_HAIKU_MODEL,
+                max_tokens=4,
+                messages=[{"role": "user", "content": "ping"}],
+            )
+            print("Haiku pre-warmed")
+    except Exception as _e:
+        print(f"Haiku pre-warm failed (non-fatal): {str(_e)[:80]}")
+
+threading.Thread(target=_prewarm_l1, name="prewarm-moonshine", daemon=True).start()
+threading.Thread(target=_prewarm_haiku, name="prewarm-haiku", daemon=True).start()
 
 _hook_start_time = time.time()
 # Open persistent audio stream so pre-roll buffer starts feeding immediately
