@@ -2920,21 +2920,19 @@ body::before {
 
       <div class="tab-panel" id="tab-learning">
         <div class="learning-wrap" id="learn-feed"><div class="learn-empty">No patterns learned yet. Keep talking.</div></div>
+      </div>
+
+      <!-- Weekly Report consolidated into Insights tab (2026-04-24) — was in
+           Learning + Insights as separate panels showing the same data. -->
+      <div class="tab-panel" id="tab-insights">
+        <div class="insights-wrap" id="insights">
+          <div class="learn-empty">Switch to Layer 4 to view stuttering insights.</div>
+        </div>
         <div style="padding:16px 24px;border-top:1px solid var(--border)">
-          <!-- Clinical Profile button removed 2026-04-24 — produced a zero-filled
-               raw-aggregation report that was redundant with the Weekly Report
-               (GPT-4o narrative). Weekly Report stays here as the canonical
-               clinical view, also surfaced in the Insights tab below. -->
           <div style="display:flex;gap:8px;margin-bottom:12px">
             <button class="aug-btn" id="report-btn" onclick="generateReport()" style="flex:1">📊 WEEKLY REPORT</button>
           </div>
           <div id="report-output" style="display:none;font-family:var(--mono);font-size:11px;color:var(--text-muted);line-height:1.8;white-space:pre-wrap;padding:12px 16px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius)"></div>
-        </div>
-      </div>
-
-      <div class="tab-panel" id="tab-insights">
-        <div class="insights-wrap" id="insights">
-          <div class="learn-empty">Switch to Layer 4 to view stuttering insights.</div>
         </div>
         <div id="phoneme-map" style="display:none;padding:16px 24px;border-top:1px solid var(--border)">
           <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">PHONEME DIFFICULTY MAP</div>
