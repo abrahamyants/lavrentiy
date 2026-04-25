@@ -196,6 +196,19 @@ PATIENCE_DEFAULT = 2.0   # seconds — normal silence threshold
 PATIENCE_STUTTER = 4.5   # seconds — Layer 4 / High Stress
 LOCAL_WHISPER = True                 # L1 ASR runs locally (no cloud fallback at L1 — local layers stay local).
 LOCAL_WHISPER_MODEL_SIZE = "base"    # Moonshine fallback size (kept for the secondary fallback path)
+
+# L1 source toggle: when True, route L1 transcription through cloud whisper-1
+# instead of the local engine. Same model family at both endpoints — the toggle
+# trades local-CPU latency (~2-5s on faster-whisper) for cloud-GPU latency
+# (~1-2s on whisper-1) at the cost of needing internet. Toggleable at runtime
+# via POST /api/l1_asr {cloud: bool} from the dashboard.
+#
+# Default = True. First-impression UX matters: an evaluator opening Lavrentiy
+# for the first time hits F9, expects to see text fast. Local FW Turbo on a
+# typical CPU is 2-5s for short clips and ~30s on the very first call (model
+# load). Cloud whisper-1 is 1-2s every time. Default to cloud, let users who
+# want offline-only flip it off.
+L1_CLOUD_ASR = True
 LOCAL_FW_MODEL_SIZE = os.environ.get("LAV_FW_MODEL_SIZE", "large-v3-turbo")  # faster-whisper primary (real Whisper, full verbose JSON)
 LOCAL_FW_COMPUTE_TYPE = os.environ.get("LAV_FW_COMPUTE_TYPE", "int8")         # CPU-friendly quantization
 LOCAL_FW_DEVICE = os.environ.get("LAV_FW_DEVICE", "cpu")                       # target eval hardware
@@ -4773,8 +4786,9 @@ def _whisper_single_call(filepath, temperature, prompt_text, max_retries=3):
     Returns dict with: text, segments, engine.
     Retries up to max_retries on transient errors.
     """
-    # L4 → cloud whisper-1 for rich segment metadata
-    if current_layer >= 4 and client is not None:
+    # Cloud whisper-1: always at L4 (rich segment metadata for clinical
+    # reconstruction), or at L1 when the L1_CLOUD_ASR toggle is on.
+    if (current_layer >= 4 or (current_layer == 1 and L1_CLOUD_ASR)) and client is not None:
         last_err = None
         for attempt in range(max_retries):
             try:
@@ -7474,6 +7488,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'paralinguistic_transcribe': paralinguistic_transcribe,
                 'prosodic_enabled': prosodic_enabled,
                 'quiet_mode_enabled': quiet_mode_enabled,
+                'l1_cloud_asr': L1_CLOUD_ASR,
                 'profile_name': _active_profile_name,
                 'auth': {
                     'signed_in': is_authenticated(),
@@ -7875,6 +7890,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if body and 'enabled' in body:
                 set_quiet_mode(body['enabled'])
             self._json({'quiet_mode_enabled': quiet_mode_enabled})
+        elif self.path == '/api/l1_asr':
+            global L1_CLOUD_ASR
+            if body and 'cloud' in body:
+                L1_CLOUD_ASR = bool(body['cloud'])
+                log(f"L1 ASR source: {'cloud whisper-1' if L1_CLOUD_ASR else 'local'}", "info")
+            self._json({'l1_cloud_asr': L1_CLOUD_ASR})
         elif self.path == '/api/mode':
             if body and isinstance(body.get('mode'), str):
                 set_mode(body['mode'].upper())

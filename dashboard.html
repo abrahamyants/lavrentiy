@@ -862,14 +862,16 @@ body::before {
   0%, 100% { box-shadow: 0 0 4px rgba(212,165,116,0.9), 0 0 10px rgba(212,165,116,0.5), 0 0 20px rgba(184,133,90,0.2), inset 0 -1px 1px rgba(0,0,0,0.25); }
   50% { box-shadow: 0 0 6px rgba(212,165,116,1), 0 0 16px rgba(212,165,116,0.7), 0 0 28px rgba(184,133,90,0.3), inset 0 -1px 1px rgba(0,0,0,0.25); }
 }
-/* Collapse tone/mode sections when on Layer 1 (no LLM) */
-#tone-section .tone-stack, #mode-section .tone-stack {
+/* Collapse tone / mode / situation sections when on Layer 1 (no LLM —
+   situation severity is a multiplier on L2+ reconstruction prompts; at L1
+   it's pure metadata with zero pipeline effect) */
+#tone-section .tone-stack, #mode-section .tone-stack, #sit-section .tone-stack {
   max-height: 300px; overflow: hidden; transition: max-height 0.35s ease, opacity 0.25s ease; opacity: 1;
 }
-#tone-section.inactive .tone-stack, #mode-section.inactive .tone-stack {
+#tone-section.inactive .tone-stack, #mode-section.inactive .tone-stack, #sit-section.inactive .tone-stack {
   max-height: 0; opacity: 0; pointer-events: none;
 }
-#tone-section.inactive .sidebar-section-title, #mode-section.inactive .sidebar-section-title {
+#tone-section.inactive .sidebar-section-title, #mode-section.inactive .sidebar-section-title, #sit-section.inactive .sidebar-section-title {
   border-bottom: 1px solid rgba(185,28,28,0.15);
 }
 .section-note { font-size: 1em; font-weight: 700; color: #ee5a24; font-style: normal; letter-spacing: 1px; }
@@ -2884,7 +2886,7 @@ body::before {
       </div>
     </div>
 
-    <div class="sidebar-section">
+    <div class="sidebar-section" id="sit-section">
       <div class="sidebar-section-title">Situation</div>
       <div class="tone-stack">
         <div class="layer-opt sit-btn" data-situation="default"><div class="l-info"><div class="l-name">Default</div><div class="l-desc">+ everyday use</div></div></div>
@@ -2917,6 +2919,15 @@ body::before {
           style="width:100%;height:3px;accent-color:var(--red);cursor:pointer;opacity:0.7;margin:2px 0"
           oninput="updatePatience(this.value)">
         <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-muted);margin-top:2px;font-family:var(--font-mono)"><span>&#9664; 1.0s</span><span id="patience-pct">2.0s</span><span>6.0s &#9654;</span></div>
+      </div>
+      <!-- L1 source picker — always interactive (this toggle is FOR L1, so it
+           must stay live regardless of current layer). Off = local Faster-Whisper
+           Turbo (~2-5s, offline). On = cloud whisper-1 (~1-2s, needs internet). -->
+      <div class="engine-section-card" id="l1-source-card">
+        <span class="engine-group-label">L1 SOURCE</span>
+        <div class="engine-grid">
+          <div class="engine-row"><span>Cloud</span><div class="hw-toggle" id="l1-asr-toggle" onclick="toggleL1Asr()" title="Off = local Faster-Whisper Turbo (~2-5s, offline). On = cloud whisper-1 (~1-2s, needs internet). Same model family." style="transform:scale(0.65)"></div></div>
+        </div>
       </div>
       <!-- Whisper settings — only meaningful at L4 (cloud whisper-1).
            At L1/L2/L3 (Moonshine), no segment metadata exists so all values
@@ -3926,6 +3937,9 @@ function updateUI(){
     modeSec.classList.toggle('inactive',noLLM2);
     if(modeNote)modeNote.innerHTML=noLLM2?t('note_select'):'';
   }
+  // Collapse situation section on Layer 1 (severity is L2+ multiplier only)
+  const sitSec=document.getElementById('sit-section');
+  if(sitSec) sitSec.classList.toggle('inactive', state.layer===1);
   document.querySelectorAll('.layer-opt:not(.sit-btn):not(.use-opt):not(.ind-opt):not(.hr-opt)').forEach(b=>b.classList.toggle('active',parseInt(b.dataset.layer)===state.layer));
   document.querySelectorAll('.mode-btn').forEach(b=>b.classList.toggle('active',b.dataset.mode===state.mode));
   document.querySelectorAll('.sit-btn').forEach(b=>b.classList.toggle('active',b.dataset.situation===(state.situation||'default')));
@@ -3956,6 +3970,8 @@ function updateUI(){
   // Whisper sidebar state
   const mtToggle=document.getElementById('multitemp-toggle');
   if(mtToggle)mtToggle.classList.toggle('on',!!state.whisper_multi_temp);
+  const l1Toggle=document.getElementById('l1-asr-toggle');
+  if(l1Toggle)l1Toggle.classList.toggle('on',!!state.l1_cloud_asr);
   // Enhancement toggles
   const now=Date.now();
   const paraToggle=document.getElementById('toggle-paralinguistic');
@@ -4609,6 +4625,15 @@ async function toggleMultiTemp(){
     const d=await r.json();
     const tog=document.getElementById('multitemp-toggle');
     if(tog)tog.classList.toggle('on',d.multi_temp);
+  }catch(e){}
+}
+async function toggleL1Asr(){
+  try{
+    const r=await fetch(API+'/api/l1_asr',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({cloud:!state.l1_cloud_asr})});
+    const d=await r.json();
+    const tog=document.getElementById('l1-asr-toggle');
+    if(tog)tog.classList.toggle('on',!!d.l1_cloud_asr);
   }catch(e){}
 }
 async function generateReport(){
