@@ -1379,6 +1379,11 @@ _clipboard_predictor = None  # initialized after profile load
 # call, so anything past it is "stuck", not "slow".
 CLOUD_TIMEOUT_SEC = 60
 
+# Toggle for the L1 Haiku polish step (Anthropic Haiku reads Moonshine
+# output and fixes obvious errors before paste). Off while George tests
+# raw L1 behavior; flip back to True to re-enable.
+L1_POLISH = False
+
 client = openai.OpenAI(api_key=API_KEY, timeout=CLOUD_TIMEOUT_SEC) if API_KEY else None
 
 # Anthropic client for cross-vendor Falcon validation (different blind spots
@@ -3286,6 +3291,48 @@ def strip_whisper_hallucinations(text):
     cleaned = _WHISPER_HALLUCINATION_RE.sub("", text).strip()
     cleaned = re.sub(r'\s{2,}', ' ', cleaned)
     return cleaned  # may be empty — that's correct if entire output was hallucination
+
+
+_REPUNC_QUESTION_STARTERS = frozenset({
+    "who", "what", "when", "where", "why", "which", "how",
+    "is", "are", "was", "were", "do", "does", "did",
+    "can", "could", "should", "would", "will", "have", "has",
+    "may", "might", "shall",
+})
+
+
+def repunctuate(text):
+    """Lightweight deterministic capitalization + terminal punctuation.
+
+    Targets local ASR engines (Moonshine) that emit flat lowercase text with
+    no punctuation. Cheap (~10us per typical utterance), no model load, no
+    cloud round-trip. Idempotent — skips text that already has BOTH a capital
+    letter and terminal punctuation.
+
+    Adds:
+      - Leading capital
+      - Capitalized standalone "I" + "I'm/I'll/I've/I'd"
+      - Capitalize after . ! ? followed by space
+      - Terminal "." or "?" (? if the first word looks like a question starter)
+    """
+    if not text:
+        return text
+    s = text.strip()
+    if not s:
+        return s
+    has_term = s[-1] in ".!?"
+    has_cap = any(c.isupper() for c in s)
+    if has_term and has_cap:
+        return s
+    s = re.sub(r"\bi\b", "I", s)
+    s = re.sub(r"\bi(['\u2019])", r"I\1", s)
+    if s and s[0].isalpha():
+        s = s[0].upper() + s[1:]
+    s = re.sub(r"([.!?]\s+)([a-z])", lambda m: m.group(1) + m.group(2).upper(), s)
+    if s and s[-1] not in ".!?":
+        first_word = re.split(r"\W+", s, 1)[0].lower()
+        s += "?" if first_word in _REPUNC_QUESTION_STARTERS else "."
+    return s
 
 
 def strip_disfluencies(text):
@@ -6501,6 +6548,10 @@ def pipeline():
         # Block hallucination removal: strip phantom words Whisper invents during blocks
         # Runs at all layers — GPT shouldn't see Whisper's phantom words either
         filtered_text = strip_block_hallucinations(filtered_text, whisper_low_conf)
+        # Local ASR (Moonshine) returns flat lowercase no-punctuation text.
+        # Cheap deterministic re-punctuate gives L1 paste readable output
+        # without a cloud round-trip. No-op when text already punctuated.
+        filtered_text = repunctuate(filtered_text)
         # Profile corrections (vocabulary/corrections map): L2+ so GPT sees learned fixes
         if current_layer >= 2:
             filtered_text = apply_profile_corrections(filtered_text, profile)
@@ -6512,7 +6563,7 @@ def pipeline():
         # Adds ~500ms–1s. No tone, no profile injection — just "fix obvious typos
         # / mishears / truncations." Runs only when Anthropic is configured.
         # Output replaces filtered_text so the paste reflects the corrected version.
-        if current_layer == 1 and anthropic_client is not None and filtered_text.strip():
+        if L1_POLISH and current_layer == 1 and anthropic_client is not None and filtered_text.strip():
             try:
                 _polish_t0 = time.time()
                 _polish_msg = anthropic_client.messages.create(
