@@ -99,8 +99,8 @@ Source: "C:\Users\georg\Documents\GitHub\lavrentiy\local\*.py"; DestDir: "{app}\
 ;    already has them (existing install / prior download), Inno Setup is a
 ;    no-op. Fresh-machine first launch: files already on disk, no internet
 ;    needed for L1.
-Source: "C:\Users\georg\.cache\moonshine\base\encoder_model.onnx";        DestDir: "{userprofile}\.cache\moonshine\base"; Flags: ignoreversion
-Source: "C:\Users\georg\.cache\moonshine\base\decoder_model_merged.onnx"; DestDir: "{userprofile}\.cache\moonshine\base"; Flags: ignoreversion
+Source: "C:\Users\georg\.cache\moonshine\base\encoder_model.onnx";        DestDir: "{%USERPROFILE}\.cache\moonshine\base"; Flags: ignoreversion
+Source: "C:\Users\georg\.cache\moonshine\base\decoder_model_merged.onnx"; DestDir: "{%USERPROFILE}\.cache\moonshine\base"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Lavrentiy Evaluation"; Filename: "{app}\Lavrentiy.vbs"; IconFilename: "{app}\engine\lavrentiy.ico"; Comment: "Voice reconstruction engine (evaluation build)"

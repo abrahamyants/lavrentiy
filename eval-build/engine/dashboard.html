@@ -367,7 +367,7 @@ body::before {
 .eq-bars {
   position: absolute;
   top: 50%;
-  transform: translateY(-50%);
+  transform: translateY(-50%) scale(0.85);
   display: flex;
   align-items: center;
   gap: 3px;
@@ -375,16 +375,24 @@ body::before {
   z-index: 5;
   height: 70px;
 }
-.eq-left { left: 8px; }
-.eq-right { right: 8px; flex-direction: row-reverse; }
+.eq-left { left: 8px; transform-origin: left center; }
+.eq-left.eq-near { left: 44px; }
+.eq-right { right: 8px; transform-origin: right center; flex-direction: row-reverse; }
+.eq-right.eq-near { right: 44px; }
 .eq-bars span {
   display: block;
   width: 3px;
   background: linear-gradient(180deg, #ee5a24 0%, #b91c1c 100%);
   border-radius: 2px;
-  opacity: 0.25;
+  opacity: 0.28;
+  transform-origin: center;
   transition: opacity 0.2s;
   box-shadow: 0 0 4px rgba(238,90,36,0.3);
+  animation: eq-rest 3.6s ease-in-out infinite;
+}
+@keyframes eq-rest {
+  0%, 100% { transform: scaleY(0.40); opacity: 0.18; }
+  50%      { transform: scaleY(0.85); opacity: 0.32; }
 }
 /* Height curve: taller toward the middle (closest to ring), shorter at edges */
 .eq-bars span:nth-child(1) { height: 10px; }
@@ -718,7 +726,10 @@ body::before {
 .tone-stack, .layer-stack { display: flex; flex-direction: column; gap: 2px; }
 
 /* Enhancement toggles */
-.toggle-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.toggle-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; transition: opacity 0.15s ease; }
+/* Generic disabled-state — applies to toggle rows AND any other element
+   that gets greyed out outside its supported layer (e.g. WHISPER panel). */
+.toggle-disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; transition: opacity 0.15s ease; }
 .toggle-label { font-family: var(--font); font-size: 11px; color: var(--text); font-weight: 500; }
 .toggle-hint { font-family: var(--mono); font-size: 8px; color: var(--red-bright); margin-left: 3px; white-space: nowrap; font-weight: 700; }
 .toggle-switch { position: relative; display: inline-block; width: 32px; height: 18px; flex-shrink: 0; }
@@ -1249,6 +1260,48 @@ body::before {
   display: none; flex: 1; overflow-y: auto;
   scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.06) transparent;
   position: relative;
+  /* Text selection enabled. Right-click triggers our custom menu (#ctx-menu)
+     since pywebview/WebView2 suppresses the native context menu. */
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+/* Custom right-click menu — pywebview hides the native one. */
+.ctx-menu {
+  position: fixed; z-index: 9999;
+  display: none;
+  background: linear-gradient(180deg, #2a2a2f 0%, #1f1f24 100%);
+  border: 1px solid rgba(212,165,116,0.3);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  padding: 4px 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  min-width: 140px;
+  user-select: none;
+}
+.ctx-menu.open { display: block; }
+.ctx-menu-item {
+  padding: 6px 14px;
+  color: #d4d0c8;
+  cursor: pointer;
+  letter-spacing: 1px;
+  display: flex; justify-content: space-between; gap: 12px;
+}
+.ctx-menu-item:hover { background: rgba(212,165,116,0.15); color: #ffe0a0; }
+.ctx-menu-item.disabled { color: #555; cursor: default; pointer-events: none; }
+.ctx-menu-shortcut { color: #777; font-size: 10px; }
+.ctx-menu-sep { height: 1px; background: rgba(255,255,255,0.06); margin: 4px 0; }
+.tab-panel * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+/* Buttons and toggles inside the panels stay click-through (override above). */
+.tab-panel button, .tab-panel .layer-opt, .tab-panel .toggle-switch,
+.tab-panel .add-btn, .tab-panel input[type="checkbox"] {
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: pointer;
 }
 /* speaker behind grille — linear gradients on rings for 3D depth */
 .tab-panel.active::before {
@@ -1409,19 +1462,29 @@ body::before {
 .log-line.kind-out { color: var(--text); }
 .log-line.kind-info { color: var(--yellow); }
 .log-line.kind-error { color: var(--red-bright); text-shadow: 0 0 8px rgba(248,113,113,0.3); }
+/* L1 Haiku polish — pre-built HTML diff with .diff-removed (red strikethrough)
+   and .diff-added (green) spans showing what changed. */
+.log-line.kind-polish { color: var(--text-muted); }
+.log-line.kind-polish .diff-removed {
+  color: #f87171; text-decoration: line-through; text-decoration-color: rgba(248,113,113,0.5);
+  background: rgba(248,113,113,0.08); padding: 0 2px; border-radius: 2px;
+}
+.log-line.kind-polish .diff-added {
+  color: #4ade80; background: rgba(74,222,128,0.08);
+  padding: 0 2px; border-radius: 2px; font-weight: 500;
+}
 .console-empty { color: var(--text-muted); font-size: 11px; text-align: center; padding: 40px 0; letter-spacing: 1px; }
 .console-legend {
-  position: absolute; bottom: 0; right: 0;
-  padding: 6px 10px 6px 12px;
+  position: absolute; bottom: 12px; right: 16px;
+  padding: 10px 14px 10px 16px;
   font-family: var(--mono); font-size: 10px; letter-spacing: 0.5px;
   line-height: 1.0;
   color: var(--text-muted);
   pointer-events: none; z-index: 2;
-  background: var(--console-bg);
-  border-top: 1px solid rgba(238,90,36,0.2);
-  border-left: 1px solid rgba(238,90,36,0.2);
-  border-top-left-radius: 6px;
-  box-shadow: -2px -2px 8px rgba(0,0,0,0.3);
+  background: linear-gradient(135deg, rgba(185,28,28,0.30) 0%, rgba(92,42,42,0.65) 100%);
+  border: 1px solid rgba(212,165,116,0.35);
+  border-radius: 4px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04);
 }
 .console-legend > div { padding: 2px 0; }
 /* Only show legend when console tab is active */
@@ -2493,6 +2556,92 @@ body::before {
   padding: 2px 7px; border-radius: 3px; border: 1px solid var(--border);
   box-shadow: 0 2px 0 rgba(0,0,0,0.1); margin: 0 2px;
 }
+.pipe-flow {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 4px; margin: 14px 0;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 1px;
+}
+.pipe-box {
+  flex: 1; min-width: 76px;
+  padding: 8px 6px; border: 1px solid var(--border); border-radius: 6px;
+  background: rgba(255,255,255,0.02); text-align: center;
+}
+.pipe-box.pipe-cloud { border-color: rgba(185,28,28,0.35); }
+.pipe-name { color: var(--red-bright); font-weight: 600; letter-spacing: 2px; }
+.pipe-sub { color: var(--text-dim); font-size: 8px; margin-top: 3px; line-height: 1.4; }
+.pipe-arrow { color: var(--text-muted); font-size: 14px; flex-shrink: 0; }
+.layer-cmp {
+  display: grid; grid-template-columns: 60px 1fr; gap: 6px 12px;
+  margin: 14px 0; font-family: var(--mono); font-size: 10px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: rgba(255,255,255,0.02); padding: 12px 14px;
+}
+.layer-cmp .lc-tag { color: var(--red-bright); font-weight: 600; letter-spacing: 2px; font-size: 9px; align-self: center; }
+.layer-cmp .lc-row { color: var(--text-dim); line-height: 1.6; padding: 4px 0; border-top: 1px solid rgba(255,255,255,0.04); }
+.layer-cmp .lc-row:first-of-type, .layer-cmp .lc-tag:first-of-type { border-top: none; padding-top: 0; }
+.cmd-mode-flow {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 6px; margin: 14px 0;
+  font-family: var(--mono); font-size: 9px;
+}
+.cmf-panel {
+  flex: 1; min-width: 110px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: rgba(255,255,255,0.02);
+}
+.cmf-panel.cmf-action {
+  border-color: rgba(185,28,28,0.4);
+  text-align: center;
+}
+.cmf-label {
+  font-size: 8px; letter-spacing: 2px; color: var(--text-muted);
+  margin-bottom: 6px; font-weight: 600;
+}
+.cmf-text {
+  font-size: 10px; color: var(--text); line-height: 1.5;
+  font-family: var(--font);
+}
+.cmf-key {
+  display: inline-block; padding: 4px 11px;
+  background: linear-gradient(180deg, var(--raised-hi) 0%, var(--raised) 100%);
+  color: var(--text-bright); font-weight: 700;
+  border-radius: 4px; border: 1px solid var(--border);
+  font-family: var(--mono); font-size: 11px;
+  box-shadow: 0 2px 0 rgba(0,0,0,0.18);
+  margin-bottom: 6px; letter-spacing: 1px;
+}
+.cmf-sub { color: var(--red-bright); font-size: 9px; }
+.cmf-arrow { color: var(--text-muted); font-size: 14px; flex-shrink: 0; }
+.ring-flow {
+  display: flex; gap: 14px; margin: 14px 0; flex-wrap: wrap;
+  font-family: var(--mono);
+  align-items: flex-start; justify-content: center;
+}
+.ring-state { flex: 1; min-width: 90px; text-align: center; }
+.ring-circle {
+  width: 64px; height: 64px; margin: 0 auto;
+  border-radius: 50%; border: 2px solid var(--text-muted);
+  background:
+    radial-gradient(circle at 50% 30%, rgba(255,255,255,0.04), transparent 70%),
+    rgba(0,0,0,0.15);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 8px; color: var(--text-muted);
+  letter-spacing: 1px; text-transform: lowercase;
+  box-shadow: inset 0 0 8px rgba(0,0,0,0.3);
+  font-family: var(--mono);
+}
+.ring-state.ring-rec .ring-circle {
+  border-color: var(--red-bright); color: var(--red-bright);
+  box-shadow: 0 0 14px rgba(185,28,28,0.45), inset 0 0 8px rgba(0,0,0,0.3);
+}
+.ring-state.ring-proc .ring-circle {
+  border-color: #a16207; color: #a16207;
+  box-shadow: 0 0 12px rgba(161,98,7,0.35), inset 0 0 8px rgba(0,0,0,0.3);
+}
+.ring-caption {
+  margin-top: 6px; color: var(--text-dim); font-size: 8px;
+  letter-spacing: 1px;
+}
 .help-backdrop {
   position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 999;
   background: rgba(0,0,0,0.25); opacity: 0; pointer-events: none; transition: opacity 0.3s;
@@ -2649,10 +2798,26 @@ body::before {
       <div class="theme-toggle"><button class="theme-tog-btn" data-theme-set="dark" onclick="setTheme('dark')">D</button><button class="theme-tog-btn" data-theme-set="light" onclick="setTheme('light')">L</button></div>
       <div class="lang-toggle"><button class="lang-btn active" data-lang="en" onclick="setLang('en')">EN</button><button class="lang-btn" data-lang="ru" onclick="setLang('ru')">RU</button></div>
       <button class="help-btn" onclick="toggleHelp()" title="Manual">?</button>
+      <script>
+        // Backup keyboard shortcuts: F5 and Ctrl+R reload the dashboard.
+        // pywebview/WebView2 sometimes swallows F5 — wire explicitly.
+        document.addEventListener('keydown', function(e) {
+          if (e.key === 'F5' || (e.ctrlKey && (e.key === 'r' || e.key === 'R'))) {
+            e.preventDefault();
+            location.reload();
+          }
+        });
+      </script>
       <div class="eq-bars eq-left" aria-hidden="true">
         <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
       </div>
+      <div class="eq-bars eq-left eq-near" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+      </div>
       <div class="eq-bars eq-right" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+      </div>
+      <div class="eq-bars eq-right eq-near" aria-hidden="true">
         <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
       </div>
       <div class="status-ring-outer">
@@ -2678,18 +2843,16 @@ body::before {
       <div class="tone-stack">
         <button class="tone-btn" data-tone="casual">Casual</button>
         <button class="tone-btn" data-tone="professional">Professional</button>
-        <button class="tone-btn" data-tone="friend">Friend</button>
-        <button class="tone-btn" data-tone="formal">Formal</button>
       </div>
     </div>
 
     <div class="sidebar-section">
       <div class="sidebar-section-title">Layer</div>
       <div class="layer-stack">
-        <div class="layer-opt" data-layer="1"><div class="l-info"><div class="l-name">I. Transcribe</div><div class="l-desc">Whisper only</div></div></div>
+        <div class="layer-opt" data-layer="1"><div class="l-info"><div class="l-name">I. Transcribe</div><div class="l-desc">raw text, no cleanup</div></div></div>
         <div class="layer-opt" data-layer="2"><div class="l-info"><div class="l-name">II. Reconstruct</div><div class="l-desc">LLM + tone</div></div></div>
         <div class="layer-opt" data-layer="3"><div class="l-info"><div class="l-name">III. Profile</div><div class="l-desc">+ vocabulary</div></div></div>
-        <div class="layer-opt" data-layer="4"><div class="l-info"><div class="l-name">IV. Stutter</div><div class="l-desc">+ disfluency</div></div></div>
+        <div class="layer-opt" data-layer="4"><div class="l-info"><div class="l-name">IV. Disfluency</div><div class="l-desc">+ clinical</div></div></div>
       </div>
     </div>
 
@@ -2697,18 +2860,9 @@ body::before {
       <div class="sidebar-section-title">Enhancements</div>
       <div class="engine-section-card">
         <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-quiet-mode"><span class="toggle-slider"></span></label><span class="toggle-label">Quiet Mode</span><span class="toggle-hint">whispered/soft speech</span></div>
-        <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-paralinguistic"><span class="toggle-slider"></span></label><span class="toggle-label">Paralinguistic</span><span class="toggle-hint">cough/laugh</span></div>
+        <div class="toggle-row" id="paralinguistic-row" title=""><label class="toggle-switch"><input type="checkbox" id="toggle-paralinguistic"><span class="toggle-slider"></span></label><span class="toggle-label">Paralinguistic</span><span class="toggle-hint">cough/laugh</span></div>
         <div class="toggle-row toggle-sub" id="para-transcribe-row" style="display:none"><label class="toggle-switch"><input type="checkbox" id="toggle-para-transcribe"><span class="toggle-slider"></span></label><span class="toggle-label">Transcribe</span><span class="toggle-hint">inject [tags] in text</span></div>
-        <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-prosodic"><span class="toggle-slider"></span></label><span class="toggle-label">Prosodic</span><span class="toggle-hint">pitch/energy/rate</span></div>
-      </div>
-    </div>
-
-    <div class="sidebar-section" id="mode-section">
-      <div class="sidebar-section-title">Mode <span class="section-note" id="mode-note"></span></div>
-      <div class="tone-stack">
-        <button class="tone-btn mode-btn" data-mode="RAW">RAW <span class="mode-desc">paste as-is</span></button>
-        <button class="tone-btn mode-btn" data-mode="FAST">FAST <span class="mode-desc">skip validation</span></button>
-        <button class="tone-btn mode-btn" data-mode="SAFE">SAFE <span class="mode-desc">+ Falcon check</span></button>
+        <div class="toggle-row" id="prosodic-row" title=""><label class="toggle-switch"><input type="checkbox" id="toggle-prosodic"><span class="toggle-slider"></span></label><span class="toggle-label">Prosodic</span><span class="toggle-hint">pitch/energy/rate</span></div>
       </div>
     </div>
 
@@ -2717,7 +2871,6 @@ body::before {
       <div class="tone-stack">
         <div class="layer-opt sit-btn" data-situation="default"><div class="l-info"><div class="l-name">Default</div><div class="l-desc">+ everyday use</div></div></div>
         <div class="layer-opt sit-btn" data-situation="high_stress"><div class="l-info"><div class="l-name">High Stress</div><div class="l-desc">+ full assist</div></div></div>
-        <div class="layer-opt sit-btn" data-situation="reading"><div class="l-info"><div class="l-name">Reading</div><div class="l-desc">+ near-fluent</div></div></div>
       </div>
     </div>
 
@@ -2747,8 +2900,10 @@ body::before {
           oninput="updatePatience(this.value)">
         <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-muted);margin-top:2px;font-family:var(--font-mono)"><span>&#9664; 1.0s</span><span id="patience-pct">2.0s</span><span>6.0s &#9654;</span></div>
       </div>
-      <!-- Whisper settings -->
-      <div class="engine-section-card">
+      <!-- Whisper settings — only meaningful at L4 (cloud whisper-1).
+           At L1/L2/L3 (Moonshine), no segment metadata exists so all values
+           stay 0. Greyed out outside L4 so users aren't confused by dead numbers. -->
+      <div class="engine-section-card" id="whisper-card">
         <span class="engine-group-label">WHISPER</span>
         <div class="engine-grid">
           <div class="engine-row"><span>Multi-Temp</span><div class="hw-toggle" id="multitemp-toggle" onclick="toggleMultiTemp()" title="Multi-temperature voting (3x cost)" style="transform:scale(0.65)"></div></div>
@@ -2844,8 +2999,7 @@ body::before {
         <button class="tab-btn" data-tab="prep">Prep</button>
         <button class="tab-btn" data-tab="calibrate">Calibrate</button>
         <button class="tab-btn" data-tab="tips">Tips</button>
-        <button class="tab-btn" data-tab="you">You</button>
-        <button class="tab-btn" data-tab="profile">The File</button>
+        <button class="tab-btn" data-tab="profile">Profile</button>
       </div>
     </div>
 
@@ -2876,33 +3030,34 @@ body::before {
 
       <div class="tab-panel" id="tab-learning">
         <div class="learning-wrap" id="learn-feed"><div class="learn-empty">No patterns learned yet. Keep talking.</div></div>
+      </div>
+
+      <!-- Weekly Report consolidated into Insights tab (2026-04-24) — was in
+           Learning + Insights as separate panels showing the same data. -->
+      <div class="tab-panel" id="tab-insights">
+        <div class="insights-wrap" id="insights">
+          <div class="learn-empty">Switch to Layer 4 to view disfluency insights.</div>
+        </div>
         <div style="padding:16px 24px;border-top:1px solid var(--border)">
           <div style="display:flex;gap:8px;margin-bottom:12px">
             <button class="aug-btn" id="report-btn" onclick="generateReport()" style="flex:1">📊 WEEKLY REPORT</button>
-            <button class="aug-btn" id="clinical-btn" onclick="generateClinicalProfile()" style="flex:1">🩺 CLINICAL PROFILE</button>
           </div>
           <div id="report-output" style="display:none;font-family:var(--mono);font-size:11px;color:var(--text-muted);line-height:1.8;white-space:pre-wrap;padding:12px 16px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius)"></div>
-        </div>
-      </div>
-
-      <div class="tab-panel" id="tab-insights">
-        <div class="insights-wrap" id="insights">
-          <div class="learn-empty">Switch to Layer 4 to view stuttering insights.</div>
         </div>
         <div id="phoneme-map" style="display:none;padding:16px 24px;border-top:1px solid var(--border)">
           <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">PHONEME DIFFICULTY MAP</div>
           <div id="phoneme-bars" style="display:flex;flex-wrap:wrap;gap:4px;align-items:flex-end"></div>
         </div>
         <div id="covert-section" style="display:none;padding:16px 24px;border-top:1px solid var(--border)">
-          <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">COVERT AVOIDANCE PATTERNS</div>
+          <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">HIDDEN AVOIDANCE PATTERNS</div>
           <div id="covert-pairs" style="font-family:var(--mono);font-size:11px;line-height:2"></div>
         </div>
         <div id="anomaly-section" style="display:none;padding:16px 24px;border-top:1px solid var(--border)">
-          <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">ONSET ANOMALIES <span style="color:var(--text-muted);font-size:8px">(onsets you avoid)</span></div>
+          <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">HARD-SOUND PATTERNS <span style="color:var(--text-muted);font-size:8px">(first sounds you avoid)</span></div>
           <div id="anomaly-list" style="font-family:var(--mono);font-size:11px;line-height:2"></div>
         </div>
         <div id="lang-onset-section" style="display:none;padding:16px 24px;border-top:1px solid var(--border)">
-          <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">PER-LANGUAGE ONSET WEIGHTS</div>
+          <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">PER-LANGUAGE HARD SOUNDS</div>
           <div id="lang-onset-content" style="display:flex;gap:24px;flex-wrap:wrap"></div>
         </div>
         <div id="fingerprint-section" style="display:none;padding:16px 24px;border-top:1px solid var(--border)">
@@ -2935,7 +3090,7 @@ body::before {
       <div class="tab-panel" id="tab-prep">
         <div class="prep-wrap">
           <div class="prep-input-area">
-            <textarea class="prep-textarea" id="prep-input" placeholder="Paste your script, talking points, or email here. Lavrentiy will flag words you might stutter on and suggest safer alternatives."></textarea>
+            <textarea class="prep-textarea" id="prep-input" placeholder="Paste your script, talking points, or email here. Lavrentiy will flag words that might trip you up and suggest safer alternatives."></textarea>
             <button class="prep-btn" id="prep-btn" onclick="runPrep()">PREP</button>
           </div>
           <div class="prep-legend">
@@ -2966,7 +3121,7 @@ body::before {
             <div class="cal-prompt-area" id="cal-prompt-area" style="display:none">
               <div class="cal-category" id="cal-category"></div>
               <div class="cal-prompt-text" id="cal-prompt-text"></div>
-              <div class="cal-instruction">Read this sentence aloud, naturally. Don't try to hide your stutter.</div>
+              <div class="cal-instruction">Read this sentence aloud, naturally. Don't try to hide any disfluency.</div>
               <div class="cal-rec-controls">
                 <button class="cal-rec-btn" id="cal-rec-btn" onclick="calToggleRecord()">
                   <span class="cal-rec-dot"></span> RECORD
@@ -3012,12 +3167,13 @@ body::before {
         <div class="tips-wrap" id="tips-content"></div>
       </div>
 
-      <div class="tab-panel" id="tab-you">
-        <div class="you-wrap" id="you-content"><div class="learn-empty">Loading your profile...</div></div>
-      </div>
-
+      <!-- "You" tab removed (was empty placeholder).
+           "The File" tab renamed to "Profile" and put back in the console tabs.
+           New WiM-mirror sections (Disfluency support / Mostly Use For / Industry /
+           Work Hours / Stats) injected at the top via JS on first render
+           (function _seedProfileTabExtras below). -->
       <div class="tab-panel" id="tab-profile">
-        <div class="profile-wrap">
+        <div class="profile-wrap" id="profile-wrap">
           <div id="gdpr-controls" style="display:none;padding:12px 16px;margin-bottom:12px;background:rgba(212,165,116,0.05);border:1px solid rgba(212,165,116,0.2);border-radius:6px">
             <div style="font-family:var(--mono);font-size:9px;letter-spacing:2px;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px">Your cloud data</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -3043,7 +3199,7 @@ body::before {
             <div class="profile-body" id="body-corrections"><div id="corrections-list"></div><div class="add-row" style="margin-top:10px"><input class="add-input" id="input-corr-from" placeholder="Heard as..." style="flex:1" onkeydown="if(event.key==='Enter')document.getElementById('input-corr-to').focus()"><span style="color:var(--text-muted);font-size:11px;padding:0 4px;font-family:var(--mono)">&rarr;</span><input class="add-input" id="input-corr-to" placeholder="Should be..." style="flex:1" onkeydown="if(event.key==='Enter')addCorrection()"><button class="add-btn" onclick="addCorrection()">+</button></div></div>
           </div>
           <div class="profile-section" id="sec-covert">
-            <div class="profile-header" onclick="toggleSection('covert')"><span><span class="ph-title">Covert Avoidance Pairs</span><span class="ph-count" id="cnt-covert">(0)</span></span><span class="arrow">&#9654;</span></div>
+            <div class="profile-header" onclick="toggleSection('covert')"><span><span class="ph-title">Hidden Avoidance Pairs</span><span class="ph-count" id="cnt-covert">(0)</span></span><span class="arrow">&#9654;</span></div>
             <div class="profile-body" id="body-covert"><div id="covert-pairs-list"></div></div>
           </div>
 
@@ -3055,7 +3211,7 @@ body::before {
             </div>
             <div style="font-family:var(--mono);font-size:9px;line-height:1.6;color:var(--text-dim)">
               <strong style="color:var(--yellow)">RESET HISTORY</strong> — clears session log &amp; counters (Words, Sessions, API calls, etc). Keeps all learned data (corrections, vocabulary, triggers).<br>
-              <strong style="color:var(--red-bright)">DELETE PROFILE</strong> — wipes EVERYTHING the engine learned about you: trigger words, corrections, vocabulary, covert avoidance patterns, onset weights, session history. Cannot be undone.
+              <strong style="color:var(--red-bright)">DELETE PROFILE</strong> — wipes EVERYTHING the engine learned about you: trigger words, corrections, vocabulary, hidden avoidance patterns, hard-sound weights, session history. Cannot be undone.
             </div>
             <div id="reset-status" style="margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--text-dim)"></div>
           </div>
@@ -3088,12 +3244,17 @@ const auth=firebase.auth();
 const googleProvider=new firebase.auth.GoogleAuthProvider();
 
 function googleSignIn(){
-  // Google blocks OAuth in embedded webviews — open system browser
+  // Google blocks OAuth in embedded/app-mode browsers (Edge --app=, webviews, etc.)
+  // Route the sign-in through the system default browser instead.
   if(window.pywebview&&window.pywebview.api){
     window.pywebview.api.open_google_signin();
-  }else{
-    window.open('http://localhost:7878/auth/google','_blank');
+    return;
   }
+  // Ask the engine to open Google sign-in in the user's real default browser.
+  // Fall back to window.open only if the endpoint is unreachable.
+  fetch('/api/open-signin',{method:'POST'}).then(r=>{
+    if(!r.ok) window.open('http://localhost:7878/auth/google','_blank');
+  }).catch(()=>window.open('http://localhost:7878/auth/google','_blank'));
 }
 
 async function googleSignOut(){
@@ -3184,10 +3345,10 @@ const I18N={
   tone_friend:{en:'Friend',ru:'Дружеский'},
   tone_formal:{en:'Formal',ru:'Формальный'},
   // Layers
-  layer1:{en:'I. Transcribe',ru:'I. Транскрипция'},layer1d:{en:'Whisper only',ru:'Только Whisper'},
+  layer1:{en:'I. Transcribe',ru:'I. Транскрипция'},layer1d:{en:'raw text, no cleanup',ru:'сырой текст, без обработки'},
   layer2:{en:'II. Reconstruct',ru:'II. Реконструкция'},layer2d:{en:'LLM + tone',ru:'LLM + тон'},
   layer3:{en:'III. Profile',ru:'III. Профиль'},layer3d:{en:'+ vocabulary',ru:'+ словарь'},
-  layer4:{en:'IV. Stutter',ru:'IV. Заикание'},layer4d:{en:'+ disfluency',ru:'+ дисфлюенция'},
+  layer4:{en:'IV. Disfluency',ru:'IV. Заикание'},layer4d:{en:'+ clinical',ru:'+ дисфлюенция'},
   // Enhancement toggles
   lbl_para:{en:'Paralinguistic',ru:'Паралингвистика'},hint_para:{en:'cough/laugh',ru:'кашель/смех'},
   lbl_transcribe:{en:'Transcribe',ru:'Транскрипция'},hint_transcribe:{en:'inject [tags] in text',ru:'вставить [теги] в текст'},
@@ -3228,20 +3389,20 @@ const I18N={
   tab_console:{en:'Console',ru:'Консоль'},tab_sessions:{en:'Sessions',ru:'Сессии'},
   tab_learning:{en:'Learning',ru:'Обучение'},tab_insights:{en:'Insights',ru:'Анализ'},
   tab_prep:{en:'Prep',ru:'Подготовка'},tab_calibrate:{en:'Calibrate',ru:'Калибровка'},
-  tab_tips:{en:'Tips',ru:'Подсказки'},tab_profile:{en:'The File',ru:'Профиль'},
+  tab_tips:{en:'Tips',ru:'Подсказки'},tab_profile:{en:'Profile',ru:'Профиль'},
   // Tab empties & labels
   console_empty:{en:'Waiting for input...',ru:'Ожидание ввода...'},
   learn_empty:{en:'No patterns learned yet. Keep talking.',ru:'Паттерны ещё не найдены. Продолжайте говорить.'},
   learn_report:{en:'\uD83D\uDCCA WEEKLY REPORT',ru:'\uD83D\uDCCA НЕДЕЛЬНЫЙ ОТЧЁТ'},
-  insights_empty:{en:'Switch to Layer 4 to view stuttering insights.',ru:'Переключитесь на уровень 4 для анализа заикания.'},
+  insights_empty:{en:'Switch to Layer 4 to view disfluency insights.',ru:'Переключитесь на уровень 4 для анализа заикания.'},
   insights_nodata:{en:'Not enough data yet. Keep using Layer 4.',ru:'Недостаточно данных. Продолжайте использовать уровень 4.'},
   sessions_empty:{en:'Start dictating. Sessions appear here.',ru:'Начните диктовку. Сессии появятся здесь.'},
   // Insights section titles
   phoneme_title:{en:'PHONEME DIFFICULTY MAP',ru:'КАРТА СЛОЖНОСТИ ФОНЕМ'},
-  covert_title:{en:'COVERT AVOIDANCE PATTERNS',ru:'СКРЫТЫЕ ПАТТЕРНЫ ИЗБЕГАНИЯ'},
-  onset_title:{en:'ONSET ANOMALIES',ru:'АНОМАЛИИ НАЧАЛА СЛОВ'},
-  onset_sub:{en:'(onsets you avoid)',ru:'(начала, которых вы избегаете)'},
-  lang_onset_title:{en:'PER-LANGUAGE ONSET WEIGHTS',ru:'ВЕСА НАЧАЛ СЛОВ ПО ЯЗЫКАМ'},
+  covert_title:{en:'HIDDEN AVOIDANCE PATTERNS',ru:'СКРЫТЫЕ ПАТТЕРНЫ ИЗБЕГАНИЯ'},
+  onset_title:{en:'HARD-SOUND PATTERNS',ru:'АНОМАЛИИ НАЧАЛА СЛОВ'},
+  onset_sub:{en:'(first sounds you avoid)',ru:'(начала, которых вы избегаете)'},
+  lang_onset_title:{en:'PER-LANGUAGE HARD SOUNDS',ru:'ВЕСА НАЧАЛ СЛОВ ПО ЯЗЫКАМ'},
   fingerprint_title:{en:'SUBSTITUTION FINGERPRINT',ru:'ОТПЕЧАТОК ЗАМЕН'},
   shadow_title:{en:'AVOIDANCE DRIFT',ru:'ДРЕЙФ ИЗБЕГАНИЯ'},
   lowconf_title:{en:'LOW CONFIDENCE SEGMENTS',ru:'СЕГМЕНТЫ С НИЗКОЙ УВЕРЕННОСТЬЮ'},
@@ -3250,7 +3411,7 @@ const I18N={
   fl_pause:{en:'AVG PAUSE',ru:'СР. ПАУЗА'},fl_rate:{en:'AVG RATE',ru:'СР. ТЕМП'},
   fl_sev:{en:'AVG SEV+',ru:'СР. ТЯЖ+'},fl_sessions:{en:'SESSIONS',ru:'СЕССИИ'},
   // Prep tab
-  prep_ph:{en:'Paste your script, talking points, or email here. Lavrentiy will flag words you might stutter on and suggest safer alternatives.',ru:'Вставьте текст, тезисы или письмо. Лаврентий найдёт слова, на которых вы можете заикаться, и предложит замены.'},
+  prep_ph:{en:'Paste your script, talking points, or email here. Lavrentiy will flag words that might trip you up and suggest safer alternatives.',ru:'Вставьте текст, тезисы или письмо. Лаврентий найдёт слова, на которых вы можете заикаться, и предложит замены.'},
   prep_btn:{en:'PREP',ru:'АНАЛИЗ'},prep_scanning:{en:'SCANNING...',ru:'СКАНИРОВАНИЕ...'},
   prep_safe:{en:'SAFE',ru:'БЕЗОПАСНО'},prep_risky:{en:'RISKY',ru:'РИСКОВАННО'},prep_trigger:{en:'KNOWN TRIGGER',ru:'ИЗВЕСТНЫЙ ТРИГГЕР'},
   prep_seed:{en:'\u26A1 WHISPER SEEDED \u2014 decoder will use this text as context',ru:'\u26A1 WHISPER ПОДГОТОВЛЕН \u2014 декодер использует этот текст как контекст'},
@@ -3263,7 +3424,7 @@ const I18N={
   cal_start:{en:'BEGIN CALIBRATION',ru:'НАЧАТЬ КАЛИБРОВКУ'},cal_resume:{en:'RESUME CALIBRATION',ru:'ПРОДОЛЖИТЬ КАЛИБРОВКУ'},
   cal_record:{en:'RECORD',ru:'ЗАПИСЬ'},cal_stop:{en:'STOP',ru:'СТОП'},cal_saving:{en:'SAVING...',ru:'СОХРАНЕНИЕ...'},
   cal_skip:{en:'SKIP',ru:'ПРОПУСТИТЬ'},
-  cal_instruction:{en:'Read this sentence aloud, naturally. Don\'t try to hide your stutter.',ru:'Прочитайте это предложение вслух, естественно. Не пытайтесь скрыть заикание.'},
+  cal_instruction:{en:'Read this sentence aloud, naturally. Don\'t try to hide any disfluency.',ru:'Прочитайте это предложение вслух, естественно. Не пытайтесь скрыть заикание.'},
   cal_complete:{en:'CALIBRATION COMPLETE',ru:'КАЛИБРОВКА ЗАВЕРШЕНА'},
   cal_wer_title:{en:'Calibration WER Summary',ru:'Результаты калибровки WER'},
   aug_title:{en:'DATA AUGMENTATION',ru:'АУГМЕНТАЦИЯ ДАННЫХ'},
@@ -3277,7 +3438,7 @@ const I18N={
   // Profile (The File)
   prof_triggers:{en:'Trigger Words',ru:'Триггерные слова'},prof_fillers:{en:'Filler Words',ru:'Слова-паразиты'},
   prof_vocab:{en:'Vocabulary',ru:'Словарь'},prof_corrections:{en:'Corrections',ru:'Коррекции'},
-  prof_covert:{en:'Covert Avoidance Pairs',ru:'Пары скрытого избегания'},
+  prof_covert:{en:'Hidden Avoidance Pairs',ru:'Пары скрытого избегания'},
   prof_add_trigger:{en:'Add trigger word...',ru:'Добавить триггер...'},
   prof_add_filler:{en:'Add filler word...',ru:'Добавить паразит...'},
   prof_add_vocab:{en:'Add preferred term...',ru:'Добавить термин...'},
@@ -3298,16 +3459,14 @@ const I18N={
   help_title:{en:'Guide',ru:'Руководство'},help_sub:{en:'OPERATIONS MANUAL',ru:'РУКОВОДСТВО ПОЛЬЗОВАТЕЛЯ'},
   help_search:{en:'Search...',ru:'Поиск...'},
   // Help sections
-  ha_layers:{en:'Layers',ru:'Уровни'},ha_layers_sub:{en:'L1 Transcribe through L4 Stutter',ru:'L1 Транскрипция \u2014 L4 Заикание'},
-  ha_layers_body:{en:'<strong>L1 Transcribe</strong> \u2014 Whisper only. Raw speech-to-text, no AI cleanup. Fastest.<br><strong>L2 Reconstruct</strong> \u2014 GPT rewrites using your tone. Strips fillers, fixes grammar. ~1-2s slower.<br><strong>L3 Profile</strong> \u2014 Same as L2 + your personal vocabulary and corrections map.<br><strong>L4 Stutter</strong> \u2014 Full clinical mode. Disfluency tracking, exposure scoring, severity-scaled rewrites.<div class="ha-example"><span class="he-in">You say:</span> "So uh basically the the thing is um working"<br><span class="he-out">L1:</span> "So uh basically the the thing is um working"<br><span class="he-out">L2:</span> "The thing is working."</div>',ru:'<strong>L1 Транскрипция</strong> \u2014 Только Whisper. Сырой текст, без ИИ-обработки. Самый быстрый.<br><strong>L2 Реконструкция</strong> \u2014 GPT переписывает в вашем тоне. Убирает паразиты, исправляет грамматику. На ~1-2с медленнее.<br><strong>L3 Профиль</strong> \u2014 L2 + ваш личный словарь и карта коррекций.<br><strong>L4 Заикание</strong> \u2014 Клинический режим. Отслеживание дисфлюенций, оценка экспозиции, масштабированные правки.<div class="ha-example"><span class="he-in">Вы говорите:</span> "Ну э-э в общем-то это это вещь э-э работает"<br><span class="he-out">L1:</span> "Ну э-э в общем-то это это вещь э-э работает"<br><span class="he-out">L2:</span> "Эта вещь работает."</div>'},
+  ha_layers:{en:'Layers',ru:'Уровни'},ha_layers_sub:{en:'L1 Transcribe through L4 Disfluency',ru:'L1 Транскрипция \u2014 L4 Заикание'},
+  ha_layers_body:{en:'<div class="layer-cmp"><div class="lc-tag">L1</div><div class="lc-row"><strong>Transcribe</strong> \u2014 Local Moonshine on-device. Quick disfluency cleanup. No cloud, no cost.</div><div class="lc-tag">L2</div><div class="lc-row"><strong>Reconstruct</strong> \u2014 GPT-4o rewrites in your tone. Haiku 4.5 cross-checks meaning. ~2\u20134s.</div><div class="lc-tag">L3</div><div class="lc-row"><strong>Profile</strong> \u2014 Same as L2 + your personal vocabulary &amp; corrections.</div><div class="lc-tag">L4</div><div class="lc-row"><strong>Disfluency</strong> \u2014 Cloud Whisper (verbose) + Sonnet 4.6 with extended thinking. Hard-sound map, hidden avoidance, exposure scoring. The clinical engine.</div></div><div class="ha-example"><span class="he-in">You say:</span> "So uh basically the the thing is um working"<br><span class="he-out">L1:</span> "So basically the thing is working" <span style="opacity:0.6">(auto-cleanup)</span><br><span class="he-out">L2:</span> "The thing is working."</div>',ru:'<strong>L1 Транскрипция</strong> \u2014 Только Whisper. Сырой текст, без ИИ-обработки. Самый быстрый.<br><strong>L2 Реконструкция</strong> \u2014 GPT переписывает в вашем тоне. Убирает паразиты, исправляет грамматику. На ~1-2с медленнее.<br><strong>L3 Профиль</strong> \u2014 L2 + ваш личный словарь и карта коррекций.<br><strong>L4 Заикание</strong> \u2014 Клинический режим. Отслеживание дисфлюенций, оценка экспозиции, масштабированные правки.<div class="ha-example"><span class="he-in">Вы говорите:</span> "Ну э-э в общем-то это это вещь э-э работает"<br><span class="he-out">L1:</span> "Ну э-э в общем-то это это вещь э-э работает"<br><span class="he-out">L2:</span> "Эта вещь работает."</div>'},
   ha_tone:{en:'Tone',ru:'Тон'},ha_tone_sub:{en:'How GPT rewrites your speech (L2+)',ru:'Как GPT переписывает вашу речь (L2+)'},
-  ha_tone_body:{en:'<strong>Casual</strong> \u2014 Conversational. Contractions, simple words.<br><strong>Professional</strong> \u2014 Business-ready. Clean, precise language.<br><strong>Friend</strong> \u2014 Relaxed. Like texting a friend.<br><strong>Formal</strong> \u2014 Academic/legal. No contractions, precise.<br><br>Has no effect on L1 (collapses when L1 is selected).',ru:'<strong>Обычный</strong> \u2014 Разговорный стиль. Простые слова, сокращения.<br><strong>Деловой</strong> \u2014 Для бизнеса. Чистый, точный язык.<br><strong>Дружеский</strong> \u2014 Расслабленный. Как переписка с другом.<br><strong>Формальный</strong> \u2014 Академический/юридический. Без сокращений, точный.<br><br>Не влияет на L1 (сворачивается при выборе L1).'},
-  ha_mode:{en:'Mode',ru:'Режим'},ha_mode_sub:{en:'Pipeline steps: RAW, FAST, SAFE',ru:'Шаги конвейера: RAW, FAST, SAFE'},
-  ha_mode_body:{en:'<strong>RAW</strong> <code>paste as-is</code> \u2014 GPT runs for analytics but pastes Whisper\'s original text.<br><strong>FAST</strong> <code>skip validation</code> \u2014 GPT rewrites, trust it, paste. Best speed/quality.<br><strong>SAFE</strong> <code>+ Falcon check</code> \u2014 GPT rewrites, Falcon verifies meaning preserved. Slowest, safest.<br><br>All three produce identical output on L1. Collapses when L1 is selected.',ru:'<strong>RAW</strong> <code>вставить как есть</code> \u2014 GPT работает для аналитики, но вставляет оригинальный текст Whisper.<br><strong>FAST</strong> <code>без проверки</code> \u2014 GPT переписывает, доверяем, вставляем. Лучший баланс скорости/качества.<br><strong>SAFE</strong> <code>+ проверка Falcon</code> \u2014 GPT переписывает, Falcon проверяет сохранение смысла. Медленнее, но безопаснее.<br><br>Все три дают одинаковый результат на L1. Сворачивается при выборе L1.'},
+  ha_tone_body:{en:'<strong>Casual</strong> \u2014 Conversational. Contractions, simple words.<br><strong>Professional</strong> \u2014 Business-ready. Clean, precise language.<br><br>Has no effect on L1 (collapses when L1 is selected).',ru:'<strong>Обычный</strong> \u2014 Разговорный стиль. Простые слова, сокращения.<br><strong>Деловой</strong> \u2014 Для бизнеса. Чистый, точный язык.<br><strong>Дружеский</strong> \u2014 Расслабленный. Как переписка с другом.<br><strong>Формальный</strong> \u2014 Академический/юридический. Без сокращений, точный.<br><br>Не влияет на L1 (сворачивается при выборе L1).'},
   ha_enhance:{en:'Enhancements',ru:'Улучшения'},ha_enhance_sub:{en:'Paralinguistic + Prosodic analysis',ru:'Паралингвистический + просодический анализ'},
-  ha_enhance_body:{en:'<strong>Paralinguistic</strong> \u2014 Detects cough, laugh, sigh, throat-clear, breathing, pause. Independent of layer.<br>&nbsp;&nbsp;\u2022 <strong>Transcribe sub-toggle:</strong> ON = tags injected in text (<code>[Laughter]</code>). OFF = logged only.<br><br><strong>Prosodic</strong> \u2014 Tracks pitch (F0), energy, speaking rate. Feeds severity modifier on L4. Auto-enables on L4 and High Stress.<div class="ha-example"><span class="he-out">Console:</span> "Speech: pause_ratio=47% rate=3.4syl/s \u2192 severity +0.4"<br><span class="he-out">Console:</span> "Prosodic: Vocal tension (erratic pitch in 100%)"</div>',ru:'<strong>Паралингвистика</strong> \u2014 Определяет кашель, смех, вздох, прочистку горла, дыхание, паузу. Независимо от уровня.<br>&nbsp;&nbsp;\u2022 <strong>Транскрипция:</strong> ВКЛ = теги в тексте (<code>[Смех]</code>). ВЫКЛ = только в логе.<br><br><strong>Просодика</strong> \u2014 Отслеживает тон (F0), энергию, темп речи. Влияет на модификатор тяжести на L4. Авто-включается на L4 и при Стрессе.<div class="ha-example"><span class="he-out">Консоль:</span> "Речь: pause_ratio=47% rate=3.4syl/s \u2192 severity +0.4"<br><span class="he-out">Консоль:</span> "Просодика: Вокальное напряжение (хаотичный тон в 100%)"</div>'},
+  ha_enhance_body:{en:'Both toggles only do work at <strong>L4</strong> \u2014 greyed out at L1/L2/L3 because nothing else consumes them.<br><br><strong>Paralinguistic</strong> \u2014 Detects cough, laugh, sigh, throat-clear, breathing, pause.<br>&nbsp;&nbsp;\u2022 <strong>Transcribe sub-toggle:</strong> ON = tags injected in text (<code>[Laughter]</code>). OFF = logged only.<br><br><strong>Prosodic</strong> \u2014 Tracks pitch (F0), energy, speaking rate. Feeds severity modifier on L4. Auto-enables on L4 and High Stress.<div class="ha-example"><span class="he-out">Console:</span> "Speech: pause_ratio=47% rate=3.4syl/s \u2192 severity +0.4"<br><span class="he-out">Console:</span> "Prosodic: Vocal tension (erratic pitch in 100%)"</div>',ru:'<strong>Паралингвистика</strong> \u2014 Определяет кашель, смех, вздох, прочистку горла, дыхание, паузу. Независимо от уровня.<br>&nbsp;&nbsp;\u2022 <strong>Транскрипция:</strong> ВКЛ = теги в тексте (<code>[Смех]</code>). ВЫКЛ = только в логе.<br><br><strong>Просодика</strong> \u2014 Отслеживает тон (F0), энергию, темп речи. Влияет на модификатор тяжести на L4. Авто-включается на L4 и при Стрессе.<div class="ha-example"><span class="he-out">Консоль:</span> "Речь: pause_ratio=47% rate=3.4syl/s \u2192 severity +0.4"<br><span class="he-out">Консоль:</span> "Просодика: Вокальное напряжение (хаотичный тон в 100%)"</div>'},
   ha_situation:{en:'Situation',ru:'Ситуация'},ha_situation_sub:{en:'One-click engine presets',ru:'Пресеты движка в одно нажатие'},
-  ha_situation_body:{en:'<strong>Default</strong> \u2014 Everyday dictation. Severity 1.0. No auto-toggles.<br><strong>High Stress</strong> \u2014 Phone, interview, presentation. Auto-enables L4, DAF 100ms, all toggles. Severity 1.5.<br><strong>Reading</strong> \u2014 Reading aloud. Near-fluent. Severity 0.3, light L3 touch.',ru:'<strong>Обычная</strong> \u2014 Повседневная диктовка. Тяжесть 1.0. Без авто-переключений.<br><strong>Стресс</strong> \u2014 Телефон, собеседование, презентация. Авто-включает L4, DAF 100мс, все переключатели. Тяжесть 1.5.<br><strong>Чтение</strong> \u2014 Чтение вслух. Уверенная речь. Тяжесть 0.3, лёгкий L3.'},
+  ha_situation_body:{en:'<strong>Default</strong> \u2014 Everyday dictation. Severity 1.0. No auto-toggles.<br><strong>High Stress</strong> \u2014 Phone, interview, presentation. Auto-enables L4, DAF 100ms, paralinguistic + prosodic. Severity 1.5.',ru:'<strong>Обычная</strong> \u2014 Повседневная диктовка. Тяжесть 1.0. Без авто-переключений.<br><strong>Стресс</strong> \u2014 Телефон, собеседование, презентация. Авто-включает L4, DAF 100мс, все переключатели. Тяжесть 1.5.<br><strong>Чтение</strong> \u2014 Чтение вслух. Уверенная речь. Тяжесть 0.3, лёгкий L3.'},
   ha_daf:{en:'DAF',ru:'DAF'},ha_daf_sub:{en:'Delayed Auditory Feedback for fluency',ru:'Задержанная слуховая обратная связь'},
   ha_daf_body:{en:'Plays your voice back through headphones with a slight delay. The delay tricks the brain into slowing down, improving fluency. Independent of all other settings.<br><br><strong>Toggle:</strong> ON/OFF &nbsp; <strong>Dial:</strong> Delay in milliseconds (default 100ms). More = stronger effect.',ru:'Воспроизводит ваш голос через наушники с небольшой задержкой. Задержка заставляет мозг замедлиться, улучшая плавность речи. Независимо от других настроек.<br><br><strong>Переключатель:</strong> ВКЛ/ВЫКЛ &nbsp; <strong>Регулятор:</strong> Задержка в миллисекундах (по умолчанию 100мс). Больше = сильнее эффект.'},
   ha_whisper:{en:'Whisper Diagnostics',ru:'Диагностика Whisper'},ha_whisper_sub:{en:'Multi-temp, blocks, confidence',ru:'Мульти-темп, блоки, уверенность'},
@@ -3319,9 +3478,9 @@ const I18N={
   ha_colors:{en:'Console Colors',ru:'Цвета консоли'},ha_colors_sub:{en:'What the colored text means',ru:'Значение цветного текста'},
   ha_colors_body:{en:'<strong style="color:#222">White</strong> \u2014 Your transcribed speech (with word count)<br><strong style="color:#16a34a">Green</strong> \u2014 Pipeline status, recording, paste timing<br><strong style="color:#a16207">Yellow</strong> \u2014 Speech analytics and Whisper diagnostics<br><strong style="color:#dc2626">Red</strong> \u2014 Prosodic alerts (vocal tension, erratic pitch)<br><strong style="color:#92400e">Brown</strong> \u2014 Block suspect (Whisper hallucinated over silence)',ru:'<strong style="color:#222">Белый</strong> \u2014 Ваша транскрибированная речь (с количеством слов)<br><strong style="color:#16a34a">Зелёный</strong> \u2014 Статус конвейера, запись, время вставки<br><strong style="color:#a16207">Жёлтый</strong> \u2014 Аналитика речи и диагностика Whisper<br><strong style="color:#dc2626">Красный</strong> \u2014 Просодические предупреждения (голосовое напряжение, хаотичный тон)<br><strong style="color:#92400e">Коричневый</strong> \u2014 Подозрение на блок (Whisper галлюцинировал в тишине)'},
   ha_pipeline:{en:'How It Works',ru:'Как это работает'},ha_pipeline_sub:{en:'What happens when you press Record',ru:'Что происходит при нажатии Запись'},
-  ha_pipeline_body:{en:'<strong style="color:var(--red-bright)">1. You speak</strong><br>Your voice is captured through the microphone. The audio is cleaned up (background noise removed, volume leveled) before anything else touches it.<br><br><strong style="color:var(--red-bright)">2. Whisper listens</strong><br>OpenAI\u2019s Whisper converts your speech to text. It also reports <em>how confident</em> it is about each word. Quiet moments (blocks, pauses) are flagged rather than guessed at.<br><span style="opacity:0.6;font-size:0.9em">If you use Script Prep, your intended text helps Whisper guess better \u2014 like giving it the answer key.</span><br><br><strong style="color:var(--red-bright)">3. Quick cleanup</strong><br>Before any AI gets involved, obvious disfluencies are stripped automatically (zero cost, instant):<br>\u2022 Repeated syllables: \u201cp-p-pop\u201d \u2192 \u201cpop\u201d<br>\u2022 Repeated words: \u201cI I I want\u201d \u2192 \u201cI want\u201d<br>\u2022 Fillers: \u201cum\u201d, \u201cuh\u201d, \u201clike\u201d, \u201cyou know\u201d<br>\u2022 False starts: \u201cgoing to\u2014 I went\u201d \u2192 \u201cI went\u201d<br>\u2022 Prolongations: \u201cmmmmaybe\u201d \u2192 \u201cmaybe\u201d<br><span style="opacity:0.6;font-size:0.9em">Natural phrases like \u201cbye bye\u201d and \u201chad had\u201d are kept \u2014 real grammar, not disfluencies.</span><br><br><strong style="color:var(--red-bright)">4. Depends on your Layer:</strong><br><br><strong>Layer 1</strong> \u2014 Done. The cleaned text is pasted. No AI, no cost beyond transcription.<br><br><strong>Layer 2</strong> \u2014 GPT rewrites using your chosen tone (casual, professional, etc). It knows the text came from a microphone, so it\u2019s forgiving about messiness. No personal data used.<br><br><strong>Layer 3</strong> \u2014 Same as L2, plus GPT knows <em>your</em> preferred words and learned corrections.<br><br><strong>Layer 4</strong> \u2014 The full engine. A stronger AI model gets a detailed briefing:<br>\u2022 Which sounds are hardest for you<br>\u2022 Words you tend to avoid and swap<br>\u2022 Where Whisper was uncertain or detected a block<br>\u2022 Non-verbal events (coughs, pauses) so it doesn\u2019t make up words<br>\u2022 Your pitch, energy, and speaking rate patterns<br><br><strong style="color:var(--red-bright)">5. Safety check</strong><br>In SAFE mode, a second AI reads both your original words and the rewrite, and asks: \u201cDid the meaning change?\u201d If yes, the rewrite is rejected and your original text is used. Numbers, dollar amounts, and percentages are double-checked separately.<br><br><strong style="color:var(--red-bright)">6. Paste</strong><br>The final text goes to your clipboard and is pasted into whatever app you\u2019re using.',ru:'<strong style="color:var(--red-bright)">1. \u0412\u044b \u0433\u043e\u0432\u043e\u0440\u0438\u0442\u0435</strong><br>\u0412\u0430\u0448 \u0433\u043e\u043b\u043e\u0441 \u0437\u0430\u043f\u0438\u0441\u044b\u0432\u0430\u0435\u0442\u0441\u044f \u0447\u0435\u0440\u0435\u0437 \u043c\u0438\u043a\u0440\u043e\u0444\u043e\u043d. \u0410\u0443\u0434\u0438\u043e \u043e\u0447\u0438\u0449\u0430\u0435\u0442\u0441\u044f \u043f\u0435\u0440\u0435\u0434 \u043e\u0431\u0440\u0430\u0431\u043e\u0442\u043a\u043e\u0439.'},
+  ha_pipeline_body:{en:'<div class="pipe-flow"><div class="pipe-box"><div class="pipe-name">MIC</div><div class="pipe-sub">audio in</div></div><div class="pipe-arrow">\u2192</div><div class="pipe-box"><div class="pipe-name">ASR</div><div class="pipe-sub">Moonshine local<br>(Whisper at L4)</div></div><div class="pipe-arrow">\u2192</div><div class="pipe-box"><div class="pipe-name">CLEANUP</div><div class="pipe-sub">strip fillers<br>+ repeats</div></div><div class="pipe-arrow">\u2192</div><div class="pipe-box pipe-cloud"><div class="pipe-name">REWRITE</div><div class="pipe-sub">GPT-4o (L2/3)<br>Sonnet ET (L4)</div></div><div class="pipe-arrow">\u2192</div><div class="pipe-box pipe-cloud"><div class="pipe-name">FALCON</div><div class="pipe-sub">meaning<br>cross-check</div></div><div class="pipe-arrow">\u2192</div><div class="pipe-box"><div class="pipe-name">PASTE</div><div class="pipe-sub">\u2192 active app</div></div></div><strong style="color:var(--red-bright)">1. You speak</strong><br>Mic captures audio. Background noise removed, volume leveled. Cleanup happens before anything else touches it.<br><br><strong style="color:var(--red-bright)">2. ASR listens</strong><br><strong>L1/L2/L3:</strong> Moonshine on-device transcribes \u2014 no cloud, no cost. <strong>L4:</strong> Cloud Whisper with verbose JSON returns per-segment confidence (<code>avg_logprob</code>, <code>no_speech_prob</code>) the clinical prompt depends on.<br><span style="opacity:0.6;font-size:0.9em">If you use Script Prep, your intended text seeds the decoder \u2014 like giving it the answer key.</span><br><br><strong style="color:var(--red-bright)">3. Quick cleanup</strong><br>Before any AI gets involved, obvious disfluencies are stripped (zero cost, instant):<br>\u2022 Repeated syllables: \u201cp-p-pop\u201d \u2192 \u201cpop\u201d<br>\u2022 Repeated words: \u201cI I I want\u201d \u2192 \u201cI want\u201d<br>\u2022 Fillers: \u201cum\u201d, \u201cuh\u201d, \u201clike\u201d, \u201cyou know\u201d<br>\u2022 False starts: \u201cgoing to\u2014 I went\u201d \u2192 \u201cI went\u201d<br>\u2022 Prolongations: \u201cmmmmaybe\u201d \u2192 \u201cmaybe\u201d<br><span style="opacity:0.6;font-size:0.9em">Natural phrases like \u201cbye bye\u201d and \u201chad had\u201d are kept \u2014 real grammar, not disfluencies.</span><br><br><strong style="color:var(--red-bright)">4. Rewrite (depends on Layer)</strong><br><br><strong>Layer 1</strong> \u2014 Done. Cleaned text pasted. No AI, no cost.<br><br><strong>Layer 2</strong> \u2014 GPT-4o rewrites in your tone. It knows the text came from a mic, so it is forgiving about messiness. No personal data.<br><br><strong>Layer 3</strong> \u2014 Same as L2, plus GPT knows <em>your</em> preferred words and learned corrections.<br><br><strong>Layer 4</strong> \u2014 Sonnet 4.6 with extended thinking. Reasons through a detailed briefing:<br>\u2022 Which first sounds are hardest for you (your hard-sound map)<br>\u2022 Words you tend to avoid and swap (hidden avoidance pairs)<br>\u2022 Where Whisper was uncertain or detected a hard speech block<br>\u2022 Non-verbal events (coughs, laughter, pauses) so it does not hallucinate words over them<br>\u2022 Your pitch, energy, and speaking rate patterns<br><br><strong style="color:var(--red-bright)">5. Cross-check</strong><br>A second AI reads both your original words and the rewrite, and asks: \u201cDid the meaning change?\u201d If yes, the rewrite is rejected and your original text is used. <strong>L2/L3:</strong> Claude Haiku 4.5 (cross-vendor \u2014 Anthropic checks OpenAI). <strong>L4:</strong> GPT-4o (cross-vendor \u2014 OpenAI checks Anthropic). Numbers, dollar amounts, and percentages double-checked separately.<br><br><strong style="color:var(--red-bright)">6. Paste</strong><br>Final text \u2192 clipboard \u2192 pasted into the active app.',ru:'<strong style="color:var(--red-bright)">1. \u0412\u044b \u0433\u043e\u0432\u043e\u0440\u0438\u0442\u0435</strong><br>\u0412\u0430\u0448 \u0433\u043e\u043b\u043e\u0441 \u0437\u0430\u043f\u0438\u0441\u044b\u0432\u0430\u0435\u0442\u0441\u044f \u0447\u0435\u0440\u0435\u0437 \u043c\u0438\u043a\u0440\u043e\u0444\u043e\u043d. \u0410\u0443\u0434\u0438\u043e \u043e\u0447\u0438\u0449\u0430\u0435\u0442\u0441\u044f \u043f\u0435\u0440\u0435\u0434 \u043e\u0431\u0440\u0430\u0431\u043e\u0442\u043a\u043e\u0439.'},
   ha_tips:{en:'Tips',ru:'Подсказки'},ha_tips_sub:{en:'Power user tricks',ru:'Трюки для продвинутых'},
-  ha_tips_body:{en:'\u2022 Click the <strong>timer</strong> in the status ring to reset it.<br>\u2022 <strong>Compact toggle</strong> (top-left) collapses to a minimal bar with clickable chips.<br>\u2022 Tone and Mode <strong>auto-collapse</strong> on L1 (they have no effect).<br>\u2022 <strong>High Stress</strong> situation is a one-click panic button: L4 + DAF + all toggles.<br>\u2022 Click any <strong>stat/learn bar cell</strong> to jump to its detail tab.',ru:'\u2022 Нажмите на <strong>таймер</strong> в кольце статуса для сброса.<br>\u2022 <strong>Компактный режим</strong> (вверху слева) сворачивает в минимальную полосу с кликабельными чипами.<br>\u2022 Тон и Режим <strong>автоматически сворачиваются</strong> на L1 (они не влияют).<br>\u2022 <strong>Стресс</strong> \u2014 кнопка паники в одно нажатие: L4 + DAF + все переключатели.<br>\u2022 Нажмите на любую <strong>ячейку статистики/обучения</strong> для перехода к вкладке.'},
+  ha_tips_body:{en:'\u2022 Click the <strong>timer</strong> in the status ring to reset it.<br>\u2022 <strong>Compact toggle</strong> (top-left) collapses to a minimal bar with clickable chips.<br>\u2022 Tone <strong>auto-collapses</strong> on L1 (no effect there).<br>\u2022 <strong>High Stress</strong> situation is a one-click panic button: L4 + DAF + paralinguistic + prosodic.<br>\u2022 Paralinguistic + Prosodic toggles only do work at L4 (greyed out elsewhere).<br>\u2022 Click any <strong>stat/learn bar cell</strong> to jump to its detail tab.<br>\u2022 <strong>F8</strong> = Command Mode (transform selection), <strong>F9</strong> = Dictate.',ru:'\u2022 Нажмите на <strong>таймер</strong> в кольце статуса для сброса.<br>\u2022 <strong>Компактный режим</strong> (вверху слева) сворачивает в минимальную полосу с кликабельными чипами.<br>\u2022 Тон и Режим <strong>автоматически сворачиваются</strong> на L1 (они не влияют).<br>\u2022 <strong>Стресс</strong> \u2014 кнопка паники в одно нажатие: L4 + DAF + все переключатели.<br>\u2022 Нажмите на любую <strong>ячейку статистики/обучения</strong> для перехода к вкладке.'},
 };
 function t(key){return I18N[key]?.[currentLang]||I18N[key]?.en||key;}
 function _setFirstText(el,text){for(const n of el.childNodes){if(n.nodeType===3&&n.textContent.trim()){n.textContent=text;return;}}el.prepend(document.createTextNode(text));}
@@ -3460,7 +3619,10 @@ function applyI18n(){
   if(helpSub)helpSub.textContent=t('help_sub');
   // Help accordion sections
   const haRows=document.querySelectorAll('.ha-row[data-ha]');
-  const haKeys=['ha_layers','ha_tone','ha_mode','ha_enhance','ha_situation','ha_daf','ha_whisper','ha_stats','ha_hotkeys','ha_colors','ha_pipeline','ha_tips'];
+  // Positional: i-th .ha-row[data-ha] gets haKeys[i]. Rows past the array
+  // length keep their static HTML (Command Mode, Quiet Mode, Privacy,
+  // Loops & Blocks, Tips, Status Ring — English-only by design).
+  const haKeys=['ha_layers','ha_tone','ha_enhance','ha_situation','ha_daf','ha_whisper','ha_stats','ha_hotkeys','ha_colors','ha_pipeline'];
   haRows.forEach((row,i)=>{
     if(!haKeys[i])return;
     const name=row.querySelector('.ha-name');
@@ -3746,7 +3908,7 @@ function updateUI(){
     modeSec.classList.toggle('inactive',noLLM2);
     if(modeNote)modeNote.innerHTML=noLLM2?t('note_select'):'';
   }
-  document.querySelectorAll('.layer-opt:not(.sit-btn)').forEach(b=>b.classList.toggle('active',parseInt(b.dataset.layer)===state.layer));
+  document.querySelectorAll('.layer-opt:not(.sit-btn):not(.use-opt):not(.ind-opt):not(.hr-opt)').forEach(b=>b.classList.toggle('active',parseInt(b.dataset.layer)===state.layer));
   document.querySelectorAll('.mode-btn').forEach(b=>b.classList.toggle('active',b.dataset.mode===state.mode));
   document.querySelectorAll('.sit-btn').forEach(b=>b.classList.toggle('active',b.dataset.situation===(state.situation||'default')));
   const st=state.stats;
@@ -3780,6 +3942,34 @@ function updateUI(){
   const now=Date.now();
   const paraToggle=document.getElementById('toggle-paralinguistic');
   const prosToggle=document.getElementById('toggle-prosodic');
+  // Paralinguistic + Prosodic only do anything at L4 (need Whisper segments).
+  // Grey out + disable the toggles outside L4 so the UI matches reality.
+  const _isL4 = (state.layer||0) >= 4;
+  const paraRow = document.getElementById('paralinguistic-row');
+  const prosRow = document.getElementById('prosodic-row');
+  const paraSubRow = document.getElementById('para-transcribe-row');
+  if(paraRow){
+    paraRow.classList.toggle('toggle-disabled', !_isL4);
+    paraRow.title = _isL4 ? '' : 'Layer 4 only — needs Whisper segment data';
+  }
+  if(prosRow){
+    prosRow.classList.toggle('toggle-disabled', !_isL4);
+    prosRow.title = _isL4 ? '' : 'Layer 4 only — needs Whisper segment data';
+  }
+  if(paraSubRow){
+    paraSubRow.classList.toggle('toggle-disabled', !_isL4);
+    paraSubRow.title = _isL4 ? '' : 'Layer 4 only';
+  }
+  // Same treatment for the Whisper diagnostic panel — only meaningful at L4.
+  const whisperCard = document.getElementById('whisper-card');
+  if(whisperCard){
+    whisperCard.classList.toggle('toggle-disabled', !_isL4);
+    whisperCard.title = _isL4 ? '' : 'Layer 4 only — Whisper signals only fire at L4';
+  }
+  if(paraToggle){paraToggle.disabled = !_isL4;}
+  if(prosToggle){prosToggle.disabled = !_isL4;}
+  const paraTransSub = document.getElementById('toggle-para-transcribe');
+  if(paraTransSub){paraTransSub.disabled = !_isL4;}
   if(paraToggle&&!(_toggleCooldown.para>now)&&document.activeElement!==paraToggle)paraToggle.checked=!!state.paralinguistic_enabled;
   const paraTransToggle=document.getElementById('toggle-para-transcribe');
   if(paraTransToggle&&!(_toggleCooldown.paraTrans>now)&&document.activeElement!==paraTransToggle)paraTransToggle.checked=!!state.paralinguistic_transcribe;
@@ -3895,7 +4085,14 @@ function renderConsole(){
   // Preserve pinned banner across re-renders (e.g. command mode intro)
   const banner=document.getElementById('cmd-intro-banner');
   // Newest entries at top — reverse the array before rendering
-  el.innerHTML=[...logLines].reverse().map(e=>{const d=new Date(e.ts*1000);const ts=d.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});return `<div class="log-line kind-${e.kind}"><span class="log-ts">${ts}</span>${esc(e.text)}</div>`;}).join('');
+  el.innerHTML=[...logLines].reverse().map(e=>{
+    const d=new Date(e.ts*1000);
+    const ts=d.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    // "polish" kind contains pre-built HTML diff spans — render as raw HTML.
+    // All other kinds get HTML-escaped to prevent injection.
+    const body = (e.kind === 'polish') ? e.text : esc(e.text);
+    return `<div class="log-line kind-${e.kind}"><span class="log-ts">${ts}</span>${body}</div>`;
+  }).join('');
   if(banner)el.insertBefore(banner, el.firstChild);
   if(atTop)el.scrollTop=0;
 }
@@ -4080,7 +4277,7 @@ function renderFingerprint(){
   // Onset heat
   const heat=fp.onset_heat||{};
   if(Object.keys(heat).length){
-    html+=`<div style="margin-bottom:8px"><span style="color:var(--text-dim);font-size:9px">Most avoided onsets: </span>`;
+    html+=`<div style="margin-bottom:8px"><span style="color:var(--text-dim);font-size:9px">Most avoided first sounds: </span>`;
     html+=Object.entries(heat).slice(0,6).map(([o,c])=>`<span style="color:var(--red-bright)">/${esc(o)}/</span><span style="color:var(--text-muted);font-size:8px">×${c}</span>`).join('  ');
     html+=`</div>`;
   }
@@ -4428,10 +4625,10 @@ async function generateClinicalProfile(){
       `SITUATIONAL BREAKDOWN:`,
       ...Object.entries(d.situational_breakdown||{}).map(([s,v])=>`  ${s}: ${v.rate}/min ${v.vs_baseline||v.label||''}`),
       ``,
-      `TOP ONSET TRIGGERS:`,
+      `TOP HARD SOUNDS:`,
       ...(d.top_onset_triggers||[]).map(t=>`  ${t.onset} weight=${t.weight} events=${t.events}`),
       ``,
-      `COVERT AVOIDANCE: ${d.covert_avoidance?.active_pairs} pairs | rate ${d.covert_avoidance?.avoidance_rate}% (${d.covert_avoidance?.trend})`,
+      `HIDDEN AVOIDANCE: ${d.covert_avoidance?.active_pairs} pairs | rate ${d.covert_avoidance?.avoidance_rate}% (${d.covert_avoidance?.trend})`,
       ``,
       `EDITORIAL DISTANCE: avg=${d.editorial_distance?.average} (${d.editorial_distance?.trend})`,
       `FLUENCY IMPROVEMENT: ${d.fluency_trend?.improvement > 0 ? '+' : ''}${d.fluency_trend?.improvement}%`,
@@ -4500,7 +4697,7 @@ async function fetchPatience(){
 }
 
 document.querySelectorAll('.tone-btn:not(.mode-btn):not(.sit-btn)').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/tone',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tone:btn.dataset.tone})});}catch(e){}});});
-document.querySelectorAll('.layer-opt:not(.sit-btn)').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/layer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layer:parseInt(btn.dataset.layer)})});}catch(e){}});});
+document.querySelectorAll('.layer-opt:not(.sit-btn):not(.use-opt):not(.ind-opt):not(.hr-opt)').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/layer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layer:parseInt(btn.dataset.layer)})});}catch(e){}});});
 document.querySelectorAll('.mode-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:btn.dataset.mode})});}catch(e){}});});
 document.querySelectorAll('.sit-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/situation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({situation:btn.dataset.situation})});}catch(e){}});});
 
@@ -5119,7 +5316,7 @@ async function resetSessionHistory(){
   }catch(e){s.textContent='Reset failed: '+e.message;s.style.color='var(--red-bright)';}
 }
 async function deleteProfile(){
-  if(!confirm('DELETE PROFILE: This wipes ALL learned data — corrections, vocabulary, trigger words, covert avoidance patterns, onset weights, session history. The engine will start completely fresh.\n\nThis cannot be undone. Continue?'))return;
+  if(!confirm('DELETE PROFILE: This wipes ALL learned data — corrections, vocabulary, trigger words, hidden avoidance patterns, hard-sound weights, session history. The engine will start completely fresh.\n\nThis cannot be undone. Continue?'))return;
   if(!confirm('Are you absolutely sure? Everything the engine has learned about your speech will be erased.'))return;
   const s=document.getElementById('reset-status');
   s.textContent='Deleting profile...';s.style.color='var(--text-dim)';
@@ -5141,8 +5338,8 @@ const _LAV_TIPS = [
   {title:"Quiet Mode for whispered speech", body:"Voice section → Quiet Mode. Boosts gain to -6dB and tightens high-pass to 100Hz for dictating in libraries, offices, late at night."},
   {title:"The engine learns your avoidance patterns", body:"When you swap 'door' for 'entrance' to avoid a /d/ block, the engine detects it via Script Prep comparison. Layer 4 uses this to reconstruct the word you meant."},
   {title:"F10 cycles tone, F11 cycles layer", body:"Don't touch the dashboard. F10 rotates Casual → Professional → Friend → Formal. F11 rotates Layer I → II → III → IV. F12 prints stats."},
-  {title:"Your personal phonetic risk map", body:"The engine tracks which initial sounds you block on (k, p, br, etc.) and builds personalized onset weights. Feeds into trigger prediction at Layer 4."},
-  {title:"Anti-compulsion nudge", body:"Re-record similar content 3+ times in a row and the engine flags it. Stuttering can trigger obsessive redo loops — this pushes you to accept and move on."},
+  {title:"Your personal hard-sound map", body:"The engine tracks which first sounds you get stuck on (k, p, br, etc.) and builds your personal hard-sound map. Feeds into trigger prediction at Layer 4."},
+  {title:"Anti-compulsion nudge", body:"Re-record similar content 3+ times in a row and the engine flags it. Disfluency can trigger obsessive redo loops — this pushes you to accept and move on."},
   {title:"Weekly clinical report", body:'Learning tab → "Weekly Report" button. GPT-generated summary of your week: disfluency trends, trigger patterns, progress. Uses real session data.'},
   {title:"Voice Profile unlocks at 500 words", body:'The "You" tab shows your headline, catchphrase, peak dictation time, day streak, and superpower. Celebrates what you accomplished, not what went wrong.'},
   {title:"Whisper hallucinations auto-stripped", body:"When audio is silent or whispered, Whisper sometimes injects 'Transcribed by otter.ai' or 'Thanks for watching' — training data leaks. Engine catches and removes them."},
@@ -5204,13 +5401,13 @@ function toggleTipsEnabled(){
   // Contextual hint pools by current state
   const HINTS_BY_CTX = {
     command: ['select text + hold F8', 'say: make this formal', 'say: fix grammar', 'say: translate', 'transforms selection'],
-    recording: ['speak naturally', 'release when done', 'hold through blocks'],
+    recording: ['speak naturally', 'release when done', 'hold through tough patches'],
     processing: ['reconstructing...'],
     l1: ['raw transcription', 'no GPT call', 'fastest, cheapest', 'F11 = next layer'],
     l2: ['GPT rewrites with tone', 'F10 cycles tone', 'fillers stripped', 'F8 to transform text'],
     l3: ['uses your vocabulary', 'learns your corrections', 'same as L2 + profile'],
-    l4: ['stutter clinical mode', 'tracks onset weights', 'covert avoidance detected', 'use High Stress preset', 'hold F9 through blocks'],
-    idle_default: ['F9 to record', 'hold F8 to transform', 'click "idle" to toggle', 'F10 tone · F11 layer', 'click any stat to jump'],
+    l4: ['speech disfluency mode', 'learns your hard sounds', 'spots word swaps', 'use High Stress preset', 'hold F9 through tough patches'],
+    idle_default: ['F9 to record', 'hold F8 to transform', 'click "idle" to toggle', 'F10 tone · F11 layer', 'click any stat to jump', 'F5 or Ctrl+R to refresh dashboard'],
     para_on: ['cough/laugh detected', 'non-speech tagged'],
     prosodic_on: ['pitch & energy tracked', 'feeds L4 severity'],
     quiet_on: ['audio boosted +6dB', 'dictate in public'],
@@ -5333,11 +5530,149 @@ function toggleHelp(){
   document.getElementById('help-overlay').classList.toggle('open');
   document.getElementById('help-backdrop').classList.toggle('open');
 }
-document.addEventListener('keydown',e=>{if(e.key==='Escape')closeHelp();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeHelp();closeProfile();}});
 function closeHelp(){
   document.getElementById('help-overlay').classList.remove('open');
   document.getElementById('help-backdrop').classList.remove('open');
 }
+
+// ── Profile tab — seed the WiM-mirror sections at the top of the existing
+// profile editor (Disfluency support / Mostly Use For / Industry / Work Hours /
+// Stats). Runs once after DOM is ready. The original profile sections
+// (Trigger Words, Fillers, Vocabulary, Corrections, Hidden Avoidance Pairs,
+// GDPR, Danger Zone) stay below, untouched, with their wired event handlers.
+function _seedProfileTabExtras(){
+  const wrap = document.getElementById('profile-wrap');
+  if (!wrap || document.getElementById('profile-extras-seeded')) return;
+  const extras = document.createElement('div');
+  extras.id = 'profile-extras-seeded';
+  // Use the same .layer-opt button structure as Layer / Situation in the
+  // sidebar — same active-state styling (deep red gradient, gold LED dot,
+  // copper accent strip on the left). Matches the rest of the dashboard.
+  extras.innerHTML = `
+    <div class="profile-section" style="margin-top:6px">
+      <div class="profile-header" style="cursor:default"><span><span class="ph-title">Disfluency support</span></span></div>
+      <div class="profile-body" style="display:block">
+        <div class="toggle-row" style="padding:8px 0">
+          <label class="toggle-switch"><input type="checkbox" id="toggle-stutter-support" checked><span class="toggle-slider"></span></label>
+          <span class="toggle-label">Disfluency features ON</span>
+          <span class="toggle-hint">trigger learning, exposure scoring</span>
+        </div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);line-height:1.6;margin-top:6px">
+          ON: pipeline learns trigger words, hard-sound weights, hidden avoidance patterns. Use for severe disfluency or hard speech blocks.<br>
+          OFF: skip disfluency-specific learners, run as plain dictation cleanup.
+        </div>
+      </div>
+    </div>
+
+    <div class="profile-section" style="margin-top:14px">
+      <div class="profile-header" style="cursor:default"><span><span class="ph-title">Mostly use for</span></span></div>
+      <div class="profile-body" style="display:block">
+        <div class="tone-stack" style="display:flex;flex-direction:column;gap:4px">
+          <div class="layer-opt use-opt" data-use="work"><div class="l-info"><div class="l-name">Work</div><div class="l-desc">+ professional vocabulary</div></div></div>
+          <div class="layer-opt use-opt" data-use="life"><div class="l-info"><div class="l-name">Life</div><div class="l-desc">+ casual everyday</div></div></div>
+          <div class="layer-opt use-opt active" data-use="both"><div class="l-info"><div class="l-name">Both</div><div class="l-desc">+ mixed contexts</div></div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:0 4px">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--orange);width:14px">W</span>
+          <input type="range" id="use-slider" min="0" max="100" value="50" style="flex:1;accent-color:var(--copper)">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--copper);width:14px">L</span>
+          <span id="use-slider-val" style="font-family:var(--mono);font-size:10px;color:var(--text-dim);min-width:40px;text-align:right">50/50</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="profile-section" style="margin-top:14px">
+      <div class="profile-header" style="cursor:default"><span><span class="ph-title">Industry</span></span></div>
+      <div class="profile-body" style="display:block">
+        <div class="tone-stack" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
+          <div class="layer-opt ind-opt" data-ind="finance" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Finance</div></div></div>
+          <div class="layer-opt ind-opt" data-ind="legal" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Legal</div></div></div>
+          <div class="layer-opt ind-opt" data-ind="medical" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Medical</div></div></div>
+          <div class="layer-opt ind-opt" data-ind="tech" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Tech</div></div></div>
+          <div class="layer-opt ind-opt" data-ind="sales" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Sales</div></div></div>
+          <div class="layer-opt ind-opt" data-ind="trades" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Trades</div></div></div>
+          <div class="layer-opt ind-opt" data-ind="food" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Food</div></div></div>
+          <div class="layer-opt ind-opt" data-ind="education" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Education</div></div></div>
+          <div class="layer-opt ind-opt" data-ind="other" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Other</div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="profile-section" style="margin-top:14px">
+      <div class="profile-header" style="cursor:default"><span><span class="ph-title">Work hours</span></span></div>
+      <div class="profile-body" style="display:block">
+        <div class="tone-stack" style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+          <div class="layer-opt hr-opt" data-hr="morning"><div class="l-info"><div class="l-name">Morning</div><div class="l-desc">5-12</div></div></div>
+          <div class="layer-opt hr-opt" data-hr="9-5"><div class="l-info"><div class="l-name">9-5</div><div class="l-desc">standard</div></div></div>
+          <div class="layer-opt hr-opt" data-hr="evening"><div class="l-info"><div class="l-name">Evening</div><div class="l-desc">5-11</div></div></div>
+          <div class="layer-opt hr-opt" data-hr="flexible"><div class="l-info"><div class="l-name">Flexible</div><div class="l-desc">any time</div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="profile-section" style="margin-top:14px">
+      <div class="profile-header" style="cursor:default"><span><span class="ph-title">Stats</span></span></div>
+      <div class="profile-body" style="display:block">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-family:var(--mono);font-size:11px">
+          <div><div style="color:var(--text-dim);font-size:9px;letter-spacing:1px">WORDS</div><div id="ps-words" style="color:var(--orange);font-size:14px">—</div></div>
+          <div><div style="color:var(--text-dim);font-size:9px;letter-spacing:1px">SESSIONS</div><div id="ps-sessions" style="color:var(--orange);font-size:14px">—</div></div>
+          <div><div style="color:var(--text-dim);font-size:9px;letter-spacing:1px">WPM</div><div id="ps-wpm" style="color:var(--orange);font-size:14px">—</div></div>
+          <div><div style="color:var(--text-dim);font-size:9px;letter-spacing:1px">API CALLS</div><div id="ps-api" style="color:var(--orange);font-size:14px">—</div></div>
+          <div><div style="color:var(--text-dim);font-size:9px;letter-spacing:1px">AVG DIFFIC.</div><div id="ps-diff" style="color:var(--orange);font-size:14px">—</div></div>
+          <div><div style="color:var(--text-dim);font-size:9px;letter-spacing:1px">EST. COST</div><div id="ps-cost" style="color:var(--orange);font-size:14px">—</div></div>
+        </div>
+      </div>
+    </div>`;
+  wrap.insertBefore(extras, wrap.firstChild);
+}
+function _refreshProfileStats(){
+  fetch('/api/state').then(r=>r.json()).then(d=>{
+    const s = d.stats || {};
+    const setStat = (id,v) => { const el=document.getElementById(id); if(el) el.textContent = v; };
+    setStat('ps-words', s.words || 0);
+    setStat('ps-sessions', s.sessions || 0);
+    const dur = (Date.now()/1000) - (s.start_time || Date.now()/1000);
+    const wpm = dur > 60 ? Math.round((s.words || 0) / (dur / 60)) : 0;
+    setStat('ps-wpm', wpm);
+    setStat('ps-api', s.api_calls || 0);
+    setStat('ps-diff', '0.00');
+    setStat('ps-cost', '$' + ((s.api_calls || 0) * 0.003).toFixed(2));
+  }).catch(()=>{});
+}
+document.addEventListener('DOMContentLoaded', _seedProfileTabExtras);
+setInterval(_refreshProfileStats, 2000);
+// Wire the profile-meta button selectors (Mostly Use For / Industry / Work Hours).
+// Uses .layer-opt structure now (matches Layer/Situation styling), so we look
+// for div.use-opt / div.ind-opt / div.hr-opt instead of buttons.
+document.addEventListener('click', e => {
+  const opt = e.target.closest('.use-opt, .ind-opt, .hr-opt');
+  if (!opt) return;
+  const cls = opt.classList.contains('use-opt') ? 'use-opt' :
+              opt.classList.contains('ind-opt') ? 'ind-opt' : 'hr-opt';
+  document.querySelectorAll('.' + cls).forEach(b => b.classList.remove('active'));
+  opt.classList.add('active');
+  const key = cls === 'use-opt' ? 'mostly_use' : cls === 'ind-opt' ? 'industry' : 'work_hours';
+  const val = opt.dataset.use || opt.dataset.ind || opt.dataset.hr;
+  fetch('/api/profile', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({preferences: {[key]: val}})}).catch(()=>{});
+});
+// Wire the W↔L slider
+document.addEventListener('input', e => {
+  if (e.target && e.target.id === 'use-slider') {
+    const v = parseInt(e.target.value, 10);
+    document.getElementById('use-slider-val').textContent = v + '/' + (100 - v);
+    fetch('/api/profile', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({preferences: {use_split: v}})}).catch(()=>{});
+  }
+});
+// Wire the stutter-support toggle
+document.addEventListener('change', e => {
+  if (e.target && e.target.id === 'toggle-stutter-support') {
+    fetch('/api/profile', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({preferences: {stutter_support: !!e.target.checked}})}).catch(()=>{});
+  }
+});
 function toggleHa(header){
   const row=header.closest('.ha-row');
   const wasOpen=row.classList.contains('open');
@@ -5455,17 +5790,23 @@ function _checkProfileSync(){
   <div class="ha-row open" data-ha>
     <div class="ha-header" onclick="toggleHa(this)">
       <div class="ha-icon">&#9776;</div>
-      <div class="ha-info"><div class="ha-name">Layers</div><div class="ha-sub">L1 Transcribe through L4 Stutter</div></div>
+      <div class="ha-info"><div class="ha-name">Layers</div><div class="ha-sub">L1 Transcribe through L4 Disfluency</div></div>
       <div class="ha-chevron">&#9654;</div>
     </div>
     <div class="ha-body"><div class="ha-content">
-      <strong>L1 Transcribe</strong> &#8212; Whisper only. Raw speech-to-text, no AI cleanup. Fastest.<br>
-      <strong>L2 Reconstruct</strong> &#8212; GPT rewrites using your tone. Strips fillers, fixes grammar. ~1-2s slower.<br>
-      <strong>L3 Profile</strong> &#8212; Same as L2 + your personal vocabulary and corrections map.<br>
-      <strong>L4 Stutter</strong> &#8212; Full clinical mode. Disfluency tracking, exposure scoring, severity-scaled rewrites.
+      <div class="layer-cmp">
+        <div class="lc-tag">L1</div>
+        <div class="lc-row"><strong>Transcribe</strong> &#8212; Local Moonshine on-device. Quick disfluency cleanup. No cloud, no cost.</div>
+        <div class="lc-tag">L2</div>
+        <div class="lc-row"><strong>Reconstruct</strong> &#8212; GPT-4o rewrites in your tone. Haiku 4.5 cross-checks meaning. ~2&#8211;4s.</div>
+        <div class="lc-tag">L3</div>
+        <div class="lc-row"><strong>Profile</strong> &#8212; Same as L2 + your personal vocabulary &amp; corrections.</div>
+        <div class="lc-tag">L4</div>
+        <div class="lc-row"><strong>Disfluency</strong> &#8212; Cloud Whisper (verbose) + Sonnet 4.6 with extended thinking. Hard-sound map, hidden avoidance, exposure scoring. The clinical engine.</div>
+      </div>
       <div class="ha-example">
         <span class="he-in">You say:</span> "So uh basically the the thing is um working"<br>
-        <span class="he-out">L1:</span> "So uh basically the the thing is um working"<br>
+        <span class="he-out">L1:</span> "So basically the thing is working" <span style="opacity:0.6">(auto-cleanup)</span><br>
         <span class="he-out">L2:</span> "The thing is working."
       </div>
     </div></div>
@@ -5479,24 +5820,8 @@ function _checkProfileSync(){
     </div>
     <div class="ha-body"><div class="ha-content">
       <strong>Casual</strong> &#8212; Conversational. Contractions, simple words.<br>
-      <strong>Professional</strong> &#8212; Business-ready. Clean, precise language.<br>
-      <strong>Friend</strong> &#8212; Relaxed. Like texting a friend.<br>
-      <strong>Formal</strong> &#8212; Academic/legal. No contractions, precise.<br><br>
+      <strong>Professional</strong> &#8212; Business-ready. Clean, precise language.<br><br>
       Has no effect on L1 (collapses when L1 is selected).
-    </div></div>
-  </div>
-
-  <div class="ha-row" data-ha>
-    <div class="ha-header" onclick="toggleHa(this)">
-      <div class="ha-icon">&#9881;</div>
-      <div class="ha-info"><div class="ha-name">Mode</div><div class="ha-sub">Pipeline steps: RAW, FAST, SAFE</div></div>
-      <div class="ha-chevron">&#9654;</div>
-    </div>
-    <div class="ha-body"><div class="ha-content">
-      <strong>RAW</strong> <code>paste as-is</code> &#8212; GPT runs for analytics but pastes Whisper's original text.<br>
-      <strong>FAST</strong> <code>skip validation</code> &#8212; GPT rewrites, trust it, paste. Best speed/quality.<br>
-      <strong>SAFE</strong> <code>+ Falcon check</code> &#8212; GPT rewrites, Falcon verifies meaning preserved. Slowest, safest.<br><br>
-      All three produce identical output on L1. Collapses when L1 is selected.
     </div></div>
   </div>
 
@@ -5507,7 +5832,8 @@ function _checkProfileSync(){
       <div class="ha-chevron">&#9654;</div>
     </div>
     <div class="ha-body"><div class="ha-content">
-      <strong>Paralinguistic</strong> &#8212; Detects cough, laugh, sigh, throat-clear, breathing, pause. Independent of layer.<br>
+      Both toggles only do work at <strong>L4</strong> &#8212; greyed out at L1/L2/L3 because nothing else consumes them.<br><br>
+      <strong>Paralinguistic</strong> &#8212; Detects cough, laugh, sigh, throat-clear, breathing, pause.<br>
       &nbsp;&nbsp;&#8226; <strong>Transcribe sub-toggle:</strong> ON = tags injected in text (<code>[Laughter]</code>). OFF = logged only.<br><br>
       <strong>Prosodic</strong> &#8212; Tracks pitch (F0), energy, speaking rate. Feeds severity modifier on L4. Auto-enables on L4 and High Stress.
       <div class="ha-example">
@@ -5525,8 +5851,7 @@ function _checkProfileSync(){
     </div>
     <div class="ha-body"><div class="ha-content">
       <strong>Default</strong> &#8212; Everyday dictation. Severity 1.0. No auto-toggles.<br>
-      <strong>High Stress</strong> &#8212; Phone, interview, presentation. Auto-enables L4, DAF 100ms, all toggles. Severity 1.5.<br>
-      <strong>Reading</strong> &#8212; Reading aloud. Near-fluent. Severity 0.3, light L3 touch.
+      <strong>High Stress</strong> &#8212; Phone, interview, presentation. Auto-enables L4, DAF 100ms, paralinguistic + prosodic. Severity 1.5.
     </div></div>
   </div>
 
@@ -5611,44 +5936,54 @@ function _checkProfileSync(){
       <div class="ha-chevron">&#9654;</div>
     </div>
     <div class="ha-body"><div class="ha-content" style="line-height:1.7">
-      <strong style="color:var(--red-bright)">1. You speak</strong><br>
-      Your voice is captured through the microphone. The audio is cleaned up (background noise removed, volume leveled) before anything else touches it.<br><br>
+      <div class="pipe-flow">
+        <div class="pipe-box"><div class="pipe-name">MIC</div><div class="pipe-sub">audio in</div></div>
+        <div class="pipe-arrow">&#8594;</div>
+        <div class="pipe-box"><div class="pipe-name">ASR</div><div class="pipe-sub">Moonshine local<br>(Whisper at L4)</div></div>
+        <div class="pipe-arrow">&#8594;</div>
+        <div class="pipe-box"><div class="pipe-name">CLEANUP</div><div class="pipe-sub">strip fillers<br>+ repeats</div></div>
+        <div class="pipe-arrow">&#8594;</div>
+        <div class="pipe-box pipe-cloud"><div class="pipe-name">REWRITE</div><div class="pipe-sub">GPT-4o (L2/3)<br>Sonnet ET (L4)</div></div>
+        <div class="pipe-arrow">&#8594;</div>
+        <div class="pipe-box pipe-cloud"><div class="pipe-name">FALCON</div><div class="pipe-sub">meaning<br>cross-check</div></div>
+        <div class="pipe-arrow">&#8594;</div>
+        <div class="pipe-box"><div class="pipe-name">PASTE</div><div class="pipe-sub">&rarr; active app</div></div>
+      </div>
 
-      <strong style="color:var(--red-bright)">2. Whisper listens</strong><br>
-      OpenAI's Whisper converts your speech to text. It also reports <em>how confident</em> it is about each word. Quiet moments (blocks, pauses) are flagged rather than guessed at.<br>
-      <div class="ha-example">If you use <strong>Script Prep</strong>, your intended text helps Whisper guess better &#8212; like giving it the answer key.</div>
+      <strong style="color:var(--red-bright)">1. You speak</strong><br>
+      Mic captures audio. Background noise removed, volume leveled. Cleanup happens before anything else touches it.<br><br>
+
+      <strong style="color:var(--red-bright)">2. ASR listens</strong><br>
+      <strong>L1/L2/L3:</strong> Moonshine on-device transcribes &#8212; no cloud, no cost. <strong>L4:</strong> Cloud Whisper with verbose JSON returns per-segment confidence (<code>avg_logprob</code>, <code>no_speech_prob</code>) the clinical prompt depends on.<br>
+      <div class="ha-example">If you use <strong>Script Prep</strong>, your intended text seeds the decoder &#8212; like giving it the answer key.</div>
 
       <strong style="color:var(--red-bright)">3. Quick cleanup</strong><br>
-      Before any AI gets involved, obvious disfluencies are stripped automatically (zero cost, instant):<br>
+      Before any AI gets involved, obvious disfluencies are stripped (zero cost, instant):<br>
       &#8226; Repeated syllables: "p-p-pop" &#8594; "pop"<br>
       &#8226; Repeated words: "I I I want" &#8594; "I want"<br>
       &#8226; Fillers: "um", "uh", "like", "you know"<br>
       &#8226; False starts: "going to&#8212; I went" &#8594; "I went"<br>
       &#8226; Prolongations: "mmmmaybe" &#8594; "maybe"<br>
-      <div class="ha-example">Natural phrases like "bye bye" and "had had" are kept &#8212; they're real grammar, not disfluencies.</div>
+      <div class="ha-example">Natural phrases like "bye bye" and "had had" are kept &#8212; real grammar, not disfluencies.</div>
 
-      <strong style="color:var(--red-bright)">4. What happens next depends on your Layer:</strong><br><br>
-
+      <strong style="color:var(--red-bright)">4. Rewrite (depends on Layer)</strong><br><br>
       <div style="margin-left:12px">
-        <strong>Layer 1</strong> &#8212; Done. The cleaned text is pasted. No AI, no internet after Whisper, no cost beyond transcription.<br><br>
-
-        <strong>Layer 2</strong> &#8212; GPT rewrites your text using your chosen <em>tone</em> (casual, professional, etc). It knows the text came from a microphone, not a keyboard, so it's forgiving about messiness. No personal data is used.<br><br>
-
-        <strong>Layer 3</strong> &#8212; Same as Layer 2, plus GPT knows <em>your</em> preferred words and corrections. If it's learned that you always say "gonna" but mean "going to" in professional mode, it fixes that automatically.<br><br>
-
-        <strong>Layer 4</strong> &#8212; The full engine. GPT switches to a stronger model and gets a detailed briefing:<br>
-        &#8226; Which sounds are hardest for you (your personal phoneme map)<br>
-        &#8226; Words you tend to avoid and swap for easier ones<br>
-        &#8226; Where Whisper was uncertain or detected a block<br>
+        <strong>Layer 1</strong> &#8212; Done. Cleaned text pasted. No AI, no cost.<br><br>
+        <strong>Layer 2</strong> &#8212; GPT-4o rewrites in your tone. It knows the text came from a mic, not a keyboard, so it's forgiving. No personal data.<br><br>
+        <strong>Layer 3</strong> &#8212; Same as L2, plus GPT knows <em>your</em> preferred words and learned corrections.<br><br>
+        <strong>Layer 4</strong> &#8212; Sonnet 4.6 with extended thinking. Reasons through a detailed briefing:<br>
+        &#8226; Which first sounds are hardest for you (your personal hard-sound map)<br>
+        &#8226; Words you tend to avoid and swap for easier ones (hidden avoidance pairs)<br>
+        &#8226; Where Whisper was uncertain or detected a hard speech block<br>
         &#8226; Non-verbal events (coughs, laughter, pauses) so it doesn't hallucinate words over them<br>
         &#8226; Your pitch, energy, and speaking rate patterns<br>
       </div><br>
 
-      <strong style="color:var(--red-bright)">5. Safety check</strong><br>
-      In <strong>SAFE</strong> mode, a second AI (Falcon) reads both your original words and the rewrite, and asks: "Did the meaning change?" If yes, the rewrite is rejected and your original text is used instead. Numbers, dollar amounts, and percentages are double-checked separately.<br><br>
+      <strong style="color:var(--red-bright)">5. Cross-check</strong><br>
+      A second AI reads both your original words and the rewrite, and asks: "Did the meaning change?" If yes, the rewrite is rejected and your original text is used. <strong>L2/L3:</strong> Claude Haiku 4.5 (cross-vendor &#8212; Anthropic checks OpenAI). <strong>L4:</strong> GPT-4o (cross-vendor &#8212; OpenAI checks Anthropic). Numbers, dollar amounts, and percentages double-checked separately.<br><br>
 
       <strong style="color:var(--red-bright)">6. Paste</strong><br>
-      The final text goes to your clipboard and is pasted into whatever app you're using.
+      Final text &#8594; clipboard &#8594; pasted into the active app.
     </div></div>
   </div>
 
@@ -5665,10 +6000,21 @@ function _checkProfileSync(){
       2. Hold <span class="ha-kbd">F8</span> and speak a command<br>
       3. Release F8 &#8212; your selection is replaced with the transformed text<br><br>
       <strong>Example commands:</strong> "make this formal", "fix the grammar", "translate to Spanish", "summarize this", "make it shorter", "rewrite this as bullet points"
-      <div class="ha-example">
-        <span class="he-in">Selected:</span> "hey can u send me that report when u get a chance"<br>
-        <span class="he-in">F8 + say:</span> "make this professional"<br>
-        <span class="he-out">Replaced with:</span> "Could you please send me that report at your earliest convenience?"
+      <div class="cmd-mode-flow">
+        <div class="cmf-panel">
+          <div class="cmf-label">SELECTED</div>
+          <div class="cmf-text">"hey can u send me that report when u get a chance"</div>
+        </div>
+        <div class="cmf-arrow">&#8594;</div>
+        <div class="cmf-panel cmf-action">
+          <div class="cmf-key">F8</div>
+          <div class="cmf-sub">"make this professional"</div>
+        </div>
+        <div class="cmf-arrow">&#8594;</div>
+        <div class="cmf-panel">
+          <div class="cmf-label">REPLACED</div>
+          <div class="cmf-text">"Could you please send me that report at your earliest convenience?"</div>
+        </div>
       </div>
       Your clipboard is preserved. Works at any layer/tone. Uses GPT-4o.
     </div></div>
@@ -5684,25 +6030,7 @@ function _checkProfileSync(){
       Toggle in the <strong>Voice</strong> section of the sidebar. When ON:<br>
       &#8226; High-pass filter tightens from 70Hz to 100Hz (kills more room noise since whispers have no low-frequency content)<br>
       &#8226; Audio gain doubles (-6dB vs -12dB target) to boost soft speech<br><br>
-      Use it when dictating in shared spaces where you don't want to be heard (library, open office, late at night). Stuttering can worsen under social pressure &#8212; this lets you dictate without drawing attention.
-    </div></div>
-  </div>
-
-  <div class="ha-row" data-ha>
-    <div class="ha-header" onclick="toggleHa(this)">
-      <div class="ha-icon">&#9733;</div>
-      <div class="ha-info"><div class="ha-name">You Tab</div><div class="ha-sub">Your dictation profile</div></div>
-      <div class="ha-chevron">&#9654;</div>
-    </div>
-    <div class="ha-body"><div class="ha-content">
-      Celebratory stats about your dictation, not clinical metrics. Unlocks at 500 words.<br><br>
-      <strong>What you'll see:</strong><br>
-      &#8226; Total words dictated (emails you didn't have to type)<br>
-      &#8226; Your catchphrase (most-used 2-3 word combination)<br>
-      &#8226; Peak dictation time (your most productive hour/day)<br>
-      &#8226; Dictation superpower (your style: long-form, formal, daily habit, etc.)<br>
-      &#8226; Day streak (consecutive days of usage)<br><br>
-      All derived from your local session history. Zero API cost.
+      Use it when dictating in shared spaces where you don't want to be heard (library, open office, late at night). Disfluency can worsen under social pressure &#8212; this lets you dictate without drawing attention.
     </div></div>
   </div>
 
@@ -5715,8 +6043,8 @@ function _checkProfileSync(){
     <div class="ha-body"><div class="ha-content">
       <strong>Your voice audio is never stored.</strong> It's sent to Whisper for transcription, then discarded.<br><br>
       <strong>Your transcripts stay on YOUR computer</strong> (in <code>~/.lavrentiy/</code>). They never leave your device.<br><br>
-      <strong>If you sign in with Google:</strong> Only pattern metadata syncs to the cloud (trigger words, filler words, vocabulary, corrections, onset weights). Never raw text or audio.<br><br>
-      <strong>Export / Delete:</strong> Sign in, go to <strong>The File</strong> tab, click EXPORT to download all your data as JSON, or DELETE CLOUD DATA to wipe your Firestore record (local data stays).<br><br>
+      <strong>If you sign in with Google:</strong> Only pattern metadata syncs to the cloud (trigger words, filler words, vocabulary, corrections, hard-sound weights). Never raw text or audio.<br><br>
+      <strong>Export / Delete:</strong> Sign in, go to <strong>Profile</strong> tab, click EXPORT to download all your data as JSON, or DELETE CLOUD DATA to wipe your Firestore record (local data stays).<br><br>
       <strong>Retention:</strong> Cloud data auto-deletes after 24 months of inactivity.
     </div></div>
   </div>
@@ -5729,27 +6057,56 @@ function _checkProfileSync(){
     </div>
     <div class="ha-body"><div class="ha-content">
       <strong>Loops</strong> (learn bar) &#8212; Count of Whisper hallucination loops this session. When Whisper gets stuck repeating ("bad bad bad..." / "Thank you Thank you..."), its compression ratio spikes. We detect + strip these segments automatically.<br><br>
-      <strong>Block suspects</strong> (console, brown text) &#8212; Segments where Whisper nearly classified the audio as silence but output text anyway. For stutterers, that "silence" is often a block. We strip short phrases (&le;3 words) Whisper hallucinated into blocks.<br><br>
+      <strong>Block suspects</strong> (console, brown text) &#8212; Segments where Whisper nearly classified the audio as silence but output text anyway. That "silence" is often a hard speech block. We strip short phrases (&le;3 words) Whisper hallucinated into blocks.<br><br>
       <strong>Known hallucinations auto-stripped:</strong> "Transcribed by otter.ai", "Thank you for watching", "Subscribe to my channel", "Subtitles by Amara.org" &#8212; these leak in from Whisper's YouTube training data.
     </div></div>
   </div>
 
-  <div class="ha-row" data-ha style="border-bottom:none">
+  <div class="ha-row" data-ha>
     <div class="ha-header" onclick="toggleHa(this)">
       <div class="ha-icon">&#9889;</div>
       <div class="ha-info"><div class="ha-name">Tips</div><div class="ha-sub">Power user tricks</div></div>
       <div class="ha-chevron">&#9654;</div>
     </div>
-    <div class="ha-body"><div class="ha-content" style="padding-bottom:40px">
+    <div class="ha-body"><div class="ha-content">
       &#8226; Click the <strong>timer</strong> in the status ring to reset it.<br>
       &#8226; Click the word <strong>"idle"</strong> in the status ring to toggle recording (mouse alternative to F9).<br>
       &#8226; <strong>Compact toggle</strong> (top-left) collapses to a minimal bar.<br>
       &#8226; <strong>D/L toggle</strong> (next to compact) switches dark/light mode.<br>
       &#8226; <strong>EN/RU toggle</strong> (top-right) switches interface language.<br>
-      &#8226; Tone and Mode <strong>auto-collapse</strong> on L1 (they have no effect).<br>
-      &#8226; <strong>High Stress</strong> situation is a one-click panic button: L4 + DAF + all toggles.<br>
+      &#8226; Tone <strong>auto-collapses</strong> on L1 (no effect there).<br>
+      &#8226; <strong>High Stress</strong> situation is a one-click panic button: L4 + DAF + paralinguistic + prosodic.<br>
+      &#8226; Paralinguistic + Prosodic toggles only do work at L4 (greyed out elsewhere).<br>
       &#8226; Click any <strong>stat/learn bar cell</strong> to jump to its detail tab.<br>
       &#8226; <strong>F8</strong> = Command Mode (transform selection), <strong>F9</strong> = Dictate.
+    </div></div>
+  </div>
+
+  <div class="ha-row" data-ha style="border-bottom:none">
+    <div class="ha-header" onclick="toggleHa(this)">
+      <div class="ha-icon">&#9678;</div>
+      <div class="ha-info"><div class="ha-name">Status Ring</div><div class="ha-sub">What the dial is telling you</div></div>
+      <div class="ha-chevron">&#9654;</div>
+    </div>
+    <div class="ha-body"><div class="ha-content" style="padding-bottom:40px">
+      The big dial in the top-left of the sidebar shows what the engine is doing right now. Three states:
+      <div class="ring-flow">
+        <div class="ring-state ring-idle">
+          <div class="ring-circle"><span>idle</span></div>
+          <div class="ring-caption">resting<br>mic off</div>
+        </div>
+        <div class="ring-state ring-rec">
+          <div class="ring-circle"><span>recording</span></div>
+          <div class="ring-caption">audio<br>capturing</div>
+        </div>
+        <div class="ring-state ring-proc">
+          <div class="ring-circle"><span>processing</span></div>
+          <div class="ring-caption">transcribe<br>+ rewrite</div>
+        </div>
+      </div>
+      &#8226; Click the word in the center of the ring to <strong>toggle recording</strong> (mouse alternative to F9).<br>
+      &#8226; Click the timer below to <strong>reset session uptime</strong>.<br>
+      &#8226; The ring glows red while recording, amber while processing &#8212; visible from the corner of your eye.
     </div></div>
   </div>
 
@@ -5767,5 +6124,73 @@ function _checkProfileSync(){
   </div>
 </div>
 
+<!-- Custom right-click context menu — pywebview suppresses the native one,
+     so we draw our own with Copy / Select All / Paste. Shows when user
+     right-clicks anywhere inside a .tab-panel. -->
+<div class="ctx-menu" id="ctx-menu">
+  <div class="ctx-menu-item" id="ctx-copy" onclick="ctxAct('copy')">Copy<span class="ctx-menu-shortcut">Ctrl+C</span></div>
+  <div class="ctx-menu-item" onclick="ctxAct('selectAll')">Select All<span class="ctx-menu-shortcut">Ctrl+A</span></div>
+  <div class="ctx-menu-sep"></div>
+  <div class="ctx-menu-item" onclick="ctxAct('paste')">Paste<span class="ctx-menu-shortcut">Ctrl+V</span></div>
+</div>
+<script>
+(function() {
+  const menu = document.getElementById('ctx-menu');
+  const copyItem = document.getElementById('ctx-copy');
+  let _ctxTarget = null;
+  document.addEventListener('contextmenu', function(e) {
+    // Only inside tab panels — outside, let any default behavior pass.
+    const inPanel = e.target.closest('.tab-panel');
+    if (!inPanel) { menu.classList.remove('open'); return; }
+    e.preventDefault();
+    _ctxTarget = e.target;
+    const sel = window.getSelection().toString();
+    copyItem.classList.toggle('disabled', !sel);
+    // Position so it stays in viewport
+    const w = 160, h = 110;
+    const x = Math.min(e.clientX, window.innerWidth - w - 4);
+    const y = Math.min(e.clientY, window.innerHeight - h - 4);
+    menu.style.left = x + 'px';
+    menu.style.top = y + 'px';
+    menu.classList.add('open');
+  });
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('.ctx-menu')) menu.classList.remove('open');
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') menu.classList.remove('open');
+  });
+  window.ctxAct = function(action) {
+    menu.classList.remove('open');
+    if (action === 'copy') {
+      const sel = window.getSelection().toString();
+      if (sel) {
+        navigator.clipboard.writeText(sel).catch(() => {
+          // Fallback for environments without clipboard API
+          document.execCommand('copy');
+        });
+      }
+    } else if (action === 'selectAll') {
+      if (_ctxTarget) {
+        const range = document.createRange();
+        const panel = _ctxTarget.closest('.tab-panel');
+        if (panel) {
+          range.selectNodeContents(panel);
+          window.getSelection().removeAllRanges();
+          window.getSelection().addRange(range);
+        }
+      }
+    } else if (action === 'paste') {
+      navigator.clipboard.readText().then(t => {
+        if (_ctxTarget && _ctxTarget.tagName === 'INPUT' || _ctxTarget.tagName === 'TEXTAREA') {
+          _ctxTarget.value = t;
+        } else {
+          document.execCommand('paste');
+        }
+      }).catch(() => {});
+    }
+  };
+})();
+</script>
 </body>
 </html>

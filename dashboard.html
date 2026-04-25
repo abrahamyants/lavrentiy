@@ -384,18 +384,42 @@ body::before {
   width: 3px;
   background: linear-gradient(180deg, #ee5a24 0%, #b91c1c 100%);
   border-radius: 2px;
-  opacity: 0.25;
+  opacity: 0.28;
+  transform-origin: center;
   transition: opacity 0.2s;
   box-shadow: 0 0 4px rgba(238,90,36,0.3);
+  animation: eq-rest 3.6s ease-in-out infinite;
 }
-/* Height curve: taller toward the middle (closest to ring), shorter at edges */
-.eq-bars span:nth-child(1) { height: 10px; }
-.eq-bars span:nth-child(2) { height: 20px; }
-.eq-bars span:nth-child(3) { height: 34px; }
-.eq-bars span:nth-child(4) { height: 48px; }
-.eq-bars span:nth-child(5) { height: 56px; }
-.eq-bars span:nth-child(6) { height: 42px; }
-.eq-bars span:nth-child(7) { height: 26px; }
+@keyframes eq-rest {
+  /* Bars NEVER push above their baseline height in rest. The wave only
+     DIPS them down — peak = 1.0 (full height), trough = 0.5 (half).
+     Phase-staggered per nth-child below to create a traveling depression. */
+  0%, 100% { transform: scaleY(1.0); opacity: 0.32; }
+  50%      { transform: scaleY(0.5); opacity: 0.18; }
+}
+/* Height curve (taller toward the middle/ring) + per-bar phase offset.
+   The phase offsets walk -0s, -0.5s, -1.0s ... across the 3.6s cycle so the
+   strip reads as a single sine wave rolling from edge toward the ring,
+   not seven bars rising in unison. Recording-state `animation:` shorthand
+   below resets these delays to its own chaotic values. */
+/* Phase offsets walk evenly across the 3.6s cycle (3.6/7 ≈ 0.51s steps)
+   so the strip reads as a wave dipping from edge toward ring. */
+.eq-bars span:nth-child(1) { height: 10px; animation-delay:  0s;    }
+.eq-bars span:nth-child(2) { height: 20px; animation-delay: -0.51s; }
+.eq-bars span:nth-child(3) { height: 34px; animation-delay: -1.03s; }
+.eq-bars span:nth-child(4) { height: 48px; animation-delay: -1.54s; }
+.eq-bars span:nth-child(5) { height: 56px; animation-delay: -2.06s; }
+.eq-bars span:nth-child(6) { height: 42px; animation-delay: -2.57s; }
+.eq-bars span:nth-child(7) { height: 26px; animation-delay: -3.09s; }
+/* Inner pair offset half-cycle (1.8s) so the two ripples on each side
+   beat off each other rather than running in lockstep. */
+.eq-bars.eq-near span:nth-child(1) { animation-delay: -1.80s; }
+.eq-bars.eq-near span:nth-child(2) { animation-delay: -2.31s; }
+.eq-bars.eq-near span:nth-child(3) { animation-delay: -2.83s; }
+.eq-bars.eq-near span:nth-child(4) { animation-delay: -3.34s; }
+.eq-bars.eq-near span:nth-child(5) { animation-delay: -0.26s; }
+.eq-bars.eq-near span:nth-child(6) { animation-delay: -0.77s; }
+.eq-bars.eq-near span:nth-child(7) { animation-delay: -1.29s; }
 
 /* When recording: each bar moves independently (different freq bands, chaotic) */
 .app.st-recording .eq-bars span {
