@@ -1375,9 +1375,9 @@ _clipboard_predictor = None  # initialized after profile load
 # stalls (server hung, NAT dropped the connection, anything that wedges
 # without erroring), the SDK's default behavior is to wait forever — which
 # locks up the engine pipeline (every subsequent recording stacks on the
-# stuck thread). 90s is ~3x the slowest expected legitimate L4 Sonnet ET
+# stuck thread). 60s is ~2x the slowest expected legitimate L4 Sonnet ET
 # call, so anything past it is "stuck", not "slow".
-CLOUD_TIMEOUT_SEC = 90
+CLOUD_TIMEOUT_SEC = 60
 
 client = openai.OpenAI(api_key=API_KEY, timeout=CLOUD_TIMEOUT_SEC) if API_KEY else None
 
