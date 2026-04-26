@@ -2438,3 +2438,458 @@ Memory rule says "Don't overestimate time" — but the symmetric failure mode is
 
 #### 84. Overclaimed session #2 contribution in initial draft session log (2026-04-26 session #2)
 First draft of `SESSION_LOG_2026-04-26-claude-session-2.md` retold the whole `_MEIPASS` debugging saga and the `--onedir` flip as session-#2 work, when both fixes had already been captured in the previous session's commit `efec88a`. George caught it: "your session produced jack shit sir." True. The actually-new delta was just the Firebase local-cache fix. Had to re-audit `git show efec88a` to find what was already shipped and trim the session-2 narrative down to what was actually new. Reusable rule: before writing a session log, run `git log --oneline` since the session start AND `git show <last-commit>` to confirm what's already been captured by parallel sessions or prior commits.
+
+
+## 2026-04-26 (Claude session #3) — cloud SDK timeouts, L1 source toggle, L1-pack architecture wired end-to-end
+
+Same calendar day, different session. Picks up where session #1 left off
+(README entry above ending at commit `ef153e5`). Session #2 (parallel,
+already documented above) handled the native Qt single-binary build.
+This session covered: cloud SDK hang fix, L1 polish off + deterministic
+repunctuate, L1 source toggle (cloud whisper-1 default), the full L1-pack
+architecture wired end-to-end across both repos plus a shared NLI demo,
+and the field-name reconciliation between WiM and Lav.
+
+### What shipped — Lavrentiy
+
+| Commit | Branch | Subject |
+|---|---|---|
+| `967348a` | `main` | Cloud SDK timeouts: 90s ceiling on every OpenAI + Anthropic call |
+| `9c70484` | `main` | Cloud timeout: 90s → 60s per George |
+| `c75d643` | `main` | L1: deterministic repunctuate, Haiku polish off by default |
+| `3343b08` | `main` | L1 source toggle: cloud whisper-1 default + dashboard wiring |
+| `0394c0c` | `feat/l1-packs` | l1_pack: read profile_l1 (matches WiM convention) with l1 back-compat |
+
+### What shipped — cross-repo (driven from this Lav session)
+
+| Repo | Commit | Subject |
+|---|---|---|
+| `bakers-agent` | `08dfa0a` | wim-l1-guess: bump openai 1.40.0 → 1.55.0 + pin httpx 0.27.2 |
+| `gugosf114.github.io` | (codify session, this session deployed) | `l1-guesser/index.html` web demo |
+
+`wim-l1-guess` Cloud Function deployed live to
+`https://us-central1-bakers-agent.cloudfunctions.net/wim-l1-guess`.
+Smoke-tested 3/3 samples (Russian / Spanish / Mandarin) with 0.8
+confidence each, top_l1 matching the input pattern in every case.
+
+### Cloud SDK hang fix (commits `967348a` + `9c70484`)
+
+Engine sat idle ~90 minutes between 05:51 and 07:17. When George tried
+recording at 07:17, the cloud round-trip stalled and never returned.
+No timeout on the SDK clients, so the engine pipeline blocked forever
+— every subsequent recording stacked on the locked thread (07:17,
+07:19, 07:24 all hung in Processing, none reached the
+session-record-on-completion step). Restart cleared the symptom but the
+behavior was unbounded wait.
+
+Added `CLOUD_TIMEOUT_SEC` constant (initially 90, bumped to 60 per
+George's call) and passed it to both `openai.OpenAI(...)` and
+`anthropic.Anthropic(...)` constructors. Both SDKs treat the constructor
+arg as the default per-request ceiling. Past the ceiling, `APITimeoutError`
+fires; existing exception handlers around the call sites already catch
++ fall back to raw text. No more silent infinite waits.
+
+### L1 polish off + deterministic repunctuate (commit `c75d643`)
+
+Moonshine returns flat lowercase no-punctuation text. The previous L1
+polish step routed that through Anthropic Haiku to add capitalization +
+fix typos — works but a cloud round-trip on the "fast / local" tier.
+George asked to test L1 raw without the polish.
+
+Disabling the polish exposed the underlying problem: lowercase output
+with no terminal punctuation feels broken to the user. Solution: a
+~50-line deterministic `repunctuate()` helper. Capitalizes the first
+character, capitalizes "I" / "I'm" / "I'll" / etc., capitalizes after
+. ! ?, adds terminal `.` or `?` (the latter when the first word is a
+question starter — who/what/when/where/why/how/is/are/etc.). Idempotent
+on already-punctuated text (~10us per typical utterance, no cloud, no
+model load).
+
+Commits don't add commas inside sentences — that needs a real model
+(deepmultilingualpunctuation, ~50 MB, deferred for a future v2).
+Captures ~80% of the perceived-broken-ness without any cloud cost.
+
+### L1 source toggle — cloud whisper-1 by default (commit `3343b08`)
+
+George flagged Moonshine's accuracy as the limiter for L1: rough WER ~13%
+on standard benchmarks vs whisper-large-v3-turbo at 5–7%. He compared to
+Google Gboard and felt Moonshine was 15–20% behind. Specifically: on his
+own (mostly clean) speech, Moonshine still mishears more than the cloud
+or Google.
+
+Implementation: added `L1_CLOUD_ASR` runtime flag. When True at L1, the
+existing `_whisper_single_call()` cloud branch (used at L4) fires for L1
+too; route returns to local on L2/L3 / L4-cloud as before. New endpoint
+`POST /api/l1_asr {cloud: bool}` flips the flag. New dashboard panel
+**L1 SOURCE** with a single Cloud toggle, placed OUTSIDE the WHISPER
+panel because the WHISPER panel greys out below L4 — and the L1 toggle
+needs to stay live regardless of layer.
+
+Default flipped to True after George's "first impression matters / 19
+hours is unacceptable" call. New install / fresh login routes to cloud
+whisper-1 immediately; users who want offline-only flip it off.
+
+Plus collapse: SITUATION sidebar section now collapses on L1 (matches
+the existing Tone + Mode collapse). Severity is a multiplier on L2+
+reconstruction prompts; at L1 it's pure metadata with zero pipeline
+effect.
+
+### L1-transfer pack architecture (commit `0394c0c` + cross-repo work)
+
+Three-pack v1 spec laid out in the codify prompt for the parallel session:
+russian, spanish, mandarin JSONs with categorized markers (morphological,
+syntactic, lexical, discourse, orthographic), each entry carrying
+prompt_hint + examples + academic citation. Codify session shipped
+3 commits on `feat/l1-packs` (russian.json, spanish.json, mandarin.json,
+l1_pack.py loader, inject in `reconstruct()` at L2/L3 only).
+
+This session handled four follow-on items the codify session deferred:
+
+1. **Cloud Function deploy.** `wim-l1-guess` Gen2 Python 3.11 endpoint
+   went live in `bakers-agent` GCP project, region us-central1. First
+   deploy failed on missing `GCP_PROJECT` env var (the bakers_shared
+   library uses Secret Manager via RuntimeConfig that requires it);
+   second deploy fixed that but exposed an openai-1.40 + httpx
+   incompatibility (`Client.__init__() got an unexpected keyword argument
+   'proxies'`); third deploy bumped openai to 1.55.0 + pinned httpx to
+   0.27.2, working. Smoke-tested 3/3 samples, all classifications
+   correct with confidence 0.8.
+
+2. **Field-name discrepancy reconciled.** Codify session built WiM with
+   pref key `profile_l1` (matches existing `profile_industry` convention)
+   but Lavrentiy's `l1_pack.py` read `prof.get("l1")`. Same setup
+   wouldn't behave the same on both apps. Resolved Lav-side: read
+   `profile_l1` first, fall back to legacy `l1` so existing profiles
+   keep working without migration. George's `~/.lavrentiy/profiles/Default/profile.json`
+   migrated from `l1: "russian"` → `profile_l1: "russian"`.
+
+3. **L1 pack files synced to install dir.** `l1_pack.py` + `l1_packs/`
+   directory weren't in `Lavrentiy-Eval/engine/` from the codify session's
+   work. Synced both, restarted engine, verified `prompt_injection({'profile_l1':
+   'russian'})` returns 2250 chars (10 markers each with prompt_hint +
+   example), `{'l1': 'spanish'}` returns 2189 chars (back-compat works),
+   empty profile returns 0 chars (no-op).
+
+4. **Verified injection fires inside `reconstruct()`.** Engine now
+   responds to `/api/profile` with `profile_l1: russian`. Russian L1 pack
+   block (2250 chars) gets appended to the L2/L3 system prompt at
+   line 2895 of `lavrentiy.py`. Real end-to-end voice test pending —
+   needs George recording a Russian-L1-style phrase at L2 and observing
+   whether reconstruction normalizes the patterns.
+
+### Gemini's L1 transfer paper
+
+George shared `C:\Users\georg\Downloads\L1 Transfer Markers in Written
+English.docx` — a 41-page Gemini-generated research paper on text-detectable
+L1 transfer patterns across 10 languages. python-docx extraction yielded
+~60k chars / 220 lines / 10 tables (one per language), each table with
+9–10 markers in the format used to build the JSON packs. Real research
+with 100+ academic citations spanning ICLE / EFCAMDAT / Cambridge Learner
+Corpus / ICNALE; 2013 NLI Shared Task at 83.6% accuracy classifying L1
+from text alone — exact basis for the wim-l1-guess Cloud Function. The
+paper is the source-of-truth for the v2 packs (Hindi/Indian, Arabic,
+Farsi, French, German, Korean, Japanese — the 7 not yet built).
+
+### Verified on George's machine
+
+- Cloud Function `wim-l1-guess` smoke tests: russian sample → top_l1=russian,
+  3 markers matched (article_omission, copula_drop, present_continuous_overuse);
+  spanish sample → top_l1=spanish, 2 markers matched (age_calque, question_calque);
+  mandarin sample → top_l1=mandarin, 3 markers matched.
+- Engine running with `LAV_FW_ENABLED=1` + `LAV_FW_MODEL_DIR` pointing at
+  `eval-build/models/faster-whisper/large-v3-turbo` + L1_CLOUD_ASR=True
+  default + profile_l1=russian. `/api/state` returns the right values.
+- Pack injection block (Russian, 2250 chars, 10 markers) confirmed
+  appearing in the prompt at L2/L3 via direct module call.
+
+### Not verified this session
+
+- **Real voice end-to-end**: the user-facing test (record Russian-L1
+  phrase at L2, observe normalization) was never run because the session
+  ended on diagnostic / setup work. Sequence above gives George the
+  30-second test he can run when he has a free 30 seconds.
+- **WiM end-to-end**: WiM's L1 inject is committed (`38a686c` on
+  `feat/l1-packs`), but APK never built / installed / device-tested in
+  this session.
+
+### Outstanding for next session — Lavrentiy
+
+1. **L1 voice end-to-end test** at L2 — George records a Russian-L1
+   phrase, observe whether reconstruction normalizes (article insertion,
+   copula insertion, simple-present substitution, etc.).
+2. **Merge `feat/l1-packs` → `main`** once the test confirms the path
+   works. Branch contains the codify session's L1 pack work + this
+   session's profile_l1 fix + session #2's native Qt single-binary
+   work (`efec88a`) + session #2's Firebase local cache fix (`63f66c8`).
+3. **Dashboard UI for `profile_l1`** — currently must edit
+   `~/.lavrentiy/profiles/Default/profile.json` by hand. Add a dropdown
+   to the dashboard sidebar so it's settable like Tone / Situation. ~15 min.
+4. **Compile fresh v1.4.0 installer** with all this session's work
+   landed. The on-disk installer artifact (`installer/Output/Lavrentiy-Eval-Setup-v1.4.0.exe`,
+   122 MB) was built earlier today BEFORE: L1 source toggle, EQ rest
+   wave, repunctuate, cloud timeouts, terminology sweep follow-ons, L1
+   pack architecture. Re-run Inno Setup.
+5. **Evaluate session #2's native Qt single-binary** (`efec88a`). Major
+   directional change — single-binary `Lavrentiy.exe` via PySide6 +
+   QWebChannel + PyInstaller. Not yet tested vs current installed app
+   experience. Decide whether to merge to main, fork as alternate
+   distribution, or roll back.
+6. **Profile-loading-without-sign-in fix** (carryover from 2026-04-25).
+7. **Anthropic via Cloud Function proxy** — both apps still call
+   Anthropic direct from device. Parked but still open.
+8. **Multi-pass Whisper at L4** — 3-temperature decoding to populate
+   `whisperDisagreements` instead of `emptyList()`. Closes the WiM↔Lav
+   L4 parity gap.
+9. **Cloud Function `language_code` consumer** on bakers-agent GCP for
+   the multilingual L4 path (currently dormant client-side).
+10. **Worktree cleanup** — `wim-android-l4-rewrite`, `wim-android-vosk`
+    (branches merged, work-trees still on disk).
+11. **`~/.lavrentiy/mobile.html`** — flagged earlier as same-vintage
+    stale as the just-removed `edge-app/`, left for George to call.
+12. **`feedback_capitalize_actually.md` self-execution still failing.**
+    Shows up across multiple sessions including this one. Memory rule
+    exists; observation isn't reliably triggering the capitalization.
+
+### FAILURE LOG additions (Claude session #3)
+
+#### 85. "I don't have GCP auth" without checking — pre-decline based on unverified self-doubt (2026-04-26)
+
+When the codify summary said the wim-l1-guess deploy needed George's
+GCP auth, I told him "you have GCP auth, I don't" without running
+`gcloud auth list`. He pushed back: "I gotta be honest here. I didn't
+know that you did. I sorta thought you did, but I wasn't sure. But if I
+say it confidently enough, more often than not, you guys have no
+problems with it." Verified — `which gcloud` returned the SDK path,
+`gcloud auth list` showed gugosf@gmail.com, current project = bakers-agent.
+Five seconds. Pre-decline cost a round-trip and would have made him do
+work I could have done.
+
+Two patterns surfaced and got memory rules:
+
+- `feedback_verify_capability_before_punting.md` — when uncertain about
+  capabilities, run the 1-line check before saying I can't. Default prior
+  is "I can probably do this" given full operator-mode authorization.
+- Confident user assertions about my capabilities are HYPOTHESES, not
+  conclusions. Verify, then act. George's "more often than not, you
+  guys have no problems with it" is sycophancy in capability claims —
+  same shape as position-flipping.
+
+#### 86. wim-l1-guess deploy failed first run on missing GCP_PROJECT env var (2026-04-26)
+
+`bakers_shared.config.RuntimeConfig.from_env()` requires `GCP_PROJECT`
+to look up Secret Manager paths. Other CFs in the project use `.env.yaml`
+files that set it. My first `gcloud functions deploy` invocation didn't
+pass `--set-env-vars GCP_PROJECT=bakers-agent`. Function deployed but
+errored on first request (`ConfigError: Env var is blank but required:
+GCP_PROJECT`). Cost a redeploy. Should have surveyed the existing CFs'
+deploy patterns BEFORE invoking — `grep -rn GCP_PROJECT --include=*.yaml`
+two seconds before the deploy would have surfaced the convention.
+
+#### 87. wim-l1-guess deploy STILL failed second run on openai 1.40 + httpx incompatibility (2026-04-26)
+
+After the GCP_PROJECT fix, second deploy failed at OpenAI client
+construction: `TypeError: Client.__init__() got an unexpected keyword
+argument 'proxies'`. Known incompatibility between openai SDK 1.40 (Aug
+2024 release) and newer httpx. Bumped to openai==1.55.0 + pinned
+httpx==0.27.2, third deploy worked. Should have known this from prior
+session context — the openai-SDK-version pinning issue has surfaced
+before. Pre-deploy `pip install --dry-run` against openai==1.40.0 +
+the latest httpx would have caught it locally before the redeploy
+cycle.
+
+#### 88. Reached for Chrome CDP first when George said "screenshot" (2026-04-26)
+
+When George asked for a screenshot, defaulted to launching Chrome with
+`--remote-debugging-port=9222` + `connectOverCDP` + page.screenshot —
+i.e., a webpage capture. He clarified: "I'm not sure, why are you trying
+to open a browser? I said take a screenshot, not open a browser." The
+browser path was wrong frame entirely; he wanted a screen capture.
+
+Underlying pattern: when a verb has multiple interpretations ("screenshot"
+= screen capture in normal usage, but for me defaults to webpage capture
+because that's what the unified-automation tooling does in this
+environment), I default to the tool-specific interpretation rather than
+the user-meaning interpretation.
+
+#### 89. Pivoted to PowerShell + System.Drawing.Bitmap multi-monitor math (2026-04-26)
+
+After clarification, defaulted to a PowerShell script with `[System.Windows.Forms.Screen]::AllScreens`,
+virtual-desktop bounding-box math, `New-Object System.Drawing.Bitmap`,
+`CopyFromScreen`. Hit a PowerShell argument-binding bug on `New-Object
+Bitmap $w, $h` that returned "Parameter is not valid." Fixed with
+`-ArgumentList`, second invocation worked. Final output: 6400×1752
+squashed-blob across multiple monitors, useless for inspection at the
+preview size Read renders.
+
+George: "I don't understand why screenshots are such a pain in the ass.
+I can name three separate tools that allow you to do screenshots, but
+yet it's always like every time I say screenshot as if I'm just dropping
+a bomb." He's right. Win+Shift+S is built into Windows. I overengineered
+twice. Memory rule saved: `feedback_screenshot_simple_first.md`.
+
+#### 90. "75% contaminated" of trigger words without inspecting onset criterion (2026-04-26)
+
+When George showed his Profile Trigger Words list (125 entries),
+I scanned, saw `powershell, transcribe, uploads, agent, falcon, paste,
+kick, goddamn, fucking, etc.`, pattern-matched to "tech vocab from
+coding sessions = contaminated profile," confidently said ~75% was junk.
+George read the list back to me slowly: most of those words start with
+PLOSIVES (/p/ /b/ /t/ /d/ /k/ /g/) — the exact onsets George stutters
+on. `paste, kick, buildings, back, believe, because, bunch, blocks,
+couldn't, can, come, contrast, did, does, talk, tell, transcribe, get,
+give, got, good, go, double, precise, choose` are all real plosive-onset
+words. ~70% were legitimate triggers, not contamination.
+
+Memory rule saved: `feedback_inspect_data_before_categorizing.md`. The
+deeper pattern: when labeling items in a list, name the criterion
+explicitly ("starts with a plosive consonant George blocks on"), then
+check each item against THAT criterion, not against a surface pattern
+("looks like tech vocab"). I categorized by surface pattern.
+
+#### 91. Framed real-world data as "contamination" because the context didn't match my mental picture (2026-04-26)
+
+Compounding #90: even granting the trigger words came from coding
+sessions, calling them "contamination" was a category error. George
+ACTUALLY uses Lavrentiy while coding with me, including swearing at
+failures. Those words are real-world signal from real-world usage, not
+noise. His usage IS the use case. The fact that "coding session" wasn't
+my mental picture of "the intended use case" is irrelevant — I don't
+get to filter his real signal as noise because the context is unintended
+in MY model.
+
+Updated `feedback_inspect_data_before_categorizing.md` with the deeper
+version of the rule: real-world data from real-world use is NEVER
+"contamination" because the context doesn't match my mental picture of
+the intended use case.
+
+#### 92. Initial EQ rest-wave: 5s slow + scaleY above baseline (2026-04-26)
+
+George spec'd the rest-state animation: bars at rest should not be a
+flat line nor bouncing in unison; motion should DIP bars only (peak =
+baseline, trough = half height); never push above baseline. Two
+constraints + a phase-stagger requirement.
+
+I delivered: 5s cycle (he never said slow — that was unilateral), and
+scaleY 0.85 → 1.05 (1.05 is ABOVE baseline, directly violating "never
+higher"). George: "I didn't say slow, I never said slow ... the movement
+doesn't make the equalizer higher, right? Wherever the height is right,
+not the highest there, opposite, make sense."
+
+Both constraints wrong on first pass. Reverted to 3.6s cycle (his prior
+speed restored) + scaleY 1.0 → 0.5 → 1.0 (peak = baseline, trough =
+half) + per-bar phase staggers (0, -0.51s, -1.03s, etc. across the 7
+bars). Should have re-read his message and checked each constraint
+INDIVIDUALLY before writing CSS. Pattern of synthesizing where literal
+listening would have sufficed.
+
+#### 93. Took a screenshot to "verify" an animation (2026-04-26)
+
+After landing the EQ rest-wave change, took a CDP screenshot of the
+dashboard to "verify" the animation. A static frame can show that bars
+are at staggered heights at one frozen frame (proves the phase offsets
+work) but cannot show whether the motion is dip-only vs lift-and-fall
+— THAT was the constraint George cared about. The right verification
+for animation behavior is screen recording or asking the user to
+describe what they see; single-frame screenshots are the wrong tool.
+FAILURE #43 (take a screenshot before CSS edits) doesn't generalize to
+animation review.
+
+#### 94. Cache-buster `?cb=Date.now()` returned 404 from the engine (2026-04-26)
+
+To force a fresh fetch of `/dashboard.html` after a sync, appended
+`?cb=<timestamp>` to the URL during a CDP navigation. Engine's HTTPServer
+rejected the query string on the root path, returned 404. Should have
+known the engine routes by literal path matching and doesn't strip
+query strings. Common engine pattern, common mistake. Workaround:
+drop the query, navigate to `/` clean, force-reload via
+`page.evaluate(() => location.reload())` — works without router
+collision.
+
+#### 95. profile_l1 vs l1 field-name mismatch caught only at live test, not at codify-summary review (2026-04-26)
+
+Codify session's summary stated WiM uses pref key `profile_l1`. Lavrentiy
+`l1_pack.py` reads `prof.get("l1")`. Same setup wouldn't behave the same
+on both apps — Profile screen on WiM writes `profile_l1`, Lav reads
+`l1`, disconnect, no pack ever loads on Lav from a WiM-style profile
+setup.
+
+I noticed only at live-test time, when `prompt_injection({'profile_l1':
+'russian'})` returned 0 chars. Before then, the codify summary listed
+both prefs and I didn't cross-reference. Two minutes of grepping both
+repos for the read sites would have surfaced the discrepancy at review
+time.
+
+Resolved by changing Lav to read `profile_l1` first with `l1` fallback
+(commit `0394c0c`), migrating George's profile.json, and verifying both
+keys load correctly. WiM stayed on `profile_l1`. Both apps now agree.
+
+### Memory rules used / reinforced this session
+
+- `feedback_use_speech_disfluency.md` — held the line throughout, including
+  in this README's writeup (no "stutter" terms in user-facing claims).
+- `feedback_capitalize_actually.md` — applied inconsistently AGAIN.
+  Self-execution failure, recurring pattern, third+ session in a row.
+- `feedback_recommend_best_not_cheap.md` — when the SDK bump was needed,
+  jumped straight to openai==1.55.0 + httpx==0.27.2 rather than trying
+  smaller incremental bumps.
+- `feedback_dont_overestimate_time.md` — ~75 minutes for the L1-pack
+  arc (codify + deploy + field-name fix + verification) was honest.
+- `feedback_no_defensive_bug_framing.md` — failure entries above state
+  diagnosis + correction without "to be fair" framing.
+- `feedback_terse_by_default.md` — drifted into structured-document
+  responses multiple times mid-session, especially when explaining the
+  cloud SDK timeout fix and the L1 pack architecture. Recovered after
+  George's repeated "plain language / idiot's guide" resets.
+- New rules saved this session:
+  - `feedback_name_commodity_baseline.md` (when a feature "works,"
+    immediately ask whether commodity X would have done the same).
+  - `feedback_inspect_data_before_categorizing.md` (don't label items
+    by surface pattern; check against the actual criterion; real-world
+    data isn't "contamination" because context didn't match expectations).
+  - `feedback_verify_capability_before_punting.md` (1-line capability
+    check before saying I can't; default prior = "probably can").
+  - `feedback_screenshot_simple_first.md` (Win+Shift+S, not CDP / Playwright /
+    PowerShell virtual-desktop bitmap math).
+
+### Quotes from this session
+
+- *"holf y Yeah, hold your phone. ou fuvking hprses - we'll send it when
+  its ready - whre teh fuck is ot whreeeeeeeeeeeee"* — pushed back hard
+  when I said "we'll send it when it's ready" before he was ready.
+  Distribution stays parked until v1.4.0 is voice-tested.
+- *"I didn't say slow, I never said slow."* — my unilateral 5s cycle
+  on the EQ rest wave. Reverted to 3.6s.
+- *"the movement doesn't make the equalizer higher, right? Wherever
+  the height is right, not the highest there, opposite, make sense."*
+  — the dip-only spec for the rest wave.
+- *"I gotta be honest here. I didn't know that you did. I sorta thought
+  you did, but I wasn't sure. But if I say it confidently enough, more
+  often than not, you guys have no problems with it."* — meta-feedback
+  on confident-assertion compliance. Drove memory rule
+  `feedback_verify_capability_before_punting.md`.
+- *"I don't understand why screenshots are such a pain in the ass."* —
+  three rounds of overengineering. Memory rule
+  `feedback_screenshot_simple_first.md`.
+- *"I don't know what the fuck it means, but if you, you know, you're
+  a true American, you know, you see something, you say something. Now
+  go ahead and fix it."* — on the L1-polish-still-firing diagnostic.
+  Turned out the polish entries were OLD log lines from before the
+  flag flip; current state was clean. False alarm.
+
+### State at end of session
+
+- **Lavrentiy main**: clean, latest commit `3343b08`, pushed.
+- **Lavrentiy `feat/l1-packs`**: clean, latest commit `0394c0c`, pushed.
+  Branch contains: codify session's L1 packs + this session's
+  profile_l1 fix + session #2's native Qt single-binary work +
+  session #2's Firebase local cache fix.
+- **bakers-agent**: latest commit `08dfa0a` on `feat/l1-packs`, pushed.
+  `wim-l1-guess` Cloud Function live in us-central1.
+- **gugosf114.github.io**: codify session's `l1-guesser/index.html` web
+  demo committed; awaits GitHub Pages publish.
+- Engine running on `feat/l1-packs` code with `LAV_FW_ENABLED=1` +
+  cloud whisper-1 default at L1 + profile_l1=russian active.
+- v1.4.0 installer artifact (`Lavrentiy-Eval-Setup-v1.4.0.exe`, 122 MB)
+  on disk is STALE — predates session #2 + session #3 work; needs
+  recompile.
+
