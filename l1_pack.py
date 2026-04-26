@@ -117,8 +117,14 @@ def load_pack(language: str) -> Optional[Pack]:
 
 
 def active_pack(prof: dict) -> Optional[Pack]:
-    """The pack matching the profile's `l1` field, or None for native English."""
-    l1 = (prof or {}).get("l1", "") or ""
+    """The pack matching the profile's L1 field, or None for native English.
+
+    Reads `profile_l1` first (matches WiM's `profile_*` pref convention used
+    for profile_industry etc.), falls back to legacy `l1` so existing
+    Lavrentiy profiles keep working without migration.
+    """
+    p = prof or {}
+    l1 = p.get("profile_l1") or p.get("l1") or ""
     return load_pack(l1)
 
 
