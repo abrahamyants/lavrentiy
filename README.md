@@ -2893,3 +2893,34 @@ keys load correctly. WiM stayed on `profile_l1`. Both apps now agree.
   on disk is STALE — predates session #2 + session #3 work; needs
   recompile.
 
+### Pre-compaction context (work in this session arc covered by earlier commits)
+
+This session arc had **one compaction** (line 2033 of the JSONL). The
+session #1 README entry above (`## 2026-04-26 — v1.4.0 truly-local
+installer ...`) was written before compaction and covers the bulk of
+the pre-compaction work: v1.4.0 installer rewrite, dashboard
+terminology + UX sweep, console legend styling, disk cleanup, EQ rest
+wave, Kotlin-for-WiM equivalent, failure log #59-#68. Two commits from
+that arc that landed cleanly in code but were thinly described in the
+session log:
+
+- **`7f8a029` Dashboard manual: rewrite content to match current stack
+  + diagrams** — help-overlay accordion rewritten end-to-end. Deleted
+  obsolete sections (Mode panel, You Tab). Removed retired controls
+  (Friend / Formal tones, Reading situation). Updated Layers / How It
+  Works / Privacy / Tips bodies for the current Moonshine + cloud
+  whisper-1 + GPT-4o + Sonnet 4.6 ET + Haiku 4.5 stack. Added inline
+  diagrams: pipeline flow, layer comparison grid.
+- **`c36733b` Dashboard manual: Command Mode diagram + Status Ring
+  section** — 3-panel Command Mode flow (SELECTED → F8 + speak →
+  REPLACED with keycap visual). New Status Ring help section with three
+  circular ring previews (idle / recording / processing) using the
+  actual ring colors and glow patterns. Plus a latent positional-i18n
+  fix (drop `ha_tips` from `haKeys` so its content stops bleeding into
+  Command Mode at row 11; Tips + Status Ring now keep static HTML).
+
+Full pre-compaction context is preserved in the session JSONL summary
+at `~/.claude/projects/C--Windows-System32/3743ea0f-4139-42fa-b066-77436ca8b5ad.jsonl`
+line 2033 if a future session needs the deeper detail (decision trail,
+reverted approaches, gunmetal-palette specifics, etc.).
+
