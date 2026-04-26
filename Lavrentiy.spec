@@ -6,6 +6,8 @@ REPO = r'C:\Users\georg\Documents\GitHub\lavrentiy'
 datas = [
     (REPO + r'\lavrentiy.py', '.'),
     (REPO + r'\dashboard.html', '.'),
+    (REPO + r'\firebase-app-compat.js', '.'),
+    (REPO + r'\firebase-auth-compat.js', '.'),
     (REPO + r'\silero_vad.onnx', '.'),
     (REPO + r'\lavrentiy.ico', '.'),
     (REPO + r'\api_key.txt', '.'),

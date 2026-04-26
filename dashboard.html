@@ -2726,8 +2726,12 @@ body::before {
 }
 .signout-btn:hover { color: var(--red-bright); border-color: rgba(185,28,28,0.4); }
 </style>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<!-- Firebase SDK loaded from local files (not gstatic CDN) because QtWebEngine
+     blocks https:// scripts from file:// pages by default. The native PySide6
+     app loads dashboard.html via QUrl.fromLocalFile which has file:// origin.
+     The legacy HTTP path also serves these from the same directory. -->
+<script src="firebase-app-compat.js"></script>
+<script src="firebase-auth-compat.js"></script>
 </head>
 <body>
 

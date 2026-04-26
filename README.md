@@ -2385,3 +2385,56 @@ Same "fork instead of fix" pattern the update-lanes architecture conversation wa
 George asked if I had Gemini's build report. I said it was from "a prior session — only the summary survived compaction." Wrong on two counts: (a) the /compact ran inside this same session, so what I was calling "prior session" was actually earlier turns of the current session, and (b) the full Gemini output was retrievable from this session's jsonl transcript at line 3938. Owned the error in conversation but the larger pattern (ambiguity about session boundaries across /compact, where compacted content reads as if it came from somewhere external) is worth flagging.
 
 Reusable retrieval mechanism, captured here so future sessions don't repeat the misclassification: when the conversation has compacted and the user asks for verbatim content from earlier turns, the full transcript lives at `~/.claude/projects/<cwd-encoded>/<session-uuid>.jsonl`. To extract a specific message, find the line number with `grep -n` for a unique phrase, then `sed -n "${line}p" <jsonl> | python -c "import sys, json; d=json.loads(sys.stdin.read()); m=d.get('message',{}); c=m.get('content',''); print(c if isinstance(c,str) else str(c))"` — JSON-decodes the line and prints the content field. Pre-compact tool results (Read, Grep, Bash output) are all there too. Use this before claiming compacted content is unrecoverable.
+
+---
+
+## 2026-04-26 (Claude session #2) — onefile→onedir flip + Firebase block fix + dashboard renders
+
+Picks up where session #1 paused: PyInstaller build was in flight, native-app code had been committed via `efec88a` but the binary hadn't been launched yet. Full play-by-play in `SESSION_LOG_2026-04-26-claude-session-2.md`. Headline:
+
+### What shipped (delta vs `efec88a`)
+
+The previous session's commit `efec88a` already captured the in-progress working tree, including the `_MEIPASS` fix to `native/lavrentiy_app.py`, the `--onedir` flip in `Lavrentiy.spec`, and the package rename to `lavrentiy_pkg/`. Session #2's actually-new contribution is narrower:
+
+1. **Firebase SDK cached locally.** Dashboard rendered black with only the Cyrillic title visible after the exe launched. Diagnosed as `firebase is not defined` (line 3313 of `dashboard.html`) because QtWebEngine blocks `https://www.gstatic.com/firebasejs/...` script loads from `file://` pages by default. Cached the two SDK files (`firebase-app-compat.js` 31 KB + `firebase-auth-compat.js` 140 KB) into the source repo root, repointed `dashboard.html` script tags from CDN to local paths, added both files to `Lavrentiy.spec` `datas` so future builds preserve the fix.
+2. **Diagnostic JS shim methodology** documented: wrap suspected init code in `try { ... } catch (e) { document.documentElement.innerHTML = error message }` + `window.addEventListener('error', ...)` for async errors. Edit the **bundled** `dashboard.html` directly in `dist/Lavrentiy/_internal/` — no rebuild needed since QtWebEngine reads it from disk on launch. Capture window content via `PrintWindow` Win32 API (PowerShell + System.Drawing.Bitmap), save PNG, view with the Read tool. Cycle time: 30 seconds vs 25 minutes per full PyInstaller rebuild.
+3. **Onefile→onedir validation.** The previous session's commit landed `--onedir` in the spec but the binary hadn't been launched yet. Session #2 confirmed: `dist/Lavrentiy/Lavrentiy.exe` launches in <2 sec (Solitaire-launch satisfied), opens native QMainWindow, port 7878 silent.
+
+### State at session end
+
+- `dist/Lavrentiy/Lavrentiy.exe` launches in <2 sec, opens native QMainWindow with fully-rendered dashboard. Port 7878 silent. F9 routes through `dispatch_api`.
+- Source repo bundles Firebase locally; future `pyinstaller --noconfirm Lavrentiy.spec` rebuilds preserve the fix.
+- Flicker on first launch noted but not chased — outside the "Solitaire-launch" scope.
+
+### Punch list at session end
+
+1. **Test on a clean machine.** Dev machine has all Qt/PySide6 deps in PATH; bundled exe needs verification on Windows without those.
+2. **Update `installer/lavrentiy.iss`** to bundle `dist/Lavrentiy/` directory instead of the old Edge/PyWebView build. Decommission Edge dependency at the same time.
+3. **Tray icon for window-close-to-tray.** Native window currently terminates engine on close.
+4. **Investigate flicker.** Likely candidates: `setInterval` polling on `/api/state` (line 5720, every 2s) + bridge round-trip overhead vs HTTP, OR Chromium GPU compositor first-paint behavior under `file://`. Diagnostic path: enable `QTWEBENGINE_REMOTE_DEBUGGING=9223` env var, connect Chrome to `localhost:9223`, inspect rendering panel.
+5. **Apply Gemini's `--exclude-module` list** — torch, tensorflow, pandas, matplotlib, transformers, IPython, jupyter, Qt3DCore, QtSql, QtMultimedia, QtSensors. Should shave 1.8 GB → ~600-900 MB onedir size.
+6. **Remove the `importlib.util` workaround** in `native/lavrentiy_app.py` (still on session #1's punch list). Package rename held; the workaround is now redundant.
+7. **Document Firebase SDK version pinning.** Locally cached at 10.12.0. A future README-driven update should not silently re-point at gstatic.
+
+### FAILURE LOG additions
+
+#### 78. Followed the literal `--onefile` spec without questioning if it served the goal (2026-04-26 session #2)
+Original prompt's bullet at top said "single-binary `Lavrentiy.exe`" and I built `--onefile` accordingly. Definition-of-Done section ("native window, no browser, no port 7878, F9 records") had nothing about single-file packaging. George's actual ask was "Solitaire-launch" — instant click-to-window — which `--onefile` actively breaks because of the 30-60s temp extraction. Failure mode: spec-following without spec-questioning. Should have flagged the conflict between the literal flag and the latency requirement on the first reading. Per memory rule "Push back: tell George what won't work" — this was the moment to push back, didn't.
+
+#### 79. Three full rebuilds (~25 min each) on the same `__file__` bug because debug instrumentation wasn't firing (2026-04-26 session #2)
+Added a `try: open(log_path, 'a') as f: f.write(...)` block to the top of `lavrentiy/__init__.py` to prove the package init was running. The log was never written. Concluded the package init wasn't running — but the actual reason was the `importlib.util.spec_from_file_location` in `native/lavrentiy_app.py` was bypassing the package entirely, loading `lavrentiy.py` directly with the wrong path. The debug write would have fired in `lavrentiy.py`'s top, not `lavrentiy/__init__.py`. Should have read line 15 of the traceback (`spec.loader.exec_module`) more carefully on the first failure — that would have pointed at `importlib.util` immediately.
+
+#### 80. Asked George "see it now?" instead of taking my own screenshot when he reported "black with Cyrillic only" (2026-04-26 session #2)
+Per memory rule "Verify before telling George to test." George had already given me the data ("black background, just title visible, flickers"); asking him to look again was a tax. Should have grabbed `PrintWindow` capture immediately on first report and read the result myself. Cost: one user round-trip + George's "pleas dontg ask me until you fix" pushback.
+
+#### 81. Misread "exit code 0" from a background `pyinstaller` task as "build completed successfully" when I had just `taskkill`'d its python child processes (2026-04-26 session #2)
+The `Bash` background task wrapper reported `exit code 0` when the foreground Python process (the one I'd killed) exited cleanly via SIGTERM, even though the build was mid-flight in COLLECT phase. Spent two cycles staring at an empty `dist/` directory before realizing the kill-then-task-completion sequence was a false signal. Reusable rule: when killing PyInstaller mid-build, also delete `build/` and `dist/` and start over — don't trust the background-task exit code as evidence of build completion.
+
+#### 82. PowerShell `Add-Type` C# class definitions don't survive across separate `PowerShell` tool calls (2026-04-26 session #2)
+Wrote `[WC2]::PrintWindow(...)` referencing a class defined in a previous tool call; the second call errored with `Unable to find type [WC2]`. Each PowerShell invocation in this harness is a fresh session — `Add-Type` registrations are session-local. Either re-define in every call (verbose but reliable) or move the multi-step sequence into a single `PowerShell` call. Switched to the latter for the screenshot work.
+
+#### 83. Took 4 PyInstaller rebuilds (~25 min each = ~100 min wall time) to converge on the `__file__` fix (2026-04-26 session #2)
+Memory rule says "Don't overestimate time" — but the symmetric failure mode is burning real time on slow iterate cycles when faster diagnostic paths exist. Should have switched to `--onedir` (60-sec rebuild) for diagnostic iteration much earlier. Gave the option to George at the 4th failure, should have just done it after the 2nd. Per "Recommend best, not cheap" — pick the fast path and go.
+
+#### 84. Overclaimed session #2 contribution in initial draft session log (2026-04-26 session #2)
+First draft of `SESSION_LOG_2026-04-26-claude-session-2.md` retold the whole `_MEIPASS` debugging saga and the `--onedir` flip as session-#2 work, when both fixes had already been captured in the previous session's commit `efec88a`. George caught it: "your session produced jack shit sir." True. The actually-new delta was just the Firebase local-cache fix. Had to re-audit `git show efec88a` to find what was already shipped and trim the session-2 narrative down to what was actually new. Reusable rule: before writing a session log, run `git log --oneline` since the session start AND `git show <last-commit>` to confirm what's already been captured by parallel sessions or prior commits.
