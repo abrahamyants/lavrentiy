@@ -32,3 +32,6 @@ engine_lifecycle.log
 engine_err.log
 engine_out.log
 _backup_pre_fw_swap/
+# PyInstaller output (native Windows app build)
+build/
+dist/

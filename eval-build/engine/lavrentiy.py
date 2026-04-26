@@ -8596,14 +8596,13 @@ def _wait_for_dashboard_port(timeout_s=8.0):
 def _start_tray_and_open():
     import webbrowser
     if not _wait_for_dashboard_port():
-        print("Dashboard never bound — skipping tray + auto-open")
+        print("Dashboard never bound — skipping tray")
         return
     dashboard_url = f'http://localhost:{DASHBOARD_PORT}'
-    # Auto-open the dashboard so the user has an immediate visible artifact.
-    try:
-        webbrowser.open(dashboard_url, new=2)
-    except Exception as _e:
-        print(f"Auto-open browser failed (non-fatal): {_e}")
+    # NOTE: no auto-open browser. desktop.py (pywebview) provides its own
+    # native window, and START.bat opens Edge in --app mode itself. An
+    # extra webbrowser.open here ends up opening Chrome on top of either
+    # path — exactly the behavior we don't want.
     # Tray icon: persistent "engine is alive" confirmation + Open / Quit menu.
     # pystray runs its own blocking message loop; we put it on a daemon thread
     # so the main thread keeps running keyboard hooks etc.

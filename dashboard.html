@@ -4,6 +4,39 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Лаврентий</title>
+<!-- ── QWebChannel bridge (native PySide6 app only) ───────────────────────
+     When dashboard.html is loaded via QWebEngineView (file:// in the native
+     app), this shim intercepts fetch('/api/...') and routes to Python's
+     dispatch_api() over QWebChannel — no HTTP server needed. When loaded
+     from the legacy HTTP server in a real browser, the typeof-qt guard
+     short-circuits and native fetch runs unchanged. -->
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+<script>
+window._bridgeReady = new Promise((resolve) => {
+  new QWebChannel(qt.webChannelTransport, function(channel) {
+    window._bridge = channel.objects.bridge;
+    resolve(channel.objects.bridge);
+  });
+});
+const _origFetch = window.fetch;
+window.fetch = async function(url, opts) {
+  if (typeof url === "string" && url.startsWith("/api/")) {
+    const bridge = await window._bridgeReady;
+    const bodyStr = (opts && opts.body) ? opts.body : "";
+    return new Promise((resolve) => {
+      bridge.api(url, bodyStr, (respJson) => {
+        resolve({
+          ok: true,
+          status: 200,
+          json: async () => JSON.parse(respJson),
+          text: async () => respJson,
+        });
+      });
+    });
+  }
+  return _origFetch.apply(this, arguments);
+};
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@300;400;500;600&family=Playfair+Display:wght@700;800;900&family=Nixie+One&display=swap" rel="stylesheet">

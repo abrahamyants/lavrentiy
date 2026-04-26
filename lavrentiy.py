@@ -8438,6 +8438,84 @@ class DashboardHandler(BaseHTTPRequestHandler):
         except FileNotFoundError:
             self.send_error(404, 'Dashboard not found')
 
+
+# ── Native bridge: in-process dispatch into DashboardHandler routing ──────
+# The native PySide6 app does NOT bind an HTTP socket. It calls dispatch_api()
+# directly. _VirtualHandler subclasses DashboardHandler and overrides every
+# response/IO method so the existing if/elif routing in do_GET/do_POST runs
+# unchanged but writes its result into self._captured instead of a socket.
+class _VirtualHandler(DashboardHandler):
+    def __init__(self, path, body):
+        # Skip BaseHTTPRequestHandler.__init__ — it expects a socket. We set
+        # the few attributes the routing code actually reads.
+        self.path = path
+        self._captured = None
+        self._captured_status = 200
+        self._body_bytes = json.dumps(body).encode('utf-8') if body else b''
+        self.headers = {
+            'Content-Length': str(len(self._body_bytes)),
+            'Origin': '',
+        }
+
+    def _read_body(self):
+        if not self._body_bytes:
+            return {}
+        try:
+            return json.loads(self._body_bytes)
+        except (json.JSONDecodeError, ValueError):
+            return None
+
+    def _json(self, data):
+        self._captured = data
+
+    def _serve_file(self, path, content_type):
+        # Native window loads dashboard.html via file:// directly, so this
+        # path is rare — but we still capture in case any /api/* handler
+        # routes through it.
+        try:
+            with open(path, 'rb') as f:
+                self._captured = {'__file__': str(path), '__mime__': content_type,
+                                  '__bytes_b64__': __import__('base64').b64encode(f.read()).decode('ascii')}
+        except FileNotFoundError:
+            self._captured = {'error': 'not_found'}
+            self._captured_status = 404
+
+    def send_response(self, code, *_):
+        self._captured_status = code
+
+    def send_header(self, *_args, **_kw):
+        pass
+
+    def end_headers(self):
+        pass
+
+    def send_error(self, code, msg=''):
+        self._captured = {'error': msg, 'status': code}
+        self._captured_status = code
+
+
+def dispatch_api(method: str, path: str, body):
+    """Route a request through DashboardHandler without an HTTP socket.
+
+    Called by native/lavrentiy_app.py via the QWebChannel Bridge.
+    Returns the dict that would have been sent as JSON.
+    """
+    h = _VirtualHandler(path, body)
+    m = (method or 'GET').upper()
+    try:
+        if m == 'POST':
+            h.do_POST()
+        elif m == 'OPTIONS':
+            h.do_OPTIONS()
+        else:
+            h.do_GET()
+    except Exception as e:
+        return {'error': f'{type(e).__name__}: {e}', 'status': 500}
+    if h._captured is None:
+        return {'error': 'no response', 'status': h._captured_status}
+    return h._captured
+
+
 def run_dashboard():
     try:
         server = ThreadingHTTPServer(('0.0.0.0', DASHBOARD_PORT), DashboardHandler)
@@ -8473,6 +8551,11 @@ def print_stats():
     print(f"Tone:           {current_tone}")
     print(f"Profile:        {PROFILE_PATH}")
     print(f"-----------------\n")
+
+# Initialized at module level so on_key_event never NameErrors if a key fires
+# before start_engine() has set the real boot timestamp. start_engine() rewrites
+# this to time.time() right before installing the keyboard hook.
+_hook_start_time = 0.0
 
 def on_key_event(event):
     global tap_times
@@ -8546,27 +8629,11 @@ def keep_alive():
     except KeyboardInterrupt:
         pass
 
-# -- Main ─────────────────────────────────────────────────────────
-_toggles = []
-if paralinguistic_enabled: _toggles.append("para")
-if prosodic_enabled: _toggles.append("prosodic")
-_toggle_str = f" +{'+'.join(_toggles)}" if _toggles else ""
-print(f"LAVRENTIY v0.1 | L{current_layer} {current_tone}{_toggle_str}")
-print(f"Mic: {device_info['name']} | {NATIVE_RATE}Hz")
-print(f"{RECORD_KEY.upper()}=talk  {TONE_KEY.upper()}=tone  {LAYER_KEY.upper()}=layer  {STATS_KEY.upper()}=stats  {QUIT_KEY.upper()}x3=quit")
-print(f"Dashboard: http://localhost:{DASHBOARD_PORT}")
-print(f"\"Lavrentiy does his best. Check your shit before you send it.\"")
-print()
-
-# Start dashboard server
-threading.Thread(target=run_dashboard, daemon=True).start()
-
-
 # ----- First-run UX: system tray icon + auto-open browser -----------------
-# Without these the engine launches silently — no window, no tray icon, no
-# browser pop. Users (and George) reasonably assume "did it crash?" and
-# bail. Tray icon is the persistent "I'm alive" signal; auto-open puts
-# the dashboard on screen the moment the port is bound.
+# Without these the legacy launch path (HTTP server) ran silently — no window,
+# no tray, no browser pop. Tray icon is the persistent "I'm alive" signal.
+# In native (PySide6) mode the QMainWindow is the visible signal, so the
+# tray + auto-open path is skipped via run_http_server=False in start_engine.
 
 def _build_tray_icon_image():
     """64x64 gunmetal-knob mark — mirrors the bubble icon aesthetic."""
@@ -8596,17 +8663,13 @@ def _wait_for_dashboard_port(timeout_s=8.0):
 def _start_tray_and_open():
     import webbrowser
     if not _wait_for_dashboard_port():
-        print("Dashboard never bound — skipping tray + auto-open")
+        print("Dashboard never bound — skipping tray")
         return
     dashboard_url = f'http://localhost:{DASHBOARD_PORT}'
-    # Auto-open the dashboard so the user has an immediate visible artifact.
-    try:
-        webbrowser.open(dashboard_url, new=2)
-    except Exception as _e:
-        print(f"Auto-open browser failed (non-fatal): {_e}")
-    # Tray icon: persistent "engine is alive" confirmation + Open / Quit menu.
-    # pystray runs its own blocking message loop; we put it on a daemon thread
-    # so the main thread keeps running keyboard hooks etc.
+    # NOTE: no auto-open browser. desktop.py (pywebview) provides its own
+    # native window, and START.bat opens Edge in --app mode itself. An
+    # extra webbrowser.open here ends up opening Chrome on top of either
+    # path — exactly the behavior we don't want.
     try:
         import pystray
         icon_img = _build_tray_icon_image()
@@ -8630,17 +8693,11 @@ def _start_tray_and_open():
         print(f"Tray icon failed (non-fatal): {_e}")
 
 
-threading.Thread(target=_start_tray_and_open, name="tray", daemon=True).start()
-# --------------------------------------------------------------------------
-
 # Pre-warm Moonshine (loads ~250 MB ONNX into RAM) and Anthropic Haiku
 # (TLS handshake + connection pool) at boot so the first user recording
-# isn't a 15-30 second wait. Runs in a daemon thread — engine startup
-# isn't blocked, but first F9 press finds both already warm.
+# isn't a 15-30 second wait.
 def _prewarm_l1():
     try:
-        # Moonshine warmup: synthesize 1 second of silence and run a transcribe.
-        # Triggers _get_model() which loads encoder+decoder ONNX into memory.
         if _local_transcribe_fn is not None:
             import tempfile, soundfile as _sf, numpy as _np
             _silence = _np.zeros(16000, dtype=_np.float32)
@@ -8656,6 +8713,7 @@ def _prewarm_l1():
     except Exception as _e:
         print(f"Moonshine pre-warm failed (non-fatal): {str(_e)[:80]}")
 
+
 def _prewarm_haiku():
     try:
         if anthropic_client is not None:
@@ -8668,14 +8726,867 @@ def _prewarm_haiku():
     except Exception as _e:
         print(f"Haiku pre-warm failed (non-fatal): {str(_e)[:80]}")
 
-threading.Thread(target=_prewarm_l1, name="prewarm-moonshine", daemon=True).start()
-threading.Thread(target=_prewarm_haiku, name="prewarm-haiku", daemon=True).start()
 
-_hook_start_time = time.time()
-# Open persistent audio stream so pre-roll buffer starts feeding immediately
-try:
-    _open_persistent_stream()
-except Exception as e:
-    log(f"Failed to open persistent stream: {e}", "error")
-keyboard.hook(on_key_event)
-keep_alive()
+# ── Engine boot ──────────────────────────────────────────────────────────
+# start_engine() replaces the old module-level boot block. Importing
+# lavrentiy is now a no-op; nothing runs until something explicitly calls
+# start_engine(). The native PySide6 app calls it with run_http_server=False
+# (no HTTP socket, no tray, native window provides "alive" signal) and
+# block=False (Qt's event loop owns the main thread instead of keep_alive).
+
+# --- Injected API Handlers ---
+# Free-function versions of two DashboardHandler helpers that don't actually
+# need self. The injected handlers reference them as `self.X()` from their
+# class lineage; these module-level versions make the calls work outside the
+# handler instance (the auto-extraction left the `self.` prefix in place).
+def _compute_avg_edit_dist():
+    sessions = db_get_sessions(limit=20)
+    dists = [s["editorial_distance"] for s in sessions
+             if s.get("editorial_distance") is not None]
+    return round(sum(dists) / len(dists), 3) if dists else 0.0
+
+
+def _compute_avg_exposure():
+    sessions = db_get_sessions(limit=20)
+    scores = [s["exposure"]["score"] for s in sessions
+              if s.get("exposure") and isinstance(s["exposure"], dict) and "score" in s["exposure"]]
+    if not scores:
+        return {"score": 0.0, "band": "no_data"}
+    avg = sum(scores) / len(scores)
+    band = ("very_high" if avg >= 0.7 else "high" if avg >= 0.5 else
+            "moderate" if avg >= 0.3 else "low")
+    return {"score": round(avg, 2), "band": band}
+
+
+def handle_GET_api_state(body=None) -> dict:
+    _now = time.time()
+    if _last_api_error_ts > _last_api_ok_ts and _now - _last_api_error_ts < 60:
+        _net_status = 'error'
+    elif _last_api_ok_ts > 0 and _now - _last_api_ok_ts < 300:
+        _net_status = 'ok'
+    else:
+        _net_status = 'idle'
+    return {'state': 'command' if is_command_mode else state, 'is_command_mode': is_command_mode, 'network_status': _net_status, 'network_error': _last_api_error_msg if _net_status == 'error' else '', 'tone': current_tone, 'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?'), 'situation': current_situation, 'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0), 'stats': stats, 'model': MODEL_L4 if current_layer >= 4 else MODEL, 'whisper_temp': WHISPER_TEMP, 'whisper_no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD, 'whisper_multi_temp': WHISPER_MULTI_TEMP, 'speech_metrics': _last_speech_metrics, 'avg_logprob': _last_avg_logprob, 'redo_count': _redo_count, 'block_count': _block_count, 'avg_exposure': _compute_avg_exposure(), 'paralinguistic_events': _last_paralinguistic_events, 'speaker_state': _last_speaker_state, 'paralinguistic_enabled': paralinguistic_enabled, 'paralinguistic_transcribe': paralinguistic_transcribe, 'prosodic_enabled': prosodic_enabled, 'quiet_mode_enabled': quiet_mode_enabled, 'l1_cloud_asr': L1_CLOUD_ASR, 'profile_name': _active_profile_name, 'auth': {'signed_in': is_authenticated(), 'user': _auth_user, 'has_local_key': bool(API_KEY)}}
+
+def handle_GET_api_profiles(body=None) -> dict:
+    return {'profiles': list_profiles(), 'active': _active_profile_name}
+
+def handle_GET_api_profile(body=None) -> dict:
+    return profile
+
+def handle_GET_api_sessions(body=None) -> dict:
+    return db_get_sessions(limit=50)
+
+def handle_GET_api_log(body=None) -> dict:
+    return console_log
+
+def handle_GET_api_learn(body=None) -> dict:
+    _fl_sessions = db_get_sessions(limit=50)
+    _fl_dists = [s['editorial_distance'] for s in _fl_sessions if s.get('editorial_distance') is not None]
+    _fl_imp = None
+    if len(_fl_dists) >= 6:
+        half = len(_fl_dists) // 2
+        first_avg = sum(_fl_dists[:half]) / half
+        second_avg = sum(_fl_dists[half:]) / half
+        if first_avg > 0:
+            _fl_imp = round((first_avg - second_avg) / first_avg * 100, 1)
+    learn_status_with_fluency = dict(learn_status)
+    learn_status_with_fluency['fluency_improvement'] = _fl_imp
+    return {'status': learn_status_with_fluency, 'events': _learn_events_snapshot(), 'totals': {'corrections': len(profile.get('corrections', {})), 'fillers': len(profile.get('filler_words', [])), 'vocabulary': len(profile.get('vocabulary', [])), 'triggers': len(profile.get('trigger_words', [])), 'candidates': {'corrections': len(profile.get('candidate_corrections', {})), 'fillers': len(profile.get('candidate_fillers', {})), 'vocabulary': len(profile.get('candidate_vocabulary', {}))}}, 'avg_edit_dist': _compute_avg_edit_dist(), 'redo_count': _redo_count, 'low_conf_segments': _last_low_conf_segments[:10], 'avg_logprob': _last_avg_logprob, 'insights': build_stutter_insights(profile) if current_layer >= 4 else [], 'insights_enabled': current_layer >= 4, 'onset_weights': {'personal': _personal_onset_weights, 'by_lang': _personal_onset_weights_by_lang, 'dominant': _personal_dominant_onsets, 'has_data': bool(_personal_onset_weights)}, 'trigger_types': profile.get('trigger_types', {}), 'severity': compute_severity_score(), 'covert_profile': profile.get('covert_profile', {}), 'onset_anomalies': _onset_anomalies, 'substitution_fingerprint': compute_substitution_fingerprint(profile), 'shadow_utterance': {'history': list(_shadow_history[-5:]), 'trend': compute_avoidance_trend()}, 'decay': {'stale_threshold': DECAY_STALE_SESSIONS, 'dead_threshold': DECAY_DEAD_SESSIONS, 'sweep_every': DECAY_EVERY, 'next_sweep_in': max(0, DECAY_EVERY - _decay_counter), 'relevance_tracked': bool(profile.get('_relevance'))}}
+
+def handle_GET_api_wer(body=None) -> dict:
+    sessions = db_get_sessions(limit=100)
+    l2_plus = [s for s in sessions if s.get('layer', 1) >= 2 and s.get('raw') != s.get('out')]
+    if l2_plus:
+        wers = []
+        for s in l2_plus:
+            w, _, _, _ = compute_wer(s['out'], s['raw'])
+            wers.append(w)
+        avg_wer = sum(wers) / len(wers)
+        recent_wers = wers[:10]
+        recent_avg = sum(recent_wers) / len(recent_wers) if recent_wers else 0
+        return {'avg_wer': round(avg_wer, 4), 'recent_wer': round(recent_avg, 4), 'sample_count': len(l2_plus), 'interpretation': 'excellent (<10%)' if avg_wer < 0.1 else 'good (10-20%)' if avg_wer < 0.2 else 'moderate (20-30%) — reconstruction doing heavy lifting' if avg_wer < 0.3 else 'high (>30%) — fine-tuned local Whisper would help significantly'}
+    else:
+        return {'avg_wer': None, 'sample_count': 0, 'interpretation': 'no data yet'}
+
+def handle_GET_api_fluency(body=None) -> dict:
+    sessions = db_get_sessions(limit=50)
+    trend = []
+    lang_dist = {'en': 0, 'ru': 0}
+    for s in sessions:
+        sm = s.get('speech_metrics')
+        if sm and sm.get('pause_ratio') is not None:
+            trend.append({'ts': s['ts'][:16], 'pause_ratio': sm['pause_ratio'], 'speaking_rate': sm.get('speaking_rate_sps', 0), 'severity_modifier': sm.get('severity_modifier', 0), 'situation': s.get('situation', 'default'), 'lang': s.get('lang', 'en')})
+        lang_dist[s.get('lang', 'en')] = lang_dist.get(s.get('lang', 'en'), 0) + 1
+    if trend:
+        avg_pause = round(sum((t['pause_ratio'] for t in trend)) / len(trend), 3)
+        avg_rate = round(sum((t['speaking_rate'] for t in trend)) / len(trend), 2)
+        avg_sev = round(sum((t['severity_modifier'] for t in trend)) / len(trend), 2)
+        recent_5 = [t['pause_ratio'] for t in trend[:5]]
+        prev_5 = [t['pause_ratio'] for t in trend[5:10]]
+        if recent_5 and prev_5:
+            r_avg = sum(recent_5) / len(recent_5)
+            p_avg = sum(prev_5) / len(prev_5)
+            pause_trend = 'improving' if r_avg < p_avg - 0.03 else 'worsening' if r_avg > p_avg + 0.03 else 'stable'
+        else:
+            pause_trend = 'insufficient_data'
+    else:
+        avg_pause = avg_rate = avg_sev = 0
+        pause_trend = 'no_data'
+    base_sev = SITUATION_SEVERITY.get(current_situation, 1.0)
+    sev_mod = _last_speech_metrics.get('severity_modifier', 0) if _last_speech_metrics else 0
+    return {'trend': trend, 'avg_pause_ratio': avg_pause, 'avg_speaking_rate': avg_rate, 'avg_severity_modifier': avg_sev, 'pause_trend': pause_trend, 'sample_count': len(trend), 'lang_distribution': lang_dist, 'severity_breakdown': {'base': base_sev, 'situation': current_situation, 'speech_modifier': sev_mod, 'final': round(base_sev + sev_mod, 2), 'aggression': 'HIGH' if base_sev + sev_mod >= 1.6 else 'MODERATE' if base_sev + sev_mod >= 1.2 else 'LOW'}, 'current': _last_speech_metrics or {}}
+
+def handle_GET_api_archive(body=None) -> dict:
+    count = 0
+    total_bytes = 0
+    if ARCHIVE_DIR.exists():
+        wavs = list(ARCHIVE_DIR.glob('*.wav'))
+        count = len(wavs)
+        total_bytes = sum((f.stat().st_size for f in ARCHIVE_DIR.rglob('*') if f.is_file()))
+    return {'enabled': ARCHIVE_AUDIO, 'sessions_archived': count, 'size_mb': round(total_bytes / (1024 * 1024), 1), 'max_mb': ARCHIVE_MAX_MB, 'path': str(ARCHIVE_DIR), 'ready_for_finetuning': count >= 50, 'finetuning_note': f'{count} sessions archived — need ~50 for meaningful fine-tuning' if count < 50 else f'{count} sessions archived — sufficient for LoRA fine-tuning'}
+
+def handle_GET_api_report(body=None) -> dict:
+    sessions = db_get_sessions(limit=100)
+    if not sessions:
+        return {'report': 'No sessions recorded yet.', 'data': {}}
+    else:
+        edit_dists = [s['editorial_distance'] for s in sessions if s.get('editorial_distance') is not None]
+        sit_breakdown = {}
+        lang_breakdown = {'en': 0, 'ru': 0}
+        total_words = 0
+        total_redos = 0
+        onset_triggers = {}
+        for s in sessions:
+            sit = s.get('situation', 'default')
+            sit_breakdown[sit] = sit_breakdown.get(sit, 0) + 1
+            total_words += s.get('words', 0)
+            lang_breakdown[s.get('lang', 'en')] = lang_breakdown.get(s.get('lang', 'en'), 0) + 1
+            sm = s.get('speech_metrics')
+            if sm:
+                total_redos += 1 if sm.get('severity_modifier', 0) > 0.2 else 0
+        triggers = profile.get('trigger_words', [])
+        for t in triggers[:20]:
+            onset = _extract_onset(t)
+            if onset:
+                onset_triggers[onset] = onset_triggers.get(onset, 0) + 1
+        pause_data = [s['speech_metrics']['pause_ratio'] for s in sessions if s.get('speech_metrics') and s['speech_metrics'].get('pause_ratio') is not None]
+        report_data = {'total_sessions': len(sessions), 'total_words': total_words, 'avg_edit_dist': round(sum(edit_dists) / len(edit_dists), 3) if edit_dists else None, 'edit_dist_trend': {'first_half': round(sum(edit_dists[len(edit_dists) // 2:]) / max(len(edit_dists) // 2, 1), 3) if edit_dists else None, 'second_half': round(sum(edit_dists[:len(edit_dists) // 2]) / max(len(edit_dists) // 2, 1), 3) if edit_dists else None}, 'situation_breakdown': sit_breakdown, 'language_breakdown': lang_breakdown, 'avg_pause_ratio': round(sum(pause_data) / len(pause_data), 3) if pause_data else None, 'top_onset_triggers': dict(sorted(onset_triggers.items(), key=lambda x: -x[1])[:5]), 'trigger_count': len(triggers), 'corrections_count': len(profile.get('corrections', {})), 'covert_avoidance_events': sum((entry.get('avoided_count', 0) for sit_words in profile.get('covert_profile', {}).get('avoidance_pairs', {}).values() for entry in sit_words.values()))}
+        stats_inc('api_calls')
+        try:
+            resp = client.chat.completions.create(model='gpt-4o', messages=[{'role': 'system', 'content': 'You are a speech-language pathology assistant generating a clinical weekly progress report for a person who stutters. Be direct, use data. Use emoji sparingly (✅ ❌ 🎯 📞). Format as a concise summary with bullet points. Highlight improvements, flag concerns, suggest focus areas.'}, {'role': 'user', 'content': f'Generate a weekly clinical stutter progress report from this data:\n{json.dumps(report_data, indent=2)}'}], max_tokens=600, temperature=0.3)
+            return {'report': resp.choices[0].message.content.strip(), 'data': report_data}
+        except Exception as e:
+            log(f'Report generation failed: {e}', 'error')
+            return {'report': f'Report generation failed: {e}', 'data': report_data}
+
+def handle_GET_api_preview(body=None) -> dict:
+    with preview_lock:
+        text = preview_state['text']
+        scored_words = []
+        if text:
+            words = text.split()
+            n = len(words)
+            trigger_set = {t.lower() for t in profile.get('trigger_words', [])}
+            for i, w in enumerate(words):
+                risk = predict_phonetic_risk(w, sentence_position=i, sentence_length=n)
+                if w.lower() in trigger_set:
+                    risk = 1.0
+                scored_words.append({'word': w, 'risk': round(risk, 2)})
+        return {'enabled': LIVE_PREVIEW_ENABLED, 'active': preview_state['active'], 'text': text, 'scored_words': scored_words, 'final_text': preview_state['final_text'], 'updated_at': preview_state['updated_at']}
+
+def handle_GET_api_daf(body=None) -> dict:
+    return {'active': _daf_active, 'delay_ms': _daf_delay_ms, 'min': DAF_MIN_DELAY_MS, 'max': DAF_MAX_DELAY_MS}
+
+def handle_GET_api_calibration(body=None) -> dict:
+    status = calibration_status()
+    nxt = calibration_next_prompt()
+    status['next_prompt'] = nxt
+    return status
+
+def handle_GET_api_calibration_prompts(body=None) -> dict:
+    return CALIBRATION_PROMPTS
+
+def handle_GET_api_augment(body=None) -> dict:
+    return augment_status()
+
+def handle_GET_api_severity(body=None) -> dict:
+    return compute_severity_score()
+
+def handle_GET_api_hotkeys(body=None) -> dict:
+    return {'record': RECORD_KEY.upper(), 'tone': TONE_KEY.upper(), 'layer': LAYER_KEY.upper(), 'stats': STATS_KEY.upper(), 'quit': QUIT_KEY.upper()}
+
+def handle_GET_api_patience(body=None) -> dict:
+    return {'patience': get_patience_timeout(), 'default': PATIENCE_DEFAULT, 'stutter': PATIENCE_STUTTER}
+
+def handle_GET_api_clinical_profile(body=None) -> dict:
+    profile_data = generate_clinical_profile()
+    return profile_data
+
+def handle_GET_api_voice_profile(body=None) -> dict:
+    return generate_voice_profile()
+
+def handle_POST_api_auth(body=None) -> dict:
+    global _firebase_id_token, _auth_user
+    _action_str = (body or {}).get('action', 'NONE') if body else 'NO_BODY'
+    _has_token = bool((body or {}).get('id_token')) if body else False
+    log(f'[AUTH] /api/auth received: action={_action_str} has_token={_has_token}', 'info')
+    if body and body.get('action') == 'sign_in' and body.get('id_token'):
+        _firebase_id_token = body['id_token']
+        _auth_user = {'email': body.get('email', ''), 'displayName': body.get('displayName', ''), 'uid': body.get('uid', '')}
+        log(f"Google Sign-In: {_auth_user.get('email', 'unknown')}", 'info')
+        email = body.get('email', '').strip()
+        if email:
+            profile_name = email.split('@')[0]
+            try:
+                log(f"[AUTH] step1: checking if profile '{profile_name}' exists", 'info')
+                existing = list_profiles()
+                log(f'[AUTH] step2: existing profiles = {existing}', 'info')
+                if profile_name not in existing:
+                    log(f"[AUTH] step3: creating profile '{profile_name}'", 'info')
+                    create_profile(profile_name)
+                    log(f'[AUTH] step4: created profile for {email}: {profile_name}', 'info')
+                log(f"[AUTH] step5: about to switch_profile('{profile_name}')", 'info')
+                switch_profile(profile_name)
+                log(f'[AUTH] step6: switch_profile returned successfully', 'info')
+            except Exception as e:
+                import traceback
+                log(f'[AUTH] Profile switch FAILED: {type(e).__name__}: {e}', 'error')
+                log(f'[AUTH] Traceback: {traceback.format_exc()[:600]}', 'error')
+        return {'signed_in': True, 'user': _auth_user, 'profile': _active_profile_name}
+    elif body and body.get('action') == 'sign_out':
+        _firebase_id_token = None
+        _auth_user = None
+        log('Google Sign-Out', 'info')
+        try:
+            switch_profile('Default')
+        except Exception as e:
+            log(f'Profile switch on sign-out failed: {e}', 'error')
+        return {'signed_in': False, 'profile': _active_profile_name}
+    elif body and body.get('action') == 'refresh' and body.get('id_token'):
+        _firebase_id_token = body['id_token']
+        return {'signed_in': True, 'refreshed': True}
+    else:
+        return {'signed_in': is_authenticated(), 'user': _auth_user}
+
+def handle_POST_api_open_signin(body=None) -> dict:
+    import webbrowser
+    try:
+        opened = webbrowser.open('http://localhost:7878/auth/google', new=2)
+        log(f'[AUTH] /api/open-signin called — webbrowser.open returned {opened}', 'info')
+        return {'ok': True, 'browser_opened': bool(opened)}
+    except Exception as e:
+        log(f'[AUTH] /api/open-signin EXCEPTION: {e}', 'error')
+        return {'ok': False, 'error': str(e)[:200]}
+
+def handle_POST_api_tone(body=None) -> dict:
+    if body and isinstance(body.get('tone'), str):
+        set_tone(body['tone'])
+    return {'tone': current_tone}
+
+def handle_POST_api_layer(body=None) -> dict:
+    if body and 'layer' in body:
+        try:
+            set_layer(int(body['layer']))
+        except (ValueError, TypeError):
+            pass
+    return {'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?')}
+
+def handle_POST_api_paralinguistic(body=None) -> dict:
+    if body and 'enabled' in body:
+        set_paralinguistic(body['enabled'])
+    return {'paralinguistic_enabled': paralinguistic_enabled}
+
+def handle_POST_api_paralinguistic_transcribe(body=None) -> dict:
+    if body and 'enabled' in body:
+        set_paralinguistic_transcribe(body['enabled'])
+    return {'paralinguistic_transcribe': paralinguistic_transcribe}
+
+def handle_POST_api_prosodic(body=None) -> dict:
+    if body and 'enabled' in body:
+        set_prosodic(body['enabled'])
+    return {'prosodic_enabled': prosodic_enabled}
+
+def handle_POST_api_quiet_mode(body=None) -> dict:
+    if body and 'enabled' in body:
+        set_quiet_mode(body['enabled'])
+    return {'quiet_mode_enabled': quiet_mode_enabled}
+
+def handle_POST_api_l1_asr(body=None) -> dict:
+    global L1_CLOUD_ASR
+    if body and 'cloud' in body:
+        L1_CLOUD_ASR = bool(body['cloud'])
+        log(f"L1 ASR source: {('cloud whisper-1' if L1_CLOUD_ASR else 'local')}", 'info')
+    return {'l1_cloud_asr': L1_CLOUD_ASR}
+
+def handle_POST_api_mode(body=None) -> dict:
+    if body and isinstance(body.get('mode'), str):
+        set_mode(body['mode'].upper())
+    return {'mode': current_mode}
+
+def handle_POST_api_situation(body=None) -> dict:
+    if body and isinstance(body.get('situation'), str):
+        set_situation(body['situation'].lower())
+    preset = SITUATION_PRESETS.get(current_situation, {})
+    return {'situation': current_situation, 'severity': SITUATION_SEVERITY.get(current_situation, 1.0), 'situations': SITUATIONS, 'preset_applied': {'daf_ms': preset.get('daf_ms', 0), 'layer': preset.get('layer'), 'prep_loaded': bool(preset.get('prep'))} if preset else None}
+
+def handle_POST_api_profiles_switch(body=None) -> dict:
+    if body and isinstance(body.get('name'), str):
+        try:
+            switched = switch_profile(body['name'])
+            return {'ok': True, 'active': switched, 'profiles': list_profiles()}
+        except ValueError as e:
+            return {'ok': False, 'error': str(e)}
+    else:
+        return {'ok': False, 'error': 'Missing name'}
+
+def handle_POST_api_profiles_create(body=None) -> dict:
+    if body and isinstance(body.get('name'), str):
+        try:
+            created = create_profile(body['name'])
+            return {'ok': True, 'name': created, 'profiles': list_profiles()}
+        except ValueError as e:
+            return {'ok': False, 'error': str(e)}
+    else:
+        return {'ok': False, 'error': 'Missing name'}
+
+def handle_POST_api_reset_timer(body=None) -> dict:
+    stats['start_time'] = time.time()
+    log('Timer reset', 'info')
+    return {'start_time': stats['start_time']}
+
+def handle_POST_api_profile(body=None) -> dict:
+    if body and isinstance(body, dict):
+        for key in ('trigger_words', 'filler_words', 'vocabulary'):
+            if key in body and isinstance(body[key], list):
+                profile[key] = _dedupe_list([str(v) for v in body[key] if isinstance(v, str)])
+        if 'corrections' in body and isinstance(body['corrections'], dict):
+            profile['corrections'] = _norm_corrections({str(k): str(v) for k, v in body['corrections'].items() if isinstance(k, str) and isinstance(v, str)})
+        save_profile(profile)
+    return {'ok': True}
+
+def handle_POST_api_daf(body=None) -> dict:
+    if body and isinstance(body, dict):
+        if 'active' in body:
+            if body['active']:
+                daf_start(body.get('delay_ms'))
+            else:
+                daf_stop()
+        elif 'delay_ms' in body:
+            try:
+                daf_set_delay(int(body['delay_ms']))
+            except (ValueError, TypeError):
+                pass
+    return {'active': _daf_active, 'delay_ms': _daf_delay_ms}
+
+def handle_POST_api_whisper_temp(body=None) -> dict:
+    global WHISPER_TEMP
+    if body and 'temperature' in body:
+        try:
+            t = float(body['temperature'])
+            WHISPER_TEMP = max(0.0, min(1.0, t))
+            log(f'Whisper temperature: {WHISPER_TEMP}', 'info')
+        except (ValueError, TypeError):
+            pass
+    return {'temperature': WHISPER_TEMP}
+
+def handle_POST_api_whisper_config(body=None) -> dict:
+    global WHISPER_NO_SPEECH_THRESHOLD, WHISPER_MULTI_TEMP
+    if body:
+        if 'no_speech_threshold' in body:
+            try:
+                v = float(body['no_speech_threshold'])
+                WHISPER_NO_SPEECH_THRESHOLD = max(0.0, min(1.0, v))
+                log(f'Whisper no_speech_threshold: {WHISPER_NO_SPEECH_THRESHOLD}', 'info')
+            except (ValueError, TypeError):
+                pass
+        if 'multi_temp' in body:
+            WHISPER_MULTI_TEMP = bool(body['multi_temp'])
+            log(f"Whisper multi-temp voting: {('ON' if WHISPER_MULTI_TEMP else 'OFF')}", 'info')
+    return {'temperature': WHISPER_TEMP, 'no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD, 'multi_temp': WHISPER_MULTI_TEMP, 'multi_temps': WHISPER_MULTI_TEMPS}
+
+def handle_POST_api_prep(body=None) -> dict:
+    if body and isinstance(body.get('text'), str):
+        result = prep_text(body['text'], profile)
+        return result
+    else:
+        return {'error': 'Send {"text": "your script here"}'}
+
+def handle_POST_api_covert_remove(body=None) -> dict:
+    if body and 'situation' in body and ('word' in body):
+        sit = body['situation']
+        word = body['word']
+        pairs = profile.get('covert_profile', {}).get('avoidance_pairs', {})
+        if sit in pairs:
+            if word in pairs[sit]:
+                del pairs[sit][word]
+                save_profile(profile)
+                log(f'Removed covert pair: {word} from {sit}', 'info')
+                return {'removed': True, 'word': word, 'situation': sit}
+            else:
+                return {'removed': False, 'error': 'word not found'}
+        else:
+            return {'removed': False, 'error': 'situation not found'}
+    else:
+        return {'error': 'Send {"situation": "...", "word": "..."}'}
+
+def handle_POST_api_calibration_start(body=None) -> dict:
+    _calibration_state['active'] = True
+    _calibration_state['started_at'] = datetime.now().isoformat()
+    log('Calibration mode started', 'info')
+    nxt = calibration_next_prompt()
+    return {'started': True, 'next_prompt': nxt, 'status': calibration_status()}
+
+def handle_POST_api_calibration_stop(body=None) -> dict:
+    _calibration_state['active'] = False
+    log(f"Calibration stopped — {len(_calibration_state['completed'])}/{len(CALIBRATION_PROMPTS)} completed", 'info')
+    return {'stopped': True, 'status': calibration_status()}
+
+def handle_POST_api_calibration_record(body=None) -> dict:
+    if body and 'prompt_id' in body and ('audio_b64' in body):
+        import base64
+        tmp = None
+        try:
+            audio_bytes = base64.b64decode(body['audio_b64'])
+            tmp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+            tmp.write(audio_bytes)
+            tmp.close()
+            audio_data, sr = sf.read(tmp.name)
+            result = calibration_save_audio(int(body['prompt_id']), audio_data, sr)
+            result['next_prompt'] = calibration_next_prompt()
+            result['status'] = calibration_status()
+            return result
+        except Exception as e:
+            log(f'Calibration record failed: {e}', 'error')
+            return {'error': str(e)}
+        finally:
+            if tmp:
+                try:
+                    os.unlink(tmp.name)
+                except OSError:
+                    pass
+    else:
+        return {'error': 'Send {"prompt_id": N, "audio_b64": "..."}'}
+
+def handle_POST_api_calibration_skip(body=None) -> dict:
+    if body and 'prompt_id' in body:
+        pid = int(body['prompt_id'])
+        if pid not in _calibration_state['skipped']:
+            _calibration_state['skipped'].append(pid)
+        return {'skipped': pid, 'next_prompt': calibration_next_prompt(), 'status': calibration_status()}
+    else:
+        return {'error': 'Send {"prompt_id": N}'}
+
+def handle_POST_api_hotkeys(body=None) -> dict:
+    global RECORD_KEY, TONE_KEY, LAYER_KEY, STATS_KEY, QUIT_KEY
+    if body and isinstance(body, dict):
+        valid_keys = {'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12'}
+        if 'record' in body:
+            k = str(body['record']).lower()
+            if k in valid_keys:
+                RECORD_KEY = k
+        if 'tone' in body:
+            k = str(body['tone']).lower()
+            if k in valid_keys:
+                TONE_KEY = k
+        if 'layer' in body:
+            k = str(body['layer']).lower()
+            if k in valid_keys:
+                LAYER_KEY = k
+        if 'stats' in body:
+            k = str(body['stats']).lower()
+            if k in valid_keys:
+                STATS_KEY = k
+        if 'quit' in body:
+            k = str(body['quit']).lower()
+            if k in valid_keys:
+                QUIT_KEY = k
+        log(f'Hotkeys updated: record={RECORD_KEY} tone={TONE_KEY} layer={LAYER_KEY} stats={STATS_KEY} quit={QUIT_KEY}', 'info')
+    return {'record': RECORD_KEY.upper(), 'tone': TONE_KEY.upper(), 'layer': LAYER_KEY.upper(), 'stats': STATS_KEY.upper(), 'quit': QUIT_KEY.upper()}
+
+def handle_POST_api_transcribe(body=None) -> dict:
+    if not body or not isinstance(body.get('audio_b64'), str):
+        return {'error': 'Send {"audio_b64": "..."}'}
+        return
+    import base64
+    tmp = None
+    tmp2 = None
+    try:
+        audio_bytes = base64.b64decode(body['audio_b64'])
+        tmp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        tmp.write(audio_bytes)
+        tmp.close()
+        audio_data, sr = sf.read(tmp.name)
+        if sr != TARGET_RATE:
+            from scipy.signal import resample_poly
+            import math
+            gcd = math.gcd(TARGET_RATE, sr)
+            audio_data = resample_poly(audio_data, TARGET_RATE // gcd, sr // gcd)
+        if len(audio_data.shape) > 1:
+            audio_data = audio_data.mean(axis=1)
+        audio_data = audio_data - numpy.mean(audio_data)
+        nyq = TARGET_RATE / 2.0
+        b_hp, a_hp = butter(2, 70.0 / nyq, btype='highpass')
+        audio_data = filtfilt(b_hp, a_hp, audio_data).astype(numpy.float32)
+        rms = numpy.sqrt(numpy.mean(audio_data ** 2))
+        if rms > 1e-06:
+            target_rms = 10 ** (-12 / 20)
+            audio_data = audio_data * (target_rms / rms)
+        audio_data = numpy.tanh(1.2 * audio_data).astype(numpy.float32)
+        speech_metrics = analyze_speech_rate(audio_data, TARGET_RATE)
+        tmp2 = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        sf.write(tmp2.name, audio_data, TARGET_RATE)
+        tmp2.close()
+        t0 = time.time()
+        whisper_result = whisper_transcribe(tmp2.name)
+        raw_text = whisper_result['text'].strip()
+        t_asr = time.time()
+        if not raw_text:
+            return {'error': 'No speech detected', 'raw': '', 'clean': ''}
+            return
+        para_events = detect_paralinguistic_events(audio_data, TARGET_RATE, whisper_result.get('segments', []), whisper_result.get('low_confidence'), whisper_result.get('disagreements'))
+        filtered = strip_disfluencies(raw_text)
+        clean_text = filtered
+        t_recon = t_asr
+        if current_layer >= 2:
+            try:
+                clean_text = reconstruct(filtered, current_tone, current_layer, profile, whisper_low_conf=whisper_result.get('low_confidence'), whisper_disagreements=whisper_result.get('disagreements'), speech_severity_mod=speech_metrics['severity_modifier'], paralinguistic_events=para_events if paralinguistic_enabled else None)
+            except Exception as e:
+                log(f'Mobile reconstruct failed: {e}', 'error')
+                clean_text = filtered
+            t_recon = time.time()
+        total_ms = round((t_recon - t0) * 1000)
+        stats_inc('sessions')
+        stats_inc('words', len(clean_text.split()))
+        log(f'Mobile transcribe: {len(raw_text)}c -> {len(clean_text)}c ({total_ms}ms)', 'info')
+        return {'raw': raw_text, 'filtered': filtered, 'clean': clean_text, 'layer': current_layer, 'tone': current_tone, 'total_ms': total_ms}
+    except Exception as e:
+        log(f'Mobile transcribe failed: {e}', 'error')
+        return {'error': str(e)}
+    finally:
+        for f in (tmp, tmp2):
+            if f:
+                try:
+                    os.unlink(f.name)
+                except OSError:
+                    pass
+
+def handle_POST_api_reconstruct_test(body=None) -> dict:
+    if not body or not isinstance(body.get('raw'), str):
+        return {'error': 'Send {"raw": "text", "tone"?: "...", "layer"?: N, "situation"?: "..."}'}
+        return
+    try:
+        import time as _t
+        _t0 = _t.time()
+        raw_text = body['raw']
+        tone = body.get('tone', current_tone)
+        layer = body.get('layer', current_layer)
+        situation = body.get('situation', current_situation)
+        filtered = strip_disfluencies(raw_text)
+        clean_text = filtered
+        falcon_ok = True
+        if layer >= 2:
+            try:
+                clean_text = reconstruct(filtered, tone, layer, profile, situation=situation)
+            except Exception as e:
+                log(f'reconstruct_test failed: {e}', 'error')
+                clean_text = filtered
+            try:
+                falcon_ok = falcon_validate(raw_text, clean_text, layer, tone)
+                if not falcon_ok:
+                    clean_text = filtered
+            except Exception:
+                falcon_ok = True
+        _ms = round((_t.time() - _t0) * 1000)
+        raw_words = raw_text.lower().split()
+        clean_words = clean_text.lower().split()
+        _n, _m = (len(raw_words), len(clean_words))
+        if _n > 0:
+            dp = list(range(_m + 1))
+            for i in range(1, _n + 1):
+                prev, dp[0] = (dp[0], i)
+                for j in range(1, _m + 1):
+                    cost = 0 if raw_words[i - 1] == clean_words[j - 1] else 1
+                    dp[j], prev = (min(dp[j] + 1, dp[j - 1] + 1, prev + cost), dp[j])
+            wer = round(dp[_m] / _n, 4)
+        else:
+            wer = 0.0
+        return {'raw': raw_text, 'filtered': filtered, 'clean': clean_text, 'tone': tone, 'layer': layer, 'situation': situation, 'falcon_ok': falcon_ok, 'wer': wer, 'recon_ms': _ms, 'pipeline': 'lavrentiy'}
+    except Exception as e:
+        log(f'reconstruct_test error: {e}', 'error')
+        return {'error': str(e)}
+
+def handle_POST_api_record(body=None) -> dict:
+    if is_recording:
+        stop_recording()
+        return {'recording': False}
+    else:
+        threading.Thread(target=start_recording, daemon=True).start()
+        return {'recording': True}
+
+def handle_POST_api_export_my_data(body=None) -> dict:
+    local_data = dict(profile)
+    cloud_data = None
+    if is_authenticated() and _firebase_id_token:
+        try:
+            import urllib.request
+            req = urllib.request.Request(BACKEND_URL, data=json.dumps({'action': 'export_data'}).encode('utf-8'), headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {_firebase_id_token}'}, method='POST')
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                cloud_data = json.loads(resp.read()).get('data', {})
+        except Exception as e:
+            log(f'Cloud export failed: {str(e)[:80]}', 'warn')
+    return {'local': local_data, 'cloud': cloud_data, 'user': _auth_user}
+
+def handle_POST_api_delete_my_data(body=None) -> dict:
+    if not is_authenticated() or not _firebase_id_token:
+        return {'error': 'Not signed in'}
+    else:
+        try:
+            import urllib.request
+            req = urllib.request.Request(BACKEND_URL, data=json.dumps({'action': 'delete_data'}).encode('utf-8'), headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {_firebase_id_token}'}, method='POST')
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                resp.read()
+            log('Cloud data deleted', 'info')
+            return {'ok': True, 'deleted': True}
+        except Exception as e:
+            log(f'Cloud delete failed: {str(e)[:80]}', 'error')
+            return {'error': str(e)[:200]}
+
+def handle_POST_api_reset_session_history(body=None) -> dict:
+    try:
+        with _db_lock:
+            _db.execute('DELETE FROM sessions')
+            _db.commit()
+        with _stats_lock:
+            stats['words'] = 0
+            stats['sessions'] = 0
+            stats['chars'] = 0
+            stats['api_calls'] = 0
+            stats['falcon_rejects'] = 0
+            stats['repetition_loops'] = 0
+            stats['start_time'] = time.time()
+        log('Session history reset — profile kept', 'info')
+        return {'ok': True, 'reset': 'session_history'}
+    except Exception as e:
+        log(f'Reset session failed: {e}', 'error')
+        return {'error': str(e)[:200]}
+
+def handle_POST_api_delete_profile(body=None) -> dict:
+    try:
+        profile['trigger_words'] = []
+        profile['filler_words'] = []
+        profile['vocabulary'] = []
+        profile['corrections'] = {}
+        profile['candidate_corrections'] = {}
+        profile['candidate_fillers'] = {}
+        profile['candidate_vocabulary'] = {}
+        profile['covert_profile'] = {}
+        profile['onset_weights'] = {}
+        profile['onset_weights_by_lang'] = {}
+        profile['trigger_types'] = {}
+        profile['_relevance'] = {}
+        save_profile(profile)
+        with _db_lock:
+            _db.execute('DELETE FROM sessions')
+            _db.commit()
+        with _stats_lock:
+            for k in ('words', 'sessions', 'chars', 'api_calls', 'falcon_rejects', 'repetition_loops'):
+                stats[k] = 0
+            stats['start_time'] = time.time()
+        global _personal_onset_weights, _personal_onset_weights_by_lang, _personal_dominant_onsets
+        _personal_onset_weights = {}
+        _personal_onset_weights_by_lang = {}
+        _personal_dominant_onsets = []
+        log('Profile deleted — all learned data wiped', 'warn')
+        return {'ok': True, 'reset': 'profile'}
+    except Exception as e:
+        log(f'Delete profile failed: {e}', 'error')
+        return {'error': str(e)[:200]}
+
+def handle_POST_api_augment(body=None) -> dict:
+    if _augment_state['running']:
+        return {'error': 'augmentation already running', 'status': augment_status()}
+    else:
+        threading.Thread(target=augment_calibration_data, daemon=True).start()
+        return {'started': True, 'status': augment_status()}
+
+def handle_POST_api_patience(body=None) -> dict:
+    global PATIENCE_DEFAULT, PATIENCE_STUTTER
+    if body:
+        if 'default' in body:
+            try:
+                PATIENCE_DEFAULT = float(body['default'])
+            except (ValueError, TypeError):
+                pass
+        if 'stutter' in body:
+            try:
+                PATIENCE_STUTTER = float(body['stutter'])
+            except (ValueError, TypeError):
+                pass
+    return {'ok': True, 'patience': get_patience_timeout(), 'default': PATIENCE_DEFAULT, 'stutter': PATIENCE_STUTTER}
+
+def handle_POST_api_set_key(body=None) -> dict:
+    global API_KEY, client
+    key = (body or {}).get('key', '').strip()
+    if key:
+        API_KEY = key
+        client = openai.OpenAI(api_key=API_KEY, timeout=CLOUD_TIMEOUT_SEC)
+        try:
+            with open(_key_file, 'w') as f:
+                f.write(key)
+        except Exception:
+            pass
+        return {'ok': True}
+    else:
+        return {'ok': False, 'error': 'no key provided'}
+
+def dispatch_api(path: str, body: dict = None) -> dict:
+    if path == '/api/state':
+        return handle_GET_api_state(body)
+    if path == '/api/profiles':
+        return handle_GET_api_profiles(body)
+    if path == '/api/profile':
+        return handle_GET_api_profile(body)
+    if path == '/api/sessions':
+        return handle_GET_api_sessions(body)
+    if path == '/api/log':
+        return handle_GET_api_log(body)
+    if path == '/api/learn':
+        return handle_GET_api_learn(body)
+    if path == '/api/wer':
+        return handle_GET_api_wer(body)
+    if path == '/api/fluency':
+        return handle_GET_api_fluency(body)
+    if path == '/api/archive':
+        return handle_GET_api_archive(body)
+    if path == '/api/report':
+        return handle_GET_api_report(body)
+    if path == '/api/preview':
+        return handle_GET_api_preview(body)
+    if path == '/api/daf':
+        return handle_GET_api_daf(body)
+    if path == '/api/calibration':
+        return handle_GET_api_calibration(body)
+    if path == '/api/calibration/prompts':
+        return handle_GET_api_calibration_prompts(body)
+    if path == '/api/augment':
+        return handle_GET_api_augment(body)
+    if path == '/api/severity':
+        return handle_GET_api_severity(body)
+    if path == '/api/hotkeys':
+        return handle_GET_api_hotkeys(body)
+    if path == '/api/patience':
+        return handle_GET_api_patience(body)
+    if path == '/api/clinical_profile':
+        return handle_GET_api_clinical_profile(body)
+    if path == '/api/voice_profile':
+        return handle_GET_api_voice_profile(body)
+    if path == '/api/auth':
+        return handle_POST_api_auth(body)
+    if path == '/api/open-signin':
+        return handle_POST_api_open_signin(body)
+    if path == '/api/tone':
+        return handle_POST_api_tone(body)
+    if path == '/api/layer':
+        return handle_POST_api_layer(body)
+    if path == '/api/paralinguistic':
+        return handle_POST_api_paralinguistic(body)
+    if path == '/api/paralinguistic_transcribe':
+        return handle_POST_api_paralinguistic_transcribe(body)
+    if path == '/api/prosodic':
+        return handle_POST_api_prosodic(body)
+    if path == '/api/quiet_mode':
+        return handle_POST_api_quiet_mode(body)
+    if path == '/api/l1_asr':
+        return handle_POST_api_l1_asr(body)
+    if path == '/api/mode':
+        return handle_POST_api_mode(body)
+    if path == '/api/situation':
+        return handle_POST_api_situation(body)
+    if path == '/api/profiles/switch':
+        return handle_POST_api_profiles_switch(body)
+    if path == '/api/profiles/create':
+        return handle_POST_api_profiles_create(body)
+    if path == '/api/reset_timer':
+        return handle_POST_api_reset_timer(body)
+    if path == '/api/profile':
+        return handle_POST_api_profile(body)
+    if path == '/api/daf':
+        return handle_POST_api_daf(body)
+    if path == '/api/whisper_temp':
+        return handle_POST_api_whisper_temp(body)
+    if path == '/api/whisper_config':
+        return handle_POST_api_whisper_config(body)
+    if path == '/api/prep':
+        return handle_POST_api_prep(body)
+    if path == '/api/covert/remove':
+        return handle_POST_api_covert_remove(body)
+    if path == '/api/calibration/start':
+        return handle_POST_api_calibration_start(body)
+    if path == '/api/calibration/stop':
+        return handle_POST_api_calibration_stop(body)
+    if path == '/api/calibration/record':
+        return handle_POST_api_calibration_record(body)
+    if path == '/api/calibration/skip':
+        return handle_POST_api_calibration_skip(body)
+    if path == '/api/hotkeys':
+        return handle_POST_api_hotkeys(body)
+    if path == '/api/transcribe':
+        return handle_POST_api_transcribe(body)
+    if path == '/api/reconstruct_test':
+        return handle_POST_api_reconstruct_test(body)
+    if path == '/api/record':
+        return handle_POST_api_record(body)
+    if path == '/api/export-my-data':
+        return handle_POST_api_export_my_data(body)
+    if path == '/api/delete-my-data':
+        return handle_POST_api_delete_my_data(body)
+    if path == '/api/reset-session-history':
+        return handle_POST_api_reset_session_history(body)
+    if path == '/api/delete-profile':
+        return handle_POST_api_delete_profile(body)
+    if path == '/api/augment':
+        return handle_POST_api_augment(body)
+    if path == '/api/patience':
+        return handle_POST_api_patience(body)
+    if path == '/api/set-key':
+        return handle_POST_api_set_key(body)
+    return {"error": "Not found"}
+
+
+def start_engine(*, run_http_server=True, block=True):
+    global _hook_start_time
+    _toggles = []
+    if paralinguistic_enabled: _toggles.append("para")
+    if prosodic_enabled: _toggles.append("prosodic")
+    _toggle_str = f" +{'+'.join(_toggles)}" if _toggles else ""
+    print(f"LAVRENTIY v0.1 | L{current_layer} {current_tone}{_toggle_str}")
+    print(f"Mic: {device_info['name']} | {NATIVE_RATE}Hz")
+    print(f"{RECORD_KEY.upper()}=talk  {TONE_KEY.upper()}=tone  {LAYER_KEY.upper()}=layer  {STATS_KEY.upper()}=stats  {QUIT_KEY.upper()}x3=quit")
+    if run_http_server:
+        print(f"Dashboard: http://localhost:{DASHBOARD_PORT}")
+    else:
+        print(f"Dashboard: native window (QWebEngineView)")
+    print(f"\"Lavrentiy does his best. Check your shit before you send it.\"")
+    print()
+
+    if run_http_server:
+        threading.Thread(target=run_dashboard, daemon=True).start()
+        threading.Thread(target=_start_tray_and_open, name="tray", daemon=True).start()
+
+    threading.Thread(target=_prewarm_l1, name="prewarm-moonshine", daemon=True).start()
+    threading.Thread(target=_prewarm_haiku, name="prewarm-haiku", daemon=True).start()
+
+    _hook_start_time = time.time()
+    try:
+        _open_persistent_stream()
+    except Exception as e:
+        log(f"Failed to open persistent stream: {e}", "error")
+    keyboard.hook(on_key_event)
+
+    if block:
+        keep_alive()
+
+
+if __name__ == '__main__':
+    start_engine()
