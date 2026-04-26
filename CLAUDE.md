@@ -61,6 +61,8 @@
 - Falcon on backend path: read falcon_ok from response JSON, do NOT run client-side
 - Backend payload must include: vocabulary, corrections, filler_words, trigger_words, onset_weights, covert_profile
 - Falcon prompt labels: "Original:" / "Reconstruction:" (not "Raw:" / "Reconstructed:")
+- L1 transfer packs: `lavrentiy/l1_packs/{russian,spanish,mandarin}.json` and `wim-android/app/src/main/assets/l1_packs/{russian,spanish,mandarin}.json` MUST stay byte-identical (md5 match). Edit one → mirror to the other in the same commit.
+- L1 profile pref key: `profile_l1` on both sides (Lav reads it via `prof.get("profile_l1") or prof.get("l1")` for back-compat with legacy profiles; WiM reads it from SharedPreferences). Source paper for the packs lives at `docs/L1_Transfer_Markers_in_Written_English.{docx,md}` — go-to source-of-truth when adding a new language pack.
 
 ## Safety Rules
 - NEVER write to `C:\Users\georg\lavrentiy.py` without reading it first

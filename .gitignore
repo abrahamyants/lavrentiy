@@ -7,6 +7,8 @@ docs/*
 !docs/l4_prompt_engineering_memo.md
 !docs/yolo_stutter_stutter_solver_evaluation.md
 !docs/foundation_grant_landscape.md
+!docs/L1_Transfer_Markers_in_Written_English.md
+!docs/L1_Transfer_Markers_in_Written_English.docx
 profile.json
 __pycache__/
 *.pyc
