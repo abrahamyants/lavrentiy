@@ -7423,11 +7423,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self.send_response(200)
-        origin = self.headers.get('Origin', '')
-        if origin in ('http://127.0.0.1:7878', 'http://localhost:7878', 'null'):
-            self.send_header('Access-Control-Allow-Origin', origin)
-        else:
-            self.send_header('Access-Control-Allow-Origin', 'null')
+        # Echo any Origin: dashboard binds to 0.0.0.0 so a browser on another
+        # device on the same LAN can hit it via the desktop's LAN IP. The
+        # earlier strict allowlist (loopback only) blocked the API XHRs in
+        # that case so the page rendered but live data never loaded.
+        origin = self.headers.get('Origin', '') or 'null'
+        self.send_header('Access-Control-Allow-Origin', origin)
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
@@ -8419,11 +8420,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         body = json.dumps(data).encode('utf-8')
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
-        origin = self.headers.get('Origin', '')
-        if origin in ('http://127.0.0.1:7878', 'http://localhost:7878', 'null'):
-            self.send_header('Access-Control-Allow-Origin', origin)
-        else:
-            self.send_header('Access-Control-Allow-Origin', 'null')
+        origin = self.headers.get('Origin', '') or 'null'
+        self.send_header('Access-Control-Allow-Origin', origin)
         self.send_header('Content-Length', len(body))
         self.end_headers()
         self.wfile.write(body)
@@ -8562,6 +8560,78 @@ print()
 
 # Start dashboard server
 threading.Thread(target=run_dashboard, daemon=True).start()
+
+
+# ----- First-run UX: system tray icon + auto-open browser -----------------
+# Without these the engine launches silently — no window, no tray icon, no
+# browser pop. Users (and George) reasonably assume "did it crash?" and
+# bail. Tray icon is the persistent "I'm alive" signal; auto-open puts
+# the dashboard on screen the moment the port is bound.
+
+def _build_tray_icon_image():
+    """64x64 gunmetal-knob mark — mirrors the bubble icon aesthetic."""
+    from PIL import Image, ImageDraw
+    img = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.ellipse((1, 1, 63, 63), fill=(181, 80, 80, 255))     # maroon ring
+    d.ellipse((6, 6, 58, 58), fill=(36, 38, 44, 255))      # dark dish
+    d.ellipse((22, 22, 42, 42), fill=(102, 106, 114, 255)) # raised knob
+    return img
+
+
+def _wait_for_dashboard_port(timeout_s=8.0):
+    """Block until the dashboard server is actually accepting connections,
+    so we don't auto-open the browser before run_dashboard has bound."""
+    import socket
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            with socket.create_connection(('127.0.0.1', DASHBOARD_PORT), timeout=0.3):
+                return True
+        except OSError:
+            time.sleep(0.1)
+    return False
+
+
+def _start_tray_and_open():
+    import webbrowser
+    if not _wait_for_dashboard_port():
+        print("Dashboard never bound — skipping tray + auto-open")
+        return
+    dashboard_url = f'http://localhost:{DASHBOARD_PORT}'
+    # Auto-open the dashboard so the user has an immediate visible artifact.
+    try:
+        webbrowser.open(dashboard_url, new=2)
+    except Exception as _e:
+        print(f"Auto-open browser failed (non-fatal): {_e}")
+    # Tray icon: persistent "engine is alive" confirmation + Open / Quit menu.
+    # pystray runs its own blocking message loop; we put it on a daemon thread
+    # so the main thread keeps running keyboard hooks etc.
+    try:
+        import pystray
+        icon_img = _build_tray_icon_image()
+
+        def _on_open(icon, item):
+            try: webbrowser.open(dashboard_url, new=2)
+            except Exception: pass
+
+        def _on_quit(icon, item):
+            try: icon.stop()
+            except Exception: pass
+            os._exit(0)
+
+        menu = pystray.Menu(
+            pystray.MenuItem('Open Dashboard', _on_open, default=True),
+            pystray.MenuItem('Quit Lavrentiy', _on_quit),
+        )
+        icon = pystray.Icon('Lavrentiy', icon_img, 'Lavrentiy is running', menu)
+        icon.run()  # blocking on this daemon thread until quit
+    except Exception as _e:
+        print(f"Tray icon failed (non-fatal): {_e}")
+
+
+threading.Thread(target=_start_tray_and_open, name="tray", daemon=True).start()
+# --------------------------------------------------------------------------
 
 # Pre-warm Moonshine (loads ~250 MB ONNX into RAM) and Anthropic Haiku
 # (TLS handshake + connection pool) at boot so the first user recording

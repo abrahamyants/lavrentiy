@@ -15,24 +15,32 @@ import os
 # directory to sys.path — explicitly add it so sibling modules
 # (local.whisper_local) can be imported.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-# ── Phase 1: stdlib-only imports (fast, <100ms) ───────────────────
-# Everything needed for the single-instance check + the boot stub server.
-# Heavy third-party imports (openai, numpy, scipy, sounddevice, keyboard,
-# pyautogui, etc.) are deferred to Phase 4 below so the HTTP server can
-# bind :7878 and respond within ~2s of process launch instead of ~30s.
 import re
+import openai
+import sounddevice as sd
+import soundfile as sf
+import keyboard
+import pyperclip
+import pyautogui
+# Disable PyAutoGUI's corner-of-screen fail-safe: it aborts paste() if the mouse
+# happens to be in a screen corner. F3×3 is the actual quit hotkey for this engine.
+pyautogui.FAILSAFE = False
 import tempfile
 import threading
+import numpy
+import os
 import time
 import json
 import sqlite3
 import ctypes
 import shutil
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from scipy.signal import resample_poly, butter, filtfilt
 from math import gcd
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
+
+import l1_pack
 
 # -- Headless mode (pythonw / hidden window) ──────────────────────
 if sys.stdout is None:
@@ -43,25 +51,74 @@ if sys.stderr is None:
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
 
+# -- Lifecycle audit logger ────────────────────────────────────────
+# Writes a one-line entry every time the engine process starts. Records PID,
+# parent PID, command line, time. Survives crashes (line-buffered append).
+# Lets us correlate "engine died" events with what actually launched the
+# replacement instance — desktop.py wrapper? user double-click? something else?
+try:
+    import datetime as _dt
+    _lifecycle_log = os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine_lifecycle.log")
+    _ppid = os.getppid() if hasattr(os, "getppid") else -1
+    with open(_lifecycle_log, "a", encoding="utf-8") as _f:
+        _f.write(f"[{_dt.datetime.now().isoformat(timespec='seconds')}] STARTUP pid={os.getpid()} ppid={_ppid} argv={sys.argv}\n")
+        _f.flush()
+    # Also register an exit hook so we know when this PID went away cleanly.
+    import atexit as _atexit
+    def _log_exit():
+        try:
+            with open(_lifecycle_log, "a", encoding="utf-8") as f:
+                f.write(f"[{_dt.datetime.now().isoformat(timespec='seconds')}] EXIT pid={os.getpid()} (atexit)\n")
+        except Exception:
+            pass
+    _atexit.register(_log_exit)
+except Exception:
+    pass
+
+
 # -- Single-instance enforcement ──────────────────────────────────
 def _check_existing_engine():
-    """Return True if a healthy engine is already serving on DASHBOARD_PORT."""
+    """Return True if a healthy engine is already serving on DASHBOARD_PORT.
+    Generous 5s timeout — during a long LLM call the /api/state endpoint can
+    be queued behind the cloud round-trip. A 2s timeout was producing false
+    negatives that triggered the (now-removed) kill-all-pythonw nuclear path
+    and made running engines suicide on near-simultaneous launches."""
     import urllib.request
     try:
-        resp = urllib.request.urlopen(f"http://localhost:7878/api/state", timeout=2)
+        resp = urllib.request.urlopen(f"http://localhost:7878/api/state", timeout=5)
         return resp.status == 200
     except Exception:
         return False
 
-def _kill_stale_pythonw():
-    """Kill all pythonw.exe processes (stale mutex holders)."""
+def _kill_engine_on_port(port):
+    """Kill ONLY the PID currently listening on the given port. Safe — does
+    not touch unrelated pythonw.exe processes. Returns True if a kill ran.
+
+    Replaces the prior `_kill_stale_pythonw()` which ran
+    `taskkill /IM pythonw.exe /F` and nuked every pythonw on the system
+    (including the desktop wrapper and any sibling tooling), causing the
+    engine to suicide whenever a near-simultaneous launch hit the mutex."""
     import subprocess
     try:
-        subprocess.run(["taskkill", "/IM", "pythonw.exe", "/F"],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(1)
+        result = subprocess.run(
+            ["netstat", "-ano"],
+            capture_output=True, text=True, check=False, timeout=5,
+        )
+        for line in result.stdout.splitlines():
+            if f":{port}" in line and "LISTENING" in line:
+                parts = line.split()
+                pid = parts[-1] if parts else ""
+                if pid.isdigit():
+                    subprocess.run(
+                        ["taskkill", "/F", "/PID", pid],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        check=False, timeout=5,
+                    )
+                    time.sleep(1)
+                    return True
     except Exception:
         pass
+    return False
 
 mutex_name = "Global\\LAVRENTIY_SINGLE_INSTANCE"
 mutex_handle = kernel32.CreateMutexW(None, True, mutex_name)
@@ -71,9 +128,9 @@ if kernel32.GetLastError() == 183:
         kernel32.CloseHandle(mutex_handle)
         os._exit(0)
     else:
-        print("Stale mutex detected (no healthy engine). Cleaning up...")
+        print("Stale mutex detected (no healthy engine). Cleaning up port 7878 only...")
         kernel32.CloseHandle(mutex_handle)
-        _kill_stale_pythonw()
+        _kill_engine_on_port(7878)
         mutex_handle = kernel32.CreateMutexW(None, True, mutex_name)
         if kernel32.GetLastError() == 183:
             print("Could not reclaim mutex after cleanup. Exiting.")
@@ -84,66 +141,6 @@ try:
     ctypes.windll.shcore.SetProcessDpiAwareness(1)
 except Exception:
     user32.SetProcessDPIAware()
-
-# ── Phase 2: Boot stub HTTP server (bind :7878 in ~100ms) ─────────
-# Starts a minimal stub HTTP server on the dashboard port before any heavy
-# third-party library is imported. The stub responds to /api/state with
-# {"ready": false, "boot_stage": "..."} during the 15-30s initialization
-# window. desktop.py's splash polls /api/state, displays boot_stage as
-# live progress, and only navigates to the real dashboard once ready=true.
-# When initialization completes below (end of this module), the stub
-# server's RequestHandlerClass is swapped to the real DashboardHandler —
-# zero-downtime transition, same bound socket.
-DASHBOARD_PORT = 7878
-_BOOT_STATE = {"ready": False, "stage": "starting"}
-
-class _StubHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == '/api/state':
-            body = json.dumps({
-                "state": "warming_up",
-                "ready": _BOOT_STATE["ready"],
-                "boot_stage": _BOOT_STATE["stage"],
-            }).encode()
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', str(len(body)))
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(body)
-        else:
-            self.send_response(503)
-            self.send_header('Content-Type', 'text/plain')
-            self.end_headers()
-            self.wfile.write(b'engine warming up')
-    def do_POST(self):
-        self.send_response(503)
-        self.send_header('Content-Type', 'text/plain')
-        self.end_headers()
-        self.wfile.write(b'engine warming up')
-    def log_message(self, *a, **k):
-        pass
-
-try:
-    _dashboard_server = ThreadingHTTPServer(('0.0.0.0', DASHBOARD_PORT), _StubHandler)
-    threading.Thread(target=_dashboard_server.serve_forever, daemon=True).start()
-except OSError:
-    _dashboard_server = None  # Port bind failed — will try legacy run_dashboard() at end
-
-# ── Phase 3: Heavy third-party imports (blocks main thread ~10-15s) ──
-# Stub server above continues serving /api/state during this window.
-_BOOT_STATE["stage"] = "loading Python libraries"
-import openai
-_BOOT_STATE["stage"] = "loading audio libraries"
-import sounddevice as sd
-import soundfile as sf
-_BOOT_STATE["stage"] = "loading numerical libraries"
-import numpy
-from scipy.signal import resample_poly, butter, filtfilt
-_BOOT_STATE["stage"] = "loading input hooks"
-import keyboard
-import pyperclip
-import pyautogui
 
 # -- Configuration ────────────────────────────────────────────────
 API_KEY = ""
@@ -159,6 +156,24 @@ if not API_KEY:
     except Exception:
         pass
 
+# Anthropic key — used for cross-vendor Falcon validation (Claude Haiku 4.5).
+# Optional: if not set, falcon_validate falls back to GPT-4o on L2/L3.
+ANTHROPIC_KEY = ""
+_anthropic_key_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "anthropic_key.txt")
+if os.path.exists(_anthropic_key_file):
+    ANTHROPIC_KEY = open(_anthropic_key_file, "r").read().strip()
+if not ANTHROPIC_KEY:
+    ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+FALCON_HAIKU_MODEL = "claude-haiku-4-5-20251001"
+
+# L4 clinical reconstruction uses Anthropic Sonnet 4.6 with extended thinking.
+# Reasoning trace is the validator — Falcon is skipped at L4 (the model
+# self-checks during the thinking phase). Fallback to GPT-4o if Anthropic
+# unavailable. Thinking budget 8000 tokens; max output 16000 (must exceed budget).
+SONNET_THINK_MODEL = "claude-sonnet-4-6"
+SONNET_THINK_BUDGET = 8000
+SONNET_THINK_MAX_TOKENS = 16000
+
 _last_recon_model = ""  # updated by reconstruct() — shows in log status line
 
 LANGUAGE = "en"
@@ -169,8 +184,8 @@ LAYER_KEY = "f11"
 STATS_KEY = "f12"
 QUIT_KEY = "f3"
 COMMAND_KEY = "f8"  # Command Mode: highlight text + say command → transforms selection
-MODEL = "gpt-4o"
-MODEL_L4 = "gpt-4o"                  # L4 stutter reconstruction uses stronger model
+MODEL = "gpt-4o"                     # L2/L3 reconstruction — full GPT-4o (most accurate)
+MODEL_L4 = "gpt-4o"                  # L4 stutter reconstruction (same model, different prompt)
 WHISPER_TEMP = 0.0                   # Whisper decoder temperature (0.0=deterministic, 1.0=creative)
 WHISPER_NO_SPEECH_THRESHOLD = 0.15   # Post-hoc filter: segments with no_speech_prob > this are flagged as block suspects
                                      # OpenAI API doesn't expose no_speech_threshold — we filter client-side
@@ -181,33 +196,83 @@ WHISPER_MULTI_TEMPS = [0.0, 0.2, 0.4]  # Temperature schedule for voting passes
 # Default endpointer cuts off PWS 23.8% of the time. Extending to 4.5s reduces to <3%.
 PATIENCE_DEFAULT = 2.0   # seconds — normal silence threshold
 PATIENCE_STUTTER = 4.5   # seconds — Layer 4 / High Stress
-LOCAL_WHISPER = False                # Primary mode: API. Local faster-whisper is auto-loaded as fallback only.
-LOCAL_WHISPER_MODEL_SIZE = "base"    # tiny|base|small|medium|large-v2|large-v3
-# Load local Whisper as fallback (not primary) — kicks in when API fails (key disabled, no internet)
+LOCAL_WHISPER = True                 # L1 ASR runs locally (no cloud fallback at L1 — local layers stay local).
+LOCAL_WHISPER_MODEL_SIZE = "base"    # Moonshine fallback size (kept for the secondary fallback path)
+
+# L1 source toggle: when True, route L1 transcription through cloud whisper-1
+# instead of the local engine. Same model family at both endpoints — the toggle
+# trades local-CPU latency (~2-5s on faster-whisper) for cloud-GPU latency
+# (~1-2s on whisper-1) at the cost of needing internet. Toggleable at runtime
+# via POST /api/l1_asr {cloud: bool} from the dashboard.
+#
+# Default = True. First-impression UX matters: an evaluator opening Lavrentiy
+# for the first time hits F9, expects to see text fast. Local FW Turbo on a
+# typical CPU is 2-5s for short clips and ~30s on the very first call (model
+# load). Cloud whisper-1 is 1-2s every time. Default to cloud, let users who
+# want offline-only flip it off.
+L1_CLOUD_ASR = True
+LOCAL_FW_MODEL_SIZE = os.environ.get("LAV_FW_MODEL_SIZE", "large-v3-turbo")  # faster-whisper primary (real Whisper, full verbose JSON)
+LOCAL_FW_COMPUTE_TYPE = os.environ.get("LAV_FW_COMPUTE_TYPE", "int8")         # CPU-friendly quantization
+LOCAL_FW_DEVICE = os.environ.get("LAV_FW_DEVICE", "cpu")                       # target eval hardware
+LOCAL_LLM_MODEL = os.environ.get("LAV_LOCAL_LLM", "llama3.2:3b-instruct-q4_K_M")  # L2/L3 brain
+# Layered local ASR: faster-whisper (primary) -> Moonshine (secondary) -> Vosk
+# (tertiary) -> raise. Composite dispatcher in local/asr_local.py exposes the
+# same `transcribe` signature so call sites below don't change. If the composite
+# module can't import, fall back to Moonshine alone so legacy installs keep working.
 try:
-    from local.whisper_local import transcribe as _local_transcribe_fn  # noqa: F401
+    from local.asr_local import transcribe as _local_transcribe_fn  # noqa: F401
 except ImportError:
-    _local_transcribe_fn = None
+    try:
+        from local.whisper_local import transcribe as _local_transcribe_fn  # noqa: F401
+    except ImportError:
+        _local_transcribe_fn = None
+
+# Local LLM for L2/L3 reconstruction (Gemma via Ollama). L4 stays on cloud
+# GPT-4o. If the local LLM isn't available or returns None, L2/L3 fall
+# back to the pre-cleaned raw text (strip_disfluencies + profile corrections)
+# rather than the cloud — per the "local layers stay local" principle.
+try:
+    from local.llm_local import complete as _local_llm_complete  # noqa: F401
+    from local.llm_local import is_available as _local_llm_available  # noqa: F401
+except ImportError:
+    _local_llm_complete = None
+    _local_llm_available = lambda: False  # noqa: E731
+
 LAVRENTIY_DIR = Path.home() / ".lavrentiy"
 PROFILES_ROOT = LAVRENTIY_DIR / "profiles"
 ACTIVE_FILE = LAVRENTIY_DIR / "active_profile"
 DEFAULT_PROFILE_NAME = "Default"
-# DASHBOARD_PORT is defined earlier in the boot stub server block.
+DASHBOARD_PORT = 7878
 
 def _read_active_profile_name():
-    """Read active profile name from disk, or return default."""
-    try:
-        if ACTIVE_FILE.exists():
-            name = ACTIVE_FILE.read_text(encoding='utf-8').strip()
-            if name:
-                return name
-    except (IOError, OSError):
-        pass
+    """Always boot to Default. The disk active_profile file is intentionally
+    ignored on cold start so the "last user on this machine" doesn't persist
+    as the implicit signed-in identity across restarts. Sign-in via /api/auth
+    swaps the runtime profile to the email-matched one for the session;
+    sign-out swaps back to Default; engine shutdown rewrites the file to
+    Default (atexit + F3-x-3 paths) so even the disk state stays clean.
+    """
     return DEFAULT_PROFILE_NAME
 
 def _write_active_profile_name(name):
     LAVRENTIY_DIR.mkdir(exist_ok=True)
     ACTIVE_FILE.write_text(name, encoding='utf-8')
+
+# Reset active_profile to Default at engine shutdown so a cold restart
+# never inherits "last person who used this machine" as the implicit
+# signed-in user. Catches non-F3-quit exits (window close, signal, etc.).
+# F3-x-3 path also calls _write_active_profile_name(DEFAULT_PROFILE_NAME)
+# explicitly before os._exit(0) for the same reason.
+try:
+    import atexit as _atexit_profile
+    @_atexit_profile.register
+    def _reset_active_profile_at_exit():
+        try:
+            _write_active_profile_name(DEFAULT_PROFILE_NAME)
+        except Exception:
+            pass
+except Exception:
+    pass
 
 def _resolve_profile_paths(name):
     """Return (PROFILE_DIR, PROFILE_PATH, DB_PATH, BACKUP_DIR) for a given profile name."""
@@ -491,6 +556,301 @@ HIGH_RISK_ONSETS_RU = {
 
 # Combined lookup for any-language onset extraction
 HIGH_RISK_ONSETS_ALL = HIGH_RISK_ONSETS | HIGH_RISK_ONSETS_RU
+
+
+# ─── Multilingual L4 helpers (docs/l4_prompt_engineering_memo.md) ───
+# Lang packs live in lang_packs/{code}.json; mirrored into the wim-android
+# APK under app/src/main/assets/lang_packs/. The two sets MUST stay in sync.
+_LANG_PACK_CACHE = {}  # code -> dict or None (None = not found)
+
+
+def _lang_packs_dir():
+    # Lazy: resolve only when needed so exec-based test harnesses that lack
+    # __file__ (e.g. test_fuzz.py) don't fail at import time.
+    return Path(__file__).resolve().parent / "lang_packs"
+
+
+def _load_lang_pack(code):
+    """Return the parsed lang-pack dict for `code`, or None for English/unknown."""
+    normalized = _normalize_lang_code(code)
+    if normalized in _LANG_PACK_CACHE:
+        return _LANG_PACK_CACHE[normalized]
+    if normalized == "en":
+        _LANG_PACK_CACHE[normalized] = None
+        return None
+    try:
+        path = _lang_packs_dir() / f"{normalized}.json"
+        if not path.exists():
+            _LANG_PACK_CACHE[normalized] = None
+            return None
+        with open(path, "r", encoding="utf-8") as f:
+            pack = json.load(f)
+    except Exception:
+        pack = None
+    _LANG_PACK_CACHE[normalized] = pack
+    return pack
+
+
+def _normalize_lang_code(raw):
+    """Collapse 'en-US' → 'en', 'es-ES' → 'es'. Empty/None → 'en'."""
+    if not raw:
+        return "en"
+    head = raw.strip().split("-", 1)[0].split("_", 1)[0].lower()
+    return head or "en"
+
+
+def _lang_name(code):
+    normalized = _normalize_lang_code(code)
+    if normalized == "en":
+        return "English"
+    pack = _load_lang_pack(normalized)
+    return (pack or {}).get("language_name_en", normalized) or normalized
+
+
+def _get_lang_fillers(code):
+    pack = _load_lang_pack(code)
+    return list((pack or {}).get("fillers", []))
+
+
+def _get_lang_natural_repeats(code):
+    pack = _load_lang_pack(code)
+    return list((pack or {}).get("natural_repeats", []))
+
+
+def _get_lang_hard_onsets(code):
+    """Cited onset→weight map from lang pack. Empty when unavailable."""
+    pack = _load_lang_pack(code)
+    if not pack:
+        return {}
+    ho = pack.get("hard_onsets") or {}
+    if ho.get("quality_note") == "unavailable":
+        return {}
+    out = {}
+    for entry in ho.get("data") or []:
+        onset = (entry.get("onset") or "").strip().strip("/").lower()
+        weight = entry.get("difficulty_weight") or 0.0
+        if onset and weight:
+            out[onset] = weight
+    return out
+
+
+def _lang_has_no_onset_research(code):
+    normalized = _normalize_lang_code(code)
+    if normalized == "en":
+        return False
+    pack = _load_lang_pack(normalized)
+    if not pack:
+        return False
+    return (pack.get("hard_onsets") or {}).get("quality_note") == "unavailable"
+
+
+def _get_lang_part_word_example(code):
+    c = _normalize_lang_code(code)
+    return {
+        "es": "'p-p-pues entonces qu-qu-quiero ir al trabajo' → 'Pues, quiero ir al trabajo'",
+        "fr": "'P-p-peut-être qu'on devrait...' → 'Peut-être qu'on devrait...'",
+        "de": "'P-p-Peter hat mir gesagt...' → 'Peter hat mir gesagt...'",
+        "it": "'P-p-posso andare a-a-adesso?' → 'Posso andare adesso?'",
+        "pt": "'P-p-posso te falar a-a-agora?' → 'Posso te falar agora?'",
+        "ja": "'か-か-かく に つ い て は...' → 'かくについては...' (mora-level repetition)",
+        "zh": "'我-我-我 想 去' → '我想去'",
+        "hi": "'म-म-मैं जाना चाहता हूँ' → 'मैं जाना चाहता हूँ'",
+        "ar": "'ب-ب-بدي أروح' → 'بدي أروح'",
+        "ko": "'ㄱ-ㄱ-가고 싶어요' → '가고 싶어요'",
+    }.get(c, "'b-b-b-buy' → 'buy', 'Ca-ca-ca-can' → 'Can'")
+
+
+def _get_lang_prolongation_example(code):
+    c = _normalize_lang_code(code)
+    return {
+        "es": "'Sssssseñor, necesito...' → 'Señor, necesito...'",
+        "fr": "'Ssssalut, je voulais...' → 'Salut, je voulais...'",
+        "de": "'Mmmmontag kommt er zurück' → 'Montag kommt er zurück'",
+        "it": "'Mmmmmamma mia' → 'Mamma mia'",
+        "pt": "'Sssssenhor, preciso...' → 'Senhor, preciso...'",
+        "ja": "prolonged initial mora: 'かーーーく' → 'かく'",
+    }.get(c, "'mmmmaybe' → 'maybe', 'Sssssscience' → 'Science'")
+
+
+def _get_lang_epenthesis_note(code):
+    c = _normalize_lang_code(code)
+    return {
+        "es": "Spanish epenthetic /e/ during blocked clusters (e.g. 'p-eh-lanta' for 'planta', 't-eh-rabajo' for 'trabajo') — NOT English schwa /ə/",
+        "fr": "French epenthetic /ə/ during blocked clusters, but this is the French 'e muet', not the neutral English schwa",
+        "de": "German epenthetic /ə/ possible at morpheme boundaries in compounds",
+        "it": "Italian may insert a transitional /i/ or /e/ at blocked clusters",
+        "pt": "Portuguese may insert a transitional /i/ (BP) or /ə/ (EP) at blocked clusters",
+        "hi": "Hindi: inherent /a/ vowel of Devanagari consonants can be extended during blocks",
+    }.get(c, "schwa substitution: 'guh-guh-goat' → 'goat' (neutral /ə/ inserted in repeated clusters)")
+
+
+def _get_lang_dialect_avoidance_note(code):
+    c = _normalize_lang_code(code)
+    return {
+        "es": "- Spanish dialect avoidance: if speaker uses 'vos tenés' but context suggests 'tú tienes', they may be using voseo to avoid the /t/ onset. Do NOT reconstruct voseo into tuteo — preserve the speaker's dialect.",
+        "fr": "- French tu/vous register: an unexpected vous-form when tu is established may be avoidance of a /t/ onset. Do NOT reconstruct vous into tu.",
+        "de": "- German du/Sie register: an unexpected Sie-form when du is established MAY indicate avoidance of a /d/ onset (speculative — not established in German stuttering literature). Preserve the speaker's chosen form.",
+        "ja": "- Japanese casual/keigo register: an unexpected keigo form on a content word MAY indicate avoidance of a feared initial consonant (speculative — not established in Japanese stuttering literature). Preserve the speaker's chosen form.",
+        "ko": "- Korean 반말/존댓말 register: an unexpected register shift MAY indicate phonemic avoidance (speculative — not established in Korean stuttering literature). Preserve the speaker's chosen form.",
+        "ar": "- Arabic diglossia: an unexpected colloquial→MSA (عامية→فصحى) shift on a specific word MAY indicate register avoidance (speculative — not established in Arabic stuttering literature). Preserve the speaker's chosen register.",
+    }.get(c, "")
+
+
+def _get_lang_syllable_timing_note(code):
+    c = _normalize_lang_code(code)
+    if c in ("es", "fr", "it", "pt"):
+        return f"- {_lang_name(c)} is syllable-timed — anticipatory pauses are less prosodically marked than in English. Require both a filler cluster AND a hard-onset match before treating a pause as anticipatory."
+    if c == "de":
+        return "- German is stress-timed — anticipatory pauses have predictive weight similar to English."
+    if c == "ja":
+        return "- Japanese is mora-timed — stuttering occurs at mora boundaries, not English-style word-initial position."
+    return ""
+
+
+def _get_lang_epenthesis_corruption_note(code):
+    c = _normalize_lang_code(code)
+    return {
+        "es": "EPENTHETIC VOWEL CORRUPTION: blocked clusters (/tr/, /pl/, /pr/) → Whisper may transcribe 'p-eh-lanta' as 'Pelanta', 't-eh-rabajo' as 'Terabajo' — these are hallucinations of epenthesis, reconstruct to the target word",
+        "fr": "LIAISON HALLUCINATION: Whisper may insert liaison consonants mid-block (e.g. transcribing a /t/ the speaker was blocked on as the onset of the next vowel-initial word)",
+        "de": "COMPOUND BOUNDARY CORRUPTION: blocks at morpheme boundaries of long compounds (e.g. 'Arbeits…losigkeit') may be transcribed as two separate words or as a different compound",
+        "it": "GEMINATE CONFUSION: stuttered /p/ may be transcribed as the Italian geminate /pp/ ('la papa' vs. 'la pappa') — geminates are phonemic, verify against context",
+        "pt": "EPENTHETIC /i/ CORRUPTION: blocked clusters in BP may be transcribed with an intrusive /i/ (e.g. 'p-i-lanta' for 'planta')",
+        "ja": "MORA CORRUPTION: repeated moras ('か-か-かく') may collapse into a single mora or a different katakana/hiragana character",
+        "zh": "TONE CORRUPTION: repeated syllables in Mandarin may be transcribed with a wrong tone, producing a different word (same pinyin, different character)",
+    }.get(c, "SCHWA CORRUPTION: neutral vowel in repeated clusters → transcribed as a real word (e.g. 'buh-buh-blue' → 'but but blue' or 'above blue')")
+
+
+def _get_lang_onset_caveat(code):
+    c = _normalize_lang_code(code)
+    return {
+        "es": "Onset weights cite Howell et al. 2004 and are extrapolated from English aspiration data — may be slightly inflated for Spanish unaspirated plosives. Additionally, the trilled /rr/ (perro, ratón) is a high-frequency block site not captured in these weights.",
+        "fr": "Onset weights cite Dworzynski et al. 2003. French is unaspirated — treat with moderate extrapolation risk relative to English.",
+        "de": "Onset weights cite Natke et al. 2004. Only /p/ is documented as a primary hard onset in German — do NOT apply English-derived /t/ difficulty weighting.",
+        "it": "Onset weights cite Zmarich et al. 2004. Italian is unaspirated — moderate extrapolation risk.",
+        "pt": "Onset weights cite Juste et al. 2007, a pediatric study — adult onset weights are extrapolated; treat with lower confidence for adult users.",
+        "ja": "Onset weights cite Umezaki et al. 1999. /k/ is the documented hard onset; words beginning with か行 (ka, ki, ku, ke, ko) are elevated-risk.",
+    }.get(c, "")
+
+
+# Few-shot example blocks per language (memo Section 4.4).
+_LANG_FEW_SHOT = {
+    "es": (
+        "DISFLUENCY EXAMPLES (Spanish):\n"
+        "  REPETITION:  'P-p-pues este... quiero ir a la re-re-reunión'\n"
+        "  RESULT:      'Quiero ir a la reunión'\n\n"
+        "  EMPHATIC (PRESERVE):  'No no, eso no me parece bien'\n"
+        "  RESULT:      'No no, eso no me parece bien'\n\n"
+        "  WHISPER /rr/ BLOCK:  'Necesito el r-r-... el documento del er rrr... del jefe'\n"
+        "  RESULT:      'Necesito el documento del jefe'\n\n"
+        "  CIRCUMLOCUTION:  'Quiero hablar con el... con la persona que lleva los números'\n"
+        "  RESULT:      'Quiero hablar con el contador'  [if context is clear — else preserve circumlocution literally]"
+    ),
+    "fr": (
+        "DISFLUENCY EXAMPLES (French):\n"
+        "  REPETITION:  'Je je je voulais te te te dire quelque chose'\n"
+        "  RESULT:      'Je voulais te dire quelque chose'\n\n"
+        "  EMPHATIC (PRESERVE):  'Non non, ce n'est pas correct'\n"
+        "  RESULT:      'Non non, ce n'est pas correct'\n\n"
+        "  BLOCK + LIAISON:  'Les... euh... [block]... petits enfants arrivent'\n"
+        "  RESULT:      'Les petits enfants arrivent'\n\n"
+        "  CIRCUMLOCUTION:  'J'ai besoin du... de la chose qu'on met sur la tête'\n"
+        "  RESULT:      'J'ai besoin du chapeau'  [if context is clear]"
+    ),
+    "de": (
+        "DISFLUENCY EXAMPLES (German):\n"
+        "  REPETITION:  'P-p-Peter, ich brauche den Ber-ber-Bericht bis Freitag'\n"
+        "  RESULT:      'Peter, ich brauche den Bericht bis Freitag'\n\n"
+        "  EMPHATIC (PRESERVE):  'Nein nein, das ist nicht richtig'\n"
+        "  RESULT:      'Nein nein, das ist nicht richtig'\n\n"
+        "  COMPOUND BLOCK:  'Ich brauche die Ar-ar-Arbeits... die Bescheinigung'\n"
+        "  RESULT:      'Ich brauche die Arbeitsbescheinigung'\n\n"
+        "  WHISPER HALLUCINATION:  'Ich dachte dass... thank you... der Termin morgen ist'\n"
+        "  RESULT:      'Ich dachte, der Termin ist morgen'  [discard 'thank you' — Whisper hallucination]"
+    ),
+    "it": (
+        "DISFLUENCY EXAMPLES (Italian):\n"
+        "  REPETITION:  'P-p-posso andare a-a-adesso?'\n"
+        "  RESULT:      'Posso andare adesso?'\n\n"
+        "  EMPHATIC (PRESERVE):  'Sì sì, è proprio così'\n"
+        "  RESULT:      'Sì sì, è proprio così'\n\n"
+        "  GEMINATE DISAMBIGUATION:  'La p-p-papa parla' (stuttered /p/)\n"
+        "  RESULT:      'Il papa parla'  [stuttered /p/, NOT the geminate 'pappa' (porridge)]\n\n"
+        "  CIRCUMLOCUTION:  'Ho bisogno del... di quella cosa per scrivere'\n"
+        "  RESULT:      'Ho bisogno della penna'  [if context is clear]"
+    ),
+    "pt": (
+        "DISFLUENCY EXAMPLES (Portuguese):\n"
+        "  REPETITION:  'P-p-posso te falar a-a-agora sobre o pro-projeto?'\n"
+        "  RESULT:      'Posso te falar agora sobre o projeto?'\n\n"
+        "  EMPHATIC (PRESERVE):  'Não não, isso não está certo'\n"
+        "  RESULT:      'Não não, isso não está certo'\n\n"
+        "  DIALECT PRESERVATION:  'Vou pegar o ônibus' (BP) — do NOT normalize to 'autocarro' (EP)\n"
+        "  RESULT:      'Vou pegar o ônibus'\n\n"
+        "  CIRCUMLOCUTION:  'Preciso do... daquilo que a gente assina na entrada'\n"
+        "  RESULT:      'Preciso do formulário da entrada'"
+    ),
+    "ja": (
+        "DISFLUENCY EXAMPLES (Japanese):\n"
+        "  MORA REPETITION:  'か-か-かく に つ い て は...'\n"
+        "  RESULT:      'かくについては...'\n\n"
+        "  EMPHATIC (PRESERVE):  'そうそう、それが正しいです'\n"
+        "  RESULT:      'そうそう、それが正しいです'\n\n"
+        "  /k/ BLOCK:  'きょう の... えーと... かいぎ は なんじ ですか'\n"
+        "  RESULT:      'きょうのかいぎはなんじですか'"
+    ),
+    "zh": (
+        "DISFLUENCY EXAMPLES (Mandarin):\n"
+        "  REPETITION:  '我-我-我 想 去 开-开-开会'\n"
+        "  RESULT:      '我想去开会'\n\n"
+        "  EMPHATIC (PRESERVE):  '对对，这个就是正确的'\n"
+        "  RESULT:      '对对，这个就是正确的'\n\n"
+        "  ASPECTUAL REDUPLICATION (PRESERVE):  '我去看看' (take a look — NOT stutter)\n"
+        "  RESULT:      '我去看看'\n\n"
+        "  TONE-LEVEL SUBSTITUTION RISK: suspect single-syllable content-word substitutions"
+    ),
+    "hi": (
+        "DISFLUENCY EXAMPLES (Hindi):\n"
+        "  REPETITION:  'म-म-मैं जाना चाहता हूँ'\n"
+        "  RESULT:      'मैं जाना चाहता हूँ'\n\n"
+        "  EMPHATIC (PRESERVE):  'नहीं नहीं, यह सही नहीं है'\n"
+        "  RESULT:      'नहीं नहीं, यह सही नहीं है'\n\n"
+        "  CIRCUMLOCUTION:  'मुझे वो... जो लिखने के लिए होता है... चाहिए'\n"
+        "  RESULT:      'मुझे पेन चाहिए'  [if context is clear]"
+    ),
+    "ar": (
+        "DISFLUENCY EXAMPLES (Arabic):\n"
+        "  REPETITION:  'ب-ب-بدي أ-أ-أروح'\n"
+        "  RESULT:      'بدي أروح'\n\n"
+        "  EMPHATIC (PRESERVE):  'لا لا، هذا مش صحيح'\n"
+        "  RESULT:      'لا لا، هذا مش صحيح'\n\n"
+        "  WHISPER ENGLISH HALLUCINATION:  'كنت أفكر... thank you... في الموعد'\n"
+        "  RESULT:      'كنت أفكر في الموعد'  [discard 'thank you' — Whisper hallucination]"
+    ),
+    "ko": (
+        "DISFLUENCY EXAMPLES (Korean):\n"
+        "  REPETITION:  '가-가-가고 싶-싶-싶어요'\n"
+        "  RESULT:      '가고 싶어요'\n\n"
+        "  EMPHATIC (PRESERVE):  '아니 아니, 그게 맞지 않아요'\n"
+        "  RESULT:      '아니 아니, 그게 맞지 않아요'\n\n"
+        "  CIRCUMLOCUTION:  '그... 쓰는 거 있잖아요... 필요해요'\n"
+        "  RESULT:      '펜 필요해요'  [if context is clear]"
+    ),
+    "en": (
+        "DISFLUENCY EXAMPLES (English):\n"
+        "  BLOCK:       'I need the... [silence]... computer from the office'\n"
+        "  RESULT:      'I need the computer from the office'\n\n"
+        "  REPETITION:  'Ca-ca-ca-can you p-p-please send the re-report'\n"
+        "  RESULT:      'Can you please send the report'\n\n"
+        "  WORD REPS:   'I I I want to to to go to the the meeting'\n"
+        "  RESULT:      'I want to go to the meeting'\n\n"
+        "  WHISPER:     'I was trying to come put her the file'\n"
+        "  RESULT:      'I was trying to get the computer file'"
+    ),
+}
+
+
+def _get_lang_few_shot_examples(code):
+    return _LANG_FEW_SHOT.get(_normalize_lang_code(code), _LANG_FEW_SHOT["en"])
 
 
 def detect_word_language(word):
@@ -1026,9 +1386,28 @@ class ClipboardPredictor:
 
 _clipboard_predictor = None  # initialized after profile load
 
-client = openai.OpenAI(api_key=API_KEY) if API_KEY else None
-if client is None:
-    print("[Lavrentiy] No OpenAI API key found — L2+ reconstruction and Falcon validation disabled. L1 (disfluency filter) still works. Add key via dashboard or api_key.txt.")
+# Per-call ceiling for ALL cloud SDK requests. When a network round-trip
+# stalls (server hung, NAT dropped the connection, anything that wedges
+# without erroring), the SDK's default behavior is to wait forever — which
+# locks up the engine pipeline (every subsequent recording stacks on the
+# stuck thread). 60s is ~2x the slowest expected legitimate L4 Sonnet ET
+# call, so anything past it is "stuck", not "slow".
+CLOUD_TIMEOUT_SEC = 60
+
+# Toggle for the L1 Haiku polish step (Anthropic Haiku reads Moonshine
+# output and fixes obvious errors before paste). Off while George tests
+# raw L1 behavior; flip back to True to re-enable.
+L1_POLISH = False
+
+client = openai.OpenAI(api_key=API_KEY, timeout=CLOUD_TIMEOUT_SEC) if API_KEY else None
+
+# Anthropic client for cross-vendor Falcon validation (different blind spots
+# from OpenAI's reconstruction → catches errors a self-eval would miss).
+try:
+    import anthropic
+    anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY, timeout=CLOUD_TIMEOUT_SEC) if ANTHROPIC_KEY else None
+except ImportError:
+    anthropic_client = None
 
 # -- Google Sign-In / Backend reconstruction ─────────────────────
 BACKEND_URL = "https://us-central1-bakers-agent.cloudfunctions.net/wim-reconstruct"
@@ -1042,7 +1421,8 @@ def is_authenticated():
 def reconstruct_via_backend(raw_text, tone, layer, prof, situation="default", mode="SAFE",
                             whisper_low_conf=None, whisper_disagreements=None,
                             speech_severity_mod=0.0,
-                            paralinguistic_events=None, prosodic_context=None):
+                            paralinguistic_events=None, prosodic_context=None,
+                            language_code="en"):
     """Reconstruct via Cloud Function backend (uses server-side API key).
     Called when user is signed in via Google instead of using a local API key."""
     import urllib.request
@@ -1053,6 +1433,7 @@ def reconstruct_via_backend(raw_text, tone, layer, prof, situation="default", mo
         "situation": situation,
         "mode": mode,
         "speech_severity_mod": speech_severity_mod,
+        "language_code": language_code,
         "profile": {
             "vocabulary": prof.get("vocabulary", [])[:20],
             "corrections": dict(list(prof.get("corrections", {}).items())[:10]),
@@ -1198,6 +1579,24 @@ def save_profile(prof, _epoch=None):
             f.flush()
             os.fsync(f.fileno())
         tmp_path.replace(PROFILE_PATH)
+    # FIRESTORE DIRECT PUBLISH HOOK — REMOVED 2026-04-24
+    # The original code did `from lavrentiy.firestore_publisher import ...`. When
+    # this script runs as `lavrentiy.py` (the entry-point script, sys.modules
+    # name is __main__ not lavrentiy), `import lavrentiy` finds lavrentiy.py
+    # again and RE-EXECUTES the entire module — which re-runs the mutex check
+    # (sees the original engine on port 7878, prints "Lavrentiy is already
+    # running") and calls os._exit(0), killing the original process.
+    #
+    # That's the silent engine-death bug we've been chasing. Sign-in (or any
+    # other code path that calls save_profile) was triggering it. Symptoms:
+    # (a) two STARTUP entries with same PID in lifecycle.log, (b) "[SWP] A"
+    # logged but never "[SWP] B" — the recursive import killed it inside
+    # save_profile before it could continue.
+    #
+    # The cross-device profile sync happens via the cloud function path below
+    # (sync_profile_to_firestore), which uses urllib + the BACKEND_URL — no
+    # broken `import lavrentiy.*` involved. So nothing of value is lost.
+
     # Sync to Firestore in background (debounced, fire-and-forget)
     threading.Thread(target=sync_profile_to_firestore, args=(prof,), daemon=True).start()
 
@@ -1279,39 +1678,42 @@ def switch_profile(name):
     if not name or '/' in name or '\\' in name or '..' in name:
         raise ValueError(f"Invalid profile name: {name}")
 
-    # Save current profile before switching
-    # NOTE: do NOT wrap in _profile_lock here — save_profile() acquires it internally
-    # and threading.Lock is not re-entrant (would deadlock).
+    log(f"[SWP] A: enter switch_profile('{name}')", "info")
     save_profile(profile)
+    log(f"[SWP] B: save_profile done", "info")
 
-    # Bump epoch so stale background threads skip their save_profile() calls
     _profile_switch_epoch += 1
+    log(f"[SWP] C: epoch bumped", "info")
 
-    # Close current DB and reinitialize under the SAME lock hold.
-    # Releasing _db_lock between close and reinit would let concurrent callers
-    # (log_session, db_get_sessions) hit the closed connection.
+    log(f"[SWP] D: acquiring _db_lock", "info")
     with _db_lock:
+        log(f"[SWP] E: _db_lock acquired", "info")
         try:
             _db.close()
-        except Exception:
-            pass
+        except Exception as _e:
+            log(f"[SWP] F: _db.close exception (ignored): {_e}", "warn")
+        log(f"[SWP] G: _db closed", "info")
 
-        # Update paths (inside lock so DB_PATH is consistent with _db)
         _active_profile_name = name
         PROFILE_DIR, PROFILE_PATH, DB_PATH, BACKUP_DIR = _resolve_profile_paths(name)
         PROFILE_DIR.mkdir(parents=True, exist_ok=True)
         _write_active_profile_name(name)
+        log(f"[SWP] H: paths updated, active_profile written", "info")
 
-        # Load new profile
         profile = load_profile()
+        log(f"[SWP] I: load_profile done", "info")
         profile = migrate_profile(profile)
+        log(f"[SWP] J: migrate_profile done", "info")
         if normalize_profile(profile):
             save_profile(profile)
+        log(f"[SWP] K: normalize+save done", "info")
         migrate_fillers(profile)
+        log(f"[SWP] L: migrate_fillers done", "info")
         learn_onset_weights(profile.get("trigger_words", []))
+        log(f"[SWP] M: learn_onset_weights done", "info")
 
-        # Reinitialize DB (still under _db_lock)
         _db = _init_db(DB_PATH)
+        log(f"[SWP] N: _init_db done", "info")
 
     # Reset transient state
     _shadow_history.clear() if isinstance(_shadow_history, list) else None
@@ -1462,12 +1864,25 @@ def log_session(prof, raw, output, tone, layer, decision=None, timings=None,
     falcon = decision["falcon_ok"] if decision else True
     words = len(output.split())
     sit = situation or current_situation
+    # Trigger-word event detection — record which of the user's profile triggers
+    # actually appeared in this session's raw transcript. Lightweight: simple
+    # case-insensitive substring scan, no API calls. Powers per-trigger event
+    # counts in the Weekly Report and Insights tab.
+    triggers_fired = []
+    try:
+        raw_lower = (raw or "").lower()
+        for trig in (prof.get("trigger_words", []) or []):
+            t_norm = (trig or "").strip().lower()
+            if t_norm and t_norm in raw_lower:
+                triggers_fired.append(trig)
+    except Exception:
+        triggers_fired = []
     with _db_lock:
         _db.execute(
             "INSERT INTO sessions (ts, raw, out, tone, layer, words, falcon, decision, timings, "
             "situation, disfluency_counts, exposure_difficulty, editorial_distance, "
-            "speech_metrics, lang, paralinguistic_events, prosodic_summary) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "speech_metrics, lang, paralinguistic_events, prosodic_summary, triggers_fired) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (ts, raw, output, tone, layer, words, int(falcon),
              json.dumps(decision) if decision else None,
              json.dumps(timings) if timings else None,
@@ -1478,7 +1893,8 @@ def log_session(prof, raw, output, tone, layer, decision=None, timings=None,
              json.dumps(speech_metrics) if speech_metrics else None,
              lang or 'en',
              json.dumps(paralinguistic_events) if paralinguistic_events else None,
-             json.dumps(prosodic_summary) if prosodic_summary else None)
+             json.dumps(prosodic_summary) if prosodic_summary else None,
+             json.dumps(triggers_fired) if triggers_fired else None)
         )
         _db.commit()
 
@@ -1578,22 +1994,17 @@ def calibration_save_audio(prompt_id, audio_data, sample_rate):
     wav_path = CALIBRATION_DIR / f"{base}.wav"
     meta_path = CALIBRATION_DIR / f"{base}.json"
     sf.write(str(wav_path), audio_data, sample_rate)
-    # Run through Whisper to capture raw ASR for WER comparison
+    # Run through local ASR to capture raw transcription for WER comparison
     whisper_raw = ""
     try:
-        if LOCAL_WHISPER and _local_transcribe_fn is not None:
+        if _local_transcribe_fn is not None:
             r = _local_transcribe_fn(str(wav_path), 0.0, None, LANGUAGE, LOCAL_WHISPER_MODEL_SIZE)
             whisper_raw = r["text"]
             stats_inc("local_transcriptions")
         else:
-            with open(str(wav_path), "rb") as f:
-                result = client.audio.transcriptions.create(
-                    model="whisper-1", file=f, language=LANGUAGE
-                )
-            whisper_raw = result.text.strip()
-            stats_inc("api_calls")
+            stats_inc("local_transcribe_unavailable")
     except Exception as e:
-        log(f"Calibration Whisper pass failed: {e}", "error")
+        log(f"Calibration local ASR pass failed: {e}", "error")
     wer_val = None
     if whisper_raw:
         wer_val, _, _, _ = compute_wer(prompt["text"], whisper_raw)
@@ -1857,22 +2268,17 @@ def augment_calibration_data():
                 response.stream_to_file(str(wav_path))
                 stats_inc("api_calls")
 
-                # Run through Whisper to capture how ASR handles the disfluent audio
+                # Run through local ASR to capture how the engine handles disfluent audio
                 whisper_raw = ""
                 try:
-                    if LOCAL_WHISPER and _local_transcribe_fn is not None:
+                    if _local_transcribe_fn is not None:
                         r = _local_transcribe_fn(str(wav_path), 0.0, None, LANGUAGE, LOCAL_WHISPER_MODEL_SIZE)
                         whisper_raw = r["text"]
                         stats_inc("local_transcriptions")
                     else:
-                        with open(str(wav_path), "rb") as f:
-                            w_result = client.audio.transcriptions.create(
-                                model="whisper-1", file=f, language=LANGUAGE
-                            )
-                        whisper_raw = w_result.text.strip()
-                        stats_inc("api_calls")
+                        stats_inc("local_transcribe_unavailable")
                 except Exception as e:
-                    log(f"Augment Whisper pass failed for {base}: {e}", "error")
+                    log(f"Augment local ASR pass failed for {base}: {e}", "error")
 
                 # Save metadata
                 aug_meta = {
@@ -1988,6 +2394,7 @@ def _init_db(db_path=None):
         "ALTER TABLE sessions ADD COLUMN lang TEXT DEFAULT 'en'",
         "ALTER TABLE sessions ADD COLUMN paralinguistic_events TEXT",
         "ALTER TABLE sessions ADD COLUMN prosodic_summary TEXT",
+        "ALTER TABLE sessions ADD COLUMN triggers_fired TEXT",
     ]:
         try:
             db.execute(col_sql)
@@ -2238,14 +2645,75 @@ def log(text, kind="info"):
     except Exception:
         pass
 
+# -- Post-processing for local-LLM chattiness ───────────────────
+# Small local models (Llama 3.2 3B, Qwen 2.5 3B, Gemma 2 2B) add preambles
+# ("Here's the cleaned sentence:"), markdown bold/emphasis, bullet lists,
+# and emojis despite system-prompt instructions to output plain text.
+# Any of that pastes into the user's active app. Strip deterministically.
+_MD_BOLD_RE = re.compile(r'\*\*([^*]+)\*\*')
+_MD_ITAL_RE = re.compile(r'(?<!\*)\*([^*\n]+)\*(?!\*)')
+_MD_CODE_RE = re.compile(r'`([^`]+)`')
+_MD_HEADER_RE = re.compile(r'^#{1,6}\s+', re.MULTILINE)
+_MD_BULLET_RE = re.compile(r'^\s*[-*+]\s+', re.MULTILINE)
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F600-\U0001F64F"
+    "\U0001F300-\U0001F5FF"
+    "\U0001F680-\U0001F6FF"
+    "\U0001F700-\U0001F77F"
+    "\U0001F780-\U0001F7FF"
+    "\U0001F800-\U0001F8FF"
+    "\U0001F900-\U0001F9FF"
+    "\U0001FA00-\U0001FA6F"
+    "\U0001FA70-\U0001FAFF"
+    "\U00002702-\U000027B0"
+    "\U000024C2-\U0001F251"
+    "]+", flags=re.UNICODE
+)
+_PREAMBLE_RE = re.compile(
+    r"^(here(?:'s| is)?|the cleaned(?:[-\s]up)? (?:sentence|text)|cleaned(?:[-\s]up)?|reconstructed|output|result)[^\n]*[:.]\s*",
+    re.IGNORECASE
+)
+
+
+def _postprocess_local_llm(text):
+    """Strip small-model chattiness before the output reaches the paste target.
+    Takes first non-empty line, removes preamble/markdown/emoji, normalizes
+    whitespace. Returns empty string if nothing meaningful remains (caller
+    falls back to raw L1 text)."""
+    if not text:
+        return text
+    t = text.strip()
+    # First non-empty line is the answer. If the model wrote multiple
+    # paragraphs, the rest is commentary.
+    lines = [ln for ln in t.split("\n") if ln.strip()]
+    if not lines:
+        return ""
+    t = lines[0]
+    # Strip preamble ("Here's the cleaned sentence:")
+    t = _PREAMBLE_RE.sub("", t, count=1)
+    # Strip surrounding quotes that models love to add
+    if len(t) >= 2 and t[0] in '"“\'' and t[-1] in '"”\'':
+        t = t[1:-1]
+    # Strip markdown formatting
+    t = _MD_BOLD_RE.sub(r'\1', t)
+    t = _MD_ITAL_RE.sub(r'\1', t)
+    t = _MD_CODE_RE.sub(r'\1', t)
+    t = _MD_HEADER_RE.sub("", t)
+    t = _MD_BULLET_RE.sub("", t)
+    # Strip emojis
+    t = _EMOJI_RE.sub("", t)
+    # Normalize whitespace
+    t = re.sub(r'\s{2,}', ' ', t).strip()
+    return t
+
+
 # -- LLM Calls ───────────────────────────────────────────────────
 def reconstruct(raw_text, tone, layer, prof, situation=None,
                 whisper_low_conf=None, whisper_disagreements=None,
                 speech_severity_mod=0.0, paralinguistic_events=None,
-                prosodic_context=None):
+                prosodic_context=None, language_code="en"):
     """Layer 2+: Rebuild raw transcription into clean output."""
-    if client is None:
-        return raw_text
     # Detect if input contains Cyrillic (bilingual speaker)
     has_cyrillic = any('\u0400' <= c <= '\u04ff' for c in raw_text)
     lang_note = " Speaker is bilingual (English/Russian) and may mix languages." if has_cyrillic else ""
@@ -2317,7 +2785,11 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
         "If the speaker said 'fuck', output 'fuck'. If the speaker said 'steal', output 'steal'. "
         "Do not substitute softer synonyms (e.g. do not change 'steal' to 'borrow'). "
         "Your job is to clean up SPEECH ARTIFACTS, not to edit the speaker's word choices.",
-        "Output ONLY the reconstructed text."
+        "Output ONLY the reconstructed text.",
+        "Do not include any preamble, explanation, meta-commentary, or notes about what you changed.",
+        "Do not use Markdown formatting: no asterisks, no backticks, no bullet points, no headers, no quotation marks around the output.",
+        "Do not use emojis or emoticons.",
+        "Output exactly one line containing only the reconstructed sentence or paragraph, with no leading or trailing whitespace.",
     ]
 
     # Always pass filler list at Layer 2+ (bilingual fillers matter everywhere)
@@ -2415,7 +2887,20 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
             "\n  OUT: 'The database needs updating'"
         )
 
+        # L1-transfer pack injection (L2/L3 only — L4 has its own clinical
+        # framing and double-instructing the model harms output quality).
+        # Phonetic accent dies at the ASR layer; syntactic/morphological/
+        # lexical patterns from the speaker's first language survive in
+        # the transcript and are deterministically detectable.
+        l1_block = l1_pack.prompt_injection(prof)
+        if l1_block:
+            parts.append(l1_block)
+
     if layer >= 4:
+        # TODO(l1-onset): per-L1 onset weights for the clinical layer. Mandarin-L1
+        # speakers who stutter don't block on the same phonemes Russian-L1 ones do;
+        # currently both use English-only Howell weights. Plug per-L1 onset files
+        # (e.g. l1_packs/russian_onsets.json) here once literature is sourced.
         # Inject per-user phoneme difficulty map from learned onset weights
         # Approximates per-phoneme model adaptation at the cleanup layer
         if _personal_onset_weights:
@@ -2447,106 +2932,98 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
 
         # Whisper confidence injection now at Layer 2+ (above)
 
-        parts.append(
-            "\nThe speaker stutters. Raw transcription is evidence, not truth. "
-            "Reconstruct intended meaning, not literal word sequence."
-            "\n\nOvert disfluencies — strip and reconstruct:"
-            "\n- Part-word repetitions: 'b-b-b-buy' → 'buy', 'Ca-ca-ca-can' → 'Can'"
-            "\n- Whole-word repetitions: 'I I I want' → 'I want', 'I want... I want to go' → 'I want to go'"
-            "\n- Prolongations: 'mmmmaybe' → 'maybe', 'Sssssscience' → 'Science'"
-            "\n- Schwa substitution: 'guh-guh-goat' → 'goat' (neutral /ə/ replaces natural vowel in repeats)"
-            "\n- Consonant cluster breaks: failed blends inject schwa, e.g. 'bə-bə-blue' → 'blue'"
-            "\n- Blocks: silence or frozen onset before a word (locked articulators, no sound)"
-            "\n- Tremors: lip/jaw quivering during a fixation"
-            "\n- Secondary behaviors: eye blinks, foot taps, head movements during blocks"
-            "\n- False starts and restarts"
-            "\n\nCovert stuttering — recognize as avoidance, not content:"
-            "\n- Filler clusters before a content word = delay tactic (starters), not hesitation"
-            "\n- Synonym substitution = avoiding a feared word"
-            "\n- Circumlocution = talking around a feared word"
-            "\n- Sentence abandonment = dropping thought before feared word ('Oh, never mind')"
-            "\n- Covert interruption = jumping in while someone talks to mask onset difficulty"
-            "\n- Mazes/cluttering = rambling run-on filler adding no information"
-            "\n  e.g. 'I think of uh - it's something you say as it comes out of - that sort of thing'"
-            "\n- Pause before a word = anticipatory fear (scanning ahead), not thinking"
-            "\n\nPhonetic triggers (common block locations — 90%+ occur on initial sounds):"
-            "\n- Stop plosives: /p/, /b/, /t/, /d/, /k/, /g/ (unvoiced > voiced)"
-            "\n- Affricates: /tʃ/, /dʒ/"
-            "\n- Consonant clusters at onset: bl-, br-, cr-, str-, spl-, thr-, etc."
-            "\n- Initial position of words and clauses (clause boundary = high risk)"
-            "\n- Content words (nouns, verbs, adjectives) >> function words (articles, conjunctions)"
-            "\n- Consonant-vowel transitions (speaker starts vowel but can't coarticulate to next sound)"
-            "\n\nAnticipatory behavior (cognitive pattern — CRITICAL):"
-            "\n- A pause or silence BEFORE a content word is likely ANTICIPATORY FEAR, not thinking"
-            "\n- The speaker scans ahead, detects a feared word coming, and freezes"
-            "\n- Ellipsis, trailing off, or sudden topic change before a specific word = avoidance"
-            "\n- 'I need the... uh... that thing' = speaker feared the next word, not searching for it"
-            "\n- Treat pre-word pauses on content words as blocks, not as natural hesitation"
-            "\n\nWhisper ASR failure modes on stuttered speech (correct these artifacts):"
-            "\n- HALLUCINATION DURING BLOCKS: silence/frozen onset → Whisper invents words to fill the gap"
-            "\n  e.g. block before 'computer' → Whisper outputs 'come to' or 'come put her'"
-            "\n- SYLLABLE DELETION: repeated syllables get collapsed or dropped"
-            "\n  e.g. 'Ca-ca-ca-can I' → Whisper outputs 'Can I' (correct) or just 'I' (dropped too much)"
-            "\n- PHANTOM INSERTIONS: during prolongations, Whisper hallucinates phonetically similar words"
-            "\n  e.g. 'sssscience' → Whisper outputs 'signs' or 'silence'"
-            "\n- SCHWA CORRUPTION: neutral vowel in repeated clusters gets transcribed as a real word"
-            "\n  e.g. 'buh-buh-blue' → Whisper outputs 'but but blue' or 'above blue'"
-            "\n- PAUSE HALLUCINATION: long pauses → Whisper generates filler text, thanks, or topic shifts"
-            "\n  e.g. 3-second block → Whisper adds 'Thank you' or 'Okay' or repeats the previous phrase"
-            "\n- WORD BOUNDARY ERRORS: disfluent onset merged with previous word"
-            "\n  e.g. 'the c-c-contract' → Whisper outputs 'the contract' (fine) or 'they contract' (merged)"
-            "\nIf a word seems phonetically plausible but semantically wrong, suspect a Whisper artifact."
-            "\n\n=== FEW-SHOT EXAMPLES (by disfluency type) ==="
-            "\n"
-            "\nBLOCKS (silent fixation before word — Whisper may hallucinate or skip):"
-            "\n  IN:  'I need the... [silence]... computer from the office'"
-            "\n  OUT: 'I need the computer from the office'"
-            "\n  IN:  'Can you get me the, the, the uh come put her from IT'"
-            "\n  OUT: 'Can you get me the computer from IT'"
-            "\n"
-            "\nSOUND/SYLLABLE REPETITIONS (part-word):"
-            "\n  IN:  'I was g-g-g-going to the st-store'"
-            "\n  OUT: 'I was going to the store'"
-            "\n  IN:  'Ca-ca-ca-can you p-p-please send the re-report'"
-            "\n  OUT: 'Can you please send the report'"
-            "\n"
-            "\nWORD REPETITIONS:"
-            "\n  IN:  'I I I want to to to go to the the meeting'"
-            "\n  OUT: 'I want to go to the meeting'"
-            "\n  IN:  'My my my mother uh my parents are coming'"
-            "\n  OUT: 'My parents are coming'"
-            "\n"
-            "\nPROLONGATIONS (stretched sounds):"
-            "\n  IN:  'I was thinking about the sssssschedule for next week'"
-            "\n  OUT: 'I was thinking about the schedule for next week'"
-            "\n  IN:  'We need to fffffinish this by Friday'"
-            "\n  OUT: 'We need to finish this by Friday'"
-            "\n"
-            "\nFILLER STACKING + POSTPONEMENT:"
-            "\n  IN:  'So um uh like basically uh the thing is we need more time'"
-            "\n  OUT: 'We need more time'"
-            "\n  IN:  'Can you give me the, uh, the paper for the thing you sign at the front desk'"
-            "\n  OUT: 'Can you give me the form you sign at the front desk'"
-            "\n"
-            "\nAVOIDANCE / CIRCUMLOCUTION / ABANDONMENT:"
-            "\n  IN:  'I need the b-... the document from yesterday'"
-            "\n  OUT: 'I need the document from yesterday'"
-            "\n  IN:  'I think of uh it's something the - you can't - that sort of thing'"
-            "\n  OUT: [reconstruct intended meaning from surrounding context]"
-            "\n  IN:  'The... oh never mind... yeah so anyway the other thing'"
-            "\n  OUT: [recover abandoned thought if context allows, else skip]"
-            "\n"
-            "\nWHISPER ARTIFACTS (misheard stuttered speech):"
-            "\n  IN:  'I was trying to come put her the file' (block on 'computer')"
-            "\n  OUT: 'I was trying to compute the file' or 'I was trying to get the file'"
-            "\n  IN:  'We but but blue print needs to be ready' (schwa corruption)"
-            "\n  OUT: 'The blueprint needs to be ready'"
-            "\n"
-            "\n=== END EXAMPLES ==="
-            "\n\nDo not mistake disfluency for emphasis. "
-            "Do not invent meaning beyond what was intended. "
-            "When uncertain, prefer conservative cleanup over aggressive rewriting."
+        # Language-parameterized L4 block (docs/l4_prompt_engineering_memo.md § 4–5)
+        _lang_code = _normalize_lang_code(language_code)
+        _lang_name_str = _lang_name(_lang_code)
+        _lang_fillers = _get_lang_fillers(_lang_code)
+        _lang_natural_repeats = _get_lang_natural_repeats(_lang_code)
+        _dialect_note = _get_lang_dialect_avoidance_note(_lang_code)
+        _timing_note = _get_lang_syllable_timing_note(_lang_code)
+
+        _l4 = []
+        _l4.append(
+            f"\nThe speaker has a speech disfluency. Language: {_lang_code.upper()} ({_lang_name_str}). "
+            "Raw transcription is evidence of intent, not truth. "
+            "Reconstruct the intended message. Preserve FULL meaning."
         )
+        if _lang_fillers:
+            _l4.append(f"\n\nFILLERS TO STRIP ({_lang_code}): {', '.join(_lang_fillers)}")
+        if _lang_natural_repeats:
+            _l4.append(
+                f"\n\nEMPHATIC PATTERNS — DO NOT STRIP in {_lang_code}: {', '.join(_lang_natural_repeats)}"
+                f"\nThese are pragmatically meaningful in {_lang_name_str}, not stuttering."
+            )
+        _l4.append("\n\nOvert disfluencies — strip and reconstruct:")
+        _l4.append(f"\n- Part-word repetitions: {_get_lang_part_word_example(_lang_code)}")
+        _l4.append("\n- Whole-word repetitions (NOT matching the emphatic allow-list above)")
+        _l4.append(f"\n- Prolongations: {_get_lang_prolongation_example(_lang_code)}")
+        _l4.append(f"\n- Epenthetic insertions during blocks: {_get_lang_epenthesis_note(_lang_code)}")
+        _l4.append("\n- Blocks: silence or frozen onset before a word (locked articulators)")
+        _l4.append("\n- Tremors: lip/jaw quivering during a fixation")
+        _l4.append("\n- Secondary behaviors: eye blinks, foot taps, head movements during blocks")
+        _l4.append("\n- False starts and restarts")
+
+        _l4.append("\n\nCovert avoidance — recognize as avoidance behavior, not content:")
+        _l4.append("\n- Filler clusters before a content word = postponement (see filler list above)")
+        _l4.append("\n- Synonym substitution = avoiding a feared word")
+        _l4.append("\n- Circumlocution = talking around a feared word")
+        _l4.append("\n- Sentence abandonment = dropping thought before feared word ('Oh, never mind')")
+        _l4.append("\n- Covert interruption = jumping in while someone talks to mask onset difficulty")
+        _l4.append(
+            "\n- Mazes: extended filler runs adding no information. DISTINCT from cluttered "
+            "rapid speech — do not over-strip if the speaker's speech is globally rapid."
+        )
+        if _dialect_note:
+            _l4.append(f"\n{_dialect_note}")
+
+        _l4.append("\n\nAnticipatory behavior:")
+        _l4.append(
+            "\n- A pause or silence BEFORE a content word with a hard onset MAY INDICATE anticipatory fear"
+        )
+        _l4.append(
+            "\n- Confidence increases when a filler cluster appears in the preceding 1–3 words "
+            "AND the following word begins with a documented hard onset"
+        )
+        _l4.append("\n- Treat as a block candidate, not certainty")
+        if _timing_note:
+            _l4.append(f"\n{_timing_note}")
+
+        _l4.append("\n\nWhisper ASR failure modes on disfluent speech:")
+        _l4.append("\n- HALLUCINATION DURING BLOCKS: silence → Whisper generates phantom text.")
+        _l4.append(
+            "\n  Known hallucination strings to discard: 'thank you', 'thanks for watching', "
+            "'subscribe', 'like and subscribe', 'transcribed by', 'captions by', 'otter.ai'."
+        )
+        if _lang_code != "en":
+            _l4.append(
+                f"\n  In {_lang_name_str} transcripts, English phrases appearing mid-utterance "
+                "are likely Whisper hallucinations — discard them."
+            )
+        _l4.append("\n- SYLLABLE DELETION: repeated syllables collapsed or dropped")
+        _l4.append("\n- PHANTOM INSERTIONS: prolongations → Whisper hallucinates similar-sounding words")
+        _l4.append(f"\n- {_get_lang_epenthesis_corruption_note(_lang_code)}")
+        _l4.append("\n- PAUSE HALLUCINATION: long pauses → Whisper generates filler text (see above)")
+
+        _l4.append("\n\n")
+        _l4.append(_get_lang_few_shot_examples(_lang_code))
+
+        _l4.append(
+            "\n\nDo not mistake disfluency for emphasis — but PRESERVE the emphatic patterns listed above."
+            "\nReconstruct within the speaker's established dialect — do not substitute dialectal forms."
+            "\nWhen uncertain, prefer conservative cleanup over aggressive rewriting."
+        )
+
+        _onset_caveat = _get_lang_onset_caveat(_lang_code)
+        if _onset_caveat:
+            _l4.append(f"\n{_onset_caveat}")
+        if _lang_has_no_onset_research(_lang_code):
+            _l4.append(
+                f"\n\nONSET NOTE: No published phoneme-difficulty research exists for {_lang_code} "
+                "as of April 2026. Do not apply English-derived onset assumptions. Focus on word-level "
+                "repetitions, prolongations, filler clusters, and Whisper hallucination strings."
+            )
+
+        parts.append("".join(_l4))
         if prof.get("trigger_words"):
             parts.append(f"\nKnown trigger words: {', '.join(prof['trigger_words'])}")
         # Personal phonetic pattern: tell the LLM which sounds this user blocks on
@@ -2601,6 +3078,34 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
     global _last_recon_model
     use_model = MODEL_L4 if layer >= 4 else MODEL
     system_prompt = "\n".join(parts)
+
+    # L4 clinical reconstruction → Anthropic Sonnet 4.6 with extended thinking.
+    # The reasoning trace IS the differentiator — for severe stutterers and
+    # SLP audit, the model walks through Whisper's confidence signals + the
+    # speaker's phoneme map + covert avoidance + Brown risk + prosodic state
+    # in its scratchpad before producing the reconstruction. Falcon at L4 is
+    # dropped because extended thinking is itself self-validation.
+    # Falls through to GPT-4o on Anthropic error or unavailability.
+    if layer >= 4 and anthropic_client is not None:
+        try:
+            msg = anthropic_client.messages.create(
+                model=SONNET_THINK_MODEL,
+                max_tokens=SONNET_THINK_MAX_TOKENS,
+                thinking={"type": "enabled", "budget_tokens": SONNET_THINK_BUDGET},
+                system=system_prompt,
+                messages=[{"role": "user", "content": raw_text}],
+            )
+            text_blocks = [b.text for b in msg.content if getattr(b, "type", None) == "text"]
+            clean_text = "\n".join(text_blocks).strip()
+            if clean_text:
+                stats_inc("anthropic_calls")
+                _last_recon_model = f"{SONNET_THINK_MODEL} (ext-think)"
+                return clean_text
+            # Empty Sonnet output — fall through to GPT-4o
+        except Exception as e:
+            log(f"Sonnet 4.6 ext-think failed ({str(e)[:120]}), falling back to GPT-4o", "warn")
+
+    # L2/L3 cloud reconstruction (and L4 fallback): GPT-4o single-pass.
     stats_inc("api_calls")
     resp = client.chat.completions.create(
         model=use_model,
@@ -2615,15 +3120,10 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
     return resp.choices[0].message.content.strip()
 
 
-def falcon_validate(raw_text, clean_text, layer, tone="casual", prof=None):
+def falcon_validate(raw_text, clean_text, layer, tone="casual", onset_weights=None, language_code="en"):
     """Binary meaning check. Returns True if meaning preserved.
     Tone-aware: formal tone expands contractions, casual keeps them — Falcon must know
-    which changes are expected per tone.
-    At layer >= 4, the speaker's hard onsets and known trigger words are pulled from
-    prof and injected so Falcon can flag phonetically-driven avoidance substitutions
-    (e.g., "park"→"stop" when /p/ is a hard onset) that a semantics-only check misses."""
-    if client is None:
-        return True
+    which changes are expected per tone."""
     tone_note = ""
     if tone == "formal":
         tone_note = (
@@ -2644,55 +3144,58 @@ def falcon_validate(raw_text, clean_text, layer, tone="casual", prof=None):
             "Answer ONLY 'yes' or 'no'."
         )
     elif layer >= 4:
-        phonetic_note = ""
-        if prof:
-            onset_weights = prof.get("onset_weights", {}) or {}
-            hard_onsets = [o for o, w in sorted(onset_weights.items(), key=lambda x: -x[1])[:5] if w and w > 0.5]
-            trigger_words = (prof.get("trigger_words") or [])[:10]
-            if hard_onsets:
-                phonetic_note += (
-                    f" Speaker struggles to produce words starting with: {', '.join(hard_onsets)}. "
-                    "If the reconstruction replaces a word starting with one of these with a "
-                    "different-onset synonym (e.g., park→stop, call→ring, because→since), that is "
-                    "AVOIDANCE SUBSTITUTION — answer 'no'."
-                )
-            if trigger_words:
-                phonetic_note += (
-                    f" Known trigger words for this speaker: {', '.join(trigger_words)}. "
-                    "If any of these appear in the original but have been replaced with a "
-                    "synonym in the reconstruction, that is avoidance — answer 'no'."
-                )
-            # Covert avoidance pairs — known patterns where the speaker replaces word X
-            # with word Y to dodge a hard onset. If the reconstruction REVERSES this
-            # (raw shows Y, reconstruction uses X), that is Lavrentiy CORRECTLY resolving
-            # a tracked avoidance. Falcon should accept it, not flag it as hallucination.
-            covert = (prof.get("covert_profile") or {}).get("avoidance_pairs") or {}
-            if covert:
-                pairs = []
-                for situ, words in covert.items():
-                    for avoided, data in words.items():
-                        subs = (data or {}).get("common_substitutes") or []
-                        if subs:
-                            pairs.append(f"{avoided} (commonly dodged via: {', '.join(subs[:3])})")
-                if pairs:
-                    phonetic_note += (
-                        f" Known covert avoidance patterns: {'; '.join(pairs[:5])}. "
-                        "If the reconstruction REVERSES a known avoidance (raw transcription "
-                        "contains the substitute, reconstruction uses the original intended "
-                        "word), that is CORRECT — answer 'yes'. Only flag substitutions that "
-                        "introduce NEW avoidance away from the speaker's hard onsets."
-                    )
+        # Phonetic guard first, high-level criteria after. Does not re-specify
+        # the L4 rules already given to the reconstruction prompt.
+        _lc = _normalize_lang_code(language_code)
+        if onset_weights:
+            _top = ", ".join(
+                f"/{o}/" for o, _ in sorted(onset_weights.items(), key=lambda x: -x[1])[:5]
+            )
+        else:
+            _top = "(no personal onset data)"
+        _nr = _get_lang_natural_repeats(_lc)
+        _nr_str = ", ".join(_nr) if _nr else "none defined"
         prompt = (
-            "Speaker stutters. Repeated syllables, prolongations, and blocks are "
-            "disfluencies, not emphasis. Filler clusters before content words are "
-            "postponement tactics, not meaningful hesitation. Synonym substitutions "
-            "and circumlocutions are avoidance behaviors — the reconstruction should "
-            "recover the intended word. Rambling run-on filler (mazes) should be "
-            "stripped." + phonetic_note + tone_note + " "
-            "Does the reconstruction preserve intended meaning without unwarranted "
-            "phonetic hallucination? Answer ONLY 'yes' or 'no'."
+            f"Validate a layer-4 speech-disfluency reconstruction. Language: {_lc.upper()}. "
+            f"Near the speaker's hardest phonemes ({_top}), the reconstruction MUST NOT "
+            "substitute a different-phoneme word — phonetic drift is the primary failure mode. "
+            "The reconstruction should also have: "
+            "(1) stripped overt disfluencies (part-word repetitions, prolongations, blocks, false starts); "
+            f"(2) preserved emphatic patterns that are NOT stuttering: {_nr_str}; "
+            "(3) NOT normalized the speaker's dialect or register forms; "
+            "(4) discarded Whisper hallucination strings ('thank you', 'subscribe', etc.)."
+            + tone_note
+            + " Does the reconstruction satisfy all criteria? Answer ONLY 'yes' or 'no'."
         )
 
+    # L4 reconstruction uses Sonnet 4.6 with extended thinking — the reasoning
+    # trace IS the validator. A separate yes/no Falcon check after that adds
+    # latency without adding signal. Skip Falcon at L4.
+    if layer >= 4:
+        return True
+
+    # L2/L3 Falcon → Claude Haiku 4.5 (Anthropic) for cross-vendor validation.
+    # Different vendor = different blind spots → catches errors that self-eval misses.
+    # If Anthropic key isn't configured, fall back to GPT-4o (same vendor as recon).
+    if layer in (2, 3) and anthropic_client is not None:
+        try:
+            msg = anthropic_client.messages.create(
+                model=FALCON_HAIKU_MODEL,
+                max_tokens=5,
+                messages=[{
+                    "role": "user",
+                    "content": prompt + f"\n\nOriginal: {raw_text}\nReconstruction: {clean_text}",
+                }],
+            )
+            stats_inc("anthropic_calls")
+            return "yes" in msg.content[0].text.strip().lower()
+        except Exception:
+            pass  # fall through to OpenAI on Haiku error
+
+    # L4 Falcon (clinical) → GPT-4o (rich phonetic-rules prompt; keep on the
+    # same family that produced the reconstruction so the eval stays consistent
+    # with the reconstruction prompt's structure). Also used as L2/L3 fallback
+    # when anthropic_client is unavailable.
     stats_inc("api_calls")
     resp = client.chat.completions.create(
         model=MODEL,
@@ -2725,18 +3228,8 @@ NATURAL_REPEATS = {
     "go go", "now now", "come come", "well well",
     "out out", "boo boo", "ha ha", "ho ho",
     "knock knock", "tsk tsk", "aye aye",
-    # Emphatic doublings that survive the 2+ repetition threshold
-    "really really", "many many", "much much", "big big",
-    "long long", "old old", "hot hot", "busy busy",
-    "right right", "sure sure", "fine fine", "okay okay",
     # Russian
     "да да", "нет нет", "ну ну",
-}
-
-# English prefixes that look like stutters but aren't (re-read ≠ stutter)
-_ENGLISH_PREFIXES = {
-    "re", "un", "pre", "de", "en", "in", "dis", "mis",
-    "sub", "ex", "non", "pro", "anti", "co",
 }
 
 
@@ -2828,6 +3321,48 @@ def strip_whisper_hallucinations(text):
     return cleaned  # may be empty — that's correct if entire output was hallucination
 
 
+_REPUNC_QUESTION_STARTERS = frozenset({
+    "who", "what", "when", "where", "why", "which", "how",
+    "is", "are", "was", "were", "do", "does", "did",
+    "can", "could", "should", "would", "will", "have", "has",
+    "may", "might", "shall",
+})
+
+
+def repunctuate(text):
+    """Lightweight deterministic capitalization + terminal punctuation.
+
+    Targets local ASR engines (Moonshine) that emit flat lowercase text with
+    no punctuation. Cheap (~10us per typical utterance), no model load, no
+    cloud round-trip. Idempotent — skips text that already has BOTH a capital
+    letter and terminal punctuation.
+
+    Adds:
+      - Leading capital
+      - Capitalized standalone "I" + "I'm/I'll/I've/I'd"
+      - Capitalize after . ! ? followed by space
+      - Terminal "." or "?" (? if the first word looks like a question starter)
+    """
+    if not text:
+        return text
+    s = text.strip()
+    if not s:
+        return s
+    has_term = s[-1] in ".!?"
+    has_cap = any(c.isupper() for c in s)
+    if has_term and has_cap:
+        return s
+    s = re.sub(r"\bi\b", "I", s)
+    s = re.sub(r"\bi(['\u2019])", r"I\1", s)
+    if s and s[0].isalpha():
+        s = s[0].upper() + s[1:]
+    s = re.sub(r"([.!?]\s+)([a-z])", lambda m: m.group(1) + m.group(2).upper(), s)
+    if s and s[-1] not in ".!?":
+        first_word = re.split(r"\W+", s, 1)[0].lower()
+        s += "?" if first_word in _REPUNC_QUESTION_STARTERS else "."
+    return s
+
+
 def strip_disfluencies(text):
     """Remove obvious disfluency artifacts from transcription.
 
@@ -2844,38 +3379,19 @@ def strip_disfluencies(text):
         return text
 
     # Step 1: Remove stutter fragments (hyphenated false starts)
-    # Handles both spaced ("p- p- pop") and unspaced ("w-w-want", "s-schedule", "m-m-m-meeting") forms.
-    # Safety checks:
-    #   - First fragment must be a prefix of the full word (so "state-of-the-art" is safe)
-    #   - Single-fragment cases with a common English prefix (re-, un-, pre-, etc.) are preserved
-    def _strip_stutter(m):
-        frags = [f.strip() for f in m.group(1).strip().rstrip('-').split('-') if f.strip()]
-        full_word = m.group(2)
-        if not frags:
-            return m.group(0)
-        if len(frags) == 1 and frags[0].lower() in _ENGLISH_PREFIXES:
-            return m.group(0)  # "re-read", "un-done" — real prefix, not stutter
-        if full_word.lower().startswith(frags[0].lower()):
-            return full_word
-        return m.group(0)
-    cleaned = re.sub(
-        r'\b((?:\w{1,3}-\s*)+)(\w+)\b',
-        _strip_stutter,
-        text,
-        flags=re.IGNORECASE,
-    )
+    # "p- p- pop" → "pop",  "be- be- become" → "become"
+    cleaned = re.sub(r'(\b\w+)-\s+(?:\1-\s+)*', '', text, flags=re.IGNORECASE)
 
     # Step 2: Remove consecutive word repetitions
-    # "I I I want" → "I want",  "the the dog" → "the dog",  "to to" → "to"
-    # Exception: emphatic doublings and idioms protected via NATURAL_REPEATS
+    # "I I I want" → "I want",  "the the dog" → "the dog"
+    # Exception: naturally repeating English constructions (ha ha, bye bye, etc.)
     def _dedup_word(m):
         phrase = f"{m.group(1)} {m.group(1)}".lower()
         if phrase in NATURAL_REPEATS:
             return m.group(0)  # Don't strip — natural repetition
         return m.group(1)
-    # 2+ repetitions (lowered from 3+ to catch "to to", "the the", "for for" — the
-    # most common stutter pattern); NATURAL_REPEATS whitelist protects emphasis.
-    cleaned = re.sub(r'\b(\w+)(?:\s+\1){1,}\b', _dedup_word, cleaned, flags=re.IGNORECASE)
+    # Require 3+ repetitions (2+ is often emphasis: "no no", "go go", "please please")
+    cleaned = re.sub(r'\b(\w+)(?:\s+\1){2,}\b', _dedup_word, cleaned, flags=re.IGNORECASE)
 
     # Step 3: Remove phrase repetitions (2-3 word phrases repeated)
     # "I want I want to go" → "I want to go"
@@ -4271,59 +4787,75 @@ def _build_whisper_prompt():
 
 
 def _whisper_single_call(filepath, temperature, prompt_text, max_retries=3):
-    """Single Whisper API call returning verbose JSON with segment data.
+    """Single ASR call returning verbose JSON with segment data.
 
-    Returns dict with:
-      text: full transcription
-      segments: list of {text, avg_logprob, no_speech_prob, ...}
+    Layer-conditional dispatch:
+      - L4 (clinical): cloud whisper-1 with verbose_json — gives the full
+        per-segment metadata (avg_logprob, no_speech_prob, timestamps) that the
+        Sonnet-4.6-extended-thinking reconstructor needs to reason about block
+        suspects, multi-temp disagreements, prosodic stress windows, etc.
+        Moonshine's flat output is useless for this — verified empirically
+        that gpt-4o-transcribe also doesn't return verbose_json (HTTP 400).
+      - L1/L2/L3: local ASR (Moonshine -> Vosk via asr_local). Fast paste path.
 
-    Retries up to max_retries on 5xx server errors and rate limits.
+    Returns dict with: text, segments, engine.
+    Retries up to max_retries on transient errors.
     """
-    # Primary mode: OpenAI Whisper API. Local faster-whisper is fallback-only —
-    # it's slower on consumer CPUs than the API round-trip in most cases.
-    # The fallback kicks in automatically when the API fails (see retry block below).
-    if LOCAL_WHISPER and _local_transcribe_fn is not None:
+    # Cloud whisper-1: always at L4 (rich segment metadata for clinical
+    # reconstruction), or at L1 when the L1_CLOUD_ASR toggle is on.
+    if (current_layer >= 4 or (current_layer == 1 and L1_CLOUD_ASR)) and client is not None:
+        last_err = None
+        for attempt in range(max_retries):
+            try:
+                with open(filepath, "rb") as f:
+                    resp = client.audio.transcriptions.create(
+                        file=f,
+                        model="whisper-1",
+                        response_format="verbose_json",
+                        temperature=float(temperature) if temperature is not None else 0.0,
+                        prompt=prompt_text or "",
+                    )
+                d = resp.model_dump() if hasattr(resp, "model_dump") else dict(resp)
+                stats_inc("api_calls")
+                stats_inc("cloud_transcriptions")
+                return {
+                    "text": (d.get("text") or "").strip(),
+                    "segments": d.get("segments", []) or [],
+                    "engine": "whisper-1",
+                }
+            except Exception as e:
+                last_err = e
+                if attempt < max_retries - 1:
+                    wait = 2 ** attempt
+                    log(f"Cloud whisper-1 error ({str(e)[:80]}), retry {attempt+1}/{max_retries} in {wait}s", "warn")
+                    time.sleep(wait)
+                    continue
+                log(f"Cloud whisper-1 exhausted retries: {str(e)[:120]} — falling back to local", "warn")
+                break  # fall through to local path below
+        # If we got here after exhausting cloud retries, drop into local fallback.
+
+    # L1/L2/L3 (and L4 fallback): local ASR chain (Moonshine -> Vosk)
+    if _local_transcribe_fn is None:
+        raise RuntimeError(
+            "Local ASR not available. Install Moonshine and/or Vosk: "
+            "see local/whisper_local.py + local/vosk_local.py for setup."
+        )
+
+    last_err = None
+    for attempt in range(max_retries):
         try:
             result = _local_transcribe_fn(filepath, temperature, prompt_text, LANGUAGE, LOCAL_WHISPER_MODEL_SIZE)
             stats_inc("local_transcriptions")
             return result
-        except Exception as _e:
-            log(f"Local Whisper failed ({str(_e)[:80]}), falling back to API", "warn")
-
-    for attempt in range(max_retries):
-        try:
-            with open(filepath, "rb") as f:
-                result = client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=f,
-                    language=LANGUAGE,
-                    prompt=prompt_text,
-                    temperature=temperature,
-                    response_format="verbose_json",
-                )
-            stats_inc("api_calls")
-            # OpenAI SDK returns a Transcription object; normalize to dict
-            if hasattr(result, 'model_dump'):
-                return result.model_dump()
-            elif hasattr(result, '__dict__'):
-                return result.__dict__
-            return {"text": result.text if hasattr(result, 'text') else str(result), "segments": []}
         except Exception as e:
-            err_str = str(e)
-            track_api_error(f"Whisper: {err_str[:100]}")
-            is_retryable = any(code in err_str for code in ("500", "502", "503", "429"))
-            if is_retryable and attempt < max_retries - 1:
-                wait = 2 ** attempt  # 1s, 2s, 4s
-                log(f"Whisper API error ({err_str[:80]}), retry {attempt+1}/{max_retries} in {wait}s", "warn")
+            last_err = e
+            if attempt < max_retries - 1:
+                wait = 2 ** attempt
+                log(f"Local ASR error ({str(e)[:80]}), retry {attempt+1}/{max_retries} in {wait}s", "warn")
                 time.sleep(wait)
                 continue
-            # API exhausted — fall back to local Whisper if available
-            if _local_transcribe_fn is not None:
-                log(f"Whisper API failed ({err_str[:80]}), falling back to local", "warn")
-                result = _local_transcribe_fn(filepath, temperature, prompt_text, LANGUAGE, LOCAL_WHISPER_MODEL_SIZE)
-                stats_inc("local_transcriptions")
-                return result
-            raise
+            log(f"Local ASR exhausted retries: {str(e)[:120]}", "error")
+            raise last_err
 
 
 def get_patience_timeout() -> float:
@@ -4364,9 +4896,15 @@ def _extract_low_confidence_segments(verbose_result, risk_threshold=-0.7):
     words_so_far = 0
 
     for seg in segments:
-        avg_lp = seg.get("avg_logprob", 0.0)
-        no_speech = seg.get("no_speech_prob", 0.0)
-        compression_ratio = seg.get("compression_ratio", 1.0)
+        # Cloud Whisper emits floats for these; local Moonshine emits None because
+        # the ONNX decoder doesn't surface per-segment confidence. Coerce None →
+        # safe defaults so downstream comparisons don't crash:
+        #   avg_logprob=0.0 → max confidence (won't flag as low-conf)
+        #   no_speech_prob=0.0 → definitely speech (won't flag as block suspect)
+        #   compression_ratio=1.0 → normal entropy (won't flag as repetition loop)
+        avg_lp = seg.get("avg_logprob") or 0.0
+        no_speech = seg.get("no_speech_prob") or 0.0
+        compression_ratio = seg.get("compression_ratio") or 1.0
         seg_text = seg.get("text", "").strip()
 
         if not seg_text:
@@ -4483,17 +5021,16 @@ def _multi_temperature_vote(filepath, prompt_text):
 
 
 def whisper_transcribe(filepath):
-    """Full Whisper transcription with all enhancements:
-    1. Script Prep seeding (decoder conditioning)
-    2. Verbose JSON mode (segment-level confidence)
-    3. Multi-temperature voting (disagreement detection)
+    """Primary ASR: OpenAI Whisper API (cloud). Local Moonshine kicks in as fallback
+    when the API path fails (no key, network down, etc.) — see `local/whisper_local.py`.
 
     Returns dict with:
       text: final transcription
-      segments: verbose segment data
-      low_confidence: flagged uncertain segments
-      disagreements: multi-temp voting disagreements (if enabled)
-      whisper_meta: {prompt_used, temperatures, n_api_calls}
+      segments: verbose per-segment data (cloud path only; local fallback emits
+                a single synthetic segment)
+      low_confidence: flagged uncertain segments (cloud path only)
+      disagreements: multi-temp voting disagreements (cloud path only)
+      whisper_meta: {prompt_source, prompt_length, temperatures, n_api_calls, engine}
     """
     prompt_text = _build_whisper_prompt()
     with _stats_lock:
@@ -5934,7 +6471,10 @@ def pipeline():
         global _last_low_conf_segments, _last_avg_logprob
         _last_low_conf_segments = whisper_low_conf or []
         if whisper_segments:
-            logprobs = [s.get("avg_logprob", 0) for s in whisper_segments if "avg_logprob" in s]
+            # Filter out None — Moonshine segments have avg_logprob=None because
+            # the ONNX decoder doesn't surface per-segment confidence. "in s"
+            # check alone passes (key is present) but sum() on Nones crashes.
+            logprobs = [s["avg_logprob"] for s in whisper_segments if s.get("avg_logprob") is not None]
             _last_avg_logprob = round(sum(logprobs) / len(logprobs), 3) if logprobs else 0.0
         else:
             _last_avg_logprob = 0.0
@@ -5943,7 +6483,10 @@ def pipeline():
             state = 'idle'
             return
 
-        # Log Whisper pipeline details
+        # Log ASR pipeline details. The user-visible log doesn't name the
+        # engine — it's an implementation detail that changes between
+        # layers (Moonshine local at L1/L2/L3, cloud whisper-1 at L4).
+        # Surfaces the prompt source + low-conf/disagreement signals only.
         used_local = (LOCAL_WHISPER and _local_transcribe_fn is not None) or whisper_meta['n_api_calls'] == 0
         source_label = "local" if used_local else f"{whisper_meta['n_api_calls']}calls"
         meta_tag = f"[{whisper_meta['prompt_source']}|{source_label}]"
@@ -5951,7 +6494,7 @@ def pipeline():
             meta_tag += f" low_conf:{len(whisper_low_conf)}"
         if whisper_disagreements:
             meta_tag += f" disagree:{len(whisper_disagreements)}"
-        log(f"Whisper {meta_tag}", "info")
+        log(f"ASR {meta_tag}", "info")
 
         used_fallback = False
         clean_text = None
@@ -6034,12 +6577,71 @@ def pipeline():
         # Block hallucination removal: strip phantom words Whisper invents during blocks
         # Runs at all layers — GPT shouldn't see Whisper's phantom words either
         filtered_text = strip_block_hallucinations(filtered_text, whisper_low_conf)
+        # Local ASR (Moonshine) returns flat lowercase no-punctuation text.
+        # Cheap deterministic re-punctuate gives L1 paste readable output
+        # without a cloud round-trip. No-op when text already punctuated.
+        filtered_text = repunctuate(filtered_text)
         # Profile corrections (vocabulary/corrections map): L2+ so GPT sees learned fixes
         if current_layer >= 2:
             filtered_text = apply_profile_corrections(filtered_text, profile)
 
         if filtered_text != raw_text and current_layer == 1:
             log(f"Filter: \"{raw_text}\" → \"{filtered_text}\"", "info")
+
+        # Layer 1 polish — Haiku reads Moonshine output and fixes obvious errors.
+        # Adds ~500ms–1s. No tone, no profile injection — just "fix obvious typos
+        # / mishears / truncations." Runs only when Anthropic is configured.
+        # Output replaces filtered_text so the paste reflects the corrected version.
+        if L1_POLISH and current_layer == 1 and anthropic_client is not None and filtered_text.strip():
+            try:
+                _polish_t0 = time.time()
+                _polish_msg = anthropic_client.messages.create(
+                    model=FALCON_HAIKU_MODEL,
+                    max_tokens=400,
+                    messages=[{
+                        "role": "user",
+                        "content": (
+                            "You are a quick proofreader for voice transcription output. "
+                            "The text below came from a local speech-to-text engine and may contain: "
+                            "wrong-word substitutions (homophones, similar-sounding words), "
+                            "truncated sentences, missing punctuation, obvious mishears. "
+                            "Your job: fix ONLY clear errors. Do NOT rewrite, do NOT change tone, "
+                            "do NOT add or remove content. Preserve casual speech, profanity, slang. "
+                            "Output ONLY the corrected text — no preamble, no explanation, no markdown.\n\n"
+                            f"Text: {filtered_text}"
+                        ),
+                    }],
+                )
+                _polished = "".join(b.text for b in _polish_msg.content if getattr(b, "type", None) == "text").strip()
+                if _polished:
+                    if _polished != filtered_text:
+                        # Character-level diff — word-level was lighting up
+                        # whole tokens for tiny changes ("this," vs "this." or
+                        # "you" vs "You" got flagged as full word swaps).
+                        # Character diff highlights ONLY the chars that
+                        # actually changed.
+                        try:
+                            import difflib as _dl, html as _html
+                            _sm = _dl.SequenceMatcher(None, filtered_text, _polished)
+                            _parts = []
+                            for tag, i1, i2, j1, j2 in _sm.get_opcodes():
+                                if tag == 'equal':
+                                    _parts.append(_html.escape(filtered_text[i1:i2]))
+                                elif tag == 'delete':
+                                    _parts.append(f"<span class='diff-removed'>{_html.escape(filtered_text[i1:i2])}</span>")
+                                elif tag == 'insert':
+                                    _parts.append(f"<span class='diff-added'>{_html.escape(_polished[j1:j2])}</span>")
+                                elif tag == 'replace':
+                                    _parts.append(f"<span class='diff-removed'>{_html.escape(filtered_text[i1:i2])}</span>")
+                                    _parts.append(f"<span class='diff-added'>{_html.escape(_polished[j1:j2])}</span>")
+                            _diff_html = "".join(_parts)
+                            log(f"L1 polish ({int((time.time()-_polish_t0)*1000)}ms): {_diff_html}", "polish")
+                        except Exception:
+                            log(f"L1 polish: \"{filtered_text}\" → \"{_polished}\" ({int((time.time()-_polish_t0)*1000)}ms)", "info")
+                    filtered_text = _polished
+                    stats_inc("anthropic_calls")
+            except Exception as _e:
+                log(f"L1 polish failed (using raw filtered): {_e}", "warn")
 
         if current_layer > 1 and current_mode != "RAW":
             log(f"Raw: \"{raw_text}\"", "raw")
@@ -6048,8 +6650,10 @@ def pipeline():
             # Pass Whisper confidence data so L4 can target uncertain segments
             # Pass paralinguistic events so L5 can guide hallucination removal
             try:
-                if is_authenticated() and not API_KEY:
-                    # Signed in via Google — use backend proxy (server holds API key)
+                clean_text = None
+                if is_authenticated():
+                    # Signed in → route through backend (rules live server-side).
+                    # Local API key is dev-only per product decision 2026-04-20.
                     clean_text, _backend_falcon, _backend_result = reconstruct_via_backend(
                         filtered_text, current_tone, current_layer, profile,
                         current_situation, current_mode,
@@ -6059,13 +6663,14 @@ def pipeline():
                         paralinguistic_events=para_events if paralinguistic_enabled else None,
                         prosodic_context=prosodic_ctx if prosodic_enabled else None,
                     )
-                    if clean_text is None:
-                        log("Backend reconstruct returned None — using raw", "error")
-                        used_fallback = True
-                    elif current_mode == "SAFE":
+                    if clean_text is not None and current_mode == "SAFE":
                         falcon_ok = _backend_falcon  # backend already ran Falcon
-                else:
-                    # Local API key — call OpenAI directly
+                    elif clean_text is None and API_KEY:
+                        log("Backend unreachable — falling back to local API key", "info")
+                        # clean_text stays None; drop through to the direct-OpenAI branch below
+
+                if clean_text is None and API_KEY:
+                    # Local API key path: either not signed in, or backend failed.
                     clean_text = reconstruct(
                         filtered_text, current_tone, current_layer, profile, current_situation,
                         whisper_low_conf=whisper_low_conf,
@@ -6074,6 +6679,10 @@ def pipeline():
                         paralinguistic_events=para_events if paralinguistic_enabled else None,
                         prosodic_context=prosodic_ctx if prosodic_enabled else None
                     )
+
+                if clean_text is None:
+                    log("No backend auth and no local API key — using raw", "error")
+                    used_fallback = True
             except Exception as e:
                 log(f"Reconstruct failed ({e}) -- using raw", "error")
                 used_fallback = True
@@ -6132,7 +6741,7 @@ def pipeline():
                     log("Falcon: SKIPPED (text nearly identical -- no meaningful reconstruction)", "info")
                 else:
                     try:
-                        falcon_ok = falcon_validate(raw_text, clean_text, current_layer, current_tone, prof=profile)
+                        falcon_ok = falcon_validate(raw_text, clean_text, current_layer, current_tone)
                     except Exception:
                         falcon_ok = True
                     if not falcon_ok:
@@ -6167,7 +6776,7 @@ def pipeline():
             log(f"-> \"{output}\"  [{wc}w]", "out")
         flags_tag = f" flags:[{','.join(decision['risk_flags'])}]" if decision['risk_flags'] else ""
         model_tag = f" [{_last_recon_model}]" if _last_recon_model and current_layer > 1 and current_mode != "RAW" else ""
-        log(f"[{decision['mode']}] {decision['decision']} | {timings['total_ms']}ms (asr:{timings['asr_ms']} recon:{timings['reconstruct_ms']} val:{timings['validate_ms']}){model_tag}{flags_tag}", "info")
+        log(f"{decision['decision']} | {timings['total_ms']}ms (asr:{timings['asr_ms']} recon:{timings['reconstruct_ms']} val:{timings['validate_ms']}){model_tag}{flags_tag}", "info")
 
         # Inject paralinguistic tags into output if transcribe toggle is ON
         if paralinguistic_transcribe and para_events:
@@ -6385,7 +6994,7 @@ def stop_command_recording():
         tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         tmp.close()
         sf.write(tmp.name, audio_data, TARGET_RATE)
-        whisper_result = whisper_transcribe(tmp.name)
+        whisper_result, _ = whisper_transcribe(tmp.name)
         os.unlink(tmp.name)
         command_text = whisper_result.get("text", "").strip() if whisper_result else ""
     except Exception as e:
@@ -6814,11 +7423,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self.send_response(200)
-        origin = self.headers.get('Origin', '')
-        if origin in ('http://127.0.0.1:7878', 'http://localhost:7878', 'null'):
-            self.send_header('Access-Control-Allow-Origin', origin)
-        else:
-            self.send_header('Access-Control-Allow-Origin', 'null')
+        # Echo any Origin: dashboard binds to 0.0.0.0 so a browser on another
+        # device on the same LAN can hit it via the desktop's LAN IP. The
+        # earlier strict allowlist (loopback only) blocked the API XHRs in
+        # that case so the page rendered but live data never loaded.
+        origin = self.headers.get('Origin', '') or 'null'
+        self.send_header('Access-Control-Allow-Origin', origin)
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
@@ -6876,7 +7486,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'tone': current_tone,
                 'layer': current_layer,
                 'layer_name': LAYER_NAMES.get(current_layer, '?'),
-                'mode': current_mode,
                 'situation': current_situation,
                 'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0),
                 'stats': stats,
@@ -6895,6 +7504,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'paralinguistic_transcribe': paralinguistic_transcribe,
                 'prosodic_enabled': prosodic_enabled,
                 'quiet_mode_enabled': quiet_mode_enabled,
+                'l1_cloud_asr': L1_CLOUD_ASR,
                 'profile_name': _active_profile_name,
                 'auth': {
                     'signed_in': is_authenticated(),
@@ -7210,6 +7820,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         body = self._read_body()
         if self.path == '/api/auth':
             global _firebase_id_token, _auth_user
+            _action_str = (body or {}).get('action', 'NONE') if body else 'NO_BODY'
+            _has_token = bool((body or {}).get('id_token')) if body else False
+            log(f"[AUTH] /api/auth received: action={_action_str} has_token={_has_token}", "info")
             if body and body.get('action') == 'sign_in' and body.get('id_token'):
                 _firebase_id_token = body['id_token']
                 _auth_user = {
@@ -7223,12 +7836,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 if email:
                     profile_name = email.split('@')[0]  # "george" from "george@gmail.com"
                     try:
-                        if profile_name not in list_profiles():
+                        log(f"[AUTH] step1: checking if profile '{profile_name}' exists", "info")
+                        existing = list_profiles()
+                        log(f"[AUTH] step2: existing profiles = {existing}", "info")
+                        if profile_name not in existing:
+                            log(f"[AUTH] step3: creating profile '{profile_name}'", "info")
                             create_profile(profile_name)
-                            log(f"Created profile for {email}: {profile_name}", "info")
+                            log(f"[AUTH] step4: created profile for {email}: {profile_name}", "info")
+                        log(f"[AUTH] step5: about to switch_profile('{profile_name}')", "info")
                         switch_profile(profile_name)
+                        log(f"[AUTH] step6: switch_profile returned successfully", "info")
                     except Exception as e:
-                        log(f"Profile switch on sign-in failed: {e}", "error")
+                        import traceback
+                        log(f"[AUTH] Profile switch FAILED: {type(e).__name__}: {e}", "error")
+                        log(f"[AUTH] Traceback: {traceback.format_exc()[:600]}", "error")
                 self._json({'signed_in': True, 'user': _auth_user, 'profile': _active_profile_name})
             elif body and body.get('action') == 'sign_out':
                 _firebase_id_token = None
@@ -7245,6 +7866,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json({'signed_in': True, 'refreshed': True})
             else:
                 self._json({'signed_in': is_authenticated(), 'user': _auth_user})
+        elif self.path == '/api/open-signin':
+            # Open Google sign-in in the system default browser.
+            # Edge --app= mode + pywebview both register as embedded browsers and
+            # Google refuses OAuth there. Popping the real system browser lets
+            # OAuth complete normally; auth_google.html posts the token back to /api/auth.
+            import webbrowser
+            try:
+                opened = webbrowser.open('http://localhost:7878/auth/google', new=2)
+                log(f"[AUTH] /api/open-signin called — webbrowser.open returned {opened}", "info")
+                self._json({'ok': True, 'browser_opened': bool(opened)})
+            except Exception as e:
+                log(f"[AUTH] /api/open-signin EXCEPTION: {e}", "error")
+                self._json({'ok': False, 'error': str(e)[:200]})
         elif self.path == '/api/tone':
             if body and isinstance(body.get('tone'), str):
                 set_tone(body['tone'])
@@ -7272,6 +7906,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if body and 'enabled' in body:
                 set_quiet_mode(body['enabled'])
             self._json({'quiet_mode_enabled': quiet_mode_enabled})
+        elif self.path == '/api/l1_asr':
+            global L1_CLOUD_ASR
+            if body and 'cloud' in body:
+                L1_CLOUD_ASR = bool(body['cloud'])
+                log(f"L1 ASR source: {'cloud whisper-1' if L1_CLOUD_ASR else 'local'}", "info")
+            self._json({'l1_cloud_asr': L1_CLOUD_ASR})
         elif self.path == '/api/mode':
             if body and isinstance(body.get('mode'), str):
                 set_mode(body['mode'].upper())
@@ -7585,7 +8225,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         clean_text = filtered
                     # Falcon validation (SAFE mode)
                     try:
-                        falcon_ok = falcon_validate(raw_text, clean_text, layer, tone, prof=profile)
+                        falcon_ok = falcon_validate(raw_text, clean_text, layer, tone)
                         if not falcon_ok:
                             clean_text = filtered
                     except Exception:
@@ -7747,7 +8387,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             key = (body or {}).get('key', '').strip()
             if key:
                 API_KEY = key
-                client = openai.OpenAI(api_key=API_KEY)
+                client = openai.OpenAI(api_key=API_KEY, timeout=CLOUD_TIMEOUT_SEC)
                 try:
                     with open(_key_file, 'w') as f:
                         f.write(key)
@@ -7780,11 +8420,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         body = json.dumps(data).encode('utf-8')
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
-        origin = self.headers.get('Origin', '')
-        if origin in ('http://127.0.0.1:7878', 'http://localhost:7878', 'null'):
-            self.send_header('Access-Control-Allow-Origin', origin)
-        else:
-            self.send_header('Access-Control-Allow-Origin', 'null')
+        origin = self.headers.get('Origin', '') or 'null'
+        self.send_header('Access-Control-Allow-Origin', origin)
         self.send_header('Content-Length', len(body))
         self.end_headers()
         self.wfile.write(body)
@@ -7868,6 +8505,13 @@ def on_key_event(event):
             if _clipboard_predictor:
                 _clipboard_predictor.stop()
             print("Lavrentiy out.")
+            # Reset active_profile so the next cold start boots into Default.
+            # atexit also covers this, but os._exit(0) bypasses atexit hooks —
+            # write explicitly here.
+            try:
+                _write_active_profile_name(DEFAULT_PROFILE_NAME)
+            except Exception:
+                pass
             kernel32.CloseHandle(mutex_handle)
             os._exit(0)
         return
@@ -7914,17 +8558,118 @@ print(f"Dashboard: http://localhost:{DASHBOARD_PORT}")
 print(f"\"Lavrentiy does his best. Check your shit before you send it.\"")
 print()
 
-# ── Phase 5: Hand off the boot stub server to the real dashboard ──
-# The stub server has been serving /api/state with boot progress since the
-# top of this module. Now that all init is complete, swap the handler to
-# the real DashboardHandler — same bound socket, same daemon thread, zero
-# downtime. If the stub failed to bind at startup, fall back to legacy path.
-_BOOT_STATE["stage"] = "ready"
-if _dashboard_server is not None:
-    _dashboard_server.RequestHandlerClass = DashboardHandler
-else:
-    threading.Thread(target=run_dashboard, daemon=True).start()
-_BOOT_STATE["ready"] = True
+# Start dashboard server
+threading.Thread(target=run_dashboard, daemon=True).start()
+
+
+# ----- First-run UX: system tray icon + auto-open browser -----------------
+# Without these the engine launches silently — no window, no tray icon, no
+# browser pop. Users (and George) reasonably assume "did it crash?" and
+# bail. Tray icon is the persistent "I'm alive" signal; auto-open puts
+# the dashboard on screen the moment the port is bound.
+
+def _build_tray_icon_image():
+    """64x64 gunmetal-knob mark — mirrors the bubble icon aesthetic."""
+    from PIL import Image, ImageDraw
+    img = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.ellipse((1, 1, 63, 63), fill=(181, 80, 80, 255))     # maroon ring
+    d.ellipse((6, 6, 58, 58), fill=(36, 38, 44, 255))      # dark dish
+    d.ellipse((22, 22, 42, 42), fill=(102, 106, 114, 255)) # raised knob
+    return img
+
+
+def _wait_for_dashboard_port(timeout_s=8.0):
+    """Block until the dashboard server is actually accepting connections,
+    so we don't auto-open the browser before run_dashboard has bound."""
+    import socket
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            with socket.create_connection(('127.0.0.1', DASHBOARD_PORT), timeout=0.3):
+                return True
+        except OSError:
+            time.sleep(0.1)
+    return False
+
+
+def _start_tray_and_open():
+    import webbrowser
+    if not _wait_for_dashboard_port():
+        print("Dashboard never bound — skipping tray + auto-open")
+        return
+    dashboard_url = f'http://localhost:{DASHBOARD_PORT}'
+    # Auto-open the dashboard so the user has an immediate visible artifact.
+    try:
+        webbrowser.open(dashboard_url, new=2)
+    except Exception as _e:
+        print(f"Auto-open browser failed (non-fatal): {_e}")
+    # Tray icon: persistent "engine is alive" confirmation + Open / Quit menu.
+    # pystray runs its own blocking message loop; we put it on a daemon thread
+    # so the main thread keeps running keyboard hooks etc.
+    try:
+        import pystray
+        icon_img = _build_tray_icon_image()
+
+        def _on_open(icon, item):
+            try: webbrowser.open(dashboard_url, new=2)
+            except Exception: pass
+
+        def _on_quit(icon, item):
+            try: icon.stop()
+            except Exception: pass
+            os._exit(0)
+
+        menu = pystray.Menu(
+            pystray.MenuItem('Open Dashboard', _on_open, default=True),
+            pystray.MenuItem('Quit Lavrentiy', _on_quit),
+        )
+        icon = pystray.Icon('Lavrentiy', icon_img, 'Lavrentiy is running', menu)
+        icon.run()  # blocking on this daemon thread until quit
+    except Exception as _e:
+        print(f"Tray icon failed (non-fatal): {_e}")
+
+
+threading.Thread(target=_start_tray_and_open, name="tray", daemon=True).start()
+# --------------------------------------------------------------------------
+
+# Pre-warm Moonshine (loads ~250 MB ONNX into RAM) and Anthropic Haiku
+# (TLS handshake + connection pool) at boot so the first user recording
+# isn't a 15-30 second wait. Runs in a daemon thread — engine startup
+# isn't blocked, but first F9 press finds both already warm.
+def _prewarm_l1():
+    try:
+        # Moonshine warmup: synthesize 1 second of silence and run a transcribe.
+        # Triggers _get_model() which loads encoder+decoder ONNX into memory.
+        if _local_transcribe_fn is not None:
+            import tempfile, soundfile as _sf, numpy as _np
+            _silence = _np.zeros(16000, dtype=_np.float32)
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as _tmp:
+                _sf.write(_tmp.name, _silence, 16000)
+                _tmp_path = _tmp.name
+            try:
+                _local_transcribe_fn(_tmp_path, 0.0, None, LANGUAGE, LOCAL_WHISPER_MODEL_SIZE)
+                print("Moonshine pre-warmed")
+            finally:
+                try: os.unlink(_tmp_path)
+                except OSError: pass
+    except Exception as _e:
+        print(f"Moonshine pre-warm failed (non-fatal): {str(_e)[:80]}")
+
+def _prewarm_haiku():
+    try:
+        if anthropic_client is not None:
+            anthropic_client.messages.create(
+                model=FALCON_HAIKU_MODEL,
+                max_tokens=4,
+                messages=[{"role": "user", "content": "ping"}],
+            )
+            print("Haiku pre-warmed")
+    except Exception as _e:
+        print(f"Haiku pre-warm failed (non-fatal): {str(_e)[:80]}")
+
+threading.Thread(target=_prewarm_l1, name="prewarm-moonshine", daemon=True).start()
+threading.Thread(target=_prewarm_haiku, name="prewarm-haiku", daemon=True).start()
 
 _hook_start_time = time.time()
 # Open persistent audio stream so pre-roll buffer starts feeding immediately
