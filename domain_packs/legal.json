@@ -1,0 +1,33 @@
+{
+  "name": "Legal",
+  "prompt_note": "Speaker is operating in a LEGAL context (contracts, litigation, regulatory). Use formal English. Preserve case citations exactly (e.g., '47 U.S.C. § 230', 'Fed. R. Civ. P. 12(b)(6)'). Latin terms are intentional, not transcription errors.",
+  "vocab": [
+    "plaintiff", "defendant", "appellant", "appellee", "petitioner", "respondent",
+    "litigation", "deposition", "subpoena", "discovery", "interrogatories", "motion",
+    "complaint", "summons", "answer", "counterclaim", "affidavit", "declaration",
+    "tort", "negligence", "compensatory damages", "punitive damages", "injunction",
+    "consideration", "indemnification", "force majeure", "estoppel", "warranty",
+    "covenant", "lien", "easement", "mortgage", "encumbrance", "assignment",
+    "voir dire", "habeas corpus", "amicus curiae", "stare decisis", "res judicata",
+    "pro se", "pro bono", "ex parte", "in camera", "prima facie", "mens rea",
+    "felony", "misdemeanor", "indictment", "arraignment", "plea", "sentencing",
+    "jurisdiction", "venue", "standing", "ripeness", "mootness", "summary judgment"
+  ],
+  "phonetic_aliases": {
+    "voir deer": "voir dire",
+    "war deer": "voir dire",
+    "habeus corpus": "habeas corpus",
+    "hay bus corpus": "habeas corpus",
+    "amicus curie": "amicus curiae",
+    "starry decisis": "stare decisis",
+    "res judah cata": "res judicata",
+    "pro say": "pro se",
+    "pro bono": "pro bono",
+    "ex party": "ex parte",
+    "in dim ification": "indemnification",
+    "esto pell": "estoppel",
+    "supina": "subpoena",
+    "tort feasor": "tortfeasor",
+    "ferd a": "Fed. R."
+  }
+}
