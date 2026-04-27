@@ -1,0 +1,235 @@
+<!DOCTYPE html><html><head><meta charset="UTF-8">
+<title>Heavy-Stutter Reconstruction Test Report</title>
+<style>body{font-family:'Segoe UI',sans-serif;margin:30px;background:#f5f5f5;color:#222;max-width:1200px}h1{color:#1a1a1e;border-bottom:3px solid #ee5a24;padding-bottom:10px}h3{color:#b55050;margin-bottom:6px}.box{background:white;padding:15px 20px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.1);margin-bottom:20px}.meta{font-size:12px;color:#666;margin-bottom:10px}.intended{background:#e6f3e6;padding:8px 12px;border-radius:4px;font-style:italic;margin:6px 0}.disfluent{background:#fbe6e6;padding:8px 12px;border-radius:4px;font-family:monospace;margin:6px 0}table{border-collapse:collapse;width:100%;font-size:12px;margin-top:8px}th{background:#1a1a1e;color:#d4d4d8;padding:6px 8px;text-align:left;font-weight:500}td{padding:6px 8px;border-bottom:1px solid #eee;vertical-align:top}tr:nth-child(even){background:#f9f9f9}.ok{color:#2d7d2d}.fail{color:#b55050;font-weight:bold}.time{color:#666;font-family:monospace}.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px}.badge-ok{background:#dff0d8;color:#2d7d2d}.badge-fail{background:#fbdede;color:#b55050}.num{font-family:monospace;text-align:right}.low{color:#b55050}.high{color:#2d7d2d}.mid{color:#a06d20}</style></head><body>
+<h1>Heavy-Stutter / Hard-Block Reconstruction Test Report</h1>
+<div class="box">
+<div><b>Generated (UTC):</b> 2026-04-27T02-42-12Z</div>
+<div><b>Backend:</b> http &middot; <b>Tone:</b> casual &middot; <b>Mode:</b> SAFE</div>
+<div><b>Total elapsed:</b> 147.7s</div>
+<div><b>Runs:</b> 90 &middot; <b>Falcon OK:</b> <span class="badge badge-ok">66</span>  <b>Falcon FAIL:</b> <span class="badge badge-fail">6</span></div>
+</div>
+<div class="box">
+<h3>h01_silent_block_hard_onset_p &mdash; hard silent block on /p/ onset, Whisper hallucinates</h3>
+<div class="meta">Situation: default &middot; Scenario: professional &middot; Two silent freezes before the hard /p/ content word. Whisper fills the gap with its most common hallucination phrase (&#x27;thank you for watching&#x27; is the canonical Whisper-on-silence artifact). Lavrentiy must drop the hallucination and reassemble.</div>
+<div><b>Intended:</b></div><div class="intended">I want to present the proposal on Tuesday</div>
+<div><b>Disfluent input:</b></div><div class="disfluent">i want to thank you for watching present the proposal on tuesday</div>
+<table><tr><th>Layer</th><th>Output</th><th>Falcon</th><th>WER&darr;</th><th>Intent J&uarr;</th><th>Cov&uarr;</th><th>PN&uarr;</th><th>Elapsed</th></tr>
+<tr><td>L1</td><td>i want to thank you for watching present the proposal on tuesday</td><td><span class="ok">OK</span></td><td class="num low">0.50</td><td class="num mid">0.67</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.06s</td></tr>
+<tr><td>L2</td><td>i want to thank you for watching present the proposal on tuesday</td><td><span class="fail">FAIL</span></td><td class="num low">0.50</td><td class="num mid">0.67</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.79s</td></tr>
+<tr><td>L3</td><td>I want to thank you for watching the presentation of the proposal on Tuesday.</td><td><span class="ok">OK</span></td><td class="num low">0.88</td><td class="num low">0.43</td><td class="num mid">0.75</td><td class="num high">1.00</td><td class="time">1.32s</td></tr>
+<tr><td>L4</td><td>I want to present the proposal on Tuesday.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">7.41s</td></tr>
+<tr><td>Commodity</td><td>I want to thank you for watching the presentation of the proposal on Tuesday.</td><td>-</td><td class="num low">0.88</td><td class="num low">0.43</td><td class="num mid">0.75</td><td class="num high">1.00</td><td class="time">2.18s</td></tr>
+</table></div>
+<div class="box">
+<h3>h02_silent_block_phantom_word &mdash; Whisper hallucinated word during silent block</h3>
+<div class="meta">Situation: default &middot; Scenario: casual &middot; Classic Whisper failure mode: silence triggers hallucination of high-frequency token (&#x27;so&#x27;). Lavrentiy must recognize &#x27;so so so&#x27; as filler not intent.</div>
+<div><b>Intended:</b></div><div class="intended">Can you call the doctor</div>
+<div><b>Disfluent input:</b></div><div class="disfluent">can you so so so call the doctor</div>
+<table><tr><th>Layer</th><th>Output</th><th>Falcon</th><th>WER&darr;</th><th>Intent J&uarr;</th><th>Cov&uarr;</th><th>PN&uarr;</th><th>Elapsed</th></tr>
+<tr><td>L1</td><td>can you so so so call the doctor</td><td><span class="ok">OK</span></td><td class="num low">0.60</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.01s</td></tr>
+<tr><td>L2</td><td>Can you call the doctor?</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.73s</td></tr>
+<tr><td>L3</td><td>Can you call the doctor?</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.94s</td></tr>
+<tr><td>L4</td><td>Can you call the doctor?</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.81s</td></tr>
+<tr><td>Commodity</td><td>Can you call the doctor?</td><td>-</td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.94s</td></tr>
+</table></div>
+<div class="box">
+<h3>h03_long_block_breath_restart &mdash; long silent block, Whisper hallucinates, then audible restart</h3>
+<div class="meta">Situation: high_stress &middot; Scenario: presentation &middot; Speaker abandons mid-phrase, freezes (Whisper hallucinates &#x27;thanks for watching&#x27;), breathes, restarts the same phrase. False-start detection plus block recovery plus hallucination removal.</div>
+<div><b>Intended:</b></div><div class="intended">My biggest concern is the deadline</div>
+<div><b>Disfluent input:</b></div><div class="disfluent">my biggest thanks for watching uhh my my biggest concern is the deadline</div>
+<table><tr><th>Layer</th><th>Output</th><th>Falcon</th><th>WER&darr;</th><th>Intent J&uarr;</th><th>Cov&uarr;</th><th>PN&uarr;</th><th>Elapsed</th></tr>
+<tr><td>L1</td><td>my biggest thanks for watching uhh my my biggest concern is the deadline</td><td><span class="ok">OK</span></td><td class="num low">1.17</td><td class="num mid">0.60</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.01s</td></tr>
+<tr><td>L2</td><td>My biggest thanks for watching. My biggest concern is the deadline.</td><td><span class="ok">OK</span></td><td class="num low">0.83</td><td class="num mid">0.60</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.24s</td></tr>
+<tr><td>L3</td><td>My biggest thanks for watching. My biggest concern is the deadline.</td><td><span class="ok">OK</span></td><td class="num low">0.83</td><td class="num mid">0.60</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.02s</td></tr>
+<tr><td>L4</td><td>My biggest concern is the deadline.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">5.87s</td></tr>
+<tr><td>Commodity</td><td>My biggest thanks for watching. My biggest concern is the deadline.</td><td>-</td><td class="num low">0.83</td><td class="num mid">0.60</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.37s</td></tr>
+</table></div>
+<div class="box">
+<h3>h04_mid_word_abandonment &mdash; mid-word abandonment then full restart</h3>
+<div class="meta">Situation: default &middot; Scenario: professional &middot; Two mid-word abandonments before the blocked word completes. Lavrentiy must drop the abandoned fragments without losing the eventual completion.</div>
+<div><b>Intended:</b></div><div class="intended">I think we should reschedule the meeting</div>
+<div><b>Disfluent input:</b></div><div class="disfluent">i think we sh-- we should res-- we should reschedule the meeting</div>
+<table><tr><th>Layer</th><th>Output</th><th>Falcon</th><th>WER&darr;</th><th>Intent J&uarr;</th><th>Cov&uarr;</th><th>PN&uarr;</th><th>Elapsed</th></tr>
+<tr><td>L1</td><td>i think we sh-- we should res-- we should reschedule the meeting</td><td><span class="ok">OK</span></td><td class="num low">0.71</td><td class="num mid">0.67</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.01s</td></tr>
+<tr><td>L2</td><td>I think we should reschedule the meeting.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.64s</td></tr>
+<tr><td>L3</td><td>I think we should reschedule the meeting.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.98s</td></tr>
+<tr><td>L4</td><td>I think we should reschedule the meeting.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.24s</td></tr>
+<tr><td>Commodity</td><td>I think we should reschedule the meeting.</td><td>-</td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.27s</td></tr>
+</table></div>
+<div class="box">
+<h3>h05_covert_revision_i_mean &mdash; self-correction via &#x27;I mean&#x27;</h3>
+<div class="meta">Situation: high_stress &middot; Scenario: professional &middot; Speaker says opposite-meaning placeholder to escape the block then corrects. Self-correction rule must respect &#x27;I mean&#x27; as canonical-overwrite signal, not as discourse marker to drop.</div>
+<div><b>Intended:</b></div><div class="intended">I disagree with the recommendation</div>
+<div><b>Disfluent input:</b></div><div class="disfluent">i agree with i mean i i disagree with the recommendation</div>
+<table><tr><th>Layer</th><th>Output</th><th>Falcon</th><th>WER&darr;</th><th>Intent J&uarr;</th><th>Cov&uarr;</th><th>PN&uarr;</th><th>Elapsed</th></tr>
+<tr><td>L1</td><td>i agree with i mean i i disagree with the recommendation</td><td><span class="ok">OK</span></td><td class="num low">1.20</td><td class="num low">0.50</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.0s</td></tr>
+<tr><td>L2</td><td>i agree with i mean i i disagree with the recommendation</td><td><span class="fail">FAIL</span></td><td class="num low">1.20</td><td class="num low">0.50</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.15s</td></tr>
+<tr><td>L3</td><td>I disagree with the recommendation.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.23s</td></tr>
+<tr><td>L4</td><td>I disagree with the recommendation.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">4.96s</td></tr>
+<tr><td>Commodity</td><td>I disagree with the recommendation.</td><td>-</td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.48s</td></tr>
+</table></div>
+<div class="box">
+<h3>h06_covert_revision_actually &mdash; self-correction via &#x27;actually&#x27;</h3>
+<div class="meta">Situation: default &middot; Scenario: professional &middot; Number-substitution self-correction. Reconstruction must take &#x27;forty&#x27; over &#x27;fourteen&#x27; and drop both the filler and the original wrong number.</div>
+<div><b>Intended:</b></div><div class="intended">The cost is forty thousand dollars</div>
+<div><b>Disfluent input:</b></div><div class="disfluent">the cost is uh fourteen actually forty thousand dollars</div>
+<table><tr><th>Layer</th><th>Output</th><th>Falcon</th><th>WER&darr;</th><th>Intent J&uarr;</th><th>Cov&uarr;</th><th>PN&uarr;</th><th>Elapsed</th></tr>
+<tr><td>L1</td><td>the cost is fourteen actually forty thousand dollars</td><td><span class="ok">OK</span></td><td class="num mid">0.33</td><td class="num mid">0.67</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.01s</td></tr>
+<tr><td>L2</td><td>The cost is actually forty thousand dollars.</td><td><span class="ok">OK</span></td><td class="num high">0.17</td><td class="num high">0.80</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.14s</td></tr>
+<tr><td>L3</td><td>The cost is actually forty thousand dollars.</td><td><span class="ok">OK</span></td><td class="num high">0.17</td><td class="num high">0.80</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.0s</td></tr>
+<tr><td>L4</td><td>The cost is forty thousand dollars.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">5.95s</td></tr>
+<tr><td>Commodity</td><td>The cost is forty thousand dollars.</td><td>-</td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.7s</td></tr>
+</table></div>
+<div class="box">
+<h3>h07_phone_stress_block_avalanche &mdash; multiple silent blocks under phone stress, mixed with hallucination</h3>
+<div class="meta">Situation: high_stress &middot; Scenario: phone &middot; Three silent blocks. First triggers Whisper hallucination, others manifest as dropped content. Plus part-word repetition on the proper noun. Tests proper-noun preservation through a hallucinated gap.</div>
+<div><b>Intended:</b></div><div class="intended">Hi this is George I am calling about the appointment on Thursday</div>
+<div><b>Disfluent input:</b></div><div class="disfluent">hi this is thanks for watching g g george i am calling about the the appointment on thursday</div>
+<table><tr><th>Layer</th><th>Output</th><th>Falcon</th><th>WER&darr;</th><th>Intent J&uarr;</th><th>Cov&uarr;</th><th>PN&uarr;</th><th>Elapsed</th></tr>
+<tr><td>L1</td><td>hi this is thanks for watching g g george i am calling about the the appointment on thursday</td><td><span class="ok">OK</span></td><td class="num low">0.50</td><td class="num mid">0.75</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.01s</td></tr>
+<tr><td>L2</td><td>Hi, this is George. I&#x27;m calling about the appointment on Thursday.</td><td><span class="ok">OK</span></td><td class="num high">0.17</td><td class="num mid">0.71</td><td class="num mid">0.83</td><td class="num high">1.00</td><td class="time">1.06s</td></tr>
+<tr><td>L3</td><td>Hi, this is George. I&#x27;m calling about the appointment on Thursday.</td><td><span class="ok">OK</span></td><td class="num high">0.17</td><td class="num mid">0.71</td><td class="num mid">0.83</td><td class="num high">1.00</td><td class="time">1.35s</td></tr>
+<tr><td>L4</td><td>Hi, this is George, I&#x27;m calling about the appointment on Thursday.</td><td><span class="ok">OK</span></td><td class="num high">0.17</td><td class="num mid">0.71</td><td class="num mid">0.83</td><td class="num high">1.00</td><td class="time">6.87s</td></tr>
+<tr><td>Commodity</td><td>Hi, this is George. I am calling about the appointment on Thursday.</td><td>-</td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.61s</td></tr>
+</table></div>
+<div class="box">
+<h3>h08_block_with_filler_postponement &mdash; filler stack as block-postponement</h3>
+<div class="meta">Situation: high_stress &middot; Scenario: professional &middot; Heavy filler cluster used as a postponement strategy before the feared content word (&#x27;talk&#x27; triggers block). Different mechanism than h07&#x27;s overt block but functionally equivalent.</div>
+<div><b>Intended:</b></div><div class="intended">I need to talk to my manager about the raise</div>
+<div><b>Disfluent input:</b></div><div class="disfluent">i need to uhm uh well you know like uhm talk to my manager about the the raise</div>
+<table><tr><th>Layer</th><th>Output</th><th>Falcon</th><th>WER&darr;</th><th>Intent J&uarr;</th><th>Cov&uarr;</th><th>PN&uarr;</th><th>Elapsed</th></tr>
+<tr><td>L1</td><td>i need to well you know like talk to my manager about the the raise</td><td><span class="ok">OK</span></td><td class="num low">0.50</td><td class="num mid">0.57</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.0s</td></tr>
+<tr><td>L2</td><td>I need to talk to my manager about the raise.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.47s</td></tr>
+<tr><td>L3</td><td>I need to talk to my manager about the raise.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.14s</td></tr>
+<tr><td>L4</td><td>I need to talk to my manager about the raise.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">2.3s</td></tr>
+<tr><td>Commodity</td><td>I need to talk to my manager about the raise.</td><td>-</td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.92s</td></tr>
+</table></div>
+<div class="box">
+<h3>h09_email_dictation_blocks &mdash; email dictation with silent blocks (dropped) plus repetitions</h3>
+<div class="meta">Situation: default &middot; Scenario: email &middot; Three repetition events. Silent block before content word manifests as dropped (no Whisper hallucination this time). Tests reconstruction across silent gaps without hallucination signal.</div>
+<div><b>Intended:</b></div><div class="intended">Please send the revised contract before close of business Friday</div>
+<div><b>Disfluent input:</b></div><div class="disfluent">please uhh please please send the the revised contract uh before close of of business friday</div>
+<table><tr><th>Layer</th><th>Output</th><th>Falcon</th><th>WER&darr;</th><th>Intent J&uarr;</th><th>Cov&uarr;</th><th>PN&uarr;</th><th>Elapsed</th></tr>
+<tr><td>L1</td><td>please uhh please please send the the revised contract before close of of business friday</td><td><span class="ok">OK</span></td><td class="num low">0.50</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.01s</td></tr>
+<tr><td>L2</td><td>Please send the revised contract before the close of business Friday.</td><td><span class="ok">OK</span></td><td class="num high">0.10</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.39s</td></tr>
+<tr><td>L3</td><td>Please send the revised contract before the close of business Friday.</td><td><span class="ok">OK</span></td><td class="num high">0.10</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.93s</td></tr>
+<tr><td>L4</td><td>Please send the revised contract before close of business Friday.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.95s</td></tr>
+<tr><td>Commodity</td><td>Please send the revised contract before the close of business on Friday.</td><td>-</td><td class="num high">0.20</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.51s</td></tr>
+</table></div>
+<div class="box">
+<h3>h10_proper_noun_block &mdash; block on proper noun, Whisper hallucinates</h3>
+<div class="meta">Situation: default &middot; Scenario: professional &middot; Silent block on first proper noun, filled by Whisper with &#x27;thank you for watching&#x27; hallucination. Part-word repetition on second proper noun. Tests proper-noun preservation under hallucination contamination.</div>
+<div><b>Intended:</b></div><div class="intended">I met with Henderson at the Marriott yesterday</div>
+<div><b>Disfluent input:</b></div><div class="disfluent">i met with thank you for watching henderson at the the m m marriott yesterday</div>
+<table><tr><th>Layer</th><th>Output</th><th>Falcon</th><th>WER&darr;</th><th>Intent J&uarr;</th><th>Cov&uarr;</th><th>PN&uarr;</th><th>Elapsed</th></tr>
+<tr><td>L1</td><td>i met with thank you for watching henderson at the the m m marriott yesterday</td><td><span class="ok">OK</span></td><td class="num low">0.88</td><td class="num mid">0.67</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.02s</td></tr>
+<tr><td>L2</td><td>i met with thank you for watching henderson at the the m m marriott yesterday</td><td><span class="fail">FAIL</span></td><td class="num low">0.88</td><td class="num mid">0.67</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.08s</td></tr>
+<tr><td>L3</td><td>i met with thank you for watching henderson at the the m m marriott yesterday</td><td><span class="fail">FAIL</span></td><td class="num low">0.88</td><td class="num mid">0.67</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.05s</td></tr>
+<tr><td>L4</td><td>I met with Henderson at the Marriott yesterday.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">5.22s</td></tr>
+<tr><td>Commodity</td><td>I met with Henderson at the Marriott yesterday.</td><td>-</td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.6s</td></tr>
+</table></div>
+<div class="box">
+<h3>h11_presentation_open_freeze &mdash; opening freeze in presentation, dropped content</h3>
+<div class="meta">Situation: high_stress &middot; Scenario: presentation &middot; Opening freeze: speaker emits &#x27;good&#x27;, long silent freeze (Whisper drops, no hallucination this time), recovery, full restart. Common presentation-stress pattern.</div>
+<div><b>Intended:</b></div><div class="intended">Good morning everyone today I want to talk about the quarterly results</div>
+<div><b>Disfluent input:</b></div><div class="disfluent">good uhm good morning everyone uh today i i want to talk about the the quarterly results</div>
+<table><tr><th>Layer</th><th>Output</th><th>Falcon</th><th>WER&darr;</th><th>Intent J&uarr;</th><th>Cov&uarr;</th><th>PN&uarr;</th><th>Elapsed</th></tr>
+<tr><td>L1</td><td>good good morning everyone today i i want to talk about the the quarterly results</td><td><span class="ok">OK</span></td><td class="num mid">0.25</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.01s</td></tr>
+<tr><td>L2</td><td>Good morning, everyone. Today I want to talk about the quarterly results.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">2.82s</td></tr>
+<tr><td>L3</td><td>Good morning, everyone. Today I want to talk about the quarterly results.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.8s</td></tr>
+<tr><td>L4</td><td>Good morning everyone, today I want to talk about the quarterly results.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.25s</td></tr>
+<tr><td>Commodity</td><td>Good morning, everyone. Today, I want to talk about the quarterly results.</td><td>-</td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.5s</td></tr>
+</table></div>
+<div class="box">
+<h3>h12_question_to_doctor &mdash; medical context with mid-word abandonment plus dropped silent block</h3>
+<div class="meta">Situation: high_stress &middot; Scenario: medical &middot; Two mid-word abandonments on the medically-loaded word. Silent block resolves into successful completion (no Whisper hallucination). Domain pack medical may engage at L3+.</div>
+<div><b>Intended:</b></div><div class="intended">I have been experiencing chest pain for about two weeks</div>
+<div><b>Disfluent input:</b></div><div class="disfluent">i have been experiencing uhh ch-- ch-- chest pain for about uh two weeks</div>
+<table><tr><th>Layer</th><th>Output</th><th>Falcon</th><th>WER&darr;</th><th>Intent J&uarr;</th><th>Cov&uarr;</th><th>PN&uarr;</th><th>Elapsed</th></tr>
+<tr><td>L1</td><td>i have been experiencing uhh ch-- ch-- chest pain for about two weeks</td><td><span class="ok">OK</span></td><td class="num mid">0.30</td><td class="num high">0.83</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.02s</td></tr>
+<tr><td>L2</td><td>I have been experiencing chest pain for about two weeks.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.02s</td></tr>
+<tr><td>L3</td><td>I&#x27;ve been experiencing chest pain for about two weeks.</td><td><span class="ok">OK</span></td><td class="num high">0.20</td><td class="num high">0.83</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.16s</td></tr>
+<tr><td>L4</td><td>I have been experiencing chest pain for about two weeks.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">2.63s</td></tr>
+<tr><td>Commodity</td><td>I have been experiencing chest pain for about two weeks.</td><td>-</td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.8s</td></tr>
+</table></div>
+<div class="box">
+<h3>h13_casual_chat_light_blocks &mdash; casual chat with sparse blocks, Whisper hallucinates &#x27;thanks&#x27;</h3>
+<div class="meta">Situation: default &middot; Scenario: casual &middot; Friend-tone test. Whisper emits a stray &#x27;thanks&#x27; during a brief silent block before the final word. Reconstruction must keep informal voice and drop the hallucination.</div>
+<div><b>Intended:</b></div><div class="intended">Want to grab dinner tonight</div>
+<div><b>Disfluent input:</b></div><div class="disfluent">want to uh g g grab dinner thanks tonight</div>
+<table><tr><th>Layer</th><th>Output</th><th>Falcon</th><th>WER&darr;</th><th>Intent J&uarr;</th><th>Cov&uarr;</th><th>PN&uarr;</th><th>Elapsed</th></tr>
+<tr><td>L1</td><td>want to g g grab dinner thanks tonight</td><td><span class="ok">OK</span></td><td class="num low">0.60</td><td class="num high">0.80</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.01s</td></tr>
+<tr><td>L2</td><td>Do you want to grab dinner tonight? Thanks.</td><td><span class="ok">OK</span></td><td class="num low">0.60</td><td class="num high">0.80</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.17s</td></tr>
+<tr><td>L3</td><td>Do you want to grab dinner tonight?</td><td><span class="ok">OK</span></td><td class="num mid">0.40</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.95s</td></tr>
+<tr><td>L4</td><td>Want to grab dinner tonight?</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">10.1s</td></tr>
+<tr><td>Commodity</td><td>Want to grab dinner tonight?</td><td>-</td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.78s</td></tr>
+</table></div>
+<div class="box">
+<h3>h14_legal_high_stakes_block &mdash; legal context with block on stakes-laden phrase, Whisper hallucinates</h3>
+<div class="meta">Situation: high_stress &middot; Scenario: legal &middot; Block on the most consequential phrase, filled by Whisper hallucination. Reconstruction must drop the hallucination AND must NOT soften &#x27;do not consent&#x27; to something hedged.</div>
+<div><b>Intended:</b></div><div class="intended">I do not consent to that condition</div>
+<div><b>Disfluent input:</b></div><div class="disfluent">i do not thank you for watching consent to that uh that condition</div>
+<table><tr><th>Layer</th><th>Output</th><th>Falcon</th><th>WER&darr;</th><th>Intent J&uarr;</th><th>Cov&uarr;</th><th>PN&uarr;</th><th>Elapsed</th></tr>
+<tr><td>L1</td><td>i do not thank you for watching consent to that that condition</td><td><span class="ok">OK</span></td><td class="num low">0.71</td><td class="num low">0.50</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.02s</td></tr>
+<tr><td>L2</td><td>i do not thank you for watching consent to that that condition</td><td><span class="fail">FAIL</span></td><td class="num low">0.71</td><td class="num low">0.50</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.54s</td></tr>
+<tr><td>L3</td><td>i do not thank you for watching consent to that that condition</td><td><span class="fail">FAIL</span></td><td class="num low">0.71</td><td class="num low">0.50</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">2.18s</td></tr>
+<tr><td>L4</td><td>I do not consent to that condition.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">5.99s</td></tr>
+<tr><td>Commodity</td><td>I do not consent to that condition.</td><td>-</td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.46s</td></tr>
+</table></div>
+<div class="box">
+<h3>h15_bilingual_block_ru_filler &mdash; bilingual EN-RU with Russian filler postponing English block, dropped</h3>
+<div class="meta">Situation: default &middot; Scenario: casual &middot; Russian filler &#x27;ну&#x27; used to postpone the English-onset block. Silent micro-block resolves into successful completion. George profile bilingual case.</div>
+<div><b>Intended:</b></div><div class="intended">Can you please pass me the salt</div>
+<div><b>Disfluent input:</b></div><div class="disfluent">can you ну ну please p p pass me the salt</div>
+<table><tr><th>Layer</th><th>Output</th><th>Falcon</th><th>WER&darr;</th><th>Intent J&uarr;</th><th>Cov&uarr;</th><th>PN&uarr;</th><th>Elapsed</th></tr>
+<tr><td>L1</td><td>can you please p p pass me the salt</td><td><span class="ok">OK</span></td><td class="num mid">0.29</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.01s</td></tr>
+<tr><td>L2</td><td>Can you please pass me the salt?</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.54s</td></tr>
+<tr><td>L3</td><td>Can you please pass me the salt?</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.96s</td></tr>
+<tr><td>L4</td><td>Can you please pass me the salt?</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">2.31s</td></tr>
+<tr><td>Commodity</td><td>Can you please pass me the salt?</td><td>-</td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.37s</td></tr>
+</table></div>
+<div class="box">
+<h3>h16_phantom_word_during_long_block &mdash; Whisper hallucinates &#x27;the&#x27; during long silent block</h3>
+<div class="meta">Situation: default &middot; Scenario: casual &middot; Whisper fills a 3-second silent block with repeated &#x27;the&#x27; tokens. Lavrentiy must collapse, not preserve.</div>
+<div><b>Intended:</b></div><div class="intended">I went to the conference last weekend</div>
+<div><b>Disfluent input:</b></div><div class="disfluent">i went to the the the the conference last weekend</div>
+<table><tr><th>Layer</th><th>Output</th><th>Falcon</th><th>WER&darr;</th><th>Intent J&uarr;</th><th>Cov&uarr;</th><th>PN&uarr;</th><th>Elapsed</th></tr>
+<tr><td>L1</td><td>i went to the conference last weekend</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.02s</td></tr>
+<tr><td>L2</td><td>I went to the conference last weekend.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">1.15s</td></tr>
+<tr><td>L3</td><td>I went to the conference last weekend.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.94s</td></tr>
+<tr><td>L4</td><td>I went to the conference last weekend.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">3.01s</td></tr>
+<tr><td>Commodity</td><td>I went to the conference last weekend.</td><td>-</td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.45s</td></tr>
+</table></div>
+<div class="box">
+<h3>h17_complete_sentence_abandonment &mdash; full-sentence abandonment then restart</h3>
+<div class="meta">Situation: high_stress &middot; Scenario: professional &middot; Speaker starts sentence, blocks, abandons, restarts identical sentence. Lavrentiy must recognize the abandonment-restart pattern and emit one clean sentence.</div>
+<div><b>Intended:</b></div><div class="intended">I think the new policy is unfair to junior staff</div>
+<div><b>Disfluent input:</b></div><div class="disfluent">i think the new the the i i think the new policy is unfair to to junior staff</div>
+<table><tr><th>Layer</th><th>Output</th><th>Falcon</th><th>WER&darr;</th><th>Intent J&uarr;</th><th>Cov&uarr;</th><th>PN&uarr;</th><th>Elapsed</th></tr>
+<tr><td>L1</td><td>i think the new the the i i think the new policy is unfair to to junior staff</td><td><span class="ok">OK</span></td><td class="num low">0.80</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.01s</td></tr>
+<tr><td>L2</td><td>I think the new policy is unfair to junior staff.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">2.96s</td></tr>
+<tr><td>L3</td><td>I think the new policy is unfair to junior staff.</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.91s</td></tr>
+<tr><td>L4</td><td>I think the new policy is unfair to junior staff</td><td><span class="ok">OK</span></td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">4.16s</td></tr>
+<tr><td>Commodity</td><td>I think the new policy is unfair to junior staff.</td><td>-</td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="time">0.61s</td></tr>
+</table></div>
+<div class="box">
+<h3>h18_block_then_substitution &mdash; block forces synonym substitution, Whisper drops the block</h3>
+<div class="meta">Situation: high_stress &middot; Scenario: professional &middot; Speaker blocks on &#x27;call&#x27;, substitutes &#x27;reach out to&#x27;. Silent block during the abandonment manifests as dropped (no hallucination). If covert profile flags &#x27;call&#x27; as avoided, ALWAYS RESTATE should restore &#x27;call&#x27;. If not, preserve &#x27;reach out to&#x27;. Tests covert-avoidance logic.</div>
+<div><b>Intended:</b></div><div class="intended">I need to call my therapist</div>
+<div><b>Disfluent input:</b></div><div class="disfluent">i need to uh c c reach out to my therapist</div>
+<table><tr><th>Layer</th><th>Output</th><th>Falcon</th><th>WER&darr;</th><th>Intent J&uarr;</th><th>Cov&uarr;</th><th>PN&uarr;</th><th>Elapsed</th></tr>
+<tr><td>L1</td><td>i need to c c reach out to my therapist</td><td><span class="ok">OK</span></td><td class="num low">0.83</td><td class="num low">0.40</td><td class="num low">0.67</td><td class="num high">1.00</td><td class="time">0.01s</td></tr>
+<tr><td>L2</td><td>I need to reach out to my therapist.</td><td><span class="ok">OK</span></td><td class="num low">0.50</td><td class="num low">0.40</td><td class="num low">0.67</td><td class="num high">1.00</td><td class="time">1.21s</td></tr>
+<tr><td>L3</td><td>I need to reach out to my therapist.</td><td><span class="ok">OK</span></td><td class="num low">0.50</td><td class="num low">0.40</td><td class="num low">0.67</td><td class="num high">1.00</td><td class="time">1.14s</td></tr>
+<tr><td>L4</td><td>I need to reach out to my therapist.</td><td><span class="ok">OK</span></td><td class="num low">0.50</td><td class="num low">0.40</td><td class="num low">0.67</td><td class="num high">1.00</td><td class="time">10.2s</td></tr>
+<tr><td>Commodity</td><td>I need to reach out to my therapist.</td><td>-</td><td class="num low">0.50</td><td class="num low">0.40</td><td class="num low">0.67</td><td class="num high">1.00</td><td class="time">0.66s</td></tr>
+</table></div>
+<div class="box"><h3>Per-layer summary</h3>
+<table><tr><th>Layer</th><th>N</th><th>WER (median)</th><th>Intent J (median)</th><th>Coverage (median)</th><th>PN preservation (mean)</th><th>Falcon OK</th></tr>
+<tr><td>Commodity</td><td>18</td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td>0/18</td></tr>
+<tr><td>L1</td><td>18</td><td class="num low">0.55</td><td class="num mid">0.71</td><td class="num high">1.00</td><td class="num high">1.00</td><td>18/18</td></tr>
+<tr><td>L2</td><td>18</td><td class="num high">0.13</td><td class="num high">0.90</td><td class="num high">1.00</td><td class="num high">1.00</td><td>14/18</td></tr>
+<tr><td>L3</td><td>18</td><td class="num high">0.13</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td>16/18</td></tr>
+<tr><td>L4</td><td>18</td><td class="num high">0.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td class="num high">1.00</td><td>18/18</td></tr>
+</table></div>
+</body></html>
