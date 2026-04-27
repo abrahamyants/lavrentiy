@@ -41,6 +41,9 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 import l1_pack
+import domain_pack
+import rejection_store
+import style_examples
 
 # -- Headless mode (pythonw / hidden window) ──────────────────────
 if sys.stdout is None:
@@ -1422,7 +1425,9 @@ def reconstruct_via_backend(raw_text, tone, layer, prof, situation="default", mo
                             whisper_low_conf=None, whisper_disagreements=None,
                             speech_severity_mod=0.0,
                             paralinguistic_events=None, prosodic_context=None,
-                            language_code="en"):
+                            language_code="en",
+                            audio_duration_s=None, word_count=None,
+                            previous_outputs=None):
     """Reconstruct via Cloud Function backend (uses server-side API key).
     Called when user is signed in via Google instead of using a local API key."""
     import urllib.request
@@ -1451,6 +1456,13 @@ def reconstruct_via_backend(raw_text, tone, layer, prof, situation="default", mo
         payload["paralinguistic_events"] = paralinguistic_events
     if prosodic_context:
         payload["prosodic_context"] = prosodic_context
+    if audio_duration_s is not None:
+        payload["audio_duration_s"] = audio_duration_s
+    if word_count is not None:
+        payload["word_count"] = word_count
+    if previous_outputs:
+        payload["previous_outputs"] = list(previous_outputs)[-4:]
+        payload["regenerate"] = True
 
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
@@ -2550,6 +2562,55 @@ def track_api_error(msg=""):
     _last_api_error_ts = time.time()
     _last_api_error_msg = str(msg)[:200]
 
+# -- Regenerate-as-negative tracking (pre-reconstruction) ────────
+# Different from the post-recon anti-compulsion nudge below. This
+# detects redo BEFORE the next reconstruction by comparing the new
+# raw_text to the prior raw_text via Jaccard similarity. When overlap
+# is high (≥0.6), the user is effectively re-rolling the same intent —
+# we pass `_recent_outputs` to reconstruct() as `previous_outputs` so
+# the model knows to vary word choice and sentence shape.
+#
+# Limitations vs WiM's regenerate path:
+# - WiM has an explicit IME button → hard signal. Lav uses input
+#   similarity → soft signal that can false-positive on natural
+#   repeats (e.g., "yes yes yes" within different sentences).
+# - Threshold 0.6 is conservative; bump down to 0.5 if recall is
+#   too low in practice.
+_last_raw_text_for_redo = ""
+_recent_outputs = []  # last N raw output strings; pop from front past 4
+_REGEN_OVERLAP_THRESHOLD = 0.6
+_REGEN_BUFFER_MAX = 4
+
+
+def _detect_input_overlap_redo(raw_text):
+    """Returns the prior outputs list to pass to reconstruct() as negative
+    examples, or an empty list when this isn't a redo. Compares the new
+    raw_text to the previous one via Jaccard word-set similarity."""
+    if not raw_text or not _last_raw_text_for_redo or not _recent_outputs:
+        return []
+    a = set(raw_text.lower().split())
+    b = set(_last_raw_text_for_redo.lower().split())
+    if not a or not b:
+        return []
+    union = a | b
+    overlap = len(a & b) / len(union)
+    if overlap >= _REGEN_OVERLAP_THRESHOLD:
+        return list(_recent_outputs)
+    return []
+
+
+def _record_reconstruction_for_redo(raw_text, clean_text):
+    """Update the redo-detection state after a successful reconstruction.
+    Stores the raw_text used (so the next call can compare against it)
+    and appends the clean output to the recent-outputs buffer."""
+    global _last_raw_text_for_redo
+    _last_raw_text_for_redo = raw_text or ""
+    if clean_text:
+        _recent_outputs.append(clean_text)
+        while len(_recent_outputs) > _REGEN_BUFFER_MAX:
+            _recent_outputs.pop(0)
+
+
 # -- Redo detection (anti-compulsion guardrail) ──────────────────
 # Tracks consecutive re-recordings of similar content.
 REDO_SIMILARITY_THRESHOLD = 0.7   # word overlap ratio to count as "same sentence"
@@ -2712,8 +2773,24 @@ def _postprocess_local_llm(text):
 def reconstruct(raw_text, tone, layer, prof, situation=None,
                 whisper_low_conf=None, whisper_disagreements=None,
                 speech_severity_mod=0.0, paralinguistic_events=None,
-                prosodic_context=None, language_code="en"):
+                prosodic_context=None, language_code="en",
+                audio_duration_s=None, word_count=None,
+                previous_outputs=None):
     """Layer 2+: Rebuild raw transcription into clean output."""
+    # Persistent rejection capture: a non-empty previous_outputs means the
+    # user just hit regenerate (or the input-overlap heuristic upstream
+    # detected a redo), so the most recent prior output is being rejected.
+    # Persist it to rejection_store so future reconstructions across
+    # sessions can inject it as a "patterns this user has rejected — avoid
+    # producing structurally similar text" negative example. Cross-session
+    # counterpart to the within-session regenerate-as-negative block in
+    # the L2/L3 conditional below.
+    if previous_outputs:
+        try:
+            rejection_store.record(list(previous_outputs)[-1])
+        except Exception as _e:
+            log(f"rejection_store.record failed: {_e}", "warn")
+
     # Detect if input contains Cyrillic (bilingual speaker)
     has_cyrillic = any('\u0400' <= c <= '\u04ff' for c in raw_text)
     lang_note = " Speaker is bilingual (English/Russian) and may mix languages." if has_cyrillic else ""
@@ -2742,6 +2819,30 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
     # Always include raw speech metrics when available (Layer 2+ benefits from this context)
     if speech_severity_mod > 0:
         aggression_note += f" [Speech metrics: severity_boost={speech_severity_mod:.1f}]"
+
+    # Rate-gap signal: ASR-derived ratio of words / audio second. Below ~1.5
+    # = blocks/silences/extended pauses (intended words didn't surface in
+    # transcription). Above ~4.0 = cluttering/rushing. The diagnostic comes
+    # from comparing acoustic-rate signals (speech_severity_mod, computed
+    # from audio energy peaks BEFORE ASR) against this ground-truth ASR
+    # word count. Discrepancy = the gap. Surfaced as a model-visible note
+    # so it influences both severity dial and reconstruction decisions.
+    rate_gap_note = ""
+    if audio_duration_s is not None and word_count is not None and audio_duration_s > 1.0:
+        wps = word_count / audio_duration_s
+        if wps < 1.5:
+            rate_gap_note = (
+                f" [Rate gap: {word_count} words in {audio_duration_s:.1f}s "
+                f"= {wps:.2f} wps; normal fluent = 2.0-2.5 wps; "
+                f"low ratio implies pre-smoothing pauses/blocks]"
+            )
+        elif wps > 4.0:
+            rate_gap_note = (
+                f" [Rate gap: {word_count} words in {audio_duration_s:.1f}s "
+                f"= {wps:.2f} wps; high ratio implies cluttered/rushed delivery]"
+            )
+    if rate_gap_note:
+        aggression_note += rate_gap_note
 
     # Per-tone instructions: each tone gets specific rules about style,
     # contractions, sentence structure, and how much rewriting is allowed
@@ -2806,6 +2907,61 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
         if ctx:
             parts.append("\nUser context:\n" + "\n".join(ctx))
 
+        # Persistent rejection history — cross-session counterpart to the
+        # within-session regenerate-as-negative block in the L2/L3
+        # conditional. Outputs the user has previously rejected by hitting
+        # regenerate (or the input-overlap heuristic). The model uses
+        # these as STYLE-LEVEL negative examples — not "don't use these
+        # exact words" but "don't produce structurally/rhythmically
+        # similar text." Lower priority than the within-session block
+        # (which is an active, hot signal). L3+ only — heavier prompt
+        # context lives there. Mirrors WiM RejectionStore exactly.
+        try:
+            prior_rejections = rejection_store.recent()
+        except Exception as _e:
+            prior_rejections = []
+            log(f"rejection_store.recent failed: {_e}", "warn")
+        if prior_rejections:
+            block = [
+                "\n\nPERSISTENT REJECTION HISTORY (recent reconstructions this user "
+                "rejected — DO NOT echo back, use only to avoid producing structurally "
+                "similar text):"
+            ]
+            for i, prev in enumerate(prior_rejections, start=1):
+                block.append(f'\n  {i}. "{prev}"')
+            block.append(
+                "\nThese don't fit this user's voice. Pick distinctively different "
+                "word choices, sentence shapes, and rhythm. Variety in style across "
+                "these examples beats imitation of any single one."
+            )
+            parts.append("".join(block))
+
+        # Style examples — positive counterpart to the rejection history
+        # above. (raw, accepted_output) pairs the user implicitly accepted
+        # by NOT hitting regenerate. Few-shot pressure toward this user's
+        # demonstrated voice. Lower priority than vocabulary/corrections
+        # (those are EXACT preferences; these are STYLE preferences).
+        # DO NOT echo back. L3+ only — heavier prompt context lives there.
+        # Mirrors WiM StyleExamples exactly.
+        try:
+            prior_style = style_examples.recent()
+        except Exception as _e:
+            prior_style = []
+            log(f"style_examples.recent failed: {_e}", "warn")
+        if prior_style:
+            block = [
+                "\n\nUSER STYLE EXAMPLES (recent reconstructions this user accepted "
+                "as final — apply same style choices when relevant; DO NOT echo back):"
+            ]
+            for i, ex in enumerate(prior_style, start=1):
+                block.append(f'\n  {i}. Raw: "{ex.get("raw", "")}" → Output: "{ex.get("output", "")}"')
+            block.append(
+                "\nThis user's voice across these examples is the target. Match "
+                "sentence rhythm, comma placement, contraction usage, and overall "
+                "tone — not specific words."
+            )
+            parts.append("".join(block))
+
     # -- Whisper confidence signals (L2+, zero additional cost) ──────
     # Data always computed; prompt framing is layer-differentiated:
     # L4 = stutter-clinical ("BLOCK suspects"), L2/L3 = general ASR-aware
@@ -2867,6 +3023,58 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
     # Lighter than L4's clinical taxonomy but gives the model awareness
     # of common voice transcription errors so it can fix them intelligently.
     if 2 <= layer <= 3:
+        # ALWAYS RESTATE — kills the "fluent input → identity output → user
+        # thinks app did nothing" failure mode. Anchored in named writing
+        # authorities (Strunk & White, federal Plain Language Guidelines)
+        # the model has seen many times in training. Ported from WiM
+        # ReconstructClient.kt:267-285. Note: 'I mean' is intentionally
+        # NOT in the discourse-marker list — it's handled by the
+        # self-correction rule below instead.
+        parts.append(
+            "\nALWAYS RESTATE — DO NOT RETURN INPUT UNCHANGED."
+            "\nThe input is raw spoken material. The output is text someone will READ. "
+            "CONVERT spoken cadence into written prose every time, even when input is fluent. "
+            "Identity output is a failure mode."
+            "\n\nApply these established prose rules (Strunk & White, federal Plain Language Guidelines):"
+            "\n- Omit needless words. A sentence should contain no unnecessary words."
+            "\n- Use the active voice. \"John threw the ball,\" not \"The ball was thrown by John.\""
+            "\n- Use definite, specific, concrete language. \"It rained for a week,\" not \"a period of unfavorable weather.\""
+            "\n- Sentence length should average 15-20 words. Break run-on speech into multiple short sentences."
+            "\n- Keep subject and verb close together."
+            "\n- Use everyday words. Avoid jargon unless the speaker used it specifically."
+            "\n- Sentences should be simple, active, affirmative, declarative."
+            "\n- Drop verbal-tic discourse markers ('so', 'well', 'you know', 'like') even when not pure fillers."
+            "\n\nThe speaker is brain-dumping in stream-of-consciousness order. "
+            "They are offloading the structuring task to you. REORDER clauses, "
+            "GROUP related ideas, and RESTRUCTURE into the flow a written reader expects "
+            "(e.g., context → ask → close for an email; setup → question → specifics for a message; "
+            "thesis → support → conclusion for an argument)."
+            "\n\nHARD RULES while restating:"
+            "\n- PRESERVE all numbers, dates, dollar amounts, addresses, names, proper nouns exactly as spoken."
+            "\n- PRESERVE the speaker's intent and the substance of every clause."
+            "\n- DO NOT add information or invent details not present in the input."
+            "\n- DO NOT soften, sanitize, or change profanity / strong language / slang. Output the words the speaker chose."
+            "\n- DO NOT summarize away content; restate, don't compress."
+            "\n- TREAT unfamiliar, invented-looking, or single-syllable unrecognized words as INTENTIONAL slang, brand names, or in-group vocabulary. "
+            "Do not substitute them, do not assume transcription error, do not 'fix' them. "
+            "Examples of what to PRESERVE without modification: 'rizz', 'bussin', 'no cap', 'mid', 'delulu', 'skibidi', 'ick', 'fanum tax', "
+            "any proper noun the speaker emphasized, any startup or tool name the speaker said clearly."
+        )
+        # SELF-CORRECTION CANONICAL OVERWRITE — when the speaker says "I mean",
+        # "actually", "no wait", etc., what FOLLOWS is canonical and what came
+        # BEFORE should be discarded. Crucial for stutterers (covert revision
+        # is core stuttering behavior) and for any self-corrected utterance.
+        # Must come AFTER the discourse-marker rule since 'I mean' is
+        # intentionally absent from that list and handled here.
+        parts.append(
+            "\n\nSELF-CORRECTION — CANONICAL OVERWRITE:"
+            "\nWhen the speaker uses 'I mean', 'actually', 'no wait', 'scratch that', 'let me rephrase', "
+            "or similar mid-sentence revision markers, treat the content AFTER the marker as canonical "
+            "and DISCARD the content before it. This is intentional self-correction, not disfluency."
+            "\nExample: 'the meeting at 3pm, I mean 4pm' → 'the meeting at 4pm' (NOT '3pm 4pm', NOT '3pm')."
+            "\nExample: 'I'm going to the s-s-s-the place' → 'I'm going to the place' (covert revision past a hard onset)."
+            "\nExample: 'let's go to Italian, actually let's go to Thai' → 'let's go to Thai'."
+        )
         parts.append(
             "\nThe input is a voice transcription and may contain ASR artifacts:"
             "\n- Repeated words or phrases from natural speech hesitation"
@@ -2895,6 +3103,34 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
         l1_block = l1_pack.prompt_injection(prof)
         if l1_block:
             parts.append(l1_block)
+
+        # Domain pack injection (L2/L3 only — same scope as L1 pack).
+        # Activated by profile_industry. Appends canonical-vocab list
+        # plus phonetic-alias corrections (e.g. "mom" → "MoM",
+        # "evita" → "EBITDA"). Mirrors WiM DomainPackHelper.
+        domain_block = domain_pack.prompt_injection(prof)
+        if domain_block:
+            parts.append(domain_block)
+
+        # Regenerate-as-negative: when the current input substantially
+        # overlaps the prior input (detected upstream in pipeline()),
+        # the user is effectively re-rolling. Inject prior reconstructions
+        # as rejected examples so the model picks fundamentally different
+        # word choice + sentence shape, not just lexical variation around
+        # the same skeleton. Ported from WiM ReconstructClient.kt:425-432.
+        if previous_outputs:
+            recent = list(previous_outputs)[-4:]
+            parts.append(
+                "\n\nThe speaker is asking for a DIFFERENT phrasing of the same intent. "
+                "You have already produced these reconstructions, which the speaker rejected:"
+            )
+            for i, prev in enumerate(recent, start=1):
+                parts.append(f'\n  {i}. "{prev}"')
+            parts.append(
+                "\nProduce a new reconstruction that preserves the same meaning but uses "
+                "different word choices, sentence structure, and rhythm. Do not return any "
+                "of the prior outputs verbatim or with only trivial edits."
+            )
 
     if layer >= 4:
         # TODO(l1-onset): per-L1 onset weights for the clinical layer. Mandarin-L1
@@ -6646,6 +6882,48 @@ def pipeline():
         if current_layer > 1 and current_mode != "RAW":
             log(f"Raw: \"{raw_text}\"", "raw")
 
+            # Rate-gap inputs for reconstruct(): the ASR-derived word count
+            # and the actual recorded audio duration. The reconstruct() body
+            # computes words-per-second and injects a model-visible note when
+            # the ratio is anomalous (low = pre-smoothing pauses/blocks; high
+            # = cluttered delivery). The audio is already DSP-processed in
+            # this pipeline (DC removal, high-pass, AGC, soft clip — see
+            # earlier in pipeline()), so duration is meaningful even though
+            # we measure it after preprocessing.
+            audio_duration_s = len(audio_data) / TARGET_RATE
+            raw_word_count = len(raw_text.split())
+
+            # Pre-reconstruction redo detection: did the user just record
+            # something that substantially overlaps the previous recording's
+            # input? If so, treat as a regenerate and pass the recent outputs
+            # as rejected examples so the model picks distinctively different
+            # phrasing. Empty list when this isn't a redo. Lav doesn't have
+            # an explicit "regenerate" button (unlike WiM's IME), so we infer
+            # the user's intent from input similarity. See
+            # _detect_input_overlap_redo() for the heuristic.
+            prior_outputs_for_regen = _detect_input_overlap_redo(raw_text)
+            if prior_outputs_for_regen:
+                log(f"Regenerate detected (input overlap ≥ 0.6) — passing {len(prior_outputs_for_regen)} prior outputs as negative examples", "info")
+
+            # Persistent learning state machine for style_examples (positive
+            # few-shot counterpart to rejection_store). The pending pair was
+            # set after the previous successful reconstruction; this call
+            # decides its fate:
+            #   - regenerate (prior_outputs_for_regen non-empty) → DROP
+            #     the pending pair (it was the rejected reconstruction).
+            #   - fresh dictation (no overlap) → PROMOTE the pending pair
+            #     to style_examples (it was implicitly accepted).
+            try:
+                _pending_style_pair = style_examples.pending_pair
+                if prior_outputs_for_regen:
+                    style_examples.pending_pair = None
+                elif _pending_style_pair is not None:
+                    style_examples.record(*_pending_style_pair)
+                    style_examples.pending_pair = None
+            except Exception as _e:
+                log(f"style_examples verdict failed: {_e}", "warn")
+                style_examples.pending_pair = None
+
             # Step 2: Reconstruct (using pre-cleaned text to reduce GPT noise)
             # Pass Whisper confidence data so L4 can target uncertain segments
             # Pass paralinguistic events so L5 can guide hallucination removal
@@ -6662,6 +6940,9 @@ def pipeline():
                         speech_severity_mod=speech_metrics["severity_modifier"],
                         paralinguistic_events=para_events if paralinguistic_enabled else None,
                         prosodic_context=prosodic_ctx if prosodic_enabled else None,
+                        audio_duration_s=audio_duration_s,
+                        word_count=raw_word_count,
+                        previous_outputs=prior_outputs_for_regen,
                     )
                     if clean_text is not None and current_mode == "SAFE":
                         falcon_ok = _backend_falcon  # backend already ran Falcon
@@ -6677,12 +6958,29 @@ def pipeline():
                         whisper_disagreements=whisper_disagreements,
                         speech_severity_mod=speech_metrics["severity_modifier"],
                         paralinguistic_events=para_events if paralinguistic_enabled else None,
-                        prosodic_context=prosodic_ctx if prosodic_enabled else None
+                        prosodic_context=prosodic_ctx if prosodic_enabled else None,
+                        audio_duration_s=audio_duration_s,
+                        word_count=raw_word_count,
+                        previous_outputs=prior_outputs_for_regen,
                     )
 
                 if clean_text is None:
                     log("No backend auth and no local API key — using raw", "error")
                     used_fallback = True
+                else:
+                    # Update redo-detection state with the successful (raw_text,
+                    # clean_text) pair. Next reconstruction's input-overlap check
+                    # will compare against this raw_text; if similar, the model
+                    # will see clean_text as a rejected prior output.
+                    _record_reconstruction_for_redo(raw_text, clean_text)
+                    # Stage this pair as PENDING for style_examples — the
+                    # NEXT reconstruct() call will decide its fate (promote
+                    # to accepted, or drop as rejected). Mirrors the WiM
+                    # StyleExamples.pendingPair semantics exactly.
+                    try:
+                        style_examples.pending_pair = (raw_text, clean_text)
+                    except Exception as _e:
+                        log(f"style_examples.pending_pair set failed: {_e}", "warn")
             except Exception as e:
                 log(f"Reconstruct failed ({e}) -- using raw", "error")
                 used_fallback = True
