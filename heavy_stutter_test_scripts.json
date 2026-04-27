@@ -1,15 +1,16 @@
 {
   "description": "Heavy-stutter / hard-block reconstruction test corpus. Each script simulates the verbatim ASR output (Whisper or device ASR) that a speaker with hard silent blocks would produce. Ground-truth 'intended' is what the speaker meant to say. Reconstruction quality is scored against intended, not against disfluent.",
   "design_notes": "Distinct from tests/stutter_pipeline/test_cases.json (which covers audible disfluencies). This corpus targets the silent-block / hard-block case George specifically needs to clear before foundation outreach. Patterns drawn from: SEP-28k block-labeled clips (Apple 2021), FluencyBank Timestamped (Bayerl 2024), Howell 2004 disfluency taxonomy, plus George's lived speech-block phenomenology.",
-  "block_token_convention": "[BLOCK] = silent freeze that an attentive ASR would emit as nothing or as a short hallucinated word. [BLOCK-LONG] = >2 second silent freeze. '...' = audible pause, breath. '--' = mid-word abandonment. Phantom words from Whisper hallucinating during silence are spelled out inline (e.g. 'so so the'). Transcripts are in lowercase and use no end punctuation, mirroring Whisper raw output style.",
+  "v2_changes": "Initial version used synthetic [BLOCK] markup that Whisper would never produce. v2 replaces those tokens with realistic Whisper behavior on silence: either dropped entirely (no text emitted during silence) or filled with documented Whisper hallucination phrases ('thank you for watching', 'thanks for watching', 'subscribe', 'thanks'). This makes the corpus faithful to what the engine actually sees in production.",
+  "block_token_convention": "v2: no [BLOCK] tokens. Silent blocks manifest as either (a) absence of expected words in the disfluent input, or (b) Whisper hallucination strings inserted where silence was. '...' = audible pause / breath. '--' = mid-word abandonment. Lowercase, no end punctuation, mirrors raw Whisper output.",
   "date": "2026-04-26",
   "cases": [
     {
       "id": "h01_silent_block_hard_onset_p",
-      "type": "hard silent block on /p/ onset",
+      "type": "hard silent block on /p/ onset, Whisper hallucinates",
       "intended": "I want to present the proposal on Tuesday",
-      "disfluent": "i want to [BLOCK] [BLOCK] present the proposal on tuesday",
-      "notes": "Two silent freezes before the hard /p/ content word. Whisper typically emits nothing during the freeze. Lavrentiy must reassemble across the gap.",
+      "disfluent": "i want to thank you for watching present the proposal on tuesday",
+      "notes": "Two silent freezes before the hard /p/ content word. Whisper fills the gap with its most common hallucination phrase ('thank you for watching' is the canonical Whisper-on-silence artifact). Lavrentiy must drop the hallucination and reassemble.",
       "situation": "default",
       "scenario": "professional"
     },
@@ -24,10 +25,10 @@
     },
     {
       "id": "h03_long_block_breath_restart",
-      "type": "long silent block with audible breath and restart",
+      "type": "long silent block, Whisper hallucinates, then audible restart",
       "intended": "My biggest concern is the deadline",
-      "disfluent": "my biggest [BLOCK-LONG] uhh my my biggest concern is the deadline",
-      "notes": "Speaker abandons mid-phrase, freezes, breathes, restarts the same phrase. False-start detection plus block recovery.",
+      "disfluent": "my biggest thanks for watching uhh my my biggest concern is the deadline",
+      "notes": "Speaker abandons mid-phrase, freezes (Whisper hallucinates 'thanks for watching'), breathes, restarts the same phrase. False-start detection plus block recovery plus hallucination removal.",
       "situation": "high_stress",
       "scenario": "presentation"
     },
@@ -45,7 +46,7 @@
       "type": "self-correction via 'I mean'",
       "intended": "I disagree with the recommendation",
       "disfluent": "i agree with i mean i i disagree with the recommendation",
-      "notes": "Speaker says opposite-meaning placeholder to escape the block then corrects. ALWAYS RESTATE rule must respect the correction, not the placeholder.",
+      "notes": "Speaker says opposite-meaning placeholder to escape the block then corrects. Self-correction rule must respect 'I mean' as canonical-overwrite signal, not as discourse marker to drop.",
       "situation": "high_stress",
       "scenario": "professional"
     },
@@ -60,10 +61,10 @@
     },
     {
       "id": "h07_phone_stress_block_avalanche",
-      "type": "multiple blocks in single utterance under phone stress",
+      "type": "multiple silent blocks under phone stress, mixed with hallucination",
       "intended": "Hi this is George I am calling about the appointment on Thursday",
-      "disfluent": "hi this is [BLOCK] g g george i am [BLOCK] calling about the the appointment on [BLOCK] thursday",
-      "notes": "Three hard blocks plus part-word repetition on the proper noun. Tests proper-noun preservation through a block.",
+      "disfluent": "hi this is thanks for watching g g george i am calling about the the appointment on thursday",
+      "notes": "Three silent blocks. First triggers Whisper hallucination, others manifest as dropped content. Plus part-word repetition on the proper noun. Tests proper-noun preservation through a hallucinated gap.",
       "situation": "high_stress",
       "scenario": "phone"
     },
@@ -78,64 +79,64 @@
     },
     {
       "id": "h09_email_dictation_blocks",
-      "type": "email dictation with blocks and self-correction",
+      "type": "email dictation with silent blocks (dropped) plus repetitions",
       "intended": "Please send the revised contract before close of business Friday",
-      "disfluent": "please uhh please please send the the [BLOCK] revised contract uh before close of of business friday",
-      "notes": "Casual office dictation, three repetition events plus one silent block before content word.",
+      "disfluent": "please uhh please please send the the revised contract uh before close of of business friday",
+      "notes": "Three repetition events. Silent block before content word manifests as dropped (no Whisper hallucination this time). Tests reconstruction across silent gaps without hallucination signal.",
       "situation": "default",
       "scenario": "email"
     },
     {
       "id": "h10_proper_noun_block",
-      "type": "block on proper noun",
+      "type": "block on proper noun, Whisper hallucinates",
       "intended": "I met with Henderson at the Marriott yesterday",
-      "disfluent": "i met with [BLOCK] [BLOCK] henderson at the the m m marriott yesterday",
-      "notes": "Two blocks on first proper noun, part-word repetition on second. Tests proper-noun preservation under reconstruction (must NOT substitute generic placeholder).",
+      "disfluent": "i met with thank you for watching henderson at the the m m marriott yesterday",
+      "notes": "Silent block on first proper noun, filled by Whisper with 'thank you for watching' hallucination. Part-word repetition on second proper noun. Tests proper-noun preservation under hallucination contamination.",
       "situation": "default",
       "scenario": "professional"
     },
     {
       "id": "h11_presentation_open_freeze",
-      "type": "opening freeze in presentation",
+      "type": "opening freeze in presentation, dropped content",
       "intended": "Good morning everyone today I want to talk about the quarterly results",
-      "disfluent": "good [BLOCK-LONG] uhm good morning everyone uh today i i want to [BLOCK] talk about the the quarterly results",
-      "notes": "Long opening freeze, recovery, then second block on the verb. Common presentation-stress pattern.",
+      "disfluent": "good uhm good morning everyone uh today i i want to talk about the the quarterly results",
+      "notes": "Opening freeze: speaker emits 'good', long silent freeze (Whisper drops, no hallucination this time), recovery, full restart. Common presentation-stress pattern.",
       "situation": "high_stress",
       "scenario": "presentation"
     },
     {
       "id": "h12_question_to_doctor",
-      "type": "medical context with block on diagnostic term",
+      "type": "medical context with mid-word abandonment plus dropped silent block",
       "intended": "I have been experiencing chest pain for about two weeks",
-      "disfluent": "i have been experiencing uhh ch-- ch-- [BLOCK] chest pain for about uh two weeks",
-      "notes": "Mid-word abandonment plus block on the medically-loaded word. Domain pack medical may engage.",
+      "disfluent": "i have been experiencing uhh ch-- ch-- chest pain for about uh two weeks",
+      "notes": "Two mid-word abandonments on the medically-loaded word. Silent block resolves into successful completion (no Whisper hallucination). Domain pack medical may engage at L3+.",
       "situation": "high_stress",
       "scenario": "medical"
     },
     {
       "id": "h13_casual_chat_light_blocks",
-      "type": "casual chat with sparse blocks",
+      "type": "casual chat with sparse blocks, Whisper hallucinates 'thanks'",
       "intended": "Want to grab dinner tonight",
-      "disfluent": "want to uh g g grab dinner [BLOCK] tonight",
-      "notes": "Friend-tone test. Low-stress block pattern. Reconstruction must keep informal voice, not formalize.",
+      "disfluent": "want to uh g g grab dinner thanks tonight",
+      "notes": "Friend-tone test. Whisper emits a stray 'thanks' during a brief silent block before the final word. Reconstruction must keep informal voice and drop the hallucination.",
       "situation": "default",
       "scenario": "casual"
     },
     {
       "id": "h14_legal_high_stakes_block",
-      "type": "legal context with block on stakes-laden phrase",
+      "type": "legal context with block on stakes-laden phrase, Whisper hallucinates",
       "intended": "I do not consent to that condition",
-      "disfluent": "i do not [BLOCK] [BLOCK] consent to that uh that condition",
-      "notes": "Blocks on the most consequential phrase. Reconstruction must NOT soften 'do not consent' to something hedged.",
+      "disfluent": "i do not thank you for watching consent to that uh that condition",
+      "notes": "Block on the most consequential phrase, filled by Whisper hallucination. Reconstruction must drop the hallucination AND must NOT soften 'do not consent' to something hedged.",
       "situation": "high_stress",
       "scenario": "legal"
     },
     {
       "id": "h15_bilingual_block_ru_filler",
-      "type": "bilingual EN-RU with Russian filler postponing English block",
+      "type": "bilingual EN-RU with Russian filler postponing English block, dropped",
       "intended": "Can you please pass me the salt",
-      "disfluent": "can you ну ну please p p [BLOCK] pass me the salt",
-      "notes": "Russian filler 'ну' used to postpone the English-onset block. George profile bilingual case.",
+      "disfluent": "can you ну ну please p p pass me the salt",
+      "notes": "Russian filler 'ну' used to postpone the English-onset block. Silent micro-block resolves into successful completion. George profile bilingual case.",
       "situation": "default",
       "scenario": "casual"
     },
@@ -159,10 +160,10 @@
     },
     {
       "id": "h18_block_then_substitution",
-      "type": "block forces synonym substitution",
+      "type": "block forces synonym substitution, Whisper drops the block",
       "intended": "I need to call my therapist",
-      "disfluent": "i need to uh c c [BLOCK] reach out to my therapist",
-      "notes": "Speaker blocks on 'call', substitutes 'reach out to'. If covert profile flags 'call' as avoided, ALWAYS RESTATE should restore 'call'. If not, preserve 'reach out to'. Tests covert-avoidance logic.",
+      "disfluent": "i need to uh c c reach out to my therapist",
+      "notes": "Speaker blocks on 'call', substitutes 'reach out to'. Silent block during the abandonment manifests as dropped (no hallucination). If covert profile flags 'call' as avoided, ALWAYS RESTATE should restore 'call'. If not, preserve 'reach out to'. Tests covert-avoidance logic.",
       "situation": "high_stress",
       "scenario": "professional"
     }

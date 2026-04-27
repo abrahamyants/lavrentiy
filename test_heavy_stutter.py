@@ -182,6 +182,111 @@ def coverage(intended: str, output: str) -> float:
     return round(len(a & b) / len(a), 4)
 
 
+# ─── Commodity baseline: vanilla GPT-4o, no Lav prompt-stack ───
+# Answers the question: does Lavrentiy add measurable value over a
+# $0.01 commodity GPT-4o call with a one-line system prompt?
+# Lift per case = (commodity score) vs (Lav score). Positive lift
+# only counts as Lav doing real work.
+
+_COMMODITY_CLIENT = None
+_COMMODITY_LOADED = False
+_COMMODITY_LAYER_KEY = 0  # uses int 0 so it sorts before L1-L4 in summary
+
+
+def _commodity_setup():
+    """Load a vanilla OpenAI client. Tries env var, then api_key.txt files.
+    Returns None if no key — commodity baseline silently skipped in that case."""
+    global _COMMODITY_CLIENT, _COMMODITY_LOADED
+    if _COMMODITY_LOADED:
+        return _COMMODITY_CLIENT
+    _COMMODITY_LOADED = True
+    try:
+        import openai
+    except ImportError:
+        return None
+    # Prefer env var. Then walk known on-disk locations. The repo-root
+    # api_key.txt is often stale/rotated; the working install at AppData
+    # is what the running engine uses, so it's the most reliable
+    # fallback. We try a small probe call against each candidate to
+    # filter out known-bad keys before committing to one.
+    candidates = []
+    env_key = os.environ.get("OPENAI_API_KEY", "")
+    if env_key:
+        candidates.append(("env", env_key))
+    for label, p in [
+        ("repo-root", HERE / "api_key.txt"),
+        ("wim-api", HERE / "wim" / "api" / "api_key.txt"),
+        ("repo-engine", HERE / "engine" / "api_key.txt"),
+        ("install", Path(os.path.expandvars(
+            r"%LOCALAPPDATA%\Programs\Lavrentiy-Eval\engine\api_key.txt"
+        ))),
+    ]:
+        if p.exists():
+            try:
+                k = p.read_text(encoding="utf-8").strip()
+                if k:
+                    candidates.append((label, k))
+            except OSError:
+                pass
+    if not candidates:
+        return None
+    for label, k in candidates:
+        try:
+            client = openai.OpenAI(api_key=k)
+            # Probe with a minimal models.list call (cheap, no completion)
+            client.models.list()
+            print(f"[commodity] using {label} api_key")
+            _COMMODITY_CLIENT = client
+            return _COMMODITY_CLIENT
+        except Exception:
+            continue
+    return None
+
+
+def _run_commodity(case):
+    """One vanilla GPT-4o call, NO Lav prompt-engineering. Returns a row
+    with layer=_COMMODITY_LAYER_KEY (0). Caller scores the same way as
+    Lav rows so direct lift is visible in the report."""
+    client = _commodity_setup()
+    situation = case.get("situation", "default")
+    base_row = {
+        "case_id": case["id"], "type": case["type"],
+        "layer": _COMMODITY_LAYER_KEY, "situation": situation,
+        "scenario": case.get("scenario", ""),
+        "intended": case["intended"], "raw_input": case["disfluent"],
+        "falcon_ok": None, "confidence": None,
+    }
+    if client is None:
+        return [{**base_row, "output": "", "elapsed_s": 0.0,
+                 "error": "OpenAI client not configured"}]
+    t0 = time.time()
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": (
+                    "You receive raw, messy speech-to-text output. Return ONLY "
+                    "the cleaned-up version, nothing else. No preamble, no "
+                    "commentary, no markdown, no quotes around the output."
+                )},
+                {"role": "user", "content": case["disfluent"]},
+            ],
+            temperature=0.3,
+        )
+        out = (resp.choices[0].message.content or "").strip()
+        return [{**base_row, "output": out,
+                 "elapsed_s": round(time.time() - t0, 2), "error": ""}]
+    except Exception as e:
+        return [{**base_row, "output": "",
+                 "elapsed_s": round(time.time() - t0, 2),
+                 "error": str(e)[:400]}]
+
+
+def _layer_label(L):
+    """Display label: 0 → 'Commodity', N → 'LN'."""
+    return "Commodity" if L == _COMMODITY_LAYER_KEY else f"L{L}"
+
+
 # ─── Backend: in-process module ───
 
 def _backend_module_setup():
@@ -376,7 +481,7 @@ def render_html(cases, rows, ts, total_s, backend, tone, mode):
             else:
                 fal = '-'
             row_html = (
-                f'<tr><td>L{r["layer"]}</td>'
+                f'<tr><td>{_layer_label(r["layer"])}</td>'
                 f'<td>{esc(r["output"] or "")}</td>'
                 f'<td>{fal}</td>'
                 + cell_num(r.get("wer_vs_intended"), 0.20, 0.50, lower_is_better=True)
@@ -418,7 +523,7 @@ def render_html(cases, rows, ts, total_s, backend, tone, mode):
         pn = mean([r.get("proper_noun_rate") for r in rs])
         fok = sum(1 for r in rs if r["falcon_ok"] is True)
         parts.append(
-            f'<tr><td>L{L}</td><td>{len(rs)}</td>'
+            f'<tr><td>{_layer_label(L)}</td><td>{len(rs)}</td>'
             + cell_num(wmed, 0.20, 0.50, lower_is_better=True)
             + cell_num(imed, 0.50, 0.80)
             + cell_num(cmed, 0.70, 0.90)
@@ -521,13 +626,16 @@ def main():
     for i, c in enumerate(cases, 1):
         print(f"[{i}/{len(cases)}] {c['id']}")
         rows = run_one(c)
+        # Always run commodity baseline alongside Lav. Same scoring,
+        # different prompt-stack. Lift is visible per-case in the report.
+        rows.extend(_run_commodity(c))
         for r in rows:
             _score_row(r)
         all_rows.extend(rows)
         for r in rows:
             f_mark = ("OK" if r["falcon_ok"] is True else
                       "FAIL" if r["falcon_ok"] is False else "-")
-            print(f"  L{r['layer']}  {r['elapsed_s']}s  "
+            print(f"  {_layer_label(r['layer'])}  {r['elapsed_s']}s  "
                   f"WER={r.get('wer_vs_intended', '-'):.2f}  "
                   f"IntentJ={r.get('intent_jaccard', '-'):.2f}  "
                   f"Cov={r.get('coverage', '-'):.2f}  "
