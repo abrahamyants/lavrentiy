@@ -23,6 +23,8 @@ from pathlib import Path
 
 import openai
 
+import l1_pack
+
 # ─── Config ───
 MODEL = os.environ.get("WIM_MODEL", "gpt-4o")
 MODEL_L4 = os.environ.get("WIM_MODEL_L4", "gpt-4o")
@@ -531,6 +533,13 @@ def build_prompt(raw_text, tone="casual", layer=2, profile=None, situation="defa
             "\n  IN:  'Can you send me the, the report by, by Friday'"
             "\n  OUT: 'Can you send me the report by Friday'"
         )
+
+        # L1-transfer pack injection (L2/L3 only — L4 has its own clinical
+        # framing and double-instructing the model harms output quality).
+        # Mirrors lavrentiy.py and L1PackHelper.kt — same prompt text.
+        l1_block = l1_pack.prompt_injection(profile)
+        if l1_block:
+            parts.append(l1_block)
 
     # L4: Full clinical stutter context
     if layer >= 4:
