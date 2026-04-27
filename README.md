@@ -1862,7 +1862,7 @@ compiled): dropped the ~1.6 GB faster-whisper bundle and the ~2 GB Llama
 Ollama bundle. Both went dormant in the 04-24 evening pivot back to cloud
 GPT-4o + Anthropic for L2-L4. v1.4.0 now bundles only the Moonshine ONNX
 model files (encoder ~77 MB + decoder ~159 MB) into
-`{%USERPROFILE}\.cache\moonshine\base\`. First-launch behavior on a fresh
+`%USERPROFILE%\.cache\moonshine\base\`. First-launch behavior on a fresh
 machine: model files already on disk, `local/whisper_local.py._ensure_model`
 finds them, no internet round-trip, L1 works offline immediately. L2-L4
 still require internet (graceful fallback to raw text on cloud failure).
