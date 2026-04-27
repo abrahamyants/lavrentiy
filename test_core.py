@@ -2,7 +2,7 @@
 Isolated unit tests for Lavrentiy core logic functions.
 Tests pure functions without needing audio hardware, API keys, or Win32.
 """
-import re, json, sys, difflib, time, ast
+import os, re, json, sys, difflib, time, ast
 
 with open('lavrentiy.py', 'r', encoding='utf-8') as f:
     source = f.read()
@@ -10,9 +10,13 @@ with open('lavrentiy.py', 'r', encoding='utf-8') as f:
 tree = ast.parse(source)
 lines = source.split('\n')
 
-# Build namespace with needed constants
+# Build namespace with needed constants. `os` is needed because the
+# constants block in lavrentiy.py (LANGUAGE..._personal_onset_weights_by_lang)
+# uses os.environ.get(...) for env-var-driven config (LOCAL_FW_*, LAV_LOCAL_LLM
+# etc.). Without it, exec(const_block, ns) raises NameError at the first
+# os.environ.get call. Past CI failures all came from this gap.
 from pathlib import Path
-ns = {'re': re, 'json': json, 'difflib': difflib, 'time': time, 'Path': Path}
+ns = {'os': os, 're': re, 'json': json, 'difflib': difflib, 'time': time, 'Path': Path}
 
 # Dynamically find constants block: from LANGUAGE= through _personal_onset_weights_by_lang
 # This avoids hardcoded line numbers breaking when code is added above.
