@@ -1,0 +1,106 @@
+{
+  "language": "spanish",
+  "markers": [
+    {
+      "id": "age_calque",
+      "category": "lexical",
+      "mechanism": "Direct translation of Spanish tener X años (to have X years) instead of English 'to be X years old'.",
+      "examples": [
+        {"input": "I have 25 years.", "output": "I am 25 years old."}
+      ],
+      "prompt_hint": "Convert 'I have N years' patterns to 'I am N years old' when describing age.",
+      "citation": "Odlin (1989)"
+    },
+    {
+      "id": "question_calque",
+      "category": "lexical",
+      "mechanism": "Direct translation of Spanish hacer una pregunta (to make a question).",
+      "examples": [
+        {"input": "Can I make a question?", "output": "Can I ask a question?"}
+      ],
+      "prompt_hint": "Replace 'make a question' with 'ask a question'.",
+      "citation": "Odlin (1989)"
+    },
+    {
+      "id": "null_subject",
+      "category": "syntactic",
+      "mechanism": "Spanish is pro-drop; learners omit dummy 'it' and referential subjects in non-pro-drop English.",
+      "examples": [
+        {"input": "Is raining outside.", "output": "It is raining outside."}
+      ],
+      "prompt_hint": "Insert dummy or referential subjects ('it', 'there', 'I', 'we', 'they') where English requires an overt subject.",
+      "citation": "Hermas (2014)"
+    },
+    {
+      "id": "generic_definite_article",
+      "category": "morphological",
+      "mechanism": "Spanish uses definite articles for generic and abstract nouns; learners over-apply 'the' in English.",
+      "examples": [
+        {"input": "The society is changing.", "output": "Society is changing."}
+      ],
+      "prompt_hint": "Drop 'the' before generic, abstract, or plural-generic nouns (society, freedom, life, people, women, etc.) when used in a generic sense.",
+      "citation": "MacWhinney (2013)"
+    },
+    {
+      "id": "unaccusative_inversion",
+      "category": "syntactic",
+      "mechanism": "Spanish allows post-verbal subjects with unaccusative verbs (arrive, exist, appear); English requires SV order.",
+      "examples": [
+        {"input": "Arrived three men.", "output": "Three men arrived."}
+      ],
+      "prompt_hint": "Restore Subject-Verb order when an unaccusative verb (arrive, exist, appear, come, happen) precedes its subject.",
+      "citation": "Hermas (2014)"
+    },
+    {
+      "id": "preposition_in_overuse",
+      "category": "lexical",
+      "mechanism": "Spanish en covers English in/on/at; learners default to 'in' for all spatial prepositions.",
+      "examples": [
+        {"input": "I am in the bus.", "output": "I am on the bus."}
+      ],
+      "prompt_hint": "Correct 'in' to 'on' (vehicles, surfaces, days) or 'at' (specific locations, times) where English distinguishes.",
+      "citation": "Zubizarreta (2007)"
+    },
+    {
+      "id": "directional_preposition_to",
+      "category": "lexical",
+      "mechanism": "Spanish a marks both endpoint ('to the boat') and direction ('toward the boat'); English distinguishes them.",
+      "examples": [
+        {"input": "He swam to the boat.", "output": "He swam toward the boat."}
+      ],
+      "prompt_hint": "When the speaker means direction (not arrival) with manner-of-motion verbs (swim, run, walk, drive), use 'toward' instead of 'to'.",
+      "citation": "Zubizarreta (2007)"
+    },
+    {
+      "id": "adjective_postposition",
+      "category": "syntactic",
+      "mechanism": "Spanish places attributive adjectives after the noun by default; English places them before.",
+      "examples": [
+        {"input": "The car red is fast.", "output": "The red car is fast."}
+      ],
+      "prompt_hint": "Move post-nominal attributive adjectives to pre-nominal position (the car red → the red car).",
+      "citation": "Odlin (1989)"
+    },
+    {
+      "id": "double_negation",
+      "category": "discourse",
+      "mechanism": "Spanish requires negative concord (No veo nada = literally 'I don't see nothing'); English does not.",
+      "examples": [
+        {"input": "I didn't see nothing.", "output": "I didn't see anything."}
+      ],
+      "prompt_hint": "When two negatives appear in one clause, replace the second with its any-series equivalent (nothing→anything, nobody→anybody, never→ever, no→any).",
+      "citation": "MacWhinney (2013)"
+    },
+    {
+      "id": "body_part_definite_article",
+      "category": "morphological",
+      "mechanism": "Spanish uses definite articles ('the hands', 'the head') for body parts and clothing where English uses possessives.",
+      "examples": [
+        {"input": "I washed the hands.", "output": "I washed my hands."}
+      ],
+      "prompt_hint": "Replace definite articles with possessive determiners (my, your, his, her, our, their) before body parts and personal clothing.",
+      "citation": "MacWhinney (2013)"
+    }
+  ],
+  "notes": "Spanish typology: pro-drop, flexible word order with unaccusative inversion, definite articles for generics, single spatial preposition 'en'. Patterns broadly apply to other Iberian Romance languages with caveats."
+}

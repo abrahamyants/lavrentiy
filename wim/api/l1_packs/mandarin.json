@@ -1,0 +1,106 @@
+{
+  "language": "mandarin",
+  "markers": [
+    {
+      "id": "tense_unmarking",
+      "category": "morphological",
+      "mechanism": "Mandarin has no inflectional tense; aspect/time is expressed lexically. Learners drop English -ed and irregular past forms.",
+      "examples": [
+        {"input": "Yesterday he bring the cake.", "output": "Yesterday he brought the cake."}
+      ],
+      "prompt_hint": "When the sentence has a past-time adverbial (yesterday, last week, ago, in 2020) but a bare verb stem, mark the verb with the correct past tense form.",
+      "citation": "Nicoladis (2020)"
+    },
+    {
+      "id": "plural_dropping",
+      "category": "morphological",
+      "mechanism": "Mandarin plural marker -men is restricted (mostly to human referents) and often dropped after numerals; learners omit English plural -s.",
+      "examples": [
+        {"input": "I read three book.", "output": "I read three books."}
+      ],
+      "prompt_hint": "Add plural -s to count nouns following numerals greater than one (three book→three books, two car→two cars).",
+      "citation": "Lardiere (2009)"
+    },
+    {
+      "id": "topic_comment_ordering",
+      "category": "syntactic",
+      "mechanism": "Mandarin is topic-prominent; learners front the topic regardless of grammatical role.",
+      "examples": [
+        {"input": "This book, I have read.", "output": "I have read this book."}
+      ],
+      "prompt_hint": "When a topicalized object precedes the subject ('This book, I read it'), restructure to canonical SVO order unless the speaker is explicitly emphasizing.",
+      "citation": "Hu (2018)"
+    },
+    {
+      "id": "paired_conjunctions",
+      "category": "discourse",
+      "mechanism": "Mandarin requires paired conjunctions (yinwei...suoyi = 'because...so'; suiran...danshi = 'although...but').",
+      "examples": [
+        {"input": "Although it rained, but we went.", "output": "Although it rained, we went."}
+      ],
+      "prompt_hint": "Drop the redundant second conjunction in 'Although X, but Y' / 'Because X, so Y' / 'Even though X, still Y' patterns.",
+      "citation": "Liu (2018)"
+    },
+    {
+      "id": "copula_drop_adjectival",
+      "category": "syntactic",
+      "mechanism": "Mandarin adjectives function as stative verbs and require no copula; learners drop 'is/are' before adjectival predicates.",
+      "examples": [
+        {"input": "The weather very hot.", "output": "The weather is very hot."}
+      ],
+      "prompt_hint": "Insert 'is/are/am' before predicate adjectives where the speaker dropped the copula.",
+      "citation": "Lardiere (2009)"
+    },
+    {
+      "id": "deliberative_i_think",
+      "category": "discourse",
+      "mechanism": "Mandarin wo juede (I feel/think) commonly appears medially or finally; transferred 'I think' lands in non-initial English positions.",
+      "examples": [
+        {"input": "It is a good idea, I think.", "output": "I think it is a good idea."}
+      ],
+      "prompt_hint": "Move sentence-medial or sentence-final 'I think' / 'I feel' / 'I guess' to the front of the clause.",
+      "citation": "Talebi (2014)"
+    },
+    {
+      "id": "backchannel_yeah",
+      "category": "discourse",
+      "mechanism": "Mandarin dui ('right, correct') is used as acknowledgment without commitment; transferred 'yeah' fills the same role and reads as agreement in English.",
+      "examples": [
+        {"input": "Yeah.", "output": ""}
+      ],
+      "prompt_hint": "When 'yeah' or 'yes' appears as a standalone backchannel in a written transcript with no clear question to answer, evaluate whether it carries content; if purely acknowledgment, drop it.",
+      "citation": "Talebi (2014)"
+    },
+    {
+      "id": "self_correction_ah",
+      "category": "discourse",
+      "mechanism": "Mandarin a is a clause-medial particle marking self-correction; transferred 'ah' appears mid-sentence in English.",
+      "examples": [
+        {"input": "He went ah she went to the store.", "output": "He went—I mean, she went to the store."}
+      ],
+      "prompt_hint": "When 'ah' or 'a' interrupts a clause and the next phrase replaces what came before, render as a self-correction (em-dash + 'I mean,' or just resolve to the corrected form).",
+      "citation": "Talebi (2014)"
+    },
+    {
+      "id": "relative_clause_pre_positioning",
+      "category": "syntactic",
+      "mechanism": "Mandarin relative clauses precede the head noun (head-final); learners preserve this order in English.",
+      "examples": [
+        {"input": "The I bought book.", "output": "The book that I bought."}
+      ],
+      "prompt_hint": "Move pre-nominal relative clauses to post-nominal position with 'that' / 'which' / 'who' (the I read book → the book that I read).",
+      "citation": "Lyu & Wu (2017)"
+    },
+    {
+      "id": "gender_pronoun_confusion",
+      "category": "lexical",
+      "mechanism": "Mandarin spoken pronouns are homophonous: tā = he/she/it. Learners use he/she/it interchangeably in English.",
+      "examples": [
+        {"input": "My sister, he is coming.", "output": "My sister, she is coming."}
+      ],
+      "prompt_hint": "When a referent's gender is established in the surrounding context, correct mismatched pronouns (sister with 'he' → 'she'; brother with 'she' → 'he').",
+      "citation": "Liu (2018)"
+    }
+  ],
+  "notes": "Mandarin typology: isolating, topic-prominent, no inflectional morphology, head-final relative clauses, paired-conjunction logic. Patterns broadly apply to Cantonese and other Sinitic varieties."
+}

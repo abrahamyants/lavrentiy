@@ -1,0 +1,106 @@
+{
+  "language": "russian",
+  "markers": [
+    {
+      "id": "article_omission",
+      "category": "morphological",
+      "mechanism": "Slavic languages lack articles; learners default to bare nouns in English.",
+      "examples": [
+        {"input": "I went to store to buy book.", "output": "I went to the store to buy a book."}
+      ],
+      "prompt_hint": "Insert 'a', 'an', or 'the' where English requires articles, especially before singular count nouns.",
+      "citation": "Burdis (2024)"
+    },
+    {
+      "id": "copula_drop",
+      "category": "syntactic",
+      "mechanism": "Russian present-tense equational sentences omit the verb 'to be'.",
+      "examples": [
+        {"input": "He very good student.", "output": "He is a very good student."}
+      ],
+      "prompt_hint": "Add 'is', 'am', or 'are' in present-tense equational and attributive clauses where the speaker dropped the copula.",
+      "citation": "Szewel (2021)"
+    },
+    {
+      "id": "present_continuous_overuse",
+      "category": "morphological",
+      "mechanism": "Slavic imperfective aspect is much broader than English continuous; learners over-extend -ing to stative verbs.",
+      "examples": [
+        {"input": "I am needing more time.", "output": "I need more time."}
+      ],
+      "prompt_hint": "Convert progressive forms of stative verbs (need, know, want, have, believe, understand) to simple present.",
+      "citation": "Szewel (2021)"
+    },
+    {
+      "id": "zero_subject",
+      "category": "syntactic",
+      "mechanism": "Russian verb morphology is rich enough to drop subject pronouns; English requires overt subjects.",
+      "examples": [
+        {"input": "Went to the cinema yesterday.", "output": "I went to the cinema yesterday."}
+      ],
+      "prompt_hint": "Restore dropped subject pronouns (typically 'I', 'we', or 'they') based on context.",
+      "citation": "Szewel (2021)"
+    },
+    {
+      "id": "causative_failure",
+      "category": "lexical",
+      "mechanism": "Russian lacks the 'have something done' periphrastic causative; learners default to active voice.",
+      "examples": [
+        {"input": "I cut my hair at the salon.", "output": "I had my hair cut at the salon."}
+      ],
+      "prompt_hint": "When the speaker describes an action performed for them by a service provider, restructure to 'have/get X done' if context makes the causative reading clear.",
+      "citation": "Szewel (2021)"
+    },
+    {
+      "id": "punctuation_serial_comma",
+      "category": "syntactic",
+      "mechanism": "Russian punctuation rules forbid the serial (Oxford) comma.",
+      "examples": [
+        {"input": "Apples, oranges and pears.", "output": "Apples, oranges, and pears."}
+      ],
+      "prompt_hint": "Add the serial comma before 'and' or 'or' in lists of three or more items.",
+      "citation": "Fler Press (2020)"
+    },
+    {
+      "id": "punctuation_comma_before_that",
+      "category": "syntactic",
+      "mechanism": "Russian grammar mandates a comma before subordinating что (that); learners transfer this comma into English.",
+      "examples": [
+        {"input": "He said, that he was tired.", "output": "He said that he was tired."}
+      ],
+      "prompt_hint": "Remove the comma before complementizer 'that' in restrictive subordinate clauses.",
+      "citation": "Fler Press (2020)"
+    },
+    {
+      "id": "apostrophe_omission",
+      "category": "orthographic",
+      "mechanism": "Russian has no possessive apostrophe; learners drop it in English possessives.",
+      "examples": [
+        {"input": "My mothers house.", "output": "My mother's house."}
+      ],
+      "prompt_hint": "Insert the possessive apostrophe ('s or s') on possessive nouns.",
+      "citation": "Fler Press (2020)"
+    },
+    {
+      "id": "word_order_topic_focus",
+      "category": "syntactic",
+      "mechanism": "Russian word order is pragmatic (topic-focus driven), not grammatical; learners scramble English SVO order.",
+      "examples": [
+        {"input": "A new car bought my father.", "output": "My father bought a new car."}
+      ],
+      "prompt_hint": "Restore canonical Subject-Verb-Object order when the speaker has fronted an object or focused element non-standardly.",
+      "citation": "Burdis (2024)"
+    },
+    {
+      "id": "pluralizing_uncountables",
+      "category": "lexical",
+      "mechanism": "Nouns countable in Russian (advice, information, equipment, knowledge) are uncountable in English.",
+      "examples": [
+        {"input": "He gave me good advices.", "output": "He gave me good advice."}
+      ],
+      "prompt_hint": "Convert plural forms of English mass nouns (advices→advice, informations→information, equipments→equipment, knowledges→knowledge) to singular.",
+      "citation": "Akhapkina (2015)"
+    }
+  ],
+  "notes": "Slavic family: no articles, rich case morphology, perfective/imperfective aspect, pragmatic word order. Patterns also apply (with variation) to Ukrainian and Polish."
+}
