@@ -2823,6 +2823,93 @@ Resolved by changing Lav to read `profile_l1` first with `l1` fallback
 (commit `0394c0c`), migrating George's profile.json, and verifying both
 keys load correctly. WiM stayed on `profile_l1`. Both apps now agree.
 
+#### 96. CI red-rot for ~3 days went unobserved across all sessions (2026-04-27)
+
+`gh run list --limit 10` on `gugosf114/lavrentiy` showed all 10 most
+recent runs failing — both the `CI` workflow (Tests) and
+`pages-build-deployment` — every push since 2026-04-25 onward landed
+on red. Same errors repeating, not a regression cascade. Three sessions
+including this one pushed onto the failed pile without anyone running
+`gh run list`. Commit hygiene was excellent throughout (atomic, well-
+named, conventional-commits style); CI hygiene was zero. The two
+qualities can't coexist in a single contributor — pattern is "someone
+wrote thorough CI then nobody ever looked at it."
+
+Surfaced only when George asked for a happy-or-sad read on the commit
+history. Without that prompt, the red would have continued accumulating.
+Lesson: `gh run list` should be a default check after any push, same as
+`git status` after any edit.
+
+#### 97. test_core.py namespace dict missing `os` (2026-04-27)
+
+Lav's `test_core.py:22` does `exec(const_block, ns)` where `const_block`
+is the `LANGUAGE..._personal_onset_weights_by_lang` range from
+`lavrentiy.py` (lines 182-975). When `LOCAL_FW_*` config landed
+(faster-whisper integration), that range gained `os.environ.get(...)`
+references at lines 217-220. The test's `ns` dict initialized with
+`{'re', 'json', 'difflib', 'time', 'Path'}` — no `os`. Exec raised
+`NameError: name 'os' is not defined` at the first env-var lookup,
+crashed setup, ran zero assertions.
+
+The `os.environ.get` calls and the test setup got out of sync at some
+prior commit and nobody re-ran the test locally. Fix (`581fdc4`):
+`import os` + `'os': os` in ns. 39/39 tests pass after fix. Lesson:
+when introducing new module references in a code range that's exec'd
+from a test, update the test's namespace at the same commit.
+
+#### 98. README.md `{%USERPROFILE}` broke Pages Liquid build for ~3 days (2026-04-27)
+
+Line 1865 had `` `{%USERPROFILE}\.cache\moonshine\base\` ``. Jekyll's
+Liquid templating engine parses `{%` as an unterminated tag opener
+and crashed the Pages build with
+`Liquid syntax error (line 1865): Tag '{%' was not properly terminated`.
+Bonus: it's also a real Windows env-var typo — should be `%USERPROFILE%`
+(percent on both sides, no braces). Single-character fix
+(`c12c01f`) resolved both the Liquid failure AND the content correctness.
+
+The original commit that introduced this typo never had its Pages
+build inspected. Same lesson as #96 — `gh run list` after push.
+
+#### 99. Heavy-stutter test corpus v1 used `[BLOCK]` tokens never produced by real ASR (2026-04-27)
+
+The background agent that generated `heavy_stutter_test_scripts.json`
+used `[BLOCK]` and `[BLOCK-LONG]` literal tokens to mark silent freezes.
+Real Whisper output during a silent block is either NOTHING (dropped
+content) or a hallucination phrase ("thank you for watching",
+"thanks for watching", "subscribe", "transcribed by"). The literal
+`[BLOCK]` token convention made the test corpus EASIER than real
+production input — the engine was being scored on a problem it would
+never see.
+
+Caught by inspecting the corpus content against actual Whisper failure
+modes (per `feedback_inspect_data_before_categorizing.md`). Fix
+(`f97668e`): revised 11 of 18 cases to use realistic ASR output
+patterns — mix of dropped silence and documented hallucination phrases.
+
+#### 100. Commodity-baseline first run hit 18 × 401 with stale `api_key.txt` (2026-04-27)
+
+The harness's `_commodity_setup()` walked env var → repo-root
+`api_key.txt` → other paths. Repo-root had a rotted `sk-proj-v-sK...`
+key (was once valid; expired). All 18 commodity calls 401'd in 0.09s
+each — too fast for a real network round-trip, the tell I should have
+caught before reading the JSON.
+
+Fix (`f97668e`): added a probe call (`client.models.list()`) to filter
+known-bad keys, plus an additional fallback path
+`%LOCALAPPDATA%\Programs\Lavrentiy-Eval\engine\api_key.txt` (the working
+install dir's key the running engine uses). Lesson: when an API call
+returns implausibly fast, the failure is in the auth layer, not the
+output.
+
+#### 101. Time estimate padded: "35 min" actual 14:55 (2026-04-27)
+
+After the first phase of work landed, reported "Time spent: ~35 min"
+to George. Real elapsed time was 14m 55s per the session timer he
+had visible. Padding is exactly the failure mode named in
+`feedback_dont_overestimate_time.md` — recurring rule, recurring
+violation. Same failure-shape as #29 (Session 9) and #34 (Session 10).
+Stop estimating. Per the saved rule: give honest numbers or skip.
+
 ### Memory rules used / reinforced this session
 
 - `feedback_use_speech_disfluency.md` — held the line throughout, including
