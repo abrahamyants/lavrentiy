@@ -6947,15 +6947,18 @@ def pipeline():
         if current_layer >= 2:
             filtered_text = apply_profile_corrections(filtered_text, profile)
 
-        # Phonetic-neighbor swap (Double Metaphone) — all layers. WiM parity.
+        # Phonetic-neighbor swap (Double Metaphone) — L2/L3 ONLY.
         # Catches ASR mishears that aren't explicit profile-correction pairs:
         # "smyth" -> "Smith", "wisper" -> "Wispr". Gated to the user's high-risk
-        # onsets so we don't re-score every token in the utterance.
-        filtered_text = phonetic_match(
-            filtered_text,
-            profile.get("vocabulary", []),
-            profile.get("onset_weights", {}),
-        )
+        # onsets so we don't re-score every token in the utterance. Skipped at
+        # L1 (paste-raw, no LLM benefit) and L4 (Sonnet ext-think handles
+        # phonetic context with the rich onset_weights prompt block).
+        if 2 <= current_layer <= 3:
+            filtered_text = phonetic_match(
+                filtered_text,
+                profile.get("vocabulary", []),
+                profile.get("onset_weights", {}),
+            )
 
         if filtered_text != raw_text and current_layer == 1:
             log(f"Filter: \"{raw_text}\" → \"{filtered_text}\"", "info")
