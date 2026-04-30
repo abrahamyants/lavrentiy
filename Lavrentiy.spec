@@ -22,7 +22,8 @@ binaries = []
 hiddenimports = ['scipy.signal', 'pyperclip', 'pyautogui', 'lavrentiy']
 
 for pkg in ('PySide6', 'moonshine_onnx', 'keyboard', 'soundfile',
-            'sounddevice', 'onnxruntime', 'anthropic', 'openai'):
+            'sounddevice', 'onnxruntime', 'anthropic', 'openai',
+            'metaphone'):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b

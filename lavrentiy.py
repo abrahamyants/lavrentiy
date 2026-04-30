@@ -45,6 +45,14 @@ import domain_pack
 import rejection_store
 import style_examples
 
+# Phonetic-neighbor matcher. Mirrors WiM PhoneticMatcher.kt parity.
+# Defensive import — engines bundled before metaphone landed in Lavrentiy.spec
+# silently degrade to no-op (phonetic_match returns text unchanged).
+try:
+    from metaphone import doublemetaphone as _doublemetaphone
+except ImportError:
+    _doublemetaphone = None
+
 # -- Headless mode (pythonw / hidden window) ──────────────────────
 if sys.stdout is None:
     sys.stdout = open(os.devnull, 'w')
@@ -3464,6 +3472,11 @@ NATURAL_REPEATS = {
     "go go", "now now", "come come", "well well",
     "out out", "boo boo", "ha ha", "ho ho",
     "knock knock", "tsk tsk", "aye aye",
+    # Emphatic doublings — WiM parity (DisfluencyFilter.kt NATURAL_REPEATS).
+    # Lav's word-repeat regex only fires at 3+ so 2× emphatic is already safe;
+    # these guard the 3+ case ("really really really" stays).
+    "really really", "many many", "much much", "right right",
+    "sure sure", "okay okay", "just just",
     # Russian
     "да да", "нет нет", "ну ну",
 }
@@ -3678,6 +3691,119 @@ def apply_profile_corrections(text, prof):
             result = pattern.sub(right, result)
             log(f"L1 correction: \"{wrong}\" → \"{right}\"", "info")
     return result
+
+
+# Phonetic-neighbor swap (Double Metaphone) — WiM PhoneticMatcher.kt parity.
+# When the local ASR mishears a word phonetically close to a word in the user's
+# learned vocabulary, swap it. Catches "smyth" -> "Smith" without requiring an
+# explicit corrections-pair entry. Fires only on words whose onset is in the
+# user's high-risk onset map (the ones they personally block on) so we target
+# the words worth re-scoring instead of every token.
+_PHONETIC_HIGH_RISK_THRESHOLD = 0.5
+_PHONETIC_MIN_WORD_LENGTH = 3
+_PHONETIC_TOKEN_RE = re.compile(r"([^\W_]+(?:'[^\W_]+)?)|([\W_]+)", re.UNICODE)
+
+
+def phonetic_match(text, vocabulary, onset_weights=None):
+    """Phonetic-neighbor swap for ASR output (Double Metaphone).
+
+    Args:
+        text: raw text post-strip_disfluencies / apply_profile_corrections
+        vocabulary: list of words from user's profile
+        onset_weights: user's personal onset-difficulty map. Empty -> match
+                       all onsets (new user without learned weights).
+
+    Returns text with phonetic-neighbor swaps applied; unchanged otherwise.
+    Silently no-ops when metaphone is missing (defensive import) or vocab empty.
+    """
+    if not text or not vocabulary or _doublemetaphone is None:
+        return text
+
+    vocab_codes = []
+    for w in vocabulary:
+        clean = (w or "").strip()
+        if len(clean) < _PHONETIC_MIN_WORD_LENGTH:
+            continue
+        primary, alternate = _doublemetaphone(clean)
+        if not primary:
+            continue
+        vocab_codes.append((clean, primary, alternate or ""))
+    if not vocab_codes:
+        return text
+
+    # High-risk onset gate. None means "no filter" (new user, accept any onset).
+    high_risk_onsets = None
+    if onset_weights:
+        high_risk_onsets = {
+            o for o, w in onset_weights.items()
+            if w > _PHONETIC_HIGH_RISK_THRESHOLD
+        }
+
+    parts = []
+    swap_count = 0
+    for match in _PHONETIC_TOKEN_RE.finditer(text):
+        word = match.group(1) or ""
+        filler = match.group(2) or ""
+        if word:
+            swapped = _phonetic_maybe_swap(word, vocab_codes, high_risk_onsets)
+            if swapped is not None and swapped.lower() != word.lower():
+                parts.append(_preserve_casing(word, swapped))
+                swap_count += 1
+                try:
+                    log(f"Phonetic swap: \"{word}\" -> \"{swapped}\"", "info")
+                except Exception:
+                    pass
+            else:
+                parts.append(word)
+        else:
+            parts.append(filler)
+
+    return "".join(parts) if swap_count > 0 else text
+
+
+def _phonetic_maybe_swap(asr_word, vocab_codes, high_risk_onsets):
+    """Best phonetic match in vocab_codes, or None if none / already in vocab."""
+    if _doublemetaphone is None:
+        return None
+    clean = asr_word.lower()
+    if len(clean) < _PHONETIC_MIN_WORD_LENGTH:
+        return None
+
+    onset = _extract_onset(clean)
+    if high_risk_onsets is not None and onset not in high_risk_onsets:
+        return None
+
+    asr_primary, asr_alternate = _doublemetaphone(clean)
+    asr_alternate = asr_alternate or ""
+    if not asr_primary:
+        return None
+
+    asr_first = clean[0]
+
+    for original, primary, alternate in vocab_codes:
+        if original.lower() == clean:
+            return None  # already in vocab
+        # First-letter match guards against Double Metaphone's b/p, t/d, k/g,
+        # m/n collisions ("bitch" vs "push" both PX, "tin" vs "din" both TN).
+        entry_first = original[0].lower() if original else ""
+        if entry_first != asr_first:
+            continue
+        if asr_primary == primary:
+            return original
+        if asr_alternate and asr_alternate == primary:
+            return original
+        if alternate and asr_primary == alternate:
+            return original
+    return None
+
+
+def _preserve_casing(original, replacement):
+    """all-lower / all-upper / mixed (use vocab form)."""
+    if original.islower():
+        return replacement.lower()
+    if original.isupper():
+        return replacement.upper()
+    return replacement
 
 
 def strip_block_hallucinations(text, low_conf_segments):
@@ -6820,6 +6946,16 @@ def pipeline():
         # Profile corrections (vocabulary/corrections map): L2+ so GPT sees learned fixes
         if current_layer >= 2:
             filtered_text = apply_profile_corrections(filtered_text, profile)
+
+        # Phonetic-neighbor swap (Double Metaphone) — all layers. WiM parity.
+        # Catches ASR mishears that aren't explicit profile-correction pairs:
+        # "smyth" -> "Smith", "wisper" -> "Wispr". Gated to the user's high-risk
+        # onsets so we don't re-score every token in the utterance.
+        filtered_text = phonetic_match(
+            filtered_text,
+            profile.get("vocabulary", []),
+            profile.get("onset_weights", {}),
+        )
 
         if filtered_text != raw_text and current_layer == 1:
             log(f"Filter: \"{raw_text}\" → \"{filtered_text}\"", "info")
