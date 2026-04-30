@@ -3011,3 +3011,164 @@ at `~/.claude/projects/C--Windows-System32/3743ea0f-4139-42fa-b066-77436ca8b5ad.
 line 2033 if a future session needs the deeper detail (decision trail,
 reverted approaches, gunmetal-palette specifics, etc.).
 
+
+## 2026-04-28 — Orchestrator wrap-up: 10 commits across orchestrator + heavy-stutter session + L1-pack CF wiring + cleanup agent dispatch + repo privatization
+
+Orchestrator-window perspective on the multi-day arc that ran 2026-04-26
+through 2026-04-28. Four+ Claude sessions converged: orchestration window
+(this entry's source — managed dispatches, batch commits per atomic group,
+push coordination), a heavy-stutter testing session (corpus + lavrentiy.py
+self-correction work), a Lav cleanup agent (launcher restoration +
+installer audit, dispatched from orchestrator), and a parallel WiM bubble
+unified build agent in the orchestrator's idle Opus 4.7 window.
+
+### Lav-side commits this arc — 10 total
+
+```
+6d21014  feat(wim/api): L1-pack injection wiring for Cloud Function reconstruct  [orchestrator]
+4b2d6ef  test(heavy-stutter): additional run results 02:38 + 02:42                [heavy-stutter session]
+f97668e  test(heavy-stutter): corpus revision + commodity baseline                [heavy-stutter session]
+c6d8b17  feat(lavrentiy): self-correction + always-restate + integrations         [heavy-stutter session]
+2f1215b  docs(deferred): reconstruction prompt experiments parked for later       [orchestrator]
+e4e208c  test(heavy-stutter): test corpus + scripts + acceptance criteria + run   [orchestrator]
+e178047  feat(style-examples): tone-learning example store                        [orchestrator]
+0b4e1c8  feat(rejection-store): persistence for user-rejected reconstruction      [orchestrator]
+73cb6b8  feat(domain-pack): industry-specific reconstruction packs                [orchestrator]
+f896782  feat(l1-pack): Cloud Function backend wiring with russian/spanish/mandarin packs [orchestrator]
+```
+
+All pushed to `origin/main`. Working tree clean.
+
+### Lav-side surface area added
+
+- **L1-pack Cloud Function wiring** (commit `6d21014`, matches WiM-side
+  Session 15 Task 1 from the WiM README) — closes the signed-in user
+  parity gap. Signed-in users route through `wim/api/reconstruct.py`
+  instead of calling Anthropic/OpenAI direct, so the CF needed the
+  same L1-pack injection the desktop client + WiM Android client
+  already had. `wim/api/l1_packs/{russian,spanish,mandarin}.json`
+  + `wim/api/l1_pack.py` (mirror of repo-root `l1_pack.py`). L4
+  intentionally excluded (has its own clinical framing).
+- **Domain pack architecture** (`domain_pack.py` + `domain_packs/`)
+  — 5 industries: finance, hipaa, legal, medical, sf_pro. Each pack
+  provides domain-conditioned reconstruction guidance for L2/L3 prompt
+  injection. Selected via `profile_industry` pref. Composes with
+  L1-pack injection.
+- **RejectionStore + StyleExamples** — paired stores for closed-loop
+  learning. RejectionStore tracks user-rejected reconstruction
+  candidates so they're downweighted in future flagging; StyleExamples
+  captures user's actual writing style per audience/situation context
+  for few-shot use in reconstruction prompt. Mirrors WiM-side
+  `RejectionStore.kt` + `StyleExamples.kt`.
+- **`lavrentiy.py` self-correction + always-restate + integrations**
+  (+304 lines via heavy-stutter session) — handles "I mean / actually
+  / no wait / scratch that" mid-sentence revision markers as canonical
+  content (post-marker text wins, pre-marker discarded), plus
+  always-restate prompt block, domain pack injection, rate-gap awareness,
+  regenerate-as-negative-feedback wiring, integration of rejection_store
+  + style_examples into the reconstruct path.
+- **Heavy-stutter test suite** — `HEAVY_STUTTER_ACCEPTANCE_CRITERIA.md`
+  + `HEAVY_STUTTER_CORPUS_RESEARCH.md` + `heavy_stutter_test_scripts.json`
+  + `test_heavy_stutter.py` runner + 3 result/report pairs (initial run +
+  02:38:30Z + 02:42:12Z runs). Corpus revision in `f97668e` swapped the
+  literal `[BLOCK]` test tokens for realistic Whisper output patterns
+  (dropped silence + documented hallucination phrases), per failure log
+  #99.
+- **Deferred reconstruction prompt experiments** —
+  `DEFERRED_RECONSTRUCTION_PROMPTS_2026-04-26.md`. Parked for future
+  iteration.
+
+### Cleanup agent (Task 1 done, Task 2+3 in progress at end of arc)
+
+Orchestrator dispatched a Lav cleanup agent (Opus 4.7, background) for
+launcher restoration → installer/launcher audit → PySide6 native app
+salvage. Task 1 reported done with mildly comedic diagnosis: engine
+was already running on 7878 (PID 11340, 41 sessions / 1842 words logged)
+and `Lavrentiy.bat` on Desktop already fired Chrome at it correctly —
+George had just lost track of the launcher this session. Daily-driver
+locked: double-click `C:\Users\georg\Desktop\Lavrentiy.bat`. Agent
+proceeded to Task 2 (audit) automatically. Task 3 (PySide6 salvage)
+pending at session-arc end.
+
+### Cross-cutting decisions locked this arc
+
+- **Both repos privatized on GitHub** (`gh repo edit` to `--visibility
+  private`). Failure-log content + IP differentiators (cross-vendor
+  Falcon, L1-transfer pack architecture, disfluency-aware reconstruction,
+  auto-Send accessibility chain) stay in the family until commercial
+  launch.
+- **L1-L4 parity rule saved to memory** (`feedback_lav_wim_parity.md`):
+  both apps must share identical L1-L4 stack by default; flag asymmetries
+  explicitly. The L1-pack CF wiring this arc directly executes this rule.
+- **Patent prior-art assessment** — 4 agent dispatches from orchestrator:
+  Sonnet 4.6 for prior-art search across 20 patents with primary-source
+  verification, Opus 4.7 for engagement-UX architecture spec, Opus 4.7
+  for per-word clarifier UX spec, Opus 4.7 for reconciliation merge.
+  Reconciled spec landed at `wim-android/docs/bubble_unified_build_spec.md`
+  (committed in WiM repo). Patent claim chain renumbered to 11
+  dependent claims (4-14) on top of 1-3, including Claim 14 from the
+  prediction+clarifier integration. Verdict: PATENTABLE WITH NARROWING.
+  Decision: file US provisional pro se ($130 USPTO fee), George (JD)
+  handles. Pinned for after voice-test validation.
+- **Patent reminder cron scheduled for 2026-04-28 9 AM PDT** — fires
+  today.
+- **Memory rules added this arc**: `feedback_lav_wim_parity.md`,
+  `feedback_propose_dont_punt.md`,
+  `feedback_read_primary_before_characterizing.md`.
+
+### Branch hygiene pass (cross-repo, executed from orchestrator)
+
+Six orphan `claude/*` worktree branches across bakers-agent + gugosf114
+nuked after preserving substantive ones:
+
+- **Preserved + pushed**: `claude/sweet-swirles-b2d137` (bakers-agent,
+  13 + 1 commits product code), `claude/admiring-ellis` (gugosf114,
+  corporate.html), `claude/friendly-haslett` (gugosf114, 2 commits SEO
+  + pricing guide), `claude/interesting-lamport` (gugosf114, 52 files
+  site-wide SEO content)
+- **Nuked clean**: `claude/sad-bouman-74a474` (bakers-agent),
+  `claude/gallant-bose`, `claude/modest-taussig`,
+  `claude/recursing-goodall`, `claude/reverent-haibt` (all gugosf114) —
+  zero unique commits, only Claude infra noise / auto-generated file
+  changes.
+
+WiM's own sibling worktrees (l4-rewrite, qwen3, vosk, wakelock, wearos,
+whispercpp) NOT touched this arc — handled by the Lav cleanup agent's
+Task 2.
+
+### Followups (not done in this arc)
+
+- **Voice-test L1 packs** end-to-end on a real Russian-L1 phrase at L2.
+- **Lav per-word clarifier** (parity port from WiM bubble agent's Phase
+  2) — prompt drafted by orchestrator, held until Lav cleanup agent's
+  Task 2 + 3 complete to avoid two agents touching `lavrentiy.py`
+  simultaneously.
+- **Cleanup agent Task 2** (installer/launcher audit) + **Task 3**
+  (PySide6 native salvage) — in progress at end of arc.
+- **CI red-pile investigation** — Lav had 10/10 latest runs failing
+  ~3 days red. WiM-side fix landed (`e52c6c9` switched to
+  `gradle/actions/setup-gradle@v4`); Lav-side investigation prompt
+  prepared but not yet dispatched.
+- **Anthropic CF proxy** — both apps still call Anthropic direct from
+  device. Architectural debt from Session 12, not addressed this arc.
+- **`v1.4.0` installer recompile** — staging artifact predates session
+  #2 + #3 work; recompile pending.
+
+### State at end of session arc
+
+- **Lavrentiy main**: clean, latest commit `6d21014`, pushed.
+- **Engine**: running on `Lavrentiy-Eval` install,
+  `LAV_FW_ENABLED=1` + cloud whisper-1 default at L1 +
+  `profile_l1=russian` active.
+- **Daily-driver launcher**: `C:\Users\georg\Desktop\Lavrentiy.bat`,
+  verified.
+- **Memory state**: 3 new feedback rules saved this arc. MEMORY.md
+  index updated.
+- **Cross-repo state**: WiM main at `2d2709e` (8 bubble unified build
+  commits) plus Session 16's CI fix `e52c6c9`. bakers-agent
+  feat/l1-packs at `08dfa0a` (CF deployed from prior session).
+  gugosf114.github.io feat/l1-packs at `b7c882f` + 4 preserved
+  claude/* branches.
+- **Repos privatized** on GitHub — both Lav + WiM no longer publicly
+  searchable.
+
