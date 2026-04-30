@@ -156,6 +156,50 @@ def handle(request):
         db.collection("wim_users").document(uid).delete()
         return (json.dumps({"ok": True, "deleted": True}), 200, {**CORS_HEADERS, "Content-Type": "application/json"})
 
+    # Command Mode: highlight + voice command → transformed text.
+    # Re-uses the rate-limit + tier infrastructure but skips the heavy
+    # reconstruction prompt — this is a free-form text-transform, not a
+    # disfluency reconstruction.
+    if body.get("action") == "command":
+        source = (body.get("source") or "").strip()
+        command = (body.get("command") or "").strip()
+        if not source or not command:
+            return (json.dumps({"error": "Missing 'source' or 'command' field"}), 400, CORS_HEADERS)
+
+        ok, remaining, rate_err = check_rate_limit(uid, tier_config)
+        if not ok:
+            return rate_err
+
+        from reconstruct import client as openai_client
+        if openai_client is None:
+            return (json.dumps({"error": "Backend OpenAI client not configured"}), 500, CORS_HEADERS)
+
+        try:
+            system_prompt = (
+                "You are a text transformation assistant. The user highlighted some text "
+                "and spoke a command to modify it. Apply the command and return ONLY the "
+                "transformed text, nothing else. Preserve the meaning. Do not add "
+                "explanations, quotes, or prefixes."
+            )
+            user_content = f"TEXT:\n{source}\n\nCOMMAND: {command}"
+            resp = openai_client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                temperature=0.3,
+                max_tokens=1024,
+            )
+            transformed = resp.choices[0].message.content.strip()
+            return (json.dumps({
+                "transformed": transformed,
+                "tier": tier_config["name"],
+                "remaining": remaining,
+            }), 200, {**CORS_HEADERS, "Content-Type": "application/json"})
+        except Exception as e:
+            return (json.dumps({"error": f"Transform failed: {str(e)[:200]}"}), 500, CORS_HEADERS)
+
     raw = body.get("raw", "").strip()
     if not raw:
         return (json.dumps({"error": "Missing 'raw' field"}), 400, CORS_HEADERS)
