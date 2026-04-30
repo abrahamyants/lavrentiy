@@ -1,0 +1,96 @@
+{
+  "language": "arabic",
+  "markers": [
+    {
+      "id": "explicit_enumeration",
+      "category": "discourse",
+      "mechanism": "Arabic argumentative writing uses ordinal sequencers (firstly, secondly, thirdly, fourthly...) far beyond English stylistic norms.",
+      "examples": [
+        {"input": "Fourthly, the data shows growth. Fifthly, costs are down.", "output": "Furthermore, the data shows growth. Finally, costs are down."}
+      ],
+      "prompt_hint": "Replace heavy ordinal sequencers (thirdly, fourthly, fifthly) with English transitional phrases (additionally, furthermore, finally) past the second item.",
+      "citation": "Hyland / QCAW corpus"
+    },
+    {
+      "id": "frame_marker_overload",
+      "category": "discourse",
+      "mechanism": "Arabic writers explicitly label transitions and time-scopes ('in our current era', 'concerning this topic'); English prefers implicit context.",
+      "examples": [
+        {"input": "In our current time, the economy is changing.", "output": "Nowadays the economy is changing."}
+      ],
+      "prompt_hint": "Compress heavy frame phrases (in our current time, concerning this topic, regarding the matter at hand) to single-word adverbs (nowadays, regarding) or drop entirely if context already implies.",
+      "citation": "QCAW / Dafouz-Milne"
+    },
+    {
+      "id": "excessive_coordination_wa",
+      "category": "discourse",
+      "mechanism": "The Arabic conjunction 'wa' (and) is ubiquitous, chaining clauses where English prefers subordination or paragraph breaks.",
+      "examples": [
+        {"input": "He went out and he ate and he came back and he slept.", "output": "After eating out, he came home and slept."}
+      ],
+      "prompt_hint": "Break long chains of 'and' into subordinated structures or sentence breaks; preserve only the conjunctions that carry real coordination.",
+      "citation": "QCAW corpus"
+    },
+    {
+      "id": "resumptive_pronoun_relative",
+      "category": "syntactic",
+      "mechanism": "Arabic relative clauses require a resumptive pronoun in the relativized position; English does not.",
+      "examples": [
+        {"input": "The man who I saw him yesterday.", "output": "The man who I saw yesterday."}
+      ],
+      "prompt_hint": "Drop resumptive object pronouns inside relative clauses (the book that I read it → the book that I read).",
+      "citation": "QCAW corpus"
+    },
+    {
+      "id": "abstract_definiteness",
+      "category": "morphological",
+      "mechanism": "Arabic uses the prefix al- universally on abstract nouns; learners over-apply 'the' to abstract concepts in English.",
+      "examples": [
+        {"input": "The freedom is important for everyone.", "output": "Freedom is important for everyone."}
+      ],
+      "prompt_hint": "Drop 'the' before abstract or generic nouns (freedom, society, life, education, justice) used in a generic sense.",
+      "citation": "QCAW corpus"
+    },
+    {
+      "id": "copula_drop_present",
+      "category": "syntactic",
+      "mechanism": "Modern Standard Arabic and most dialects lack an overt 'to be' verb in present-tense equational sentences.",
+      "examples": [
+        {"input": "The boy tall.", "output": "The boy is tall."}
+      ],
+      "prompt_hint": "Insert 'is/am/are' before predicate adjectives and noun phrases where the speaker dropped the present-tense copula.",
+      "citation": "Hermas (2014)"
+    },
+    {
+      "id": "author_foregrounding",
+      "category": "discourse",
+      "mechanism": "Arabic academic writing uses collective framing ('we will see', 'as we know') where English academic prose prefers individual or impersonal voice.",
+      "examples": [
+        {"input": "We can see in this essay that the data supports the claim.", "output": "The data in this essay supports the claim."}
+      ],
+      "prompt_hint": "When 'we will see' / 'we can observe' / 'we know' is used non-collectively (single author writing), shift to impersonal or first-person-singular framing.",
+      "citation": "Hyland / QCAW"
+    },
+    {
+      "id": "null_expletive",
+      "category": "syntactic",
+      "mechanism": "Most Arabic dialects allow pro-drop in weather and existential clauses; English requires expletive 'it' or 'there'.",
+      "examples": [
+        {"input": "Is cold today.", "output": "It is cold today."}
+      ],
+      "prompt_hint": "Insert expletive 'it' (weather, time) or 'there' (existential) in subjectless predicates.",
+      "citation": "Hermas (2014)"
+    },
+    {
+      "id": "topic_shift_explicitness",
+      "category": "discourse",
+      "mechanism": "Arabic prose marks topic shifts with heavy transitional phrases; English uses paragraph breaks or simple connectors.",
+      "examples": [
+        {"input": "As for now, concerning the budget, we should review it.", "output": "Regarding the budget, we should review it."}
+      ],
+      "prompt_hint": "Compress topic-shift phrases (as for, concerning, regarding the matter of, in connection with) into single connectors or drop if a paragraph break already signals the shift.",
+      "citation": "QCAW corpus"
+    }
+  ],
+  "notes": "Arabic typology: Semitic root-and-pattern morphology, VSO/SVO order, no present copula, mandatory resumptive pronouns in relative clauses, ubiquitous 'wa' coordination. Patterns hold across Modern Standard Arabic and major regional dialects (Egyptian, Levantine, Gulf, Maghrebi)."
+}

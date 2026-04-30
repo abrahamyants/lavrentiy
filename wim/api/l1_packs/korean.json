@@ -1,0 +1,96 @@
+{
+  "language": "korean",
+  "markers": [
+    {
+      "id": "plural_marker_mismatch",
+      "category": "morphological",
+      "mechanism": "Korean -tul plural is extrinsic and spreads across constituents; English -s is local and obligatory after numerals.",
+      "examples": [
+        {"input": "I bought three apple at the store.", "output": "I bought three apples at the store."}
+      ],
+      "prompt_hint": "Add plural -s to count nouns following numerals greater than one (three apple → three apples, two car → two cars).",
+      "citation": "Lardiere (2009)"
+    },
+    {
+      "id": "article_omission",
+      "category": "morphological",
+      "mechanism": "Korean has no article system; learners default to bare singular nouns where English requires 'a/an' or 'the'.",
+      "examples": [
+        {"input": "I have part-time job.", "output": "I have a part-time job."}
+      ],
+      "prompt_hint": "Insert 'a', 'an', or 'the' before singular count nouns where the speaker dropped articles.",
+      "citation": "Lee (2019)"
+    },
+    {
+      "id": "psych_verb_to",
+      "category": "syntactic",
+      "mechanism": "Korean handles psych and causative verbs via bound morphology; learners insert 'to' between English psych verbs and their experiencer.",
+      "examples": [
+        {"input": "The news shocked to me.", "output": "The news shocked me."}
+      ],
+      "prompt_hint": "Drop superfluous 'to' between psych/causative verbs (shock, surprise, please, anger, frustrate, bore) and the experiencer object.",
+      "citation": "Kim (2022)"
+    },
+    {
+      "id": "topic_marker_as_for",
+      "category": "syntactic",
+      "mechanism": "Korean -nun topic marker has no English equivalent; learners calque it as 'as for' fronting structures.",
+      "examples": [
+        {"input": "As for me, I like apples.", "output": "I like apples."}
+      ],
+      "prompt_hint": "Drop 'as for X' / 'speaking of X' fronting when the X is the natural subject; preserve only when there is genuine topic contrast.",
+      "citation": "Hu (2018)"
+    },
+    {
+      "id": "collective_uri_possessive",
+      "category": "lexical",
+      "mechanism": "Korean 'uri' (our) is used for individually-possessed things to reflect collectivism (uri anae = 'our wife'); transfer creates anomalous English plurals.",
+      "examples": [
+        {"input": "I love our wife very much.", "output": "I love my wife very much."}
+      ],
+      "prompt_hint": "Replace plural 'our' with singular 'my' for individually-possessed referents (our wife → my wife, our house → my house) when context shows the speaker is the sole possessor.",
+      "citation": "Ryoo (2013)"
+    },
+    {
+      "id": "subject_drop",
+      "category": "syntactic",
+      "mechanism": "Korean pragmatics allows context to imply the subject; English requires an overt subject pronoun.",
+      "examples": [
+        {"input": "Went to the store this morning.", "output": "I went to the store this morning."}
+      ],
+      "prompt_hint": "Restore dropped subject pronouns (typically 'I', 'we', 'they', 'he', 'she') based on context.",
+      "citation": "Hu (2018)"
+    },
+    {
+      "id": "resultative_avoidance",
+      "category": "syntactic",
+      "mechanism": "Korean resultatives use bound morphology; learners avoid English resultative constructions, opting for adverbial workarounds.",
+      "examples": [
+        {"input": "He hammered the metal flatly.", "output": "He hammered the metal flat."}
+      ],
+      "prompt_hint": "Convert adverbial workarounds (hammered flatly, painted whitely, wiped cleanly) to bare-adjective resultative form (hammered flat, painted white, wiped clean).",
+      "citation": "Lardiere (2009)"
+    },
+    {
+      "id": "motion_verb_satellite",
+      "category": "lexical",
+      "mechanism": "Korean lexicalizes path morphemes into single verbs; English distributes path across verb + particle ('walk out', 'drive in').",
+      "examples": [
+        {"input": "He exited the room quickly.", "output": "He walked out of the room quickly."}
+      ],
+      "prompt_hint": "When a single verb encodes path (exited, entered, ascended, descended), expand to manner-verb + particle ('walked out of', 'walked into', 'climbed up') if context indicates a manner of motion.",
+      "citation": "Kim (2022)"
+    },
+    {
+      "id": "relative_clause_pre_positioning",
+      "category": "syntactic",
+      "mechanism": "Korean relative clauses precede the head noun (head-final); learners preserve this order in English.",
+      "examples": [
+        {"input": "The I read book was interesting.", "output": "The book that I read was interesting."}
+      ],
+      "prompt_hint": "Move pre-nominal relative clauses to post-nominal position with 'that' / 'which' / 'who' (the I read book → the book that I read).",
+      "citation": "Lyu & Wu (2017)"
+    }
+  ],
+  "notes": "Korean typology: Koreanic, SOV, agglutinative, head-final relative clauses, no article system, topic-prominent. Sociolinguistic transfer (collective uri-possessive) is unique among L1 packs. Patterns broadly overlap with Japanese on word order and morphology."
+}

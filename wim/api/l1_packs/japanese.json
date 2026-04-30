@@ -1,0 +1,96 @@
+{
+  "language": "japanese",
+  "markers": [
+    {
+      "id": "te_iru_resultative",
+      "category": "morphological",
+      "mechanism": "Japanese -te iru marks both progressive ('is running') and resultative state ('is broken'); learners apply English -ing to states where -ed is required.",
+      "examples": [
+        {"input": "The window is breaking.", "output": "The window is broken."}
+      ],
+      "prompt_hint": "When a progressive form is applied to a state of completion ('is breaking', 'is dying' for a dead person, 'is closing' for a closed door), convert to past participle form ('is broken', 'is dead', 'is closed') if context shows a resultant state.",
+      "citation": "Ryu (2015)"
+    },
+    {
+      "id": "object_relative_resumption",
+      "category": "syntactic",
+      "mechanism": "Japanese left-branching relative clauses cause processing strain in English right-branching ORCs; learners insert resumptive pronouns.",
+      "examples": [
+        {"input": "The sailor that Mari selects him is here.", "output": "The sailor that Mari selected is here."}
+      ],
+      "prompt_hint": "Drop resumptive object pronouns inside object relative clauses (the sailor that Mari selects him → the sailor that Mari selected).",
+      "citation": "Nakayama (2020)"
+    },
+    {
+      "id": "subject_seem_raising",
+      "category": "syntactic",
+      "mechanism": "Japanese constructions corresponding to 'seem' do not raise the subject across the matrix clause; learners transfer this into English.",
+      "examples": [
+        {"input": "It seems Susan to be happy.", "output": "Susan seems to be happy."}
+      ],
+      "prompt_hint": "Convert 'It seems X to VERB' to subject-raised form ('X seems to VERB').",
+      "citation": "Nakayama (2020)"
+    },
+    {
+      "id": "past_for_perfect",
+      "category": "morphological",
+      "mechanism": "Japanese -ta marks completion regardless of present relevance; English distinguishes simple past from present perfect.",
+      "examples": [
+        {"input": "I wanted a bike since 2010.", "output": "I have wanted a bike since 2010."}
+      ],
+      "prompt_hint": "When simple past appears with 'since' + time-point or 'for' + duration extending to now, switch to present perfect ('have/has VERB-ed').",
+      "citation": "Sugaya (2013)"
+    },
+    {
+      "id": "passive_preference",
+      "category": "syntactic",
+      "mechanism": "Japanese prefers passive constructions for politeness and for backgrounding agents; transferred into English creates over-passivized prose.",
+      "examples": [
+        {"input": "The window was broken by the wind yesterday.", "output": "The wind broke the window yesterday."}
+      ],
+      "prompt_hint": "Convert passive constructions to active when the agent is a clear, present, non-human cause ('was broken by the wind' → 'the wind broke', 'was warmed by the sun' → 'the sun warmed'). Keep passive when the agent is unknown, irrelevant, or for genuine emphasis.",
+      "citation": "Baroni (2023)"
+    },
+    {
+      "id": "article_dropping",
+      "category": "morphological",
+      "mechanism": "Japanese has no articles; learners default to bare singular nouns in English.",
+      "examples": [
+        {"input": "I went to airport this morning.", "output": "I went to the airport this morning."}
+      ],
+      "prompt_hint": "Insert 'a', 'an', or 'the' before singular count nouns where the speaker dropped articles, especially in fixed expressions (go to the airport, take the bus, watch the TV).",
+      "citation": "Sugaya (2013)"
+    },
+    {
+      "id": "demonstrative_plural_mismatch",
+      "category": "morphological",
+      "mechanism": "Japanese demonstratives don't agree with number; learners produce singular demonstratives + plural nouns.",
+      "examples": [
+        {"input": "These book are mine.", "output": "These books are mine."}
+      ],
+      "prompt_hint": "When 'these/those' precedes a bare singular noun, pluralize the noun (these book → these books).",
+      "citation": "Lardiere (2009)"
+    },
+    {
+      "id": "topic_marker_double_subject",
+      "category": "lexical",
+      "mechanism": "Japanese -wa topic marker is calqued as left-dislocated subject + resumptive pronoun.",
+      "examples": [
+        {"input": "My father, he is strict about homework.", "output": "My father is strict about homework."}
+      ],
+      "prompt_hint": "Drop the resumptive pronoun in left-dislocated subjects (My father, he is → My father is) unless there is genuine topic contrast.",
+      "citation": "Sugaya (2013)"
+    },
+    {
+      "id": "preposition_locative_drop",
+      "category": "syntactic",
+      "mechanism": "Japanese locative particles (-ni, -de) are bound to nouns; learners drop English locative prepositions entirely.",
+      "examples": [
+        {"input": "I arrived the station at six.", "output": "I arrived at the station at six."}
+      ],
+      "prompt_hint": "Insert locative prepositions where the speaker dropped them (arrived station → arrived at the station, lives Tokyo → lives in Tokyo, met her park → met her at the park).",
+      "citation": "Sugaya (2013)"
+    }
+  ],
+  "notes": "Japanese typology: Japonic, SOV, agglutinative, post-positional particles, topic-prominent. The 'Aspect Hypothesis' explains why -te iru transfers create progressive/resultative confusion. ICNALE corpus shows severe processing strain on object relative clauses; many learners avoid them entirely with simpler coordinate structures."
+}

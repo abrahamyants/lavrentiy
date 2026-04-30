@@ -1,0 +1,96 @@
+{
+  "language": "german",
+  "markers": [
+    {
+      "id": "v2_residual_inversion",
+      "category": "syntactic",
+      "mechanism": "German main clauses require the conjugated verb in second position, triggering subject-verb inversion after fronted adverbials; learners transfer this into English.",
+      "examples": [
+        {"input": "Today go we to the store.", "output": "Today we are going to the store."}
+      ],
+      "prompt_hint": "When an adverbial fronts a sentence and the verb appears before the subject ('Today go we' / 'In 1999 occurred the event'), restore canonical Subject-Verb order.",
+      "citation": "Granger (1998)"
+    },
+    {
+      "id": "subordinate_verb_final",
+      "category": "syntactic",
+      "mechanism": "German subordinate clauses place the conjugated verb at the end; learners transfer this into English subordinate clauses.",
+      "examples": [
+        {"input": "I think that he tired is.", "output": "I think that he is tired."}
+      ],
+      "prompt_hint": "When a subordinate clause ends with a stranded copula or auxiliary ('because I tired am', 'that he home went'), move the verb back into canonical SVO order.",
+      "citation": "Granger (1998)"
+    },
+    {
+      "id": "adverb_order_tmp",
+      "category": "syntactic",
+      "mechanism": "German strictly orders adverbials Time-Manner-Place; English defaults Place-Manner-Time.",
+      "examples": [
+        {"input": "He went today quickly home.", "output": "He went home quickly today."}
+      ],
+      "prompt_hint": "When multiple adverbs appear in Time-Manner-Place order, reorder to Place-Manner-Time as English prefers.",
+      "citation": "Larsson (2020)"
+    },
+    {
+      "id": "false_friend_become",
+      "category": "lexical",
+      "mechanism": "German 'bekommen' means 'to receive/get'; learners transfer it to its English false cognate 'become' (which means 'to turn into').",
+      "examples": [
+        {"input": "I became a present for my birthday.", "output": "I received a present for my birthday."}
+      ],
+      "prompt_hint": "When 'become' appears with a concrete object as its complement ('became a present', 'became a letter', 'became help'), replace with 'received' or 'got'. Other German false friends: chef→boss, gift→poison, handy→cell phone, will→want.",
+      "citation": "Hladka (2013)"
+    },
+    {
+      "id": "until_for_by",
+      "category": "lexical",
+      "mechanism": "German 'bis' covers both English 'until' (continuous duration) and 'by' (deadline); learners default to 'until' for both.",
+      "examples": [
+        {"input": "Please finish the report until Friday.", "output": "Please finish the report by Friday."}
+      ],
+      "prompt_hint": "When 'until' precedes a deadline (until Friday, until 5pm) for a non-continuous action, replace with 'by'. Keep 'until' only for continuous-state contexts (I will be here until Friday).",
+      "citation": "Hladka (2013)"
+    },
+    {
+      "id": "comma_before_that",
+      "category": "syntactic",
+      "mechanism": "German orthography mandates a comma before subordinating 'dass' (that); learners transfer this into English.",
+      "examples": [
+        {"input": "I know, that he is here.", "output": "I know that he is here."}
+      ],
+      "prompt_hint": "Remove the comma before complementizer 'that' in restrictive subordinate clauses.",
+      "citation": "Hladka (2013)"
+    },
+    {
+      "id": "dense_nominalization",
+      "category": "discourse",
+      "mechanism": "German academic prose prefers heavy noun phrases over verb clauses; transferred into English creates bureaucratic-sounding text.",
+      "examples": [
+        {"input": "The processing of the data took two hours.", "output": "Processing the data took two hours."}
+      ],
+      "prompt_hint": "Convert 'the X-ing of the Y' nominalizations to gerund form ('the processing of the data' → 'processing the data'); break long noun chains into verb-driven prose.",
+      "citation": "Hladka (2013)"
+    },
+    {
+      "id": "present_for_future",
+      "category": "morphological",
+      "mechanism": "German uses simple present for planned future actions; English prefers 'will' or present continuous.",
+      "examples": [
+        {"input": "Tomorrow I fly to Berlin.", "output": "Tomorrow I am flying to Berlin."}
+      ],
+      "prompt_hint": "When simple present is used with a future-time adverbial (tomorrow, next week, in two days) for a planned action, shift to 'will VERB' or present continuous ('am/is/are VERB-ing').",
+      "citation": "Hladka (2013)"
+    },
+    {
+      "id": "informations_pluralization",
+      "category": "lexical",
+      "mechanism": "German 'Informationen' is countable; learners transfer plural to English mass noun 'information'.",
+      "examples": [
+        {"input": "I need some informations about the schedule.", "output": "I need some information about the schedule."}
+      ],
+      "prompt_hint": "Convert plural mass nouns (informations, advices, equipments, knowledges, evidences) to singular.",
+      "citation": "Hladka (2013)"
+    }
+  ],
+  "notes": "German typology: Germanic, V2 word order in main clauses, verb-final in subordinates, dense nominalization in academic register, strict comma rules. NLI 2013 ranked German among the most reliably identified L1s due to V2 inversion and orthographic rigidity."
+}

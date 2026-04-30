@@ -1,0 +1,106 @@
+{
+  "language": "hindi",
+  "markers": [
+    {
+      "id": "progressive_on_statives",
+      "category": "morphological",
+      "mechanism": "Indian English collapses the active/stative distinction; learners extend the progressive aspect to verbs like know, have, want, believe, understand to mark current validity.",
+      "examples": [
+        {"input": "I am knowing the answer.", "output": "I know the answer."}
+      ],
+      "prompt_hint": "Convert progressive forms of stative verbs (know, have, want, believe, understand, mean) to simple present.",
+      "citation": "Sailaja (2009)"
+    },
+    {
+      "id": "idiomatic_do_the_needful",
+      "category": "lexical",
+      "mechanism": "Archaic British administrative English fossilized into Indian English (do the needful, kindly do, prepone, revert back).",
+      "examples": [
+        {"input": "Kindly do the needful.", "output": "Please take care of this."}
+      ],
+      "prompt_hint": "Replace administrative-English idioms (do the needful, kindly do, prepone, revert back) with their plain American/British equivalents.",
+      "citation": "Mehrotra (2003)"
+    },
+    {
+      "id": "invariant_question_tag",
+      "category": "discourse",
+      "mechanism": "Indian English uses 'isn't it?' or 'no?' as a universal tag regardless of the main clause's auxiliary or polarity.",
+      "examples": [
+        {"input": "You are going tomorrow, isn't it?", "output": "You are going tomorrow, aren't you?"}
+      ],
+      "prompt_hint": "Replace invariant 'isn't it?' / 'no?' tags with the auxiliary-matched English tag (aren't you, doesn't he, won't they, etc.).",
+      "citation": "Sailaja (2009)"
+    },
+    {
+      "id": "focus_marker_only",
+      "category": "discourse",
+      "mechanism": "The Hindi enclitic 'hi' provides emphatic focus that English handles via vocal intonation; learners encode it lexically as 'only' or 'itself'.",
+      "examples": [
+        {"input": "I arrived today only.", "output": "I just arrived today."}
+      ],
+      "prompt_hint": "When 'only' or 'itself' appears in a non-restrictive position adding emphasis (today only, here itself, now only), replace with 'just' or remove if redundant.",
+      "citation": "Lange (2007)"
+    },
+    {
+      "id": "politeness_calque_good_name",
+      "category": "lexical",
+      "mechanism": "Direct translation of Hindi shubh naam (auspicious name), used in formal introductions.",
+      "examples": [
+        {"input": "What is your good name?", "output": "What is your name?"}
+      ],
+      "prompt_hint": "Drop 'good' from 'good name' in introductions.",
+      "citation": "Sailaja (2009)"
+    },
+    {
+      "id": "reduplication",
+      "category": "lexical",
+      "mechanism": "Hindi and other South Asian languages use word reduplication for intensification, distribution, or variety; transferred into English as hyphenated repeats.",
+      "examples": [
+        {"input": "I have different-different ideas.", "output": "I have many different ideas."}
+      ],
+      "prompt_hint": "Convert reduplicated adjectives or adverbs (different-different, small-small, hot-hot) to 'many/various/several X' or remove the duplicate.",
+      "citation": "Kachru (1980)"
+    },
+    {
+      "id": "topicalization_left_dislocation",
+      "category": "syntactic",
+      "mechanism": "Hindi syntax fronts the topic for thematic focus, leaving a resumptive object pronoun in the original position.",
+      "examples": [
+        {"input": "This book, I am reading it.", "output": "I am reading this book."}
+      ],
+      "prompt_hint": "Restore canonical SVO order when the speaker has fronted an object with a resumptive pronoun (This book, I read it → I read this book).",
+      "citation": "Fuchs (2012)"
+    },
+    {
+      "id": "verb_complementation_to",
+      "category": "lexical",
+      "mechanism": "Hindi verbs of communication (kahna, batana) take a dative case marker that learners render as English 'to'.",
+      "examples": [
+        {"input": "I told to him the truth.", "output": "I told him the truth."}
+      ],
+      "prompt_hint": "Drop superfluous 'to' after ditransitive communication verbs (tell, ask, send, give) when the indirect object is a person.",
+      "citation": "Sailaja (2009)"
+    },
+    {
+      "id": "null_expletive_there",
+      "category": "syntactic",
+      "mechanism": "Hindi has no expletive 'there'; existential clauses default to V-initial or SV order.",
+      "examples": [
+        {"input": "Is a book on the table.", "output": "There is a book on the table."}
+      ],
+      "prompt_hint": "Insert expletive 'there' in existential clauses where the speaker dropped it (Is a book → There is a book).",
+      "citation": "Lange (2007)"
+    },
+    {
+      "id": "polite_modal_stacking",
+      "category": "discourse",
+      "mechanism": "Indian administrative writing stacks mitigating modals for extreme politeness (may please be, kindly may, would request to).",
+      "examples": [
+        {"input": "These mistakes may please be corrected.", "output": "Please correct these mistakes."}
+      ],
+      "prompt_hint": "Collapse stacked polite modals (may please, kindly may, would request to) into a single 'please' or imperative.",
+      "citation": "Sailaja (2009)"
+    }
+  ],
+  "notes": "Indian English is an institutionalized L2 variety with codified divergences from British/American norms. Substrate influence from Indo-Aryan (Hindi, Bengali, Marathi, Punjabi) and Dravidian (Tamil, Telugu, Kannada, Malayalam) families. Patterns are fossilized into the dialect, not transient learner errors."
+}

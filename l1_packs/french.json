@@ -1,0 +1,96 @@
+{
+  "language": "french",
+  "markers": [
+    {
+      "id": "false_cognate_actual",
+      "category": "lexical",
+      "mechanism": "French 'actuel' means 'current/present-day' but learners transfer it to orthographically similar English 'actual' (which means 'real, factual').",
+      "examples": [
+        {"input": "The actual president is from a different party.", "output": "The current president is from a different party."}
+      ],
+      "prompt_hint": "When 'actual' / 'actually' appears in a context meaning 'present-day' or 'right now', replace with 'current' / 'currently'. Other false-friend pairs to watch: assist→attend, demand→ask, library→bookstore, sensible→sensitive, eventually→possibly.",
+      "citation": "Paquot (2013)"
+    },
+    {
+      "id": "writer_reader_visibility",
+      "category": "discourse",
+      "mechanism": "French academic writing uses overt first-person plural ('we will see', 'let us consider'); transferred into English creates inflated authorial voice in formal contexts.",
+      "examples": [
+        {"input": "We will see in this paper that the model is robust.", "output": "This paper shows that the model is robust."}
+      ],
+      "prompt_hint": "In formal/academic registers, convert 'we will see/observe/note' patterns to impersonal or evidence-driven framing ('the data shows', 'this paper demonstrates').",
+      "citation": "Paquot (2013)"
+    },
+    {
+      "id": "since_for_duration",
+      "category": "lexical",
+      "mechanism": "French 'depuis' covers both English 'since' (point in time) and 'for' (duration); learners default to 'since' for both.",
+      "examples": [
+        {"input": "I am here since two hours.", "output": "I have been here for two hours."}
+      ],
+      "prompt_hint": "When 'since' precedes a duration ('since two hours', 'since a long time'), replace with 'for' and shift tense to present perfect.",
+      "citation": "Granger (1998)"
+    },
+    {
+      "id": "adverb_between_verb_object",
+      "category": "syntactic",
+      "mechanism": "French permits S-V-Adverb-O order; English does not, requiring adverbs to flank the verb-object pair, not split it.",
+      "examples": [
+        {"input": "I like very much the book.", "output": "I really like the book."}
+      ],
+      "prompt_hint": "Move adverbs that intrude between verb and direct object (very much, often, always) to pre-verbal or post-object position.",
+      "citation": "Larsson (2020)"
+    },
+    {
+      "id": "passe_compose_for_simple_past",
+      "category": "morphological",
+      "mechanism": "French passé composé maps to English present perfect, but is also used for simple past contexts; learners over-apply 'have VERB-ed' to past-time contexts.",
+      "examples": [
+        {"input": "Yesterday I have eaten too much.", "output": "Yesterday I ate too much."}
+      ],
+      "prompt_hint": "When a sentence has a past-time adverbial (yesterday, last week, in 2020) but uses present perfect, switch to simple past.",
+      "citation": "Hendriks (2005)"
+    },
+    {
+      "id": "permits_to_calque",
+      "category": "lexical",
+      "mechanism": "French 'permet de' (permits/allows + to) is calqued as 'permits to' or 'allows to' without the required object.",
+      "examples": [
+        {"input": "It permits to show the difference.", "output": "It allows us to show the difference."}
+      ],
+      "prompt_hint": "Insert the missing object in 'allows/permits to' patterns ('it allows to' → 'it allows us/you/them to').",
+      "citation": "Paquot (2013)"
+    },
+    {
+      "id": "il_y_a_calque",
+      "category": "syntactic",
+      "mechanism": "French existential 'il y a' (literally 'it has there') is mapped to English 'it has' instead of 'there is/are'.",
+      "examples": [
+        {"input": "It has many people in the room.", "output": "There are many people in the room."}
+      ],
+      "prompt_hint": "Convert 'it has + N + (location)' existentials to 'there is/are + N + (location)'.",
+      "citation": "Granger (1998)"
+    },
+    {
+      "id": "infinitive_subject",
+      "category": "syntactic",
+      "mechanism": "French uses bare infinitives as subjects ('Fumer est mauvais'); English prefers gerunds.",
+      "examples": [
+        {"input": "To smoke is bad for health.", "output": "Smoking is bad for health."}
+      ],
+      "prompt_hint": "Convert infinitive subjects ('to smoke', 'to lie') to gerund form ('smoking', 'lying') unless the infinitive is the genuine focus.",
+      "citation": "Paquot (2013)"
+    },
+    {
+      "id": "make_vs_do",
+      "category": "lexical",
+      "mechanism": "French 'faire' covers both English 'make' (create) and 'do' (perform); learners default to 'make' for both.",
+      "examples": [
+        {"input": "I made my homework last night.", "output": "I did my homework last night."}
+      ],
+      "prompt_hint": "Correct 'make' to 'do' in performative contexts: do homework, do the dishes, do exercise, do business, do a job, do a favor. Keep 'make' for created/produced things (make a cake, make a decision).",
+      "citation": "Paquot (2013)"
+    }
+  ],
+  "notes": "French typology: Romance, SVO with flexible adverbial placement, single conjugated verb position. Subtle markers: cognate-rich vocabulary masks transfer; key signals are phraseology and discourse-level voice rather than gross grammar errors."
+}

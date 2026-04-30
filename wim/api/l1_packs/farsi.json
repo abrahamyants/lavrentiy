@@ -1,0 +1,96 @@
+{
+  "language": "farsi",
+  "markers": [
+    {
+      "id": "ezafe_possessive",
+      "category": "syntactic",
+      "mechanism": "Farsi uses the Ezafe enclitic (-e/-ye) to link nouns to possessors; learners calque this with 'of' postposed to the head noun.",
+      "examples": [
+        {"input": "The book of mine is on the table.", "output": "My book is on the table."}
+      ],
+      "prompt_hint": "Convert post-nominal 'of mine/yours/his/hers' possessives to pre-nominal possessive determiners (the book of mine → my book).",
+      "citation": "Daghbandan (2023)"
+    },
+    {
+      "id": "ezafe_adjectival",
+      "category": "syntactic",
+      "mechanism": "Farsi adjectives follow the head noun, linked by the Ezafe enclitic; learners calque this with 'of' between noun and adjective.",
+      "examples": [
+        {"input": "The car of red is fast.", "output": "The red car is fast."}
+      ],
+      "prompt_hint": "Move post-nominal adjectives connected by 'of' to pre-nominal position (the car of red → the red car).",
+      "citation": "Daghbandan (2023)"
+    },
+    {
+      "id": "discourse_but_initial",
+      "category": "discourse",
+      "mechanism": "Farsi 'amâ' (but) commonly opens turns or stands clause-initial; transferred 'but' lands in non-standard turn positions in English.",
+      "examples": [
+        {"input": "But I agree with you on this.", "output": "I agree with you on this, however."}
+      ],
+      "prompt_hint": "When 'but' opens a turn that is not actually contrastive with the prior speaker, replace with 'however' moved to mid/end position, or drop if no contrast exists.",
+      "citation": "Daghbandan (2023)"
+    },
+    {
+      "id": "definite_article_omission",
+      "category": "morphological",
+      "mechanism": "Farsi has no freestanding definite article; learners systematically drop 'the' in English where it is required.",
+      "examples": [
+        {"input": "I read book you gave me.", "output": "I read the book you gave me."}
+      ],
+      "prompt_hint": "Insert 'the' before specific, identifiable, or previously mentioned nouns where the speaker dropped it.",
+      "citation": "Talebi (2014)"
+    },
+    {
+      "id": "pluralizing_uncountables",
+      "category": "morphological",
+      "mechanism": "Farsi syntax allows pluralizing abstract or mass nouns (information, equipment, advice, knowledge) that are uncountable in English.",
+      "examples": [
+        {"input": "I need more informations about this.", "output": "I need more information about this."}
+      ],
+      "prompt_hint": "Convert plural mass nouns (informations, advices, equipments, knowledges, researches) to singular.",
+      "citation": "Talebi (2014)"
+    },
+    {
+      "id": "subjunctive_for_infinitive",
+      "category": "syntactic",
+      "mechanism": "Farsi uses a subjunctive that-clause where English uses an infinitive complement.",
+      "examples": [
+        {"input": "I want that I go to the store.", "output": "I want to go to the store."}
+      ],
+      "prompt_hint": "Convert 'I want/need/hope that I/you/he VERB' patterns to infinitive form ('I want to VERB', 'I need you to VERB').",
+      "citation": "Daghbandan (2023)"
+    },
+    {
+      "id": "resumptive_pronoun_relative",
+      "category": "syntactic",
+      "mechanism": "Farsi mandates resumptive pronouns in object relative clauses; English does not.",
+      "examples": [
+        {"input": "The pen that I lost it yesterday is here.", "output": "The pen that I lost yesterday is here."}
+      ],
+      "prompt_hint": "Drop resumptive object pronouns inside relative clauses (the pen that I lost it → the pen that I lost).",
+      "citation": "Daghbandan (2023)"
+    },
+    {
+      "id": "indefinite_one",
+      "category": "lexical",
+      "mechanism": "Farsi indefinite 'yek' (one) doubles as the indefinite article; learners over-translate it to English 'one' instead of 'a/an'.",
+      "examples": [
+        {"input": "I bought one car last week.", "output": "I bought a car last week."}
+      ],
+      "prompt_hint": "Replace 'one' with 'a/an' in indefinite contexts where the numeric value is not emphasized (I have one brother → I have a brother, unless the count is the point).",
+      "citation": "Daghbandan (2023)"
+    },
+    {
+      "id": "preposition_from_substitution",
+      "category": "lexical",
+      "mechanism": "Farsi 'az' covers English 'of', 'from', and 'about'; learners default to 'from' for all of them.",
+      "examples": [
+        {"input": "He is afraid from dogs.", "output": "He is afraid of dogs."}
+      ],
+      "prompt_hint": "Correct 'from' to 'of' in fixed expressions (afraid of, ashamed of, proud of, scared of, tired of) where Farsi 'az' was transferred as 'from'.",
+      "citation": "Talebi (2014)"
+    }
+  ],
+  "notes": "Farsi/Persian typology: Indo-Iranian, SOV word order, head-initial in noun phrases linked by Ezafe enclitic, no formal definite article, marks specificity rather than definiteness."
+}
