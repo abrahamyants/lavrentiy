@@ -132,14 +132,31 @@ def prompt_injection(prof: dict) -> str:
     """Build the L1 prompt block to inject at L2/L3.
 
     Returns empty string when no pack is active so callers can append
-    unconditionally. Format mirrors L1PackHelper.kt verbatim — same
-    framing, same per-marker layout — so the model sees an identical
-    instruction whether it runs through Lavrentiy or WiM.
+    unconditionally. Reads profile.accent_mode to pick framing:
+        "polish" (default) — normalize patterns toward written-English
+                             convention. For boss / clients / strangers.
+        "keep"             — preserve patterns as authentic voice. Same
+                             pack, opposite directive. For family / friends
+                             / casual contexts. The Design Justice surface.
+
+    Mirrors WiM Android's L1PackHelper.kt buildPolishInjection /
+    buildKeepInjection — identical instruction structure both sides.
     """
     pack = active_pack(prof)
     if pack is None:
         return ""
     display = LANG_DISPLAY_NAMES.get(pack.language, pack.language.capitalize())
+    # Top-level for Cloud Function path (WiM ReconstructClient flattens
+    # the profile). Nested for local Lavrentiy path (profile has a
+    # preferences sub-dict).
+    p = prof or {}
+    mode = p.get("accent_mode") or p.get("preferences", {}).get("accent_mode") or "polish"
+    if mode == "keep":
+        return _build_keep_injection(pack, display)
+    return _build_polish_injection(pack, display)
+
+
+def _build_polish_injection(pack: Pack, display: str) -> str:
     parts = [
         f"\n\nSPEAKER L1: {display}. Their English may show systematic L1-transfer "
         "patterns documented at the group level in second-language acquisition "
@@ -159,5 +176,35 @@ def prompt_injection(prof: dict) -> str:
         "\n\nThis is normalization toward written-English convention, not "
         "erasure of the speaker's voice. If a listed pattern appears as "
         "deliberate stylistic emphasis or intentional code-switching, preserve it."
+    )
+    return "".join(parts)
+
+
+def _build_keep_injection(pack: Pack, display: str) -> str:
+    parts = [
+        f"\n\nSPEAKER L1: {display}. Their English carries systematic patterns "
+        "from their first language — these are authentic features of how they "
+        "speak, not errors. The speaker has explicitly chosen to PRESERVE their "
+        "voice in this output.",
+        "\n\nPRESERVE these patterns verbatim:",
+    ]
+    for i, m in enumerate(pack.markers, start=1):
+        # First word of the prompt_hint is typically the imperative verb
+        # (Insert / Add / Convert / Restore / Remove). Replace it with
+        # "Keep" to flip the directive while reusing the marker phrasing.
+        words = m.prompt_hint.split(" ", 1)
+        rest = words[1] if len(words) > 1 else m.prompt_hint
+        line = f"\n{i}. Keep {rest}"
+        if m.examples:
+            e = m.examples[0]
+            if e.input:
+                line += f' e.g. keep "{e.input}" as "{e.input}"'
+        parts.append(line)
+    parts.append(
+        "\n\nFix only verbatim transcription errors (homophone confusions, "
+        "mis-segmented words, missing punctuation that affects readability). "
+        "Do NOT smooth syntax, do NOT insert articles the speaker didn't say, "
+        "do NOT reorder for Standard English grammar. Render the speaker's "
+        "voice as they spoke it."
     )
     return "".join(parts)
