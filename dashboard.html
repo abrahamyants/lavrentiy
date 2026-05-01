@@ -2920,6 +2920,20 @@ body::before {
         <div class="toggle-row" id="paralinguistic-row" title=""><label class="toggle-switch"><input type="checkbox" id="toggle-paralinguistic"><span class="toggle-slider"></span></label><span class="toggle-label">Paralinguistic</span><span class="toggle-hint">cough/laugh</span></div>
         <div class="toggle-row toggle-sub" id="para-transcribe-row" style="display:none"><label class="toggle-switch"><input type="checkbox" id="toggle-para-transcribe"><span class="toggle-slider"></span></label><span class="toggle-label">Transcribe</span><span class="toggle-hint">inject [tags] in text</span></div>
         <div class="toggle-row" id="prosodic-row" title=""><label class="toggle-switch"><input type="checkbox" id="toggle-prosodic"><span class="toggle-slider"></span></label><span class="toggle-label">Prosodic</span><span class="toggle-hint">pitch/energy/rate</span></div>
+        <!-- ACCENT — Polish vs Keep (Design Justice surface). Detection
+             badge + segmented toggle. Reads profile_l1 to render the L1
+             the user declared, with pattern count from l1_pack.py. -->
+        <div class="accent-section" id="accent-section" style="margin-top:8px;padding:8px;border-radius:4px;background:linear-gradient(180deg,rgba(124,68,49,0.06),rgba(124,68,49,0.02));border:1px solid rgba(200,180,138,0.3)">
+          <div class="accent-badge" id="accent-badge" style="text-align:center;padding:6px 8px;margin-bottom:6px;background:rgba(0,0,0,0.04);border-radius:3px">
+            <div id="accent-badge-title" style="font-family:'Josefin Sans',sans-serif;font-weight:700;font-size:12px;letter-spacing:0.16em;color:#5C3A1F">L1 NOT SET</div>
+            <div id="accent-badge-subtitle" style="font-family:monospace;font-size:9px;color:#8A7D68;margin-top:2px">set L1 in Profile to enable accent handling</div>
+          </div>
+          <div class="accent-toggle-row" style="display:flex;gap:6px">
+            <div class="accent-pill" id="accent-polish" data-mode="polish" style="flex:1;text-align:center;padding:7px 4px;font-family:'Josefin Sans',sans-serif;font-weight:700;font-size:10px;letter-spacing:0.22em;border-radius:3px;cursor:pointer;background:linear-gradient(180deg,#7A1F1F,#3A0A0A);color:#EDDFC2;border:1px solid #C8B48A">POLISH</div>
+            <div class="accent-pill" id="accent-keep" data-mode="keep" style="flex:1;text-align:center;padding:7px 4px;font-family:'Josefin Sans',sans-serif;font-weight:700;font-size:10px;letter-spacing:0.22em;border-radius:3px;cursor:pointer;background:linear-gradient(180deg,#1E1E22,#0A0A10);color:#C8B48A;border:0.5px solid rgba(200,180,138,0.2)">KEEP</div>
+          </div>
+          <div id="accent-hint" style="text-align:center;font-family:monospace;font-size:9px;color:#8A7D68;margin-top:5px;letter-spacing:0.04em">for the boss · standard English</div>
+        </div>
       </div>
     </div>
 
@@ -4834,6 +4848,44 @@ document.getElementById('toggle-paralinguistic').addEventListener('change',async
 document.getElementById('toggle-para-transcribe').addEventListener('change',async(e)=>{_toggleCooldown.paraTrans=Date.now()+3000;try{await fetch(API+'/api/paralinguistic_transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}});
 document.getElementById('toggle-prosodic').addEventListener('change',async(e)=>{_toggleCooldown.pros=Date.now()+3000;try{await fetch(API+'/api/prosodic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}});
 document.getElementById('toggle-quiet-mode').addEventListener('change',async(e)=>{_toggleCooldown.quiet=Date.now()+3000;try{await fetch(API+'/api/quiet_mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}});
+
+// ── ACCENT — Polish vs Keep (Design Justice surface) ──
+// Detection badge + segmented toggle. Reads profile_l1 and pack marker
+// count from the backend. POLISH = normalize toward Standard English.
+// KEEP = preserve speaker's voice verbatim. Same packs both ways — the
+// directive flips. Persisted via /api/accent_mode.
+function paintAccentMode(mode){
+  const polish=document.getElementById('accent-polish');
+  const keep=document.getElementById('accent-keep');
+  const hint=document.getElementById('accent-hint');
+  const isKeep=mode==='keep';
+  if(polish&&keep){
+    polish.style.background=isKeep?'linear-gradient(180deg,#1E1E22,#0A0A10)':'linear-gradient(180deg,#7A1F1F,#3A0A0A)';
+    polish.style.color=isKeep?'#C8B48A':'#EDDFC2';
+    polish.style.border=isKeep?'0.5px solid rgba(200,180,138,0.2)':'1px solid #C8B48A';
+    keep.style.background=isKeep?'linear-gradient(180deg,#7A1F1F,#3A0A0A)':'linear-gradient(180deg,#1E1E22,#0A0A10)';
+    keep.style.color=isKeep?'#EDDFC2':'#C8B48A';
+    keep.style.border=isKeep?'1px solid #C8B48A':'0.5px solid rgba(200,180,138,0.2)';
+  }
+  if(hint){hint.textContent=isKeep?'for your mom · authentic voice':'for the boss · standard English';}
+}
+function refreshAccentBadge(profileL1, markerCount){
+  const title=document.getElementById('accent-badge-title');
+  const sub=document.getElementById('accent-badge-subtitle');
+  if(!title||!sub)return;
+  if(!profileL1||profileL1==='en'){title.textContent='L1 NOT SET';sub.textContent='set L1 in Profile to enable accent handling';return;}
+  const display=({russian:'RUSSIAN',spanish:'SPANISH',mandarin:'MANDARIN',hindi:'HINDI',arabic:'ARABIC',farsi:'FARSI',french:'FRENCH',german:'GERMAN',korean:'KOREAN',japanese:'JAPANESE'})[profileL1]||profileL1.toUpperCase();
+  title.textContent=display+' L1 · DETECTED';
+  sub.textContent=(markerCount||10)+' L1-transfer patterns recognized';
+}
+async function setAccentMode(mode){
+  paintAccentMode(mode);
+  try{await fetch(API+'/api/accent_mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:mode})});}catch(err){}
+}
+document.getElementById('accent-polish')?.addEventListener('click',()=>setAccentMode('polish'));
+document.getElementById('accent-keep')?.addEventListener('click',()=>setAccentMode('keep'));
+// Initial paint — assume polish until backend confirms.
+paintAccentMode('polish');
 
 // ─── SCRIPT PREP ─────────────────────────────────
 async function runPrep(){

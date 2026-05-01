@@ -2523,6 +2523,10 @@ paralinguistic_enabled = profile["preferences"].get("paralinguistic", False)
 paralinguistic_transcribe = profile["preferences"].get("paralinguistic_transcribe", False)
 prosodic_enabled = profile["preferences"].get("prosodic", False)
 quiet_mode_enabled = profile["preferences"].get("quiet_mode", False)
+# Accent rendering mode — "polish" (normalize toward Standard English,
+# default) or "keep" (preserve speaker's voice verbatim). Drives L1-pack
+# injection framing at L2/L3. Surfaced on the dashboard ACCENT block.
+accent_mode = profile["preferences"].get("accent_mode", "polish")
 
 # Migration: Layer 5 -> Layer 4 + toggles
 if current_layer >= 5:
@@ -7535,6 +7539,16 @@ def set_quiet_mode(enabled):
     save_profile(profile)
     log(f"Quiet Mode: {'ON' if quiet_mode_enabled else 'OFF'}", "info")
 
+def set_accent_mode(mode):
+    global accent_mode
+    mode = (mode or "polish").lower()
+    if mode not in ("polish", "keep"):
+        mode = "polish"
+    accent_mode = mode
+    profile["preferences"]["accent_mode"] = accent_mode
+    save_profile(profile)
+    log(f"Accent mode: {accent_mode.upper()}", "info")
+
 def set_mode(mode):
     global current_mode
     if mode in MODES:
@@ -8343,6 +8357,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if body and 'enabled' in body:
                 set_quiet_mode(body['enabled'])
             self._json({'quiet_mode_enabled': quiet_mode_enabled})
+        elif self.path == '/api/accent_mode':
+            if body and 'mode' in body:
+                set_accent_mode(body['mode'])
+            self._json({'accent_mode': accent_mode})
         elif self.path == '/api/l1_asr':
             global L1_CLOUD_ASR
             if body and 'cloud' in body:
