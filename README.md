@@ -3237,3 +3237,15 @@ Full Lav-side detail in `SESSION_LOG_2026-04-30.md`.
 - Three-copies-of-dashboard.html trap documented (source / PyInstaller dist / Lavrentiy-Eval install all drift independently). Permanent fix not implemented.
 
 Full detail in `SESSION_LOG_2026-04-30.md` section 9.
+
+### 2026-05-01 — Installer v1.5.7 ships, languages stripped, dashboard UI forward-ports
+
+- **All 5 languages stripped** — Lavrentiy is English-only again. French apostrophe escape bug killed the JS I18N parser; operator pulled the plug on the multi-lang experiment. WiM Android keeps its 5-lang UI separately. `scripts/strip_languages.py` collapsed all 192 I18N entries back to en-only.
+- **Falcon validator stubbed** at all layers (L2/L3/L4). Operator decision: trust the primary reconstructor without a second cross-vendor pass. Saves ~$0.0008/session + ~400ms latency. Plumbing intact.
+- **L1 architecture mirrors WiM Android**: cloud `whisper-1` API (default, multilingual) and bundled local `faster-whisper small.en` (~486 MB, English-only, offline). Toggle via `POST /api/l1_asr` from the dashboard's L1 SOURCE section (forward-ported from c0acb93).
+- **Installer `Lavrentiy-Eval-Setup-v1.5.7.exe`** (548 MB) — bundled OpenAI + Anthropic API keys baked in, faster-whisper small.en, AppId for future auto-uninstall hygiene, `CloseApplications=force` for in-place upgrades. Wife's-laptop-ready single-file install.
+- **desktop.py hidden-window bug fixed** — `boot()` calls `win.show()` so double-clicking the desktop shortcut never opens to a dead screen.
+- Dashboard cleanup: dedicated L1 SOURCE section between PATIENCE and WHISPER (no longer buried inside WHISPER card), console legend restyled to floating-corner with thin tan-gold border, EQ ears markup forward-ported (4 elements vs 2; visual still not rendering — deferred).
+- **~2.5 GB of stale build artifacts deleted**: 8 obsolete .exe versions, dist/Lavrentiy/, build/Lavrentiy/, eval-build/{engine,ollama-bundle,large-v3-turbo,base}/, dead `Lavrentiy.iss` v1.2 variant, broken desktop shortcuts. Output dir holds exactly one installer.
+
+Full detail in `SESSION_LOG_2026-05-01.md` "Session B" section.

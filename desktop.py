@@ -250,6 +250,15 @@ def boot(win):
     Starts the engine, polls /api/state for ready=true (engine reports its
     own boot_stage during the init window), shows that stage as live splash
     text, navigates to the dashboard only once ready."""
+    # Force-show the window. pywebview creates the window with default-visible
+    # but on some Windows configurations the OS reports IsWindowVisible=False
+    # until something explicitly calls show(), and the user sees nothing on
+    # screen even though the process tree shows the webview is alive. This
+    # one-line call eliminates the dead-shortcut UX bug.
+    try:
+        win.show()
+    except Exception:
+        pass
     _splash_status(win, "starting engine")
     print("[desktop] Starting engine subprocess...")
     start_engine()

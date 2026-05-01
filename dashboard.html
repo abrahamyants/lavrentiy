@@ -375,25 +375,44 @@ body::before {
   z-index: 5;
   height: 70px;
 }
-.eq-left { left: 8px; }
-.eq-right { right: 8px; flex-direction: row-reverse; }
+.eq-left { left: 8px; transform-origin: left center; }
+.eq-left.eq-near { left: 44px; }
+.eq-right { right: 8px; transform-origin: right center; flex-direction: row-reverse; }
+.eq-right.eq-near { right: 44px; }
 .eq-bars span {
   display: block;
   width: 3px;
   background: linear-gradient(180deg, #ee5a24 0%, #b91c1c 100%);
   border-radius: 2px;
-  opacity: 0.25;
+  opacity: 0.28;
+  transform-origin: center;
   transition: opacity 0.2s;
   box-shadow: 0 0 4px rgba(238,90,36,0.3);
+  animation: eq-rest 3.6s ease-in-out infinite;
 }
-/* Height curve: taller toward the middle (closest to ring), shorter at edges */
-.eq-bars span:nth-child(1) { height: 10px; }
-.eq-bars span:nth-child(2) { height: 20px; }
-.eq-bars span:nth-child(3) { height: 34px; }
-.eq-bars span:nth-child(4) { height: 48px; }
-.eq-bars span:nth-child(5) { height: 56px; }
-.eq-bars span:nth-child(6) { height: 42px; }
-.eq-bars span:nth-child(7) { height: 26px; }
+@keyframes eq-rest {
+  0%, 100% { transform: scaleY(1.0); opacity: 0.32; }
+  50%      { transform: scaleY(0.5); opacity: 0.18; }
+}
+/* Height curve (taller toward the middle/ring) + per-bar phase offset
+   that walks across the 3.6s cycle so the strip reads as a wave rolling
+   from the edge toward the ring, not seven bars rising in unison. */
+.eq-bars span:nth-child(1) { height: 10px; animation-delay:  0s;    }
+.eq-bars span:nth-child(2) { height: 20px; animation-delay: -0.51s; }
+.eq-bars span:nth-child(3) { height: 34px; animation-delay: -1.03s; }
+.eq-bars span:nth-child(4) { height: 48px; animation-delay: -1.54s; }
+.eq-bars span:nth-child(5) { height: 56px; animation-delay: -2.06s; }
+.eq-bars span:nth-child(6) { height: 42px; animation-delay: -2.57s; }
+.eq-bars span:nth-child(7) { height: 26px; animation-delay: -3.09s; }
+/* Inner pair offset half-cycle (1.8s) so the two ripples on each side
+   beat off each other rather than running in lockstep. */
+.eq-bars.eq-near span:nth-child(1) { animation-delay: -1.80s; }
+.eq-bars.eq-near span:nth-child(2) { animation-delay: -2.31s; }
+.eq-bars.eq-near span:nth-child(3) { animation-delay: -2.83s; }
+.eq-bars.eq-near span:nth-child(4) { animation-delay: -3.34s; }
+.eq-bars.eq-near span:nth-child(5) { animation-delay: -0.26s; }
+.eq-bars.eq-near span:nth-child(6) { animation-delay: -0.77s; }
+.eq-bars.eq-near span:nth-child(7) { animation-delay: -1.29s; }
 
 /* When recording: each bar moves independently (different freq bands, chaotic) */
 .app.st-recording .eq-bars span {
@@ -1467,22 +1486,18 @@ body::before {
 }
 .console-empty { color: var(--text-muted); font-size: 11px; text-align: center; padding: 40px 0; letter-spacing: 1px; }
 .console-legend {
-  position: absolute; bottom: 0; right: 0;
-  padding: 6px 10px 6px 12px;
+  position: absolute; bottom: 12px; right: 16px;
+  padding: 10px 14px 10px 16px;
   font-family: var(--mono); font-size: 10px; letter-spacing: 0.5px;
   line-height: 1.0;
   color: var(--text-muted);
   pointer-events: none; z-index: 2;
-  /* Original console-bg base, with a faint brushed-metal mesh overlaid
-     so it reads native to the rest of the dashboard chrome. NOT darker
-     than before — just textured. */
-  background:
-    repeating-linear-gradient(90deg, rgba(255,255,255,0) 0px, rgba(255,255,255,0.025) 1px, rgba(0,0,0,0.025) 2px, transparent 3px, transparent 6px),
-    var(--console-bg);
-  border-top: 1px solid rgba(238,90,36,0.2);
-  border-left: 1px solid rgba(238,90,36,0.2);
-  border-top-left-radius: 6px;
-  box-shadow: -2px -2px 8px rgba(0,0,0,0.3);
+  /* Floating box: semi-transparent dark fill so the glyphs and red
+     pattern behind it bleed through, ringed in a thin tan-gold border. */
+  background: linear-gradient(135deg, rgba(185,28,28,0.30) 0%, rgba(92,42,42,0.65) 100%);
+  border: 1px solid rgba(212,165,116,0.35);
+  border-radius: 4px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04);
 }
 .console-legend > div { padding: 2px 0; }
 /* Only show legend when console tab is active */
@@ -2708,7 +2723,6 @@ body::before {
 <div class="status-ring-wrap">
       <button class="compact-toggle" onclick="toggleCompact()" title="Compact mode">&#8863;</button>
       <div class="theme-toggle"><button class="theme-tog-btn" data-theme-set="dark" onclick="setTheme('dark')">D</button><button class="theme-tog-btn" data-theme-set="light" onclick="setTheme('light')">L</button></div>
-      <div class="lang-toggle"><button class="lang-btn active" data-lang="en" onclick="setLang('en')">EN</button><button class="lang-btn" data-lang="ru" onclick="setLang('ru')">RU</button><button class="lang-btn" data-lang="es" onclick="setLang('es')">ES</button><button class="lang-btn" data-lang="pt" onclick="setLang('pt')">PT</button><button class="lang-btn" data-lang="fr" onclick="setLang('fr')">FR</button></div>
       <button class="help-btn" onclick="toggleHelp()" title="Manual">?</button>
       <script>
         // Backup keyboard shortcuts: F5 and Ctrl+R reload the dashboard.
@@ -2723,7 +2737,13 @@ body::before {
       <div class="eq-bars eq-left" aria-hidden="true">
         <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
       </div>
+      <div class="eq-bars eq-left eq-near" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+      </div>
       <div class="eq-bars eq-right" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+      </div>
+      <div class="eq-bars eq-right eq-near" aria-hidden="true">
         <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
       </div>
       <div class="status-ring-outer">
@@ -2810,6 +2830,15 @@ body::before {
       <!-- Whisper settings — only meaningful at L4 (cloud whisper-1).
            At L1/L2/L3 (Moonshine), no segment metadata exists so all values
            stay 0. Greyed out outside L4 so users aren't confused by dead numbers. -->
+      <!-- L1 source picker — always interactive (this toggle is FOR L1, so it
+           must stay live regardless of current layer). Off = local faster-whisper
+           small.en (~2-5s, offline). On = cloud whisper-1 (~1-2s, needs internet). -->
+      <div class="engine-section-card" id="l1-source-card">
+        <span class="engine-group-label">L1 SOURCE</span>
+        <div class="engine-grid">
+          <div class="engine-row"><span>Cloud</span><div class="hw-toggle" id="l1-asr-toggle" onclick="toggleL1Asr()" title="Off = local faster-whisper small.en (~2-5s, offline). On = cloud whisper-1 (~1-2s, needs internet)." style="transform:scale(0.65)"></div></div>
+        </div>
+      </div>
       <div class="engine-section-card" id="whisper-card">
         <span class="engine-group-label">WHISPER</span>
         <div class="engine-grid">
@@ -3237,159 +3266,159 @@ const FIELD_MAP={trigger:'trigger_words',filler:'filler_words',vocab:'vocabulary
 let currentLang=localStorage.getItem('lavrentiy-lang')||'en';
 const I18N={
   // Boot
-  boot_sub:{en:'VOICE RECONSTRUCTION ENGINE',ru:'СИСТЕМА ВОССТАНОВЛЕНИЯ РЕЧИ',es:'MOTOR DE RECONSTRUCCIÓN DE VOZ',pt:'MOTOR DE RECONSTRUÇÃO DE VOZ',fr:'MOTEUR DE RECONSTRUCTION VOCALE'},
-  conn_lost:{en:'Connection Lost',ru:'Соединение потеряно',es:'Conexión perdida',pt:'Conexão perdida',fr:'Connexion perdue'},
-  conn_sub:{en:'Lavrentiy engine is not running',ru:'Движок Лаврентий не запущен',es:'El motor Lavrentiy no está corriendo',pt:'O motor Lavrentiy não está rodando',fr:'Le moteur Lavrentiy n\\'est pas en cours d\\'exécution'},
+  boot_sub:{en:'VOICE RECONSTRUCTION ENGINE'},
+  conn_lost:{en:'Connection Lost'},
+  conn_sub:{en:'Lavrentiy engine is not running'},
   // Sidebar sections
-  sec_tone:{en:'Tone ',ru:'Тон ',es:'Tono ',pt:'Tom ',fr:'Ton '},
-  sec_layer:{en:'Layer',ru:'Уровень',es:'Capa',pt:'Camada',fr:'Couche'},
-  sec_enhance:{en:'Enhancements',ru:'Улучшения',es:'Mejoras',pt:'Melhorias',fr:'Améliorations'},
-  sec_mode:{en:'Mode ',ru:'Режим ',es:'Modo ',pt:'Modo ',fr:'Mode '},
-  sec_situation:{en:'Situation',ru:'Ситуация',es:'Situación',pt:'Situação',fr:'Situation'},
+  sec_tone:{en:'Tone '},
+  sec_layer:{en:'Layer'},
+  sec_enhance:{en:'Enhancements'},
+  sec_mode:{en:'Mode '},
+  sec_situation:{en:'Situation'},
   // Tones
-  tone_casual:{en:'Casual',ru:'Обычный',es:'Casual',pt:'Casual',fr:'Décontracté'},
-  tone_pro:{en:'Professional',ru:'Деловой',es:'Profesional',pt:'Profissional',fr:'Professionnel'},
-  tone_friend:{en:'Friend',ru:'Дружеский',es:'Amigo',pt:'Amigo',fr:'Ami'},
-  tone_formal:{en:'Formal',ru:'Формальный',es:'Formal',pt:'Formal',fr:'Formel'},
+  tone_casual:{en:'Casual'},
+  tone_pro:{en:'Professional'},
+  tone_friend:{en:'Friend'},
+  tone_formal:{en:'Formal'},
   // Layers
-  layer1:{en:'I. Transcribe',ru:'I. Транскрипция',es:'I. Transcribir',pt:'I. Transcrever',fr:'I. Transcrire'},layer1d:{en:'raw text, no cleanup',ru:'сырой текст, без обработки',es:'texto crudo, sin limpieza',pt:'texto bruto, sem limpeza',fr:'texte brut, sans nettoyage'},
-  layer2:{en:'II. Reconstruct',ru:'II. Реконструкция',es:'II. Reconstruir',pt:'II. Reconstruir',fr:'II. Reconstruire'},layer2d:{en:'LLM + tone',ru:'LLM + тон',es:'LLM + tono',pt:'LLM + tom',fr:'LLM + ton'},
-  layer3:{en:'III. Profile',ru:'III. Профиль',es:'III. Perfil',pt:'III. Perfil',fr:'III. Profil'},layer3d:{en:'+ vocabulary',ru:'+ словарь',es:'+ vocabulario',pt:'+ vocabulário',fr:'+ vocabulaire'},
-  layer4:{en:'IV. Stutter',ru:'IV. Заикание',es:'IV. Disfluencia',pt:'IV. Disfluência',fr:'IV. Dysfluence'},layer4d:{en:'+ disfluency',ru:'+ дисфлюенция',es:'+ disfluencia',pt:'+ disfluência',fr:'+ dysfluence'},
+  layer1:{en:'I. Transcribe'},layer1d:{en:'raw text, no cleanup'},
+  layer2:{en:'II. Reconstruct'},layer2d:{en:'LLM + tone'},
+  layer3:{en:'III. Profile'},layer3d:{en:'+ vocabulary'},
+  layer4:{en:'IV. Stutter'},layer4d:{en:'+ disfluency'},
   // Enhancement toggles
-  lbl_para:{en:'Paralinguistic',ru:'Паралингвистика',es:'Paralingüístico',pt:'Paralinguístico',fr:'Paralinguistique'},hint_para:{en:'cough/laugh',ru:'кашель/смех',es:'tos/risa',pt:'tosse/risada',fr:'toux/rire'},
-  lbl_transcribe:{en:'Transcribe',ru:'Транскрипция',es:'Transcribir',pt:'Transcrever',fr:'Transcrire'},hint_transcribe:{en:'inject [tags] in text',ru:'вставить [теги] в текст',es:'insertar [etiquetas] en el texto',pt:'inserir [tags] no texto',fr:'insérer [tags] dans le texte'},
-  lbl_prosodic:{en:'Prosodic',ru:'Просодика',es:'Prosódico',pt:'Prosódico',fr:'Prosodique'},hint_prosodic:{en:'pitch/energy/rate',ru:'тон/энергия/темп',es:'tono/energía/ritmo',pt:'tom/energia/ritmo',fr:'ton/énergie/débit'},
+  lbl_para:{en:'Paralinguistic'},hint_para:{en:'cough/laugh'},
+  lbl_transcribe:{en:'Transcribe'},hint_transcribe:{en:'inject [tags] in text'},
+  lbl_prosodic:{en:'Prosodic'},hint_prosodic:{en:'pitch/energy/rate'},
   // Mode descs
-  mode_raw:{en:'paste as-is',ru:'вставить как есть',es:'pegar tal cual',pt:'colar como está',fr:'coller tel quel'},mode_fast:{en:'skip validation',ru:'без проверки',es:'sin validación',pt:'sem validação',fr:'sans validation'},mode_safe:{en:'+ Falcon check',ru:'+ проверка Falcon',es:'+ verificación Falcon',pt:'+ verificação Falcon',fr:'+ vérif Falcon'},
+  mode_raw:{en:'paste as-is'},mode_fast:{en:'skip validation'},mode_safe:{en:'+ Falcon check'},
   // Situations
-  sit_default:{en:'Default',ru:'Обычная',es:'Predeterminada',pt:'Padrão',fr:'Par défaut'},sit_default_d:{en:'+ everyday use',ru:'+ повседневное',es:'+ uso diario',pt:'+ uso diário',fr:'+ usage quotidien'},
-  sit_stress:{en:'High Stress',ru:'Стресс',es:'Alto estrés',pt:'Alto Estresse',fr:'Stress élevé'},sit_stress_d:{en:'+ full assist',ru:'+ полная помощь',es:'+ asistencia total',pt:'+ assistência total',fr:'+ assistance totale'},
-  sit_reading:{en:'Reading',ru:'Чтение',es:'Lectura',pt:'Leitura',fr:'Lecture'},sit_reading_d:{en:'+ near-fluent',ru:'+ уверенный',es:'+ casi fluido',pt:'+ quase fluente',fr:'+ quasi fluide'},
+  sit_default:{en:'Default'},sit_default_d:{en:'+ everyday use'},
+  sit_stress:{en:'High Stress'},sit_stress_d:{en:'+ full assist'},
+  sit_reading:{en:'Reading'},sit_reading_d:{en:'+ near-fluent'},
   // Engine panel
-  lbl_multitemp:{en:'Multi-Temp',ru:'Мульти-Темп',es:'Multi-Temp',pt:'Multi-Temp',fr:'Multi-Temp'},lbl_prepseed:{en:'Prep Seed',ru:'Затравка',es:'Semilla Prep',pt:'Semente Prep',fr:'Graine Prep'},
-  lbl_blocks:{en:'Blocks',ru:'Блоки',es:'Bloqueos',pt:'Bloqueios',fr:'Blocages'},lbl_redos_eng:{en:'Redos',ru:'Повторы',es:'Repeticiones',pt:'Repetições',fr:'Reprises'},
-  lbl_nospeech:{en:'No Speech',ru:'Тишина',es:'Sin Voz',pt:'Sem Voz',fr:'Sans Voix'},lbl_logprob:{en:'Avg LogProb',ru:'Ср. LogProb',es:'LogProb Med.',pt:'LogProb Méd.',fr:'LogProb Moy.'},
-  lbl_sensitive:{en:'\u25C4 sensitive',ru:'\u25C4 чувствительно',es:'◄ sensible',pt:'◄ sensível',fr:'◄ sensible'},lbl_tolerant:{en:'tolerant \u25BA',ru:'толерантно \u25BA',es:'tolerante ►',pt:'tolerante ►',fr:'tolérant ►'},
-  lbl_speech:{en:'SPEECH',ru:'РЕЧЬ',es:'VOZ',pt:'VOZ',fr:'PAROLE'},
-  lbl_pause:{en:'Pause Ratio',ru:'Доля пауз',es:'Ratio Pausa',pt:'Razão de Pausa',fr:'Ratio Pause'},lbl_wpm_eng:{en:'Words/Min',ru:'Слов/Мин',es:'Palabras/Min',pt:'Palavras/Min',fr:'Mots/Min'},
-  lbl_sevmod:{en:'Severity Mod',ru:'Мод. тяжести',es:'Mod. Severidad',pt:'Mod. Severidade',fr:'Mod. Sévérité'},lbl_para2:{en:'Paralinguistic',ru:'Паралингвистика',es:'Paralingüístico',pt:'Paralinguístico',fr:'Paralinguistique'},
-  lbl_speaker:{en:'Speaker State',ru:'Состояние',es:'Estado Hablante',pt:'Estado do Falante',fr:'État du locuteur'},
-  lbl_base:{en:'base',ru:'база',es:'base',pt:'base',fr:'base'},lbl_speech2:{en:'speech',ru:'речь',es:'voz',pt:'voz',fr:'parole'},
+  lbl_multitemp:{en:'Multi-Temp'},lbl_prepseed:{en:'Prep Seed'},
+  lbl_blocks:{en:'Blocks'},lbl_redos_eng:{en:'Redos'},
+  lbl_nospeech:{en:'No Speech'},lbl_logprob:{en:'Avg LogProb'},
+  lbl_sensitive:{en:'\u25C4 sensitive'},lbl_tolerant:{en:'tolerant \u25BA'},
+  lbl_speech:{en:'SPEECH'},
+  lbl_pause:{en:'Pause Ratio'},lbl_wpm_eng:{en:'Words/Min'},
+  lbl_sevmod:{en:'Severity Mod'},lbl_para2:{en:'Paralinguistic'},
+  lbl_speaker:{en:'Speaker State'},
+  lbl_base:{en:'base'},lbl_speech2:{en:'speech'},
   // Shortcuts
-  sec_shortcuts:{en:'Shortcuts ',ru:'Горячие клавиши ',es:'Atajos ',pt:'Atalhos ',fr:'Raccourcis '},
-  hk_record:{en:'Record',ru:'Запись',es:'Grabar',pt:'Gravar',fr:'Enregistrer'},hk_tone:{en:'Cycle Tone',ru:'Сменить тон',es:'Cambiar Tono',pt:'Trocar Tom',fr:'Changer Ton'},
-  hk_layer:{en:'Cycle Layer',ru:'Сменить уровень',es:'Cambiar Capa',pt:'Trocar Camada',fr:'Changer Couche'},hk_stats:{en:'Print Stats',ru:'Статистика',es:'Estadísticas',pt:'Estatísticas',fr:'Stats'},
-  hk_quit:{en:'Quit (×3)',ru:'Выход (×3)',es:'Salir (×3)',pt:'Sair (×3)',fr:'Quitter (×3)'},
-  hk_press:{en:'Press any key...',ru:'Нажмите любую клавишу...',es:'Pulse cualquier tecla...',pt:'Pressione qualquer tecla...',fr:'Appuyez sur une touche...'},
-  hk_save:{en:'Save to Engine',ru:'Сохранить',es:'Guardar en motor',pt:'Salvar no motor',fr:'Sauvegarder dans le moteur'},
+  sec_shortcuts:{en:'Shortcuts '},
+  hk_record:{en:'Record'},hk_tone:{en:'Cycle Tone'},
+  hk_layer:{en:'Cycle Layer'},hk_stats:{en:'Print Stats'},
+  hk_quit:{en:'Quit (×3)'},
+  hk_press:{en:'Press any key...'},
+  hk_save:{en:'Save to Engine'},
   // Stats bar
-  sl_words:{en:'Words',ru:'Слова',es:'Palabras',pt:'Palavras',fr:'Mots'},sl_sessions:{en:'Sessions',ru:'Сессии',es:'Sesiones',pt:'Sessões',fr:'Sessions'},
-  sl_wpm:{en:'WPM',ru:'Сл/Мин',es:'PPM',pt:'PPM',fr:'MPM'},sl_api:{en:'API Calls',ru:'API-запросы',es:'Llamadas API',pt:'Chamadas API',fr:'Appels API'},
-  sl_difficulty:{en:'Avg Difficulty',ru:'Ср. сложность',es:'Dificultad Med.',pt:'Dificuldade Méd.',fr:'Difficulté Moy.'},sl_cost:{en:'Est. Cost',ru:'Ст-ть',es:'Costo Est.',pt:'Custo Est.',fr:'Coût Est.'},
+  sl_words:{en:'Words'},sl_sessions:{en:'Sessions'},
+  sl_wpm:{en:'WPM'},sl_api:{en:'API Calls'},
+  sl_difficulty:{en:'Avg Difficulty'},sl_cost:{en:'Est. Cost'},
   // Learn bar
-  ll_corrections:{en:'Corrections',ru:'Коррекции',es:'Correcciones',pt:'Correções',fr:'Corrections'},ll_fillers:{en:'Fillers',ru:'Слова-паразиты',es:'Muletillas',pt:'Muletas',fr:'Tics'},
-  ll_vocab:{en:'Vocabulary',ru:'Словарь',es:'Vocabulario',pt:'Vocabulário',fr:'Vocabulaire'},ll_triggers:{en:'Triggers',ru:'Триггеры',es:'Disparadores',pt:'Gatilhos',fr:'Déclencheurs'},
-  ll_editdist:{en:'Edit Dist',ru:'Ред. расст.',es:'Dist. Edición',pt:'Dist. Edição',fr:'Dist. Édition'},ll_redos:{en:'Redos',ru:'Повторы',es:'Repeticiones',pt:'Repetições',fr:'Reprises'},
-  lp_next:{en:'Next cycle',ru:'Сл. цикл',es:'Próx. ciclo',pt:'Próx. ciclo',fr:'Prochain cycle'},lp_decay:{en:'Decay',ru:'Затухание',es:'Decaimiento',pt:'Decaimento',fr:'Atténuation'},
+  ll_corrections:{en:'Corrections'},ll_fillers:{en:'Fillers'},
+  ll_vocab:{en:'Vocabulary'},ll_triggers:{en:'Triggers'},
+  ll_editdist:{en:'Edit Dist'},ll_redos:{en:'Redos'},
+  lp_next:{en:'Next cycle'},lp_decay:{en:'Decay'},
   // Tabs
-  tab_console:{en:'Console',ru:'Консоль',es:'Consola',pt:'Console',fr:'Console'},tab_sessions:{en:'Sessions',ru:'Сессии',es:'Sesiones',pt:'Sessões',fr:'Sessions'},
-  tab_learning:{en:'Learning',ru:'Обучение',es:'Aprendizaje',pt:'Aprendizado',fr:'Apprentissage'},tab_insights:{en:'Insights',ru:'Анализ',es:'Análisis',pt:'Análise',fr:'Analyses'},
-  tab_prep:{en:'Prep',ru:'Подготовка',es:'Preparar',pt:'Preparar',fr:'Préparer'},tab_calibrate:{en:'Calibrate',ru:'Калибровка',es:'Calibrar',pt:'Calibrar',fr:'Calibrer'},
-  tab_tips:{en:'Tips',ru:'Подсказки',es:'Consejos',pt:'Dicas',fr:'Astuces'},tab_profile:{en:'Profile',ru:'Профиль',es:'Perfil',pt:'Perfil',fr:'Profil'},
+  tab_console:{en:'Console'},tab_sessions:{en:'Sessions'},
+  tab_learning:{en:'Learning'},tab_insights:{en:'Insights'},
+  tab_prep:{en:'Prep'},tab_calibrate:{en:'Calibrate'},
+  tab_tips:{en:'Tips'},tab_profile:{en:'Profile'},
   // Tab empties & labels
-  console_empty:{en:'Waiting for input...',ru:'Ожидание ввода...',es:'Esperando entrada...',pt:'Aguardando entrada...',fr:'En attente d\\'entrée...'},
-  learn_empty:{en:'No patterns learned yet. Keep talking.',ru:'Паттерны ещё не найдены. Продолжайте говорить.',es:'Aún no se han detectado patrones. Sigue hablando.',pt:'Nenhum padrão aprendido ainda. Continue falando.',fr:'Aucun motif appris pour l\\'instant. Continuez à parler.'},
-  learn_report:{en:'\uD83D\uDCCA WEEKLY REPORT',ru:'\uD83D\uDCCA НЕДЕЛЬНЫЙ ОТЧЁТ',es:'📊 INFORME SEMANAL',pt:'📊 RELATÓRIO SEMANAL',fr:'📊 RAPPORT HEBDOMADAIRE'},
-  insights_empty:{en:'Switch to Layer 4 to view stuttering insights.',ru:'Переключитесь на уровень 4 для анализа заикания.',es:'Cambia a Capa 4 para ver análisis de disfluencia.',pt:'Mude para Camada 4 para ver análises de gagueira.',fr:'Passez à la Couche 4 pour voir les analyses de bégaiement.'},
-  insights_nodata:{en:'Not enough data yet. Keep using Layer 4.',ru:'Недостаточно данных. Продолжайте использовать уровень 4.',es:'Aún no hay datos suficientes. Sigue usando Capa 4.',pt:'Dados insuficientes ainda. Continue usando Camada 4.',fr:'Pas encore assez de données. Continuez à utiliser la Couche 4.'},
-  sessions_empty:{en:'Start dictating. Sessions appear here.',ru:'Начните диктовку. Сессии появятся здесь.',es:'Empieza a dictar. Las sesiones aparecerán aquí.',pt:'Comece a ditar. As sessões aparecerão aqui.',fr:'Commencez à dicter. Les sessions apparaîtront ici.'},
+  console_empty:{en:'Waiting for input...'},
+  learn_empty:{en:'No patterns learned yet. Keep talking.'},
+  learn_report:{en:'\uD83D\uDCCA WEEKLY REPORT'},
+  insights_empty:{en:'Switch to Layer 4 to view stuttering insights.'},
+  insights_nodata:{en:'Not enough data yet. Keep using Layer 4.'},
+  sessions_empty:{en:'Start dictating. Sessions appear here.'},
   // Insights section titles
-  phoneme_title:{en:'PHONEME DIFFICULTY MAP',ru:'КАРТА СЛОЖНОСТИ ФОНЕМ',es:'MAPA DE DIFICULTAD DE FONEMAS',pt:'MAPA DE DIFICULDADE DE FONEMAS',fr:'CARTE DE DIFFICULTÉ DES PHONÈMES'},
-  covert_title:{en:'COVERT AVOIDANCE PATTERNS',ru:'СКРЫТЫЕ ПАТТЕРНЫ ИЗБЕГАНИЯ',es:'PATRONES DE EVITACIÓN ENCUBIERTA',pt:'PADRÕES DE EVITAÇÃO ENCOBERTA',fr:'MOTIFS D\\'ÉVITEMENT CACHÉS'},
-  onset_title:{en:'ONSET ANOMALIES',ru:'АНОМАЛИИ НАЧАЛА СЛОВ',es:'ANOMALÍAS DE INICIO',pt:'ANOMALIAS DE INÍCIO',fr:'ANOMALIES D\\'ATTAQUE'},
-  onset_sub:{en:'(onsets you avoid)',ru:'(начала, которых вы избегаете)',es:'(inicios que evitas)',pt:'(inícios que você evita)',fr:'(attaques que vous évitez)'},
-  lang_onset_title:{en:'PER-LANGUAGE ONSET WEIGHTS',ru:'ВЕСА НАЧАЛ СЛОВ ПО ЯЗЫКАМ',es:'PESOS DE INICIO POR IDIOMA',pt:'PESOS DE INÍCIO POR IDIOMA',fr:'POIDS D\\'ATTAQUE PAR LANGUE'},
-  fingerprint_title:{en:'SUBSTITUTION FINGERPRINT',ru:'ОТПЕЧАТОК ЗАМЕН',es:'HUELLA DE SUSTITUCIÓN',pt:'IMPRESSÃO DE SUBSTITUIÇÃO',fr:'EMPREINTE DE SUBSTITUTION'},
-  shadow_title:{en:'AVOIDANCE DRIFT',ru:'ДРЕЙФ ИЗБЕГАНИЯ',es:'DERIVA DE EVITACIÓN',pt:'DERIVA DE EVITAÇÃO',fr:'DÉRIVE D\\'ÉVITEMENT'},
-  lowconf_title:{en:'LOW CONFIDENCE SEGMENTS',ru:'СЕГМЕНТЫ С НИЗКОЙ УВЕРЕННОСТЬЮ',es:'SEGMENTOS DE BAJA CONFIANZA',pt:'SEGMENTOS DE BAIXA CONFIANÇA',fr:'SEGMENTS DE FAIBLE CONFIANCE'},
-  lowconf_sub:{en:'(last session \u2014 Whisper uncertainty near Brown risk positions)',ru:'(последняя сессия \u2014 неуверенность Whisper рядом с зонами риска)',es:'(última sesión — incertidumbre Whisper cerca de zonas de riesgo Brown)',pt:'(última sessão — incerteza Whisper perto das zonas de risco Brown)',fr:'(dernière session — incertitude Whisper près des zones de risque Brown)'},
-  fluency_title:{en:'FLUENCY TREND',ru:'ТРЕНД ПЛАВНОСТИ',es:'TENDENCIA DE FLUIDEZ',pt:'TENDÊNCIA DE FLUÊNCIA',fr:'TENDANCE DE FLUIDITÉ'},
-  fl_pause:{en:'AVG PAUSE',ru:'СР. ПАУЗА',es:'PAUSA MED.',pt:'PAUSA MÉD.',fr:'PAUSE MOY.'},fl_rate:{en:'AVG RATE',ru:'СР. ТЕМП',es:'RITMO MED.',pt:'RITMO MÉD.',fr:'DÉBIT MOY.'},
-  fl_sev:{en:'AVG SEV+',ru:'СР. ТЯЖ+',es:'SEV+ MED.',pt:'SEV+ MÉD.',fr:'SÉV+ MOY.'},fl_sessions:{en:'SESSIONS',ru:'СЕССИИ',es:'SESIONES',pt:'SESSÕES',fr:'SESSIONS'},
+  phoneme_title:{en:'PHONEME DIFFICULTY MAP'},
+  covert_title:{en:'COVERT AVOIDANCE PATTERNS'},
+  onset_title:{en:'ONSET ANOMALIES'},
+  onset_sub:{en:'(onsets you avoid)'},
+  lang_onset_title:{en:'PER-LANGUAGE ONSET WEIGHTS'},
+  fingerprint_title:{en:'SUBSTITUTION FINGERPRINT'},
+  shadow_title:{en:'AVOIDANCE DRIFT'},
+  lowconf_title:{en:'LOW CONFIDENCE SEGMENTS'},
+  lowconf_sub:{en:'(last session \u2014 Whisper uncertainty near Brown risk positions)'},
+  fluency_title:{en:'FLUENCY TREND'},
+  fl_pause:{en:'AVG PAUSE'},fl_rate:{en:'AVG RATE'},
+  fl_sev:{en:'AVG SEV+'},fl_sessions:{en:'SESSIONS'},
   // Prep tab
-  prep_ph:{en:'Paste your script, talking points, or email here. Lavrentiy will flag words you might stutter on and suggest safer alternatives.',ru:'Вставьте текст, тезисы или письмо. Лаврентий найдёт слова, на которых вы можете заикаться, и предложит замены.',es:'Pega tu guion, puntos clave o correo aquí. Lavrentiy señalará palabras donde podrías tartamudear y sugerirá alternativas más seguras.',pt:'Cole seu roteiro, pontos de fala ou e-mail aqui. Lavrentiy vai marcar palavras onde você pode gaguejar e sugerir alternativas mais seguras.',fr:'Collez votre script, points de discussion ou e-mail ici. Lavrentiy signalera les mots où vous pourriez bégayer et suggérera des alternatives plus sûres.'},
-  prep_btn:{en:'PREP',ru:'АНАЛИЗ',es:'PREPARAR',pt:'PREPARAR',fr:'PRÉPARER'},prep_scanning:{en:'SCANNING...',ru:'СКАНИРОВАНИЕ...',es:'ESCANEANDO...',pt:'ESCANEANDO...',fr:'ANALYSE...'},
-  prep_safe:{en:'SAFE',ru:'БЕЗОПАСНО',es:'SEGURO',pt:'SEGURO',fr:'SÛR'},prep_risky:{en:'RISKY',ru:'РИСКОВАННО',es:'RIESGOSO',pt:'RISCO',fr:'RISQUÉ'},prep_trigger:{en:'KNOWN TRIGGER',ru:'ИЗВЕСТНЫЙ ТРИГГЕР',es:'DISPARADOR CONOCIDO',pt:'GATILHO CONHECIDO',fr:'DÉCLENCHEUR CONNU'},
-  prep_seed:{en:'\u26A1 WHISPER SEEDED \u2014 decoder will use this text as context',ru:'\u26A1 WHISPER ПОДГОТОВЛЕН \u2014 декодер использует этот текст как контекст',es:'⚡ WHISPER PREPARADO — el decodificador usará este texto como contexto',pt:'⚡ WHISPER PREPARADO — o decodificador usará este texto como contexto',fr:'⚡ WHISPER AMORCÉ — le décodeur utilisera ce texte comme contexte'},
-  prep_empty:{en:'Type or paste what you\'re about to say. Hit PREP to scan.',ru:'Введите или вставьте то, что собираетесь сказать. Нажмите АНАЛИЗ.',es:'Escribe o pega lo que vas a decir. Pulsa PREPARAR para escanear.',pt:'Digite ou cole o que você vai dizer. Aperte PREPARAR para escanear.',fr:'Tapez ou collez ce que vous allez dire. Appuyez sur PRÉPARER.'},
-  prep_nothing:{en:'Nothing to prep.',ru:'Нечего анализировать.',es:'Nada que preparar.',pt:'Nada para preparar.',fr:'Rien à préparer.'},
-  prep_analyzing:{en:'Analyzing text and generating alternatives...',ru:'Анализ текста и генерация альтернатив...',es:'Analizando texto y generando alternativas...',pt:'Analisando texto e gerando alternativas...',fr:'Analyse du texte et génération d\\'alternatives...'},
+  prep_ph:{en:'Paste your script, talking points, or email here. Lavrentiy will flag words you might stutter on and suggest safer alternatives.'},
+  prep_btn:{en:'PREP'},prep_scanning:{en:'SCANNING...'},
+  prep_safe:{en:'SAFE'},prep_risky:{en:'RISKY'},prep_trigger:{en:'KNOWN TRIGGER'},
+  prep_seed:{en:'\u26A1 WHISPER SEEDED \u2014 decoder will use this text as context'},
+  prep_empty:{en:'Type or paste what you\'re about to say. Hit PREP to scan.'},
+  prep_nothing:{en:'Nothing to prep.'},
+  prep_analyzing:{en:'Analyzing text and generating alternatives...'},
   // Calibrate tab
-  cal_title:{en:'WHISPER CALIBRATION',ru:'КАЛИБРОВКА WHISPER',es:'CALIBRACIÓN WHISPER',pt:'CALIBRAÇÃO WHISPER',fr:'CALIBRATION WHISPER'},
-  cal_sub:{en:'Read 60 prompts aloud. Each recording becomes a training sample for personalized speech recognition.',ru:'Прочитайте 60 фраз вслух. Каждая запись станет обучающим образцом для персонализированного распознавания речи.',es:'Lee 60 frases en voz alta. Cada grabación se convierte en una muestra de entrenamiento para reconocimiento personalizado.',pt:'Leia 60 frases em voz alta. Cada gravação se torna uma amostra de treinamento para reconhecimento personalizado.',fr:'Lisez 60 phrases à voix haute. Chaque enregistrement devient un échantillon d\\'entraînement pour la reconnaissance personnalisée.'},
-  cal_start:{en:'BEGIN CALIBRATION',ru:'НАЧАТЬ КАЛИБРОВКУ',es:'INICIAR CALIBRACIÓN',pt:'INICIAR CALIBRAÇÃO',fr:'DÉBUTER CALIBRATION'},cal_resume:{en:'RESUME CALIBRATION',ru:'ПРОДОЛЖИТЬ КАЛИБРОВКУ',es:'REANUDAR CALIBRACIÓN',pt:'CONTINUAR CALIBRAÇÃO',fr:'REPRENDRE CALIBRATION'},
-  cal_record:{en:'RECORD',ru:'ЗАПИСЬ',es:'GRABAR',pt:'GRAVAR',fr:'ENREGISTRER'},cal_stop:{en:'STOP',ru:'СТОП',es:'PARAR',pt:'PARAR',fr:'ARRÊTER'},cal_saving:{en:'SAVING...',ru:'СОХРАНЕНИЕ...',es:'GUARDANDO...',pt:'SALVANDO...',fr:'SAUVEGARDE...'},
-  cal_skip:{en:'SKIP',ru:'ПРОПУСТИТЬ',es:'SALTAR',pt:'PULAR',fr:'PASSER'},
-  cal_instruction:{en:'Read this sentence aloud, naturally. Don\'t try to hide your stutter.',ru:'Прочитайте это предложение вслух, естественно. Не пытайтесь скрыть заикание.',es:'Lee esta frase en voz alta, naturalmente. No intentes ocultar la disfluencia.',pt:'Leia esta frase em voz alta, naturalmente. Não tente esconder a gagueira.',fr:'Lisez cette phrase à voix haute, naturellement. N\\'essayez pas de cacher le bégaiement.'},
-  cal_complete:{en:'CALIBRATION COMPLETE',ru:'КАЛИБРОВКА ЗАВЕРШЕНА',es:'CALIBRACIÓN COMPLETADA',pt:'CALIBRAÇÃO COMPLETA',fr:'CALIBRATION TERMINÉE'},
-  cal_wer_title:{en:'Calibration WER Summary',ru:'Результаты калибровки WER',es:'Resumen WER de calibración',pt:'Resumo WER da calibração',fr:'Résumé WER de calibration'},
-  aug_title:{en:'DATA AUGMENTATION',ru:'АУГМЕНТАЦИЯ ДАННЫХ',es:'AUMENTO DE DATOS',pt:'AUMENTO DE DADOS',fr:'AUGMENTATION DE DONNÉES'},
-  aug_sub:{en:'Generate synthetic disfluent speech from calibration data via TTS. Multiplies your training dataset 5x with word repetitions, phrase repetitions, and interjection insertions.',ru:'Генерация синтетической речи с дисфлюенциями из данных калибровки через TTS. Увеличивает набор данных в 5 раз с повторами слов, фраз и вставками междометий.',es:'Genera voz disfluente sintética a partir de los datos de calibración vía TTS. Multiplica tu conjunto de entrenamiento 5x con repeticiones de palabras, repeticiones de frases e inserciones de interjecciones.',pt:'Gera fala disfluente sintética dos dados de calibração via TTS. Multiplica seu conjunto de treinamento 5x com repetições de palavras, repetições de frases e inserções de interjeições.',fr:'Génère de la parole disfluente synthétique à partir des données de calibration via TTS. Multiplie votre dataset par 5 avec répétitions de mots, répétitions de phrases et insertions d\\'interjections.'},
-  aug_btn:{en:'GENERATE AUGMENTED DATA',ru:'СГЕНЕРИРОВАТЬ ДАННЫЕ',es:'GENERAR DATOS AUMENTADOS',pt:'GERAR DADOS AUMENTADOS',fr:'GÉNÉRER DONNÉES AUGMENTÉES'},
-  aug_regen:{en:'REGENERATE AUGMENTED DATA',ru:'ПЕРЕСГЕНЕРИРОВАТЬ ДАННЫЕ',es:'REGENERAR DATOS AUMENTADOS',pt:'REGENERAR DADOS AUMENTADOS',fr:'RÉGÉNÉRER DONNÉES AUGMENTÉES'},
-  aug_generating:{en:'GENERATING...',ru:'ГЕНЕРАЦИЯ...',es:'GENERANDO...',pt:'GERANDO...',fr:'GÉNÉRATION...'},aug_starting:{en:'STARTING...',ru:'ЗАПУСК...',es:'INICIANDO...',pt:'INICIANDO...',fr:'DÉMARRAGE...'},
-  wer_title:{en:'WER TREND',ru:'ТРЕНД WER',es:'TENDENCIA WER',pt:'TENDÊNCIA WER',fr:'TENDANCE WER'},
-  wer_sub:{en:'Word Error Rate across recent sessions \u2014 lower is better. Shows how well Whisper transcribes your speech over time.',ru:'Процент ошибок распознавания за последние сессии \u2014 чем ниже, тем лучше.',es:'Tasa de error por palabra en sesiones recientes — menos es mejor. Muestra qué tan bien Whisper transcribe tu voz a lo largo del tiempo.',pt:'Taxa de erro por palavra em sessões recentes — menor é melhor. Mostra quão bem o Whisper transcreve sua fala ao longo do tempo.',fr:'Taux d\\'erreur par mot sur les sessions récentes — moins c\\'est mieux. Montre la qualité de transcription Whisper dans le temps.'},
-  wer_avg:{en:'AVG WER',ru:'СР. WER',es:'WER MED.',pt:'WER MÉD.',fr:'WER MOY.'},wer_recent:{en:'RECENT',ru:'НЕДАВНО',es:'RECIENTE',pt:'RECENTE',fr:'RÉCENT'},wer_samples:{en:'SAMPLES',ru:'ОБРАЗЦЫ',es:'MUESTRAS',pt:'AMOSTRAS',fr:'ÉCHANT.'},
+  cal_title:{en:'WHISPER CALIBRATION'},
+  cal_sub:{en:'Read 60 prompts aloud. Each recording becomes a training sample for personalized speech recognition.'},
+  cal_start:{en:'BEGIN CALIBRATION'},cal_resume:{en:'RESUME CALIBRATION'},
+  cal_record:{en:'RECORD'},cal_stop:{en:'STOP'},cal_saving:{en:'SAVING...'},
+  cal_skip:{en:'SKIP'},
+  cal_instruction:{en:'Read this sentence aloud, naturally. Don\'t try to hide your stutter.'},
+  cal_complete:{en:'CALIBRATION COMPLETE'},
+  cal_wer_title:{en:'Calibration WER Summary'},
+  aug_title:{en:'DATA AUGMENTATION'},
+  aug_sub:{en:'Generate synthetic disfluent speech from calibration data via TTS. Multiplies your training dataset 5x with word repetitions, phrase repetitions, and interjection insertions.'},
+  aug_btn:{en:'GENERATE AUGMENTED DATA'},
+  aug_regen:{en:'REGENERATE AUGMENTED DATA'},
+  aug_generating:{en:'GENERATING...'},aug_starting:{en:'STARTING...'},
+  wer_title:{en:'WER TREND'},
+  wer_sub:{en:'Word Error Rate across recent sessions \u2014 lower is better. Shows how well Whisper transcribes your speech over time.'},
+  wer_avg:{en:'AVG WER'},wer_recent:{en:'RECENT'},wer_samples:{en:'SAMPLES'},
   // Profile (The File)
-  prof_triggers:{en:'Trigger Words',ru:'Триггерные слова',es:'Palabras disparadoras',pt:'Palavras-gatilho',fr:'Mots déclencheurs'},prof_fillers:{en:'Filler Words',ru:'Слова-паразиты',es:'Muletillas',pt:'Muletas',fr:'Tics de langage'},
-  prof_vocab:{en:'Vocabulary',ru:'Словарь',es:'Vocabulario',pt:'Vocabulário',fr:'Vocabulaire'},prof_corrections:{en:'Corrections',ru:'Коррекции',es:'Correcciones',pt:'Correções',fr:'Corrections'},
-  prof_covert:{en:'Covert Avoidance Pairs',ru:'Пары скрытого избегания',es:'Pares de evitación encubierta',pt:'Pares de evitação encoberta',fr:'Paires d\\'évitement caché'},
-  prof_add_trigger:{en:'Add trigger word...',ru:'Добавить триггер...',es:'Añadir disparador...',pt:'Adicionar gatilho...',fr:'Ajouter un déclencheur...'},
-  prof_add_filler:{en:'Add filler word...',ru:'Добавить паразит...',es:'Añadir muletilla...',pt:'Adicionar muleta...',fr:'Ajouter un tic...'},
-  prof_add_vocab:{en:'Add preferred term...',ru:'Добавить термин...',es:'Añadir término preferido...',pt:'Adicionar termo preferido...',fr:'Ajouter un terme préféré...'},
-  prof_heard:{en:'Heard as...',ru:'Слышится как...',es:'Se oye como...',pt:'Ouvido como...',fr:'Entendu comme...'},
-  prof_should:{en:'Should be...',ru:'Должно быть...',es:'Debería ser...',pt:'Deveria ser...',fr:'Devrait être...'},
+  prof_triggers:{en:'Trigger Words'},prof_fillers:{en:'Filler Words'},
+  prof_vocab:{en:'Vocabulary'},prof_corrections:{en:'Corrections'},
+  prof_covert:{en:'Covert Avoidance Pairs'},
+  prof_add_trigger:{en:'Add trigger word...'},
+  prof_add_filler:{en:'Add filler word...'},
+  prof_add_vocab:{en:'Add preferred term...'},
+  prof_heard:{en:'Heard as...'},
+  prof_should:{en:'Should be...'},
   // Bottom
-  disclaimer:{en:'\u201C\u041B\u0430\u0432\u0440\u0435\u043D\u0442\u0438\u0439 does his best. Check your work before you wreck your work.\u201D',ru:'\u00AB\u041B\u0430\u0432\u0440\u0435\u043D\u0442\u0438\u0439 \u0434\u0435\u043B\u0430\u0435\u0442 \u0432\u0441\u0451, \u0447\u0442\u043E \u043C\u043E\u0436\u0435\u0442. \u041F\u0440\u043E\u0432\u0435\u0440\u044F\u0439\u0442\u0435, \u043F\u0440\u0435\u0436\u0434\u0435 \u0447\u0435\u043C \u043E\u0442\u043F\u0440\u0430\u0432\u043B\u044F\u0442\u044C.\u00BB',es:'“Лаврентий hace lo que puede. Revisa antes de enviar.”',pt:'“Лаврентий faz o melhor que pode. Verifique antes de enviar.”',fr:'« Лаврентий fait de son mieux. Vérifiez avant d\\'envoyer. »'},
+  disclaimer:{en:'\u201C\u041B\u0430\u0432\u0440\u0435\u043D\u0442\u0438\u0439 does his best. Check your work before you wreck your work.\u201D'},
   // Profiles
-  prof_new_title:{en:'New Profile',ru:'Новый профиль',es:'Nuevo perfil',pt:'Novo perfil',fr:'Nouveau profil'},
-  prof_cancel:{en:'Cancel',ru:'Отмена',es:'Cancelar',pt:'Cancelar',fr:'Annuler'},
-  prof_create:{en:'Create',ru:'Создать',es:'Crear',pt:'Criar',fr:'Créer'},
-  prof_name_ph:{en:'Name',ru:'Имя',es:'Nombre',pt:'Nome',fr:'Nom'},
+  prof_new_title:{en:'New Profile'},
+  prof_cancel:{en:'Cancel'},
+  prof_create:{en:'Create'},
+  prof_name_ph:{en:'Name'},
   // Dynamic states
-  st_idle:{en:'idle',ru:'ожидание',es:'inactivo',pt:'ocioso',fr:'inactif'},st_recording:{en:'recording',ru:'запись',es:'grabando',pt:'gravando',fr:'enregistre'},st_processing:{en:'processing',ru:'обработка',es:'procesando',pt:'processando',fr:'traitement'},st_command:{en:'CMD',ru:'КМД',es:'CMD',pt:'CMD',fr:'CMD'},
+  st_idle:{en:'idle'},st_recording:{en:'recording'},st_processing:{en:'processing'},st_command:{en:'CMD'},
   // Notes
-  note_select:{en:'select Reconstruct +',ru:'выберите Реконструкция +',es:'selecciona Reconstruir +',pt:'selecione Reconstruir +',fr:'sélectionnez Reconstruire +'},
+  note_select:{en:'select Reconstruct +'},
   // Help overlay
-  help_title:{en:'Guide',ru:'Руководство',es:'Guía',pt:'Guia',fr:'Guide'},help_sub:{en:'OPERATIONS MANUAL',ru:'РУКОВОДСТВО ПОЛЬЗОВАТЕЛЯ',es:'MANUAL DE OPERACIONES',pt:'MANUAL DE OPERAÇÕES',fr:'MANUEL D\\'OPÉRATIONS'},
-  help_search:{en:'Search...',ru:'Поиск...',es:'Buscar...',pt:'Buscar...',fr:'Rechercher...'},
+  help_title:{en:'Guide'},help_sub:{en:'OPERATIONS MANUAL'},
+  help_search:{en:'Search...'},
   // Help sections
-  ha_layers:{en:'Layers',ru:'Уровни',es:'Capas',pt:'Camadas',fr:'Couches'},ha_layers_sub:{en:'L1 Transcribe through L4 Stutter',ru:'L1 Транскрипция \u2014 L4 Заикание',es:'L1 Transcribir hasta L4 Disfluencia',pt:'L1 Transcrever até L4 Disfluência',fr:'L1 Transcrire jusqu\\'à L4 Dysfluence'},
-  ha_layers_body:{en:'<strong>L1 Transcribe</strong> \u2014 Whisper only. Raw speech-to-text, no AI cleanup. Fastest.<br><strong>L2 Reconstruct</strong> \u2014 GPT rewrites using your tone. Strips fillers, fixes grammar. ~1-2s slower.<br><strong>L3 Profile</strong> \u2014 Same as L2 + your personal vocabulary and corrections map.<br><strong>L4 Stutter</strong> \u2014 Full clinical mode. Disfluency tracking, exposure scoring, severity-scaled rewrites.<div class="ha-example"><span class="he-in">You say:</span> "So uh basically the the thing is um working"<br><span class="he-out">L1:</span> "So uh basically the the thing is um working"<br><span class="he-out">L2:</span> "The thing is working."</div>',ru:'<strong>L1 Транскрипция</strong> \u2014 Только Whisper. Сырой текст, без ИИ-обработки. Самый быстрый.<br><strong>L2 Реконструкция</strong> \u2014 GPT переписывает в вашем тоне. Убирает паразиты, исправляет грамматику. На ~1-2с медленнее.<br><strong>L3 Профиль</strong> \u2014 L2 + ваш личный словарь и карта коррекций.<br><strong>L4 Заикание</strong> \u2014 Клинический режим. Отслеживание дисфлюенций, оценка экспозиции, масштабированные правки.<div class="ha-example"><span class="he-in">Вы говорите:</span> "Ну э-э в общем-то это это вещь э-э работает"<br><span class="he-out">L1:</span> "Ну э-э в общем-то это это вещь э-э работает"<br><span class="he-out">L2:</span> "Эта вещь работает."</div>',es:'<strong>L1 Transcribir</strong> — Solo Whisper. Voz a texto crudo, sin limpieza con IA. El más rápido.<br><strong>L2 Reconstruir</strong> — GPT reescribe usando tu tono. Quita muletillas, corrige gramática. ~1-2s más lento.<br><strong>L3 Perfil</strong> — Igual que L2 + tu vocabulario y mapa de correcciones personal.<br><strong>L4 Disfluencia</strong> — Modo clínico completo. Seguimiento de disfluencia, puntuación de exposición, reescrituras escaladas por severidad.<div class="ha-example"><span class="he-in">Dices:</span> "Pues eh básicamente la la cosa es eh funcionando"<br><span class="he-out">L1:</span> "Pues eh básicamente la la cosa es eh funcionando"<br><span class="he-out">L2:</span> "La cosa funciona."</div>',pt:'<strong>L1 Transcrever</strong> — Apenas Whisper. Voz para texto bruto, sem limpeza por IA. Mais rápido.<br><strong>L2 Reconstruir</strong> — GPT reescreve usando seu tom. Remove muletas, corrige gramática. ~1-2s mais lento.<br><strong>L3 Perfil</strong> — Igual ao L2 + seu vocabulário pessoal e mapa de correções.<br><strong>L4 Disfluência</strong> — Modo clínico completo. Rastreamento de disfluência, pontuação de exposição, reescritas escaladas por severidade.',fr:'<strong>L1 Transcrire</strong> — Whisper seul. Voix-vers-texte brut, sans nettoyage IA. Le plus rapide.<br><strong>L2 Reconstruire</strong> — GPT réécrit dans votre ton. Enlève les tics, corrige la grammaire. ~1-2s plus lent.<br><strong>L3 Profil</strong> — Comme L2 + votre vocabulaire et carte de corrections personnels.<br><strong>L4 Dysfluence</strong> — Mode clinique complet. Suivi des dysfluences, score d\\'exposition, réécritures par sévérité.'},
-  ha_tone:{en:'Tone',ru:'Тон',es:'Tono',pt:'Tom',fr:'Ton'},ha_tone_sub:{en:'How GPT rewrites your speech (L2+)',ru:'Как GPT переписывает вашу речь (L2+)',es:'Cómo GPT reescribe tu voz (L2+)',pt:'Como GPT reescreve sua fala (L2+)',fr:'Comment GPT réécrit votre parole (L2+)'},
-  ha_tone_body:{en:'<strong>Casual</strong> \u2014 Conversational. Contractions, simple words.<br><strong>Professional</strong> \u2014 Business-ready. Clean, precise language.<br><strong>Friend</strong> \u2014 Relaxed. Like texting a friend.<br><strong>Formal</strong> \u2014 Academic/legal. No contractions, precise.<br><br>Has no effect on L1 (collapses when L1 is selected).',ru:'<strong>Обычный</strong> \u2014 Разговорный стиль. Простые слова, сокращения.<br><strong>Деловой</strong> \u2014 Для бизнеса. Чистый, точный язык.<br><strong>Дружеский</strong> \u2014 Расслабленный. Как переписка с другом.<br><strong>Формальный</strong> \u2014 Академический/юридический. Без сокращений, точный.<br><br>Не влияет на L1 (сворачивается при выборе L1).',es:'<strong>Casual</strong> — Conversacional. Contracciones, palabras simples.<br><strong>Profesional</strong> — Listo para negocios. Lenguaje limpio y preciso.<br><strong>Amigo</strong> — Relajado. Como mensaje a un amigo.<br><strong>Formal</strong> — Académico/legal. Sin contracciones, preciso.<br><br>No afecta a L1 (se colapsa cuando se selecciona L1).',pt:'<strong>Casual</strong> — Conversacional. Contrações, palavras simples.<br><strong>Profissional</strong> — Pronto para negócios. Linguagem limpa e precisa.<br><strong>Amigo</strong> — Relaxado. Como mensagem para um amigo.<br><strong>Formal</strong> — Acadêmico/jurídico. Sem contrações, preciso.',fr:'<strong>Décontracté</strong> — Conversationnel. Contractions, mots simples.<br><strong>Professionnel</strong> — Prêt pour les affaires. Langage propre et précis.<br><strong>Ami</strong> — Relax. Comme un message à un ami.<br><strong>Formel</strong> — Académique/juridique. Sans contractions, précis.'},
-  ha_mode:{en:'Mode',ru:'Режим',es:'Modo',pt:'Modo',fr:'Mode'},ha_mode_sub:{en:'Pipeline steps: RAW, FAST, SAFE',ru:'Шаги конвейера: RAW, FAST, SAFE',es:'Pasos del flujo: RAW, FAST, SAFE',pt:'Etapas do pipeline: RAW, FAST, SAFE',fr:'Étapes du pipeline : RAW, FAST, SAFE'},
-  ha_mode_body:{en:'<strong>RAW</strong> <code>paste as-is</code> \u2014 GPT runs for analytics but pastes Whisper\'s original text.<br><strong>FAST</strong> <code>skip validation</code> \u2014 GPT rewrites, trust it, paste. Best speed/quality.<br><strong>SAFE</strong> <code>+ Falcon check</code> \u2014 GPT rewrites, Falcon verifies meaning preserved. Slowest, safest.<br><br>All three produce identical output on L1. Collapses when L1 is selected.',ru:'<strong>RAW</strong> <code>вставить как есть</code> \u2014 GPT работает для аналитики, но вставляет оригинальный текст Whisper.<br><strong>FAST</strong> <code>без проверки</code> \u2014 GPT переписывает, доверяем, вставляем. Лучший баланс скорости/качества.<br><strong>SAFE</strong> <code>+ проверка Falcon</code> \u2014 GPT переписывает, Falcon проверяет сохранение смысла. Медленнее, но безопаснее.<br><br>Все три дают одинаковый результат на L1. Сворачивается при выборе L1.',es:'<strong>RAW</strong> <code>pegar tal cual</code> — GPT corre para análisis pero pega el texto original de Whisper.<br><strong>FAST</strong> <code>sin validación</code> — GPT reescribe, confiamos, pegamos. Mejor velocidad/calidad.<br><strong>SAFE</strong> <code>+ verificación Falcon</code> — GPT reescribe, Falcon verifica que el significado se preserva. Más lento, más seguro.<br><br>Los tres producen salida idéntica en L1. Se colapsa cuando se selecciona L1.',pt:'<strong>RAW</strong> <code>colar como está</code> — GPT roda para análise mas cola o texto original do Whisper.<br><strong>FAST</strong> <code>sem validação</code> — GPT reescreve, confia, cola. Melhor velocidade/qualidade.<br><strong>SAFE</strong> <code>+ verificação Falcon</code> — GPT reescreve, Falcon verifica preservação de significado. Mais lento, mais seguro.',fr:'<strong>RAW</strong> <code>coller tel quel</code> — GPT tourne pour les analyses mais colle le texte original Whisper.<br><strong>FAST</strong> <code>sans validation</code> — GPT réécrit, on fait confiance, on colle. Meilleur compromis vitesse/qualité.<br><strong>SAFE</strong> <code>+ vérif Falcon</code> — GPT réécrit, Falcon vérifie la préservation du sens. Plus lent, plus sûr.'},
-  ha_enhance:{en:'Enhancements',ru:'Улучшения',es:'Mejoras',pt:'Melhorias',fr:'Améliorations'},ha_enhance_sub:{en:'Paralinguistic + Prosodic analysis',ru:'Паралингвистический + просодический анализ',es:'Análisis paralingüístico + prosódico',pt:'Análise paralinguística + prosódica',fr:'Analyse paralinguistique + prosodique'},
-  ha_enhance_body:{en:'<strong>Paralinguistic</strong> \u2014 Detects cough, laugh, sigh, throat-clear, breathing, pause. Independent of layer.<br>&nbsp;&nbsp;\u2022 <strong>Transcribe sub-toggle:</strong> ON = tags injected in text (<code>[Laughter]</code>). OFF = logged only.<br><br><strong>Prosodic</strong> \u2014 Tracks pitch (F0), energy, speaking rate. Feeds severity modifier on L4. Auto-enables on L4 and High Stress.<div class="ha-example"><span class="he-out">Console:</span> "Speech: pause_ratio=47% rate=3.4syl/s \u2192 severity +0.4"<br><span class="he-out">Console:</span> "Prosodic: Vocal tension (erratic pitch in 100%)"</div>',ru:'<strong>Паралингвистика</strong> \u2014 Определяет кашель, смех, вздох, прочистку горла, дыхание, паузу. Независимо от уровня.<br>&nbsp;&nbsp;\u2022 <strong>Транскрипция:</strong> ВКЛ = теги в тексте (<code>[Смех]</code>). ВЫКЛ = только в логе.<br><br><strong>Просодика</strong> \u2014 Отслеживает тон (F0), энергию, темп речи. Влияет на модификатор тяжести на L4. Авто-включается на L4 и при Стрессе.<div class="ha-example"><span class="he-out">Консоль:</span> "Речь: pause_ratio=47% rate=3.4syl/s \u2192 severity +0.4"<br><span class="he-out">Консоль:</span> "Просодика: Вокальное напряжение (хаотичный тон в 100%)"</div>',es:'<strong>Paralingüístico</strong> — Detecta tos, risa, suspiro, carraspeo, respiración, pausa. Independiente de la capa.<br>&nbsp;&nbsp;• <strong>Sub-toggle Transcribir:</strong> ON = etiquetas insertadas en el texto (<code>[Risa]</code>). OFF = solo registrado.<br><br><strong>Prosódico</strong> — Rastrea tono (F0), energía, ritmo. Alimenta el modificador de severidad en L4. Auto-activado en L4 y Alto Estrés.<div class="ha-example"><span class="he-out">Consola:</span> "Voz: pause_ratio=47% rate=3.4syl/s → severity +0.4"<br><span class="he-out">Consola:</span> "Prosódico: Tensión vocal (tono errático en 100%)"</div>',pt:'<strong>Paralinguística</strong> — Detecta tosse, risada, suspiro, pigarro, respiração, pausa. Independente da camada.<br>&nbsp;&nbsp;• <strong>Sub-toggle Transcrever:</strong> ON = tags inseridas no texto (<code>[Risada]</code>). OFF = só registrado.<br><br><strong>Prosódica</strong> — Rastreia tom (F0), energia, ritmo de fala. Alimenta modificador de severidade no L4.',fr:'<strong>Paralinguistique</strong> — Détecte toux, rire, soupir, raclement de gorge, respiration, pause. Indépendant de la couche.<br>&nbsp;&nbsp;• <strong>Sous-toggle Transcrire :</strong> ON = tags insérés dans le texte (<code>[Rire]</code>). OFF = uniquement journalisé.<br><br><strong>Prosodique</strong> — Suit le ton (F0), l\\'énergie, le débit. Alimente le modificateur de sévérité au L4.'},
-  ha_situation:{en:'Situation',ru:'Ситуация',es:'Situación',pt:'Situação',fr:'Situation'},ha_situation_sub:{en:'One-click engine presets',ru:'Пресеты движка в одно нажатие',es:'Presets del motor en un clic',pt:'Predefinições do motor com um clique',fr:'Préréglages du moteur en un clic'},
-  ha_situation_body:{en:'<strong>Default</strong> \u2014 Everyday dictation. Severity 1.0. No auto-toggles.<br><strong>High Stress</strong> \u2014 Phone, interview, presentation. Auto-enables L4, DAF 100ms, all toggles. Severity 1.5.<br><strong>Reading</strong> \u2014 Reading aloud. Near-fluent. Severity 0.3, light L3 touch.',ru:'<strong>Обычная</strong> \u2014 Повседневная диктовка. Тяжесть 1.0. Без авто-переключений.<br><strong>Стресс</strong> \u2014 Телефон, собеседование, презентация. Авто-включает L4, DAF 100мс, все переключатели. Тяжесть 1.5.<br><strong>Чтение</strong> \u2014 Чтение вслух. Уверенная речь. Тяжесть 0.3, лёгкий L3.',es:'<strong>Predeterminada</strong> — Dictado diario. Severidad 1.0. Sin auto-toggles.<br><strong>Alto Estrés</strong> — Teléfono, entrevista, presentación. Auto-activa L4, DAF 100ms, todos los toggles. Severidad 1.5.<br><strong>Lectura</strong> — Leer en voz alta. Casi fluido. Severidad 0.3, L3 ligero.',pt:'<strong>Padrão</strong> — Ditado diário. Severidade 1.0. Sem auto-toggles.<br><strong>Alto Estresse</strong> — Telefone, entrevista, apresentação. Auto-ativa L4, DAF 100ms, todos os toggles. Severidade 1.5.<br><strong>Leitura</strong> — Leitura em voz alta. Quase fluente. Severidade 0.3, L3 leve.',fr:'<strong>Par défaut</strong> — Dictée quotidienne. Sévérité 1.0. Pas d\\'auto-toggles.<br><strong>Stress élevé</strong> — Téléphone, entretien, présentation. Auto-active L4, DAF 100ms, tous les toggles. Sévérité 1.5.<br><strong>Lecture</strong> — Lecture à voix haute. Quasi fluide. Sévérité 0.3, L3 léger.'},
-  ha_daf:{en:'DAF',ru:'DAF',es:'DAF',pt:'DAF',fr:'DAF'},ha_daf_sub:{en:'Delayed Auditory Feedback for fluency',ru:'Задержанная слуховая обратная связь',es:'Retroalimentación auditiva retardada para fluidez',pt:'Retroalimentação Auditiva Atrasada para fluência',fr:'Rétroaction Auditive Différée pour la fluidité'},
-  ha_daf_body:{en:'Plays your voice back through headphones with a slight delay. The delay tricks the brain into slowing down, improving fluency. Independent of all other settings.<br><br><strong>Toggle:</strong> ON/OFF &nbsp; <strong>Dial:</strong> Delay in milliseconds (default 100ms). More = stronger effect.',ru:'Воспроизводит ваш голос через наушники с небольшой задержкой. Задержка заставляет мозг замедлиться, улучшая плавность речи. Независимо от других настроек.<br><br><strong>Переключатель:</strong> ВКЛ/ВЫКЛ &nbsp; <strong>Регулятор:</strong> Задержка в миллисекундах (по умолчанию 100мс). Больше = сильнее эффект.',es:'Reproduce tu voz a través de auriculares con un ligero retraso. El retraso engaña al cerebro para que se ralentice, mejorando la fluidez. Independiente de todas las demás configuraciones.<br><br><strong>Toggle:</strong> ON/OFF &nbsp; <strong>Dial:</strong> Retraso en milisegundos (predeterminado 100ms). Más = efecto más fuerte.',pt:'Reproduz sua voz pelos fones com um leve atraso. O atraso engana o cérebro para desacelerar, melhorando a fluência. Independente de todas as outras configurações.',fr:'Rejoue votre voix dans les écouteurs avec un léger délai. Le délai trompe le cerveau pour qu\\'il ralentisse, améliorant la fluidité. Indépendant de tous les autres réglages.'},
-  ha_whisper:{en:'Whisper Diagnostics',ru:'Диагностика Whisper',es:'Diagnóstico Whisper',pt:'Diagnóstico Whisper',fr:'Diagnostic Whisper'},ha_whisper_sub:{en:'Multi-temp, blocks, confidence',ru:'Мульти-темп, блоки, уверенность',es:'Multi-temp, bloqueos, confianza',pt:'Multi-temp, bloqueios, confiança',fr:'Multi-temp, blocages, confiance'},
-  ha_whisper_body:{en:'<strong>Multi-Temp</strong> \u2014 Runs Whisper at multiple temperatures. Agreement = confident. Disagreement = flagged. 3x slower.<br><strong>Blocks</strong> \u2014 Speech blocks detected (Whisper hallucinated over silence).<br><strong>No Speech slider</strong> \u2014 \u25C4 Sensitive (catches more) vs. Tolerant \u25BA (fewer false alarms). Default: 15%.<br><strong>Avg LogProb</strong> \u2014 Whisper confidence. Above <code>-0.4</code> = good. Below <code>-0.7</code> = guessing.',ru:'<strong>Мульти-Темп</strong> \u2014 Запускает Whisper при разных температурах. Совпадение = уверенность. Расхождение = флаг. В 3 раза медленнее.<br><strong>Блоки</strong> \u2014 Обнаруженные блоки речи (Whisper галлюцинировал в тишине).<br><strong>Ползунок тишины</strong> \u2014 \u25C4 Чувствительно (ловит больше) vs. Толерантно \u25BA (меньше ложных тревог). По умолчанию: 15%.<br><strong>Ср. LogProb</strong> \u2014 Уверенность Whisper. Выше <code>-0.4</code> = хорошо. Ниже <code>-0.7</code> = угадывает.',es:'<strong>Multi-Temp</strong> — Ejecuta Whisper a múltiples temperaturas. Acuerdo = confiable. Desacuerdo = marcado. 3x más lento.<br><strong>Bloqueos</strong> — Bloqueos de voz detectados (Whisper alucinó sobre silencio).<br><strong>Slider Sin Voz</strong> — ◄ Sensible (atrapa más) vs. Tolerante ► (menos falsas alarmas). Predeterminado: 15%.<br><strong>LogProb Med.</strong> — Confianza de Whisper. Sobre <code>-0.4</code> = bueno. Bajo <code>-0.7</code> = adivinando.',pt:'<strong>Multi-Temp</strong> — Roda Whisper em múltiplas temperaturas. Concordância = confiável. Discordância = marcado. 3x mais lento.<br><strong>Bloqueios</strong> — Bloqueios de fala detectados (Whisper alucinou sobre silêncio).',fr:'<strong>Multi-Temp</strong> — Lance Whisper à plusieurs températures. Accord = fiable. Désaccord = signalé. 3x plus lent.<br><strong>Blocages</strong> — Blocages de parole détectés (Whisper a halluciné sur du silence).'},
-  ha_stats:{en:'Stats & Learn Bars',ru:'Статистика и обучение',es:'Estadísticas y barras de aprendizaje',pt:'Estatísticas e barras de aprendizado',fr:'Statistiques et barres d\\'apprentissage'},ha_stats_sub:{en:'Clickable \u2014 jump to detail tabs',ru:'Кликабельно \u2014 переход к вкладкам',es:'Clicable — salta a pestañas de detalle',pt:'Clicável — pula para abas de detalhe',fr:'Cliquable — saute aux onglets de détail'},
-  ha_stats_body:{en:'<strong>Words / Sessions</strong> \u2014 Click \u2192 Sessions tab.<br><strong>API Calls / Est. Cost</strong> \u2014 Click \u2192 Console tab. Cost ~$0.0032/session.<br><strong>Corrections</strong> \u2014 Auto-corrections learned (e.g. Duncan \u2192 Dankesch\u00F6n). Click \u2192 Learning tab.<br><strong>Fillers</strong> \u2014 Filler words identified (um, uh, like). Click \u2192 Learning tab.<br><strong>Vocabulary</strong> \u2014 Preferred terms in your profile. Click \u2192 Learning tab.<br><strong>Triggers</strong> \u2014 Words that cause speech blocks. Click \u2192 Learning tab.',ru:'<strong>Слова / Сессии</strong> \u2014 Клик \u2192 вкладка Сессии.<br><strong>API-запросы / Стоимость</strong> \u2014 Клик \u2192 вкладка Консоль. Стоимость ~$0.0032/сессию.<br><strong>Коррекции</strong> \u2014 Автокоррекции (напр. Duncan \u2192 Dankesch\u00F6n). Клик \u2192 вкладка Обучение.<br><strong>Паразиты</strong> \u2014 Слова-паразиты (ну, э-э, типа). Клик \u2192 вкладка Обучение.<br><strong>Словарь</strong> \u2014 Предпочтительные термины в профиле. Клик \u2192 вкладка Обучение.<br><strong>Триггеры</strong> \u2014 Слова, вызывающие блоки речи. Клик \u2192 вкладка Обучение.',es:'<strong>Palabras / Sesiones</strong> — Clic → pestaña Sesiones.<br><strong>Llamadas API / Costo Est.</strong> — Clic → pestaña Consola. Costo ~$0.0032/sesión.<br><strong>Correcciones</strong> — Auto-correcciones aprendidas (ej. Duncan → Dankeschön). Clic → pestaña Aprendizaje.<br><strong>Muletillas</strong> — Muletillas identificadas (eh, ah, tipo). Clic → pestaña Aprendizaje.<br><strong>Vocabulario</strong> — Términos preferidos en tu perfil. Clic → pestaña Aprendizaje.<br><strong>Disparadores</strong> — Palabras que causan bloqueos. Clic → pestaña Aprendizaje.',pt:'<strong>Palavras / Sessões</strong> — Clique → aba Sessões.<br><strong>Chamadas API / Custo Est.</strong> — Clique → aba Console. Custo ~$0,0032/sessão.<br><strong>Correções</strong> — Auto-correções aprendidas. Clique → aba Aprendizado.',fr:'<strong>Mots / Sessions</strong> — Clic → onglet Sessions.<br><strong>Appels API / Coût Est.</strong> — Clic → onglet Console. Coût ~0,0032$/session.<br><strong>Corrections</strong> — Auto-corrections apprises. Clic → onglet Apprentissage.'},
-  ha_hotkeys:{en:'Hotkeys',ru:'Горячие клавиши',es:'Atajos',pt:'Atalhos',fr:'Raccourcis'},ha_hotkeys_sub:{en:'Keyboard shortcuts (rebindable)',ru:'Клавиатурные сокращения (переназначаемые)',es:'Accesos directos del teclado (reasignables)',pt:'Atalhos de teclado (reatribuíveis)',fr:'Raccourcis clavier (réassignables)'},
-  ha_hotkeys_body:{en:'<span class="ha-kbd">F9</span> Start/stop recording &nbsp;<span class="ha-kbd">F10</span> Cycle tones &nbsp;<span class="ha-kbd">F11</span> Cycle layers &nbsp;<span class="ha-kbd">F12</span> Print stats &nbsp;<span class="ha-kbd">F3</span> \u00D73 Quit<br><br>All rebindable from the Shortcuts section at the bottom of the sidebar.',ru:'<span class="ha-kbd">F9</span> Запись/стоп &nbsp;<span class="ha-kbd">F10</span> Сменить тон &nbsp;<span class="ha-kbd">F11</span> Сменить уровень &nbsp;<span class="ha-kbd">F12</span> Статистика &nbsp;<span class="ha-kbd">F3</span> \u00D73 Выход<br><br>Все переназначаемы в разделе Горячие клавиши внизу боковой панели.',es:'<span class="ha-kbd">F9</span> Iniciar/parar grabación &nbsp;<span class="ha-kbd">F10</span> Cambiar tonos &nbsp;<span class="ha-kbd">F11</span> Cambiar capas &nbsp;<span class="ha-kbd">F12</span> Estadísticas &nbsp;<span class="ha-kbd">F3</span> ×3 Salir<br><br>Todos reasignables desde la sección Atajos al final de la barra lateral.',pt:'<span class="ha-kbd">F9</span> Iniciar/parar gravação &nbsp;<span class="ha-kbd">F10</span> Trocar tons &nbsp;<span class="ha-kbd">F11</span> Trocar camadas &nbsp;<span class="ha-kbd">F12</span> Estatísticas &nbsp;<span class="ha-kbd">F3</span> ×3 Sair',fr:'<span class="ha-kbd">F9</span> Démarrer/arrêter enregistrement &nbsp;<span class="ha-kbd">F10</span> Changer tons &nbsp;<span class="ha-kbd">F11</span> Changer couches &nbsp;<span class="ha-kbd">F12</span> Stats &nbsp;<span class="ha-kbd">F3</span> ×3 Quitter'},
-  ha_colors:{en:'Console Colors',ru:'Цвета консоли',es:'Colores de consola',pt:'Cores do console',fr:'Couleurs de la console'},ha_colors_sub:{en:'What the colored text means',ru:'Значение цветного текста',es:'Qué significa el texto coloreado',pt:'O que o texto colorido significa',fr:'Ce que signifie le texte coloré'},
-  ha_colors_body:{en:'<strong style="color:#222">White</strong> \u2014 Your transcribed speech (with word count)<br><strong style="color:#16a34a">Green</strong> \u2014 Pipeline status, recording, paste timing<br><strong style="color:#a16207">Yellow</strong> \u2014 Speech analytics and Whisper diagnostics<br><strong style="color:#dc2626">Red</strong> \u2014 Prosodic alerts (vocal tension, erratic pitch)<br><strong style="color:#92400e">Brown</strong> \u2014 Block suspect (Whisper hallucinated over silence)',ru:'<strong style="color:#222">Белый</strong> \u2014 Ваша транскрибированная речь (с количеством слов)<br><strong style="color:#16a34a">Зелёный</strong> \u2014 Статус конвейера, запись, время вставки<br><strong style="color:#a16207">Жёлтый</strong> \u2014 Аналитика речи и диагностика Whisper<br><strong style="color:#dc2626">Красный</strong> \u2014 Просодические предупреждения (голосовое напряжение, хаотичный тон)<br><strong style="color:#92400e">Коричневый</strong> \u2014 Подозрение на блок (Whisper галлюцинировал в тишине)',es:'<strong style="color:#222">Blanco</strong> — Tu voz transcrita (con conteo de palabras)<br><strong style="color:#16a34a">Verde</strong> — Estado del flujo, grabación, tiempo de pegado<br><strong style="color:#a16207">Amarillo</strong> — Análisis de voz y diagnóstico Whisper<br><strong style="color:#dc2626">Rojo</strong> — Alertas prosódicas (tensión vocal, tono errático)<br><strong style="color:#92400e">Marrón</strong> — Sospecha de bloqueo (Whisper alucinó sobre silencio)',pt:'<strong style="color:#222">Branco</strong> — Sua fala transcrita (com contagem de palavras)<br><strong style="color:#16a34a">Verde</strong> — Status do pipeline, gravação, tempo de cola<br><strong style="color:#a16207">Amarelo</strong> — Análise de fala e diagnóstico Whisper<br><strong style="color:#dc2626">Vermelho</strong> — Alertas prosódicos<br><strong style="color:#92400e">Marrom</strong> — Suspeita de bloqueio',fr:'<strong style="color:#222">Blanc</strong> — Votre parole transcrite (avec compte de mots)<br><strong style="color:#16a34a">Vert</strong> — Statut pipeline, enregistrement, timing collage<br><strong style="color:#a16207">Jaune</strong> — Analyses parole et diagnostic Whisper<br><strong style="color:#dc2626">Rouge</strong> — Alertes prosodiques<br><strong style="color:#92400e">Marron</strong> — Suspicion de blocage'},
-  ha_pipeline:{en:'How It Works',ru:'Как это работает',es:'Cómo funciona',pt:'Como funciona',fr:'Comment ça marche'},ha_pipeline_sub:{en:'What happens when you press Record',ru:'Что происходит при нажатии Запись',es:'Qué pasa cuando pulsas Grabar',pt:'O que acontece quando você aperta Gravar',fr:'Ce qui se passe quand vous appuyez sur Enregistrer'},
-  ha_pipeline_body:{en:'<strong style="color:var(--red-bright)">1. You speak</strong><br>Your voice is captured through the microphone. The audio is cleaned up (background noise removed, volume leveled) before anything else touches it.<br><br><strong style="color:var(--red-bright)">2. Whisper listens</strong><br>OpenAI\u2019s Whisper converts your speech to text. It also reports <em>how confident</em> it is about each word. Quiet moments (blocks, pauses) are flagged rather than guessed at.<br><span style="opacity:0.6;font-size:0.9em">If you use Script Prep, your intended text helps Whisper guess better \u2014 like giving it the answer key.</span><br><br><strong style="color:var(--red-bright)">3. Quick cleanup</strong><br>Before any AI gets involved, obvious disfluencies are stripped automatically (zero cost, instant):<br>\u2022 Repeated syllables: \u201cp-p-pop\u201d \u2192 \u201cpop\u201d<br>\u2022 Repeated words: \u201cI I I want\u201d \u2192 \u201cI want\u201d<br>\u2022 Fillers: \u201cum\u201d, \u201cuh\u201d, \u201clike\u201d, \u201cyou know\u201d<br>\u2022 False starts: \u201cgoing to\u2014 I went\u201d \u2192 \u201cI went\u201d<br>\u2022 Prolongations: \u201cmmmmaybe\u201d \u2192 \u201cmaybe\u201d<br><span style="opacity:0.6;font-size:0.9em">Natural phrases like \u201cbye bye\u201d and \u201chad had\u201d are kept \u2014 real grammar, not disfluencies.</span><br><br><strong style="color:var(--red-bright)">4. Depends on your Layer:</strong><br><br><strong>Layer 1</strong> \u2014 Done. The cleaned text is pasted. No AI, no cost beyond transcription.<br><br><strong>Layer 2</strong> \u2014 GPT rewrites using your chosen tone (casual, professional, etc). It knows the text came from a microphone, so it\u2019s forgiving about messiness. No personal data used.<br><br><strong>Layer 3</strong> \u2014 Same as L2, plus GPT knows <em>your</em> preferred words and learned corrections.<br><br><strong>Layer 4</strong> \u2014 The full engine. A stronger AI model gets a detailed briefing:<br>\u2022 Which sounds are hardest for you<br>\u2022 Words you tend to avoid and swap<br>\u2022 Where Whisper was uncertain or detected a block<br>\u2022 Non-verbal events (coughs, pauses) so it doesn\u2019t make up words<br>\u2022 Your pitch, energy, and speaking rate patterns<br><br><strong style="color:var(--red-bright)">5. Safety check</strong><br>In SAFE mode, a second AI reads both your original words and the rewrite, and asks: \u201cDid the meaning change?\u201d If yes, the rewrite is rejected and your original text is used. Numbers, dollar amounts, and percentages are double-checked separately.<br><br><strong style="color:var(--red-bright)">6. Paste</strong><br>The final text goes to your clipboard and is pasted into whatever app you\u2019re using.',ru:'<strong style="color:var(--red-bright)">1. \u0412\u044b \u0433\u043e\u0432\u043e\u0440\u0438\u0442\u0435</strong><br>\u0412\u0430\u0448 \u0433\u043e\u043b\u043e\u0441 \u0437\u0430\u043f\u0438\u0441\u044b\u0432\u0430\u0435\u0442\u0441\u044f \u0447\u0435\u0440\u0435\u0437 \u043c\u0438\u043a\u0440\u043e\u0444\u043e\u043d. \u0410\u0443\u0434\u0438\u043e \u043e\u0447\u0438\u0449\u0430\u0435\u0442\u0441\u044f \u043f\u0435\u0440\u0435\u0434 \u043e\u0431\u0440\u0430\u0431\u043e\u0442\u043a\u043e\u0439.',es:'<strong style="color:var(--red-bright)">1. Hablas</strong><br>Tu voz se captura por el micrófono. El audio se limpia (ruido de fondo eliminado, volumen nivelado) antes de que cualquier otra cosa lo toque.<br><br><strong style="color:var(--red-bright)">2. Whisper escucha</strong><br>Whisper de OpenAI convierte tu voz en texto. También reporta <em>qué tan seguro</em> está sobre cada palabra. Los momentos silenciosos (bloqueos, pausas) se marcan en lugar de adivinarse.<br><span style="opacity:0.6;font-size:0.9em">Si usas Preparación de guion, tu texto previsto ayuda a Whisper a adivinar mejor — como darle la clave de respuestas.</span><br><br><strong style="color:var(--red-bright)">3. Limpieza rápida</strong><br>Antes de que cualquier IA se involucre, las disfluencias obvias se eliminan automáticamente (costo cero, instantáneo):<br>• Sílabas repetidas: “p-p-pop” → “pop”<br>• Palabras repetidas: “Yo yo yo quiero” → “Yo quiero”<br>• Muletillas: “eh”, “ah”, “tipo”, “o sea”<br>• Falsos comienzos: “voy a— fui” → “fui”<br>• Prolongaciones: “mmmmaybe” → “maybe”<br><span style="opacity:0.6;font-size:0.9em">Frases naturales como “adiós adiós” se conservan — gramática real, no disfluencias.</span><br><br><strong style="color:var(--red-bright)">4. Depende de tu Capa:</strong><br><br><strong>Capa 1</strong> — Listo. El texto limpio se pega. Sin IA, sin costo más allá de la transcripción.<br><br><strong>Capa 2</strong> — GPT reescribe usando el tono que elegiste (casual, profesional, etc). Sabe que el texto vino de un micrófono, así que es indulgente con el desorden. No usa datos personales.<br><br><strong>Capa 3</strong> — Igual que L2, además GPT conoce <em>tus</em> palabras preferidas y correcciones aprendidas.<br><br><strong>Capa 4</strong> — El motor completo. Un modelo de IA más fuerte recibe un informe detallado:<br>• Qué sonidos son más difíciles para ti<br>• Palabras que tiendes a evitar e intercambiar<br>• Dónde Whisper estaba inseguro o detectó un bloqueo<br>• Eventos no verbales (toses, pausas) para que no invente palabras<br>• Tus patrones de tono, energía y ritmo<br><br><strong style="color:var(--red-bright)">5. Verificación de seguridad</strong><br>En modo SAFE, una segunda IA lee tanto tus palabras originales como la reescritura, y pregunta: “¿Cambió el significado?” Si sí, la reescritura es rechazada y se usa tu texto original. Números, montos en dólares y porcentajes se verifican por separado.<br><br><strong style="color:var(--red-bright)">6. Pegar</strong><br>El texto final va al portapapeles y se pega en cualquier app que estés usando.',pt:'<strong>1.</strong> Você fala, áudio capturado.<br><strong>2.</strong> Whisper transcreve com confiança por palavra.<br><strong>3.</strong> Limpeza rápida (muletas, repetições).<br><strong>4.</strong> Camada escolhida processa.<br><strong>5.</strong> Verificação de segurança em SAFE.<br><strong>6.</strong> Cola no app aberto.',fr:'<strong>1.</strong> Vous parlez, audio capturé.<br><strong>2.</strong> Whisper transcrit avec confiance par mot.<br><strong>3.</strong> Nettoyage rapide (tics, répétitions).<br><strong>4.</strong> Couche choisie traite.<br><strong>5.</strong> Vérif sécurité en SAFE.<br><strong>6.</strong> Colle dans l\\'app ouverte.'},
-  ha_tips:{en:'Tips',ru:'Подсказки',es:'Consejos',pt:'Dicas',fr:'Astuces'},ha_tips_sub:{en:'Power user tricks',ru:'Трюки для продвинутых',es:'Trucos para usuarios avanzados',pt:'Truques para usuários avançados',fr:'Trucs pour utilisateurs avancés'},
-  ha_tips_body:{en:'\u2022 Click the <strong>timer</strong> in the status ring to reset it.<br>\u2022 <strong>Compact toggle</strong> (top-left) collapses to a minimal bar with clickable chips.<br>\u2022 Tone and Mode <strong>auto-collapse</strong> on L1 (they have no effect).<br>\u2022 <strong>High Stress</strong> situation is a one-click panic button: L4 + DAF + all toggles.<br>\u2022 Click any <strong>stat/learn bar cell</strong> to jump to its detail tab.',ru:'\u2022 Нажмите на <strong>таймер</strong> в кольце статуса для сброса.<br>\u2022 <strong>Компактный режим</strong> (вверху слева) сворачивает в минимальную полосу с кликабельными чипами.<br>\u2022 Тон и Режим <strong>автоматически сворачиваются</strong> на L1 (они не влияют).<br>\u2022 <strong>Стресс</strong> \u2014 кнопка паники в одно нажатие: L4 + DAF + все переключатели.<br>\u2022 Нажмите на любую <strong>ячейку статистики/обучения</strong> для перехода к вкладке.',es:'• Pulsa el <strong>cronómetro</strong> en el anillo de estado para reiniciarlo.<br>• <strong>Toggle compacto</strong> (arriba a la izquierda) colapsa a una barra mínima con chips clicables.<br>• Tono y Modo se <strong>colapsan automáticamente</strong> en L1 (no tienen efecto).<br>• La situación <strong>Alto Estrés</strong> es un botón de pánico de un clic: L4 + DAF + todos los toggles.<br>• Pulsa cualquier <strong>celda de estadística/aprendizaje</strong> para saltar a la pestaña de detalle.',pt:'• Clique no <strong>cronômetro</strong> no anel de status para reiniciar.<br>• <strong>Toggle compacto</strong> (canto superior esquerdo) colapsa para barra mínima.<br>• Tom e Modo <strong>auto-colapsam</strong> no L1 (sem efeito).<br>• <strong>Alto Estresse</strong> é o botão de pânico de um clique: L4 + DAF + todos os toggles.',fr:'• Cliquez sur le <strong>chronomètre</strong> dans l\\'anneau de statut pour le réinitialiser.<br>• <strong>Toggle compact</strong> (en haut à gauche) collapse en barre minimale.<br>• Ton et Mode <strong>auto-collapsent</strong> en L1 (aucun effet).<br>• <strong>Stress élevé</strong> est le bouton panique en un clic : L4 + DAF + tous les toggles.'},
+  ha_layers:{en:'Layers'},ha_layers_sub:{en:'L1 Transcribe through L4 Stutter'},
+  ha_layers_body:{en:'<strong>L1 Transcribe</strong> \u2014 Whisper only. Raw speech-to-text, no AI cleanup. Fastest.<br><strong>L2 Reconstruct</strong> \u2014 GPT rewrites using your tone. Strips fillers, fixes grammar. ~1-2s slower.<br><strong>L3 Profile</strong> \u2014 Same as L2 + your personal vocabulary and corrections map.<br><strong>L4 Stutter</strong> \u2014 Full clinical mode. Disfluency tracking, exposure scoring, severity-scaled rewrites.<div class="ha-example"><span class="he-in">You say:</span> "So uh basically the the thing is um working"<br><span class="he-out">L1:</span> "So uh basically the the thing is um working"<br><span class="he-out">L2:</span> "The thing is working."</div>'},
+  ha_tone:{en:'Tone'},ha_tone_sub:{en:'How GPT rewrites your speech (L2+)'},
+  ha_tone_body:{en:'<strong>Casual</strong> \u2014 Conversational. Contractions, simple words.<br><strong>Professional</strong> \u2014 Business-ready. Clean, precise language.<br><strong>Friend</strong> \u2014 Relaxed. Like texting a friend.<br><strong>Formal</strong> \u2014 Academic/legal. No contractions, precise.<br><br>Has no effect on L1 (collapses when L1 is selected).'},
+  ha_mode:{en:'Mode'},ha_mode_sub:{en:'Pipeline steps: RAW, FAST, SAFE'},
+  ha_mode_body:{en:'<strong>RAW</strong> <code>paste as-is</code> \u2014 GPT runs for analytics but pastes Whisper\'s original text.<br><strong>FAST</strong> <code>skip validation</code> \u2014 GPT rewrites, trust it, paste. Best speed/quality.<br><strong>SAFE</strong> <code>+ Falcon check</code> \u2014 GPT rewrites, Falcon verifies meaning preserved. Slowest, safest.<br><br>All three produce identical output on L1. Collapses when L1 is selected.'},
+  ha_enhance:{en:'Enhancements'},ha_enhance_sub:{en:'Paralinguistic + Prosodic analysis'},
+  ha_enhance_body:{en:'<strong>Paralinguistic</strong> \u2014 Detects cough, laugh, sigh, throat-clear, breathing, pause. Independent of layer.<br>&nbsp;&nbsp;\u2022 <strong>Transcribe sub-toggle:</strong> ON = tags injected in text (<code>[Laughter]</code>). OFF = logged only.<br><br><strong>Prosodic</strong> \u2014 Tracks pitch (F0), energy, speaking rate. Feeds severity modifier on L4. Auto-enables on L4 and High Stress.<div class="ha-example"><span class="he-out">Console:</span> "Speech: pause_ratio=47% rate=3.4syl/s \u2192 severity +0.4"<br><span class="he-out">Console:</span> "Prosodic: Vocal tension (erratic pitch in 100%)"</div>'},
+  ha_situation:{en:'Situation'},ha_situation_sub:{en:'One-click engine presets'},
+  ha_situation_body:{en:'<strong>Default</strong> \u2014 Everyday dictation. Severity 1.0. No auto-toggles.<br><strong>High Stress</strong> \u2014 Phone, interview, presentation. Auto-enables L4, DAF 100ms, all toggles. Severity 1.5.<br><strong>Reading</strong> \u2014 Reading aloud. Near-fluent. Severity 0.3, light L3 touch.'},
+  ha_daf:{en:'DAF'},ha_daf_sub:{en:'Delayed Auditory Feedback for fluency'},
+  ha_daf_body:{en:'Plays your voice back through headphones with a slight delay. The delay tricks the brain into slowing down, improving fluency. Independent of all other settings.<br><br><strong>Toggle:</strong> ON/OFF &nbsp; <strong>Dial:</strong> Delay in milliseconds (default 100ms). More = stronger effect.'},
+  ha_whisper:{en:'Whisper Diagnostics'},ha_whisper_sub:{en:'Multi-temp, blocks, confidence'},
+  ha_whisper_body:{en:'<strong>Multi-Temp</strong> \u2014 Runs Whisper at multiple temperatures. Agreement = confident. Disagreement = flagged. 3x slower.<br><strong>Blocks</strong> \u2014 Speech blocks detected (Whisper hallucinated over silence).<br><strong>No Speech slider</strong> \u2014 \u25C4 Sensitive (catches more) vs. Tolerant \u25BA (fewer false alarms). Default: 15%.<br><strong>Avg LogProb</strong> \u2014 Whisper confidence. Above <code>-0.4</code> = good. Below <code>-0.7</code> = guessing.'},
+  ha_stats:{en:'Stats & Learn Bars'},ha_stats_sub:{en:'Clickable \u2014 jump to detail tabs'},
+  ha_stats_body:{en:'<strong>Words / Sessions</strong> \u2014 Click \u2192 Sessions tab.<br><strong>API Calls / Est. Cost</strong> \u2014 Click \u2192 Console tab. Cost ~$0.0032/session.<br><strong>Corrections</strong> \u2014 Auto-corrections learned (e.g. Duncan \u2192 Dankesch\u00F6n). Click \u2192 Learning tab.<br><strong>Fillers</strong> \u2014 Filler words identified (um, uh, like). Click \u2192 Learning tab.<br><strong>Vocabulary</strong> \u2014 Preferred terms in your profile. Click \u2192 Learning tab.<br><strong>Triggers</strong> \u2014 Words that cause speech blocks. Click \u2192 Learning tab.'},
+  ha_hotkeys:{en:'Hotkeys'},ha_hotkeys_sub:{en:'Keyboard shortcuts (rebindable)'},
+  ha_hotkeys_body:{en:'<span class="ha-kbd">F9</span> Start/stop recording &nbsp;<span class="ha-kbd">F10</span> Cycle tones &nbsp;<span class="ha-kbd">F11</span> Cycle layers &nbsp;<span class="ha-kbd">F12</span> Print stats &nbsp;<span class="ha-kbd">F3</span> \u00D73 Quit<br><br>All rebindable from the Shortcuts section at the bottom of the sidebar.'},
+  ha_colors:{en:'Console Colors'},ha_colors_sub:{en:'What the colored text means'},
+  ha_colors_body:{en:'<strong style="color:#222">White</strong> \u2014 Your transcribed speech (with word count)<br><strong style="color:#16a34a">Green</strong> \u2014 Pipeline status, recording, paste timing<br><strong style="color:#a16207">Yellow</strong> \u2014 Speech analytics and Whisper diagnostics<br><strong style="color:#dc2626">Red</strong> \u2014 Prosodic alerts (vocal tension, erratic pitch)<br><strong style="color:#92400e">Brown</strong> \u2014 Block suspect (Whisper hallucinated over silence)'},
+  ha_pipeline:{en:'How It Works'},ha_pipeline_sub:{en:'What happens when you press Record'},
+  ha_pipeline_body:{en:'<strong style="color:var(--red-bright)">1. You speak</strong><br>Your voice is captured through the microphone. The audio is cleaned up (background noise removed, volume leveled) before anything else touches it.<br><br><strong style="color:var(--red-bright)">2. Whisper listens</strong><br>OpenAI\u2019s Whisper converts your speech to text. It also reports <em>how confident</em> it is about each word. Quiet moments (blocks, pauses) are flagged rather than guessed at.<br><span style="opacity:0.6;font-size:0.9em">If you use Script Prep, your intended text helps Whisper guess better \u2014 like giving it the answer key.</span><br><br><strong style="color:var(--red-bright)">3. Quick cleanup</strong><br>Before any AI gets involved, obvious disfluencies are stripped automatically (zero cost, instant):<br>\u2022 Repeated syllables: \u201cp-p-pop\u201d \u2192 \u201cpop\u201d<br>\u2022 Repeated words: \u201cI I I want\u201d \u2192 \u201cI want\u201d<br>\u2022 Fillers: \u201cum\u201d, \u201cuh\u201d, \u201clike\u201d, \u201cyou know\u201d<br>\u2022 False starts: \u201cgoing to\u2014 I went\u201d \u2192 \u201cI went\u201d<br>\u2022 Prolongations: \u201cmmmmaybe\u201d \u2192 \u201cmaybe\u201d<br><span style="opacity:0.6;font-size:0.9em">Natural phrases like \u201cbye bye\u201d and \u201chad had\u201d are kept \u2014 real grammar, not disfluencies.</span><br><br><strong style="color:var(--red-bright)">4. Depends on your Layer:</strong><br><br><strong>Layer 1</strong> \u2014 Done. The cleaned text is pasted. No AI, no cost beyond transcription.<br><br><strong>Layer 2</strong> \u2014 GPT rewrites using your chosen tone (casual, professional, etc). It knows the text came from a microphone, so it\u2019s forgiving about messiness. No personal data used.<br><br><strong>Layer 3</strong> \u2014 Same as L2, plus GPT knows <em>your</em> preferred words and learned corrections.<br><br><strong>Layer 4</strong> \u2014 The full engine. A stronger AI model gets a detailed briefing:<br>\u2022 Which sounds are hardest for you<br>\u2022 Words you tend to avoid and swap<br>\u2022 Where Whisper was uncertain or detected a block<br>\u2022 Non-verbal events (coughs, pauses) so it doesn\u2019t make up words<br>\u2022 Your pitch, energy, and speaking rate patterns<br><br><strong style="color:var(--red-bright)">5. Safety check</strong><br>In SAFE mode, a second AI reads both your original words and the rewrite, and asks: \u201cDid the meaning change?\u201d If yes, the rewrite is rejected and your original text is used. Numbers, dollar amounts, and percentages are double-checked separately.<br><br><strong style="color:var(--red-bright)">6. Paste</strong><br>The final text goes to your clipboard and is pasted into whatever app you\u2019re using.'},
+  ha_tips:{en:'Tips'},ha_tips_sub:{en:'Power user tricks'},
+  ha_tips_body:{en:'\u2022 Click the <strong>timer</strong> in the status ring to reset it.<br>\u2022 <strong>Compact toggle</strong> (top-left) collapses to a minimal bar with clickable chips.<br>\u2022 Tone and Mode <strong>auto-collapse</strong> on L1 (they have no effect).<br>\u2022 <strong>High Stress</strong> situation is a one-click panic button: L4 + DAF + all toggles.<br>\u2022 Click any <strong>stat/learn bar cell</strong> to jump to its detail tab.'},
 };
 function t(key){return I18N[key]?.[currentLang]||I18N[key]?.en||key;}
 function _setFirstText(el,text){for(const n of el.childNodes){if(n.nodeType===3&&n.textContent.trim()){n.textContent=text;return;}}el.prepend(document.createTextNode(text));}
@@ -3901,6 +3930,9 @@ function updateUI(){
     sevEl.textContent=sm.severity_modifier>0?'+'+sm.severity_modifier:'0';
     sevEl.style.color=sm.severity_modifier>0?'var(--yellow)':'var(--text-muted)';
   }
+  // L1 source toggle reflects engine's current L1_CLOUD_ASR.
+  const l1AsrTog=document.getElementById('l1-asr-toggle');
+  if(l1AsrTog&&state.l1_cloud_asr!==undefined)l1AsrTog.classList.toggle('on',!!state.l1_cloud_asr);
   // Whisper sidebar: no_speech_threshold slider + avg_logprob + redos
   const nstSlider=document.getElementById('nst-slider');
   const nstValue=document.getElementById('nst-value');
@@ -3984,7 +4016,7 @@ function renderSessions(){
   }).join('');
 }
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
-function escJs(s){return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
+function escJs(s){return String(s).replace(/\\/g,'\\\').replace(/'/g,"\'");}
 
 function renderConsole(){
   const el=document.getElementById('console');const atTop=el.scrollTop<=20;
@@ -4497,6 +4529,18 @@ async function toggleMultiTemp(){
     const d=await r.json();
     const tog=document.getElementById('multitemp-toggle');
     if(tog)tog.classList.toggle('on',d.multi_temp);
+  }catch(e){}
+}
+async function toggleL1Asr(){
+  // Flip cloud whisper-1 ↔ local faster-whisper small.en. Engine reads
+  // l1_cloud_asr from prefs at every transcribe call, so the flip takes
+  // effect immediately for the next recording.
+  try{
+    const r=await fetch(API+'/api/l1_asr',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({cloud:!state.l1_cloud_asr})});
+    const d=await r.json();
+    const tog=document.getElementById('l1-asr-toggle');
+    if(tog)tog.classList.toggle('on',!!d.l1_cloud_asr);
   }catch(e){}
 }
 async function generateReport(){

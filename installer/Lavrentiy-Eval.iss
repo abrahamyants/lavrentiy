@@ -1,5 +1,47 @@
 ; Lavrentiy Evaluation Build — Inno Setup script
-; Builds: Lavrentiy-Eval-Setup-v1.5.3.exe
+; Builds: Lavrentiy-Eval-Setup-v1.5.7.exe
+;
+; v1.5.7 (DASHBOARD UI FORWARD-PORT — 2026-05-01):
+;   - Dedicated L1 SOURCE section reinstated between PATIENCE and WHISPER
+;     in the sidebar (matching the c0acb93 commit's design). Previous
+;     L1 row inside the Whisper card was removed.
+;   - EQ "ears" markup forward-ported: outer + inner column on each side
+;     of the bezel knob. CSS now includes .eq-near positioning + the
+;     eq-rest @keyframes traveling-wave animation.
+;   - Console legend box restyled to floating-corner look: thin tan-gold
+;     border at 35% opacity, rounded corners, semi-transparent red
+;     gradient fill, 12px from bottom-right.
+;
+; v1.5.6 (HIDDEN-WINDOW FIX + L1 SOURCE TOGGLE — 2026-04-30):
+;   - desktop.py boot() now calls win.show() on the splash window before
+;     running engine startup. Without this, pywebview created the window
+;     but Windows reported IsWindowVisible=False on some setups, making
+;     the desktop shortcut click look dead.
+;   - Dashboard sidebar Whisper card has a new "L1 source" row at the top.
+;     Click to flip CLOUD ↔ LOCAL. CLOUD = OpenAI whisper-1 (multilingual,
+;     internet). LOCAL = bundled faster-whisper small.en (English-only,
+;     offline). Mirrors WiM Android's bubble-menu L1 SRC toggle.
+;
+; v1.5.5 (LANGUAGES STRIPPED — 2026-04-30):
+;   - All multilingual UI removed. Dashboard is English-only.
+;   - Language toggle row [EN][RU][ES][PT][FR] deleted from header.
+;   - I18N object collapsed to en-only — 192 entries, no more ru/es/pt/fr
+;     keys. The t() lookup function is preserved (returns en value), so
+;     existing template code keeps working.
+;   - Reason: French translations had a double-backslash apostrophe escape
+;     bug ("n\\'est" instead of "n\'est") that crashed the JS parser with
+;     "Unexpected identifier 'est'" and silently broke the entire I18N
+;     object. Rather than re-escape and risk other rebuild bugs, all
+;     non-English translations were ripped. WiM Android keeps its 5-lang
+;     UI separately — only Lavrentiy is monolingual now.
+;
+; v1.5.4 (LAUNCHER MUTEX FIX — 2026-04-30):
+;   - desktop.py mutex check used to silently sys.exit(0) when another
+;     instance was already running. After the post-install auto-launch,
+;     double-clicking the desktop shortcut hit that branch every time — the
+;     icon felt dead. Now opens http://127.0.0.1:7878/ in the user's default
+;     browser when the mutex is already taken, so the icon always shows UI.
+;   - Same engine + dashboard + small.en + bundled keys as v1.5.3.
 ;
 ; v1.5.3 (BUNDLED API KEYS — 2026-04-30):
 ;   - OpenAI key (api_key.txt) and Anthropic key (anthropic_key.txt) bundled
@@ -78,8 +120,8 @@
 ; "Lavrentiy Evaluation_is1" uninstall key and runs it explicitly.
 AppId={{8A4D2F1C-7B3E-4A91-B5C8-9F2E1D6A4B7C}}
 AppName=Lavrentiy Evaluation
-AppVersion=1.5.3
-AppVerName=Lavrentiy Evaluation 1.5.3
+AppVersion=1.5.7
+AppVerName=Lavrentiy Evaluation 1.5.7
 AppPublisher=Gurgen Abrahamyants
 AppPublisherURL=https://github.com/gugosf114/lavrentiy
 AppSupportURL=https://github.com/gugosf114/lavrentiy/issues
@@ -91,7 +133,7 @@ UninstallDisplayName=Lavrentiy Evaluation
 Compression=lzma2/max
 SolidCompression=yes
 OutputDir=Output
-OutputBaseFilename=Lavrentiy-Eval-Setup-v1.5.3
+OutputBaseFilename=Lavrentiy-Eval-Setup-v1.5.7
 SetupIconFile=C:\Users\georg\AppData\Local\Programs\Lavrentiy-Eval\engine\lavrentiy.ico
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
@@ -118,7 +160,7 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 ;    transient runtime files (logs, pid, caches, prior backup snapshots).
 Source: "C:\Users\georg\AppData\Local\Programs\Lavrentiy-Eval\*"; DestDir: "{app}"; \
   Flags: ignoreversion recursesubdirs createallsubdirs; \
-  Excludes: "engine\*,engine.bak.*\*,unins000.exe,unins000.dat,lav_err.txt,lav_out.txt,lavrentiy.pid,*\__pycache__\*,*.log"
+  Excludes: "engine\*,engine.bak.*\*,models\*,unins000.exe,unins000.dat,unins001.exe,unins001.dat,lav_err.txt,lav_out.txt,lavrentiy.pid,*\__pycache__\*,*.log"
 
 ; 2) Engine: pull from REPO ROOT — current source of truth.
 ;    Explicitly listed file-by-file rather than recursesubdirs so we don't
