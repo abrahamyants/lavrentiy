@@ -208,7 +208,7 @@ WHISPER_MULTI_TEMPS = [0.0, 0.2, 0.4]  # Temperature schedule for voting passes
 PATIENCE_DEFAULT = 2.0   # seconds — normal silence threshold
 PATIENCE_STUTTER = 4.5   # seconds — Layer 4 / High Stress
 LOCAL_WHISPER = True                 # L1 ASR runs locally (no cloud fallback at L1 — local layers stay local).
-LOCAL_WHISPER_MODEL_SIZE = "base"    # Moonshine fallback size (kept for the secondary fallback path)
+LOCAL_WHISPER_MODEL_SIZE = "base"    # legacy arg, ignored by faster-whisper (size set via LAV_FW_MODEL_SIZE)
 
 # L1 source toggle: when True, route L1 transcription through cloud whisper-1
 # instead of the local engine. Same model family at both endpoints — the toggle
@@ -226,17 +226,15 @@ LOCAL_FW_MODEL_SIZE = os.environ.get("LAV_FW_MODEL_SIZE", "large-v3-turbo")  # f
 LOCAL_FW_COMPUTE_TYPE = os.environ.get("LAV_FW_COMPUTE_TYPE", "int8")         # CPU-friendly quantization
 LOCAL_FW_DEVICE = os.environ.get("LAV_FW_DEVICE", "cpu")                       # target eval hardware
 LOCAL_LLM_MODEL = os.environ.get("LAV_LOCAL_LLM", "llama3.2:3b-instruct-q4_K_M")  # L2/L3 brain
-# Layered local ASR: faster-whisper (primary) -> Moonshine (secondary) -> Vosk
-# (tertiary) -> raise. Composite dispatcher in local/asr_local.py exposes the
-# same `transcribe` signature so call sites below don't change. If the composite
-# module can't import, fall back to Moonshine alone so legacy installs keep working.
+# Local ASR: faster-whisper only (Moonshine + Vosk retired 2026-04-30).
+# Dispatcher in local/asr_local.py exposes the same `transcribe` signature
+# the call sites use. If the import fails (missing faster-whisper install),
+# `_local_transcribe_fn` is None and L1 falls back to the cloud whisper-1
+# path via the L1_CLOUD_ASR toggle.
 try:
     from local.asr_local import transcribe as _local_transcribe_fn  # noqa: F401
 except ImportError:
-    try:
-        from local.whisper_local import transcribe as _local_transcribe_fn  # noqa: F401
-    except ImportError:
-        _local_transcribe_fn = None
+    _local_transcribe_fn = None
 
 # Local LLM for L2/L3 reconstruction (Gemma via Ollama). L4 stays on cloud
 # GPT-4o. If the local LLM isn't available or returns None, L2/L3 fall
@@ -3369,8 +3367,18 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
 
 
 def falcon_validate(raw_text, clean_text, layer, tone="casual", onset_weights=None, language_code="en"):
-    """Binary meaning check. Returns True if meaning preserved.
-    Tone-aware: formal tone expands contractions, casual keeps them — Falcon must know
+    """Falcon validator was retired 2026-04-30. Operator decision: trust the
+    primary reconstructor (GPT-4o at L2/L3, Sonnet 4.6 ext-think at L4) without
+    a second cross-vendor pass. Always returns True. Plumbing kept intact —
+    DB schema, decision logic, and metric collection all read `falcon_ok` and
+    expect a bool. Removing the function would mean rewriting those call sites
+    too. No-op stub is the lowest-blast-radius kill.
+    """
+    return True
+
+    # ── Original Falcon body retained below as dead code; never reached ──
+    # noinspection PyUnreachableCode
+    """Tone-aware: formal tone expands contractions, casual keeps them — Falcon must know
     which changes are expected per tone."""
     tone_note = ""
     if tone == "formal":
@@ -5200,11 +5208,12 @@ def _whisper_single_call(filepath, temperature, prompt_text, max_retries=3):
                 break  # fall through to local path below
         # If we got here after exhausting cloud retries, drop into local fallback.
 
-    # L1/L2/L3 (and L4 fallback): local ASR chain (Moonshine -> Vosk)
+    # L1/L2/L3 (and L4 fallback): local faster-whisper
     if _local_transcribe_fn is None:
         raise RuntimeError(
-            "Local ASR not available. Install Moonshine and/or Vosk: "
-            "see local/whisper_local.py + local/vosk_local.py for setup."
+            "Local ASR not available. Install faster-whisper: "
+            "pip install faster-whisper. Or flip L1_CLOUD_ASR=True to use "
+            "cloud whisper-1 via the dashboard /api/l1_asr toggle."
         )
 
     last_err = None
@@ -9148,9 +9157,9 @@ def _start_tray_and_open():
         print(f"Tray icon failed (non-fatal): {_e}")
 
 
-# Pre-warm Moonshine (loads ~250 MB ONNX into RAM) and Anthropic Haiku
-# (TLS handshake + connection pool) at boot so the first user recording
-# isn't a 15-30 second wait.
+# Pre-warm faster-whisper (loads CTranslate2 model into RAM) and Anthropic
+# Haiku (TLS handshake + connection pool) at boot so the first user
+# recording isn't a 15-30 second wait.
 def _prewarm_l1():
     try:
         if _local_transcribe_fn is not None:
@@ -9161,12 +9170,12 @@ def _prewarm_l1():
                 _tmp_path = _tmp.name
             try:
                 _local_transcribe_fn(_tmp_path, 0.0, None, LANGUAGE, LOCAL_WHISPER_MODEL_SIZE)
-                print("Moonshine pre-warmed")
+                print("faster-whisper pre-warmed")
             finally:
                 try: os.unlink(_tmp_path)
                 except OSError: pass
     except Exception as _e:
-        print(f"Moonshine pre-warm failed (non-fatal): {str(_e)[:80]}")
+        print(f"faster-whisper pre-warm failed (non-fatal): {str(_e)[:80]}")
 
 
 def _prewarm_haiku():
@@ -10029,7 +10038,7 @@ def start_engine(*, run_http_server=True, block=True):
         threading.Thread(target=run_dashboard, daemon=True).start()
         threading.Thread(target=_start_tray_and_open, name="tray", daemon=True).start()
 
-    threading.Thread(target=_prewarm_l1, name="prewarm-moonshine", daemon=True).start()
+    threading.Thread(target=_prewarm_l1, name="prewarm-l1", daemon=True).start()
     threading.Thread(target=_prewarm_haiku, name="prewarm-haiku", daemon=True).start()
 
     _hook_start_time = time.time()

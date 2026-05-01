@@ -37,6 +37,16 @@ _kernel32 = ctypes.windll.kernel32
 _desktop_mutex = _kernel32.CreateMutexW(None, True, "Global\\LAVRENTIY_DESKTOP_SINGLE_INSTANCE")
 if _kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
     _kernel32.CloseHandle(_desktop_mutex)
+    # Another desktop.py is already alive (typically: post-install auto-launch
+    # set up the engine + pywebview, then the user double-clicked the desktop
+    # shortcut). Don't silently exit — the user expects clicking the icon to
+    # show the app. Open the dashboard in the default browser so they see UI
+    # immediately. Works whether the prior pywebview window is still up,
+    # minimized, or got closed but the engine kept running.
+    try:
+        webbrowser.open("http://127.0.0.1:7878/")
+    except Exception:
+        pass
     sys.exit(0)
 
 import webview

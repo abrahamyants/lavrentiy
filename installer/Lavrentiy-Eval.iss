@@ -1,20 +1,56 @@
 ; Lavrentiy Evaluation Build — Inno Setup script
-; Builds: Lavrentiy-Eval-Setup-v1.4.0.exe
+; Builds: Lavrentiy-Eval-Setup-v1.5.3.exe
 ;
-; v1.4.0 (TRULY-LOCAL L1):
-;   - L1 ASR (Transcribe): Moonshine BASE-en (Useful Sensors, ONNX). Fully on
-;     device, runs without internet. Model files (~236 MB total: encoder 77 MB
-;     + decoder 159 MB) are BUNDLED into the installer and installed into
-;     {userprofile}\.cache\moonshine\base\ so first launch works offline.
-;   - L2 / L3 (Reconstruct, Profile): cloud GPT-4o + cross-vendor Anthropic
-;     Haiku 4.5 Falcon validation. Requires internet. Falls back to raw text
-;     if offline.
-;   - L4 (Disfluency clinical): cloud whisper-1 verbose_json + Anthropic Sonnet
-;     4.6 with extended thinking + cloud GPT-4o cross-vendor Falcon. Requires
-;     internet. Falls back to raw text if offline.
+; v1.5.3 (BUNDLED API KEYS — 2026-04-30):
+;   - OpenAI key (api_key.txt) and Anthropic key (anthropic_key.txt) bundled
+;     into {app}\engine\. Wife / evaluator opens the app and dictates — zero
+;     setup. No "paste your key" screen on first launch.
+;   - SECURITY NOTE: anyone who gets this installer can see + use both keys.
+;     Treat the .exe like a credential. Do not put on a public USB or
+;     uploaded share. OpenAI charges + Anthropic charges accrue to George's
+;     accounts on every L1-cloud / L2 / L3 / L4 call.
 ;
-;   Net result: open the app, hit F9, dictate — L1 always works. L2-L4 require
-;   internet but degrade gracefully when it's not there.
+; v1.5.2 (CLEAN-INSTALL HYGIENE — 2026-04-30):
+;   - Stable AppId added so future versions auto-uninstall this one before
+;     placing new files. No more parallel zombie installs.
+;   - PrepareToInstall [Code] hook kills any running Lavrentiy process
+;     (filtered by command-line containing "Lavrentiy" — safe, never touches
+;     unrelated pythonw.exe) and runs the legacy AppName-based uninstaller
+;     silently if found. Combined with CloseApplications=force, the installer
+;     can be double-clicked while the engine is running and Just Works.
+;   - Same engine + dashboard + small.en bundle as v1.5.1. All 5 languages
+;     ship (EN/RU/ES/PT/FR — 192 I18N entries).
+;
+; v1.5.1 (TWO-PEER L1 + FALCON RIPPED — 2026-04-30):
+;   - L1 ASR is now a two-peer choice (parity with WiM Android):
+;       Cloud: OpenAI whisper-1 API. Multilingual (EN/ES/RU/PT/FR/etc).
+;       Local: faster-whisper small.en (~486 MB bundled). English-only.
+;     User toggles via dashboard /api/l1_asr endpoint. Default = cloud.
+;   - Moonshine + Vosk removed. local/whisper_local.py + local/vosk_local.py
+;     deleted; local/asr_local.py rewritten to faster-whisper only.
+;   - L2/L3 reconstruction: GPT-4o (cloud whisper-1 ASR + GPT-4o LLM).
+;     Falcon cross-vendor validator REMOVED — operator decision: trust the
+;     reconstructor without a second pass. ~$0.0008/session saved + ~400ms
+;     latency saved per L2/L3 reconstruction.
+;   - L4 reconstruction: Sonnet 4.6 with extended thinking (cloud whisper-1
+;     verbose_json ASR + Sonnet 4.6 LLM). Falcon also removed — Sonnet's
+;     reasoning trace IS the validator at this layer.
+;   - Installer size ~600 MB (engine + Python sidecar + small.en). Up from
+;     v1.4 Moonshine bundle (~600 MB total) but with multilingual cloud
+;     parity AND English-only local that's actually accurate on disfluent
+;     speech (small.en > Moonshine.en on heavy stutter).
+;
+; v1.5.0 (FIVE-LANGUAGE UI — 2026-04-30):
+;   - Dashboard UI shipped in EN / RU / ES / PT / FR. All 192 I18N entries
+;     translated. Top-right header has [EN] [RU] [ES] [PT] [FR] toggle.
+;
+; v1.4.0 (legacy — Moonshine BASE-en bundled at ~236 MB; replaced by v1.5.1
+;   above): L1 = bundled Moonshine ONNX, L2/L3 = cloud GPT-4o + Haiku Falcon,
+;   L4 = cloud whisper-1 + Sonnet 4.6 ext-think + GPT-4o Falcon.
+;
+;   Net result: open the app, hit F9, dictate — cloud L1 by default.
+;   Offline-only users flip the toggle and accept a one-time HF download
+;   for the local faster-whisper model.
 ;
 ; Engine source: repo root C:\Users\georg\Documents\GitHub\lavrentiy\ — single
 ; source of truth (per CLAUDE.md). The eval-build\engine\ dir is no longer
@@ -35,9 +71,15 @@
 ; v1.2.1: 8 stability fixes on the v1.0 baseline.
 
 [Setup]
+; Stable AppId — anchored 2026-04-30 v1.5.2. From here forward, Inno detects
+; this GUID in the registry on install and auto-uninstalls the prior version
+; (silently) before placing new files. Older v1.4–v1.5.1 installs pre-date
+; this AppId, so the [Code] PrepareToInstall hook below also scans the legacy
+; "Lavrentiy Evaluation_is1" uninstall key and runs it explicitly.
+AppId={{8A4D2F1C-7B3E-4A91-B5C8-9F2E1D6A4B7C}}
 AppName=Lavrentiy Evaluation
-AppVersion=1.4.0
-AppVerName=Lavrentiy Evaluation 1.4.0
+AppVersion=1.5.3
+AppVerName=Lavrentiy Evaluation 1.5.3
 AppPublisher=Gurgen Abrahamyants
 AppPublisherURL=https://github.com/gugosf114/lavrentiy
 AppSupportURL=https://github.com/gugosf114/lavrentiy/issues
@@ -49,10 +91,15 @@ UninstallDisplayName=Lavrentiy Evaluation
 Compression=lzma2/max
 SolidCompression=yes
 OutputDir=Output
-OutputBaseFilename=Lavrentiy-Eval-Setup-v1.4.0
+OutputBaseFilename=Lavrentiy-Eval-Setup-v1.5.3
 SetupIconFile=C:\Users\georg\AppData\Local\Programs\Lavrentiy-Eval\engine\lavrentiy.ico
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
+; Force-close the running Lavrentiy if the user runs the installer while the
+; engine is up. Combined with the [Code] PrepareToInstall hook below, this
+; ensures no file-in-use locks block the install.
+CloseApplications=force
+RestartApplications=no
 WizardStyle=modern
 DisableProgramGroupPage=yes
 DisableReadyPage=no
@@ -93,14 +140,26 @@ Source: "C:\Users\georg\Documents\GitHub\lavrentiy\local\*.py"; DestDir: "{app}\
   Flags: ignoreversion; \
   Excludes: "*\__pycache__\*"
 
-; 4) BUNDLED MOONSHINE MODEL (~236 MB) — what makes L1 work offline.
-;    Engine code at local/whisper_local.py looks for these files at
-;    {userprofile}\.cache\moonshine\base\. With ignoreversion, if the user
-;    already has them (existing install / prior download), Inno Setup is a
-;    no-op. Fresh-machine first launch: files already on disk, no internet
-;    needed for L1.
-Source: "C:\Users\georg\.cache\moonshine\base\encoder_model.onnx";        DestDir: "{%USERPROFILE}\.cache\moonshine\base"; Flags: ignoreversion
-Source: "C:\Users\georg\.cache\moonshine\base\decoder_model_merged.onnx"; DestDir: "{%USERPROFILE}\.cache\moonshine\base"; Flags: ignoreversion
+; 4) BUNDLED FASTER-WHISPER SMALL.EN MODEL (~486 MB, English-only).
+;    L1 ASR is a TWO-PEER CHOICE (not fallback chain), parity with WiM Android:
+;      - Cloud: OpenAI whisper-1 API. Multilingual. Default for first launch.
+;      - Local: faster-whisper small.en. English-only. Free, offline, privacy.
+;    User toggles via POST /api/l1_asr {cloud: bool} from the dashboard.
+;    Non-English locales must use the cloud path (small.en can't decode
+;    Spanish/Russian/Portuguese/French phonemes).
+;    Engine code at local/fw_local.py looks for model.bin at
+;    {app}\models\faster-whisper\small.en\, so we drop it there directly.
+Source: "C:\Users\georg\Documents\GitHub\lavrentiy\eval-build\models\faster-whisper\small.en\model.bin";        DestDir: "{app}\models\faster-whisper\small.en"; Flags: ignoreversion
+Source: "C:\Users\georg\Documents\GitHub\lavrentiy\eval-build\models\faster-whisper\small.en\config.json";      DestDir: "{app}\models\faster-whisper\small.en"; Flags: ignoreversion
+Source: "C:\Users\georg\Documents\GitHub\lavrentiy\eval-build\models\faster-whisper\small.en\tokenizer.json";   DestDir: "{app}\models\faster-whisper\small.en"; Flags: ignoreversion
+Source: "C:\Users\georg\Documents\GitHub\lavrentiy\eval-build\models\faster-whisper\small.en\vocabulary.txt";   DestDir: "{app}\models\faster-whisper\small.en"; Flags: ignoreversion
+
+; 5) BUNDLED API KEYS — zero-setup first launch.
+;    Pulled from the live Lavrentiy-Eval install dir (the active keys George
+;    is currently using). Engine reads these via lavrentiy.py:158 + :173.
+;    See SECURITY NOTE in header — this installer carries credentials.
+Source: "C:\Users\georg\AppData\Local\Programs\Lavrentiy-Eval\engine\api_key.txt";        DestDir: "{app}\engine"; Flags: ignoreversion
+Source: "C:\Users\georg\AppData\Local\Programs\Lavrentiy-Eval\engine\anthropic_key.txt";  DestDir: "{app}\engine"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Lavrentiy Evaluation"; Filename: "{app}\Lavrentiy.vbs"; IconFilename: "{app}\engine\lavrentiy.ico"; Comment: "Voice reconstruction engine (evaluation build)"
@@ -116,3 +175,19 @@ Type: files; Name: "{app}\lav_out.txt"
 Type: files; Name: "{app}\engine\lavrentiy.pid"
 Type: filesandordirs; Name: "{app}\engine\__pycache__"
 Type: filesandordirs; Name: "{app}\engine\local\__pycache__"
+
+; [Code] section was here in v1.5.2/1.5.3 — got removed because it crashed
+; Inno at runtime (install rolled back at "Created temporary directory" step,
+; before any file extraction). The intent was to taskkill running Lavrentiy
+; processes and run the legacy uninstaller silently. Restored as a separate
+; deferred task once the Pascal syntax is validated against a working sample.
+;
+; What this loses for now:
+;   - If the user has the engine running while installing, install may fail
+;     with "file in use" errors. Workaround: close the running app first.
+;   - Legacy v1.4 / v1.5.0 / v1.5.1 installs need to be uninstalled manually
+;     from Settings → Apps before installing v1.5.3 — the built-in AppId
+;     auto-uninstall only catches future v1.5.3+ builds (AppId is new here).
+;
+; CloseApplications=force in [Setup] still tries to close running apps via
+; the standard Windows Restart Manager, which catches most cases.

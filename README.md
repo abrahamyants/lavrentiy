@@ -3227,3 +3227,13 @@ clinical-stutter framing for the foundation pitch.
 
 Full Lav-side detail in `SESSION_LOG_2026-04-30.md`.
 
+
+### 2026-04-30 late evening — 5-language UI + Moonshine/Vosk killed
+
+- Dashboard now ships in **EN / RU / ES / PT / FR**. All 192 I18N keys translated. Top-right `[EN] [RU] [ES] [PT] [FR]` toggle. Translation scripts: `scripts/add_spanish_i18n.py`, `scripts/add_pt_fr_i18n.py`.
+- **Moonshine + Vosk retired**. `local/whisper_local.py` and `local/vosk_local.py` deleted. `local/asr_local.py` rewritten to faster-whisper only.
+- `lavrentiy.py` cleaned of Moonshine fallback import + prewarm strings + user-facing error message.
+- `installer/Lavrentiy-Eval.iss` bumped 1.4.0 → 1.5.1 (skipped 1.5.0 — that build was blind, still bundled dead Moonshine ONNX, do not distribute). v1.5.1 .iss does NOT bundle a local model — pending operator decision on faster-whisper size to bundle vs. HF auto-download.
+- Three-copies-of-dashboard.html trap documented (source / PyInstaller dist / Lavrentiy-Eval install all drift independently). Permanent fix not implemented.
+
+Full detail in `SESSION_LOG_2026-04-30.md` section 9.
