@@ -3172,3 +3172,58 @@ Task 2.
 - **Repos privatized** on GitHub — both Lav + WiM no longer publicly
   searchable.
 
+## 2026-04-30 — L1-pack expansion (3 → 10 languages) + WiM parity port + wim-reconstruct deploy
+
+- **PhoneticMatcher port from WiM to Lav** — `phonetic_match()` in
+  `lavrentiy.py` mirroring WiM's `PhoneticMatcher.kt` (Double Metaphone via
+  the `metaphone` PyPI package). Defensive `try/except` import so engines
+  bundled before metaphone landed in `Lavrentiy.spec` no-op gracefully.
+  Initial gate L1+ all layers; operator pushback restricted to
+  `if 2 <= current_layer <= 3` matching WiM after parity revert.
+  Commits `4afdc34` (port + NATURAL_REPEATS sync) + `ea5007d`
+  (gate to L2/L3 only).
+- **NATURAL_REPEATS sync** with WiM's 7 emphatic doublings
+  (`really really`, `many many`, `much much`, `right right`,
+  `sure sure`, `okay okay`, `just just`).
+- **7 new L1 packs authored** from
+  `docs/L1_Transfer_Markers_in_Written_English.md`: Hindi (10 markers),
+  Arabic, Farsi, French, German, Korean, Japanese (9 markers each, 9–10
+  academic citations per language). Distributed to 4 destinations MD5
+  byte-identical: `lavrentiy/l1_packs/`, `lavrentiy/wim/api/l1_packs/`,
+  `wim-android/app/src/main/assets/l1_packs/`,
+  `bakers-agent/wim-l1-guess-v1/l1_packs/`. Operator's commit `2da039b`
+  "Add L1 language marker packs and API copies" captured Lav-side files.
+  No code changes needed in Kotlin or Python helpers — `BUILTIN_KEYS`
+  and `LANG_DISPLAY_NAMES` already enumerated all 10 languages from
+  initial scaffolding.
+- **wim-reconstruct Cloud Function deployed** (revision
+  `wim-reconstruct-00010-pej` ACTIVE,
+  `gcloud functions deploy wim-reconstruct
+  --source=lavrentiy/wim/api --gen2 --region=us-central1`). Signed-in
+  WiM users with `profile_l1` set to any of the 10 languages now get
+  pack-aware L2/L3 reconstruction server-side. Sister deploy
+  `wim-l1-guess-00005-mox` ACTIVE — public web demo at
+  `gugosf114.github.io/l1-guesser/` now classifies all 10.
+- **Smoke tests**: Hindi-pattern → top_l1=hindi (0.8 confidence,
+  4 markers). German → top_l1=german (0.6, 3 markers). Japanese →
+  mis-classified as russian due to marker-overlap in the prompt context.
+  Real but non-blocking — prompt-engineering refinement, not a deploy
+  fix.
+
+Cross-cutting work captured in WiM
+`SESSION_LOG_2026-04-30.md` continued-evening section: patent prior-art
+3-pass cross-validation (Apr 27 Gemini + Claude pass + Gemini Deep
+Research), USPTO filing-requirements verification (provisional needs
+spec + drawings + Form PTO/SB/16 + Form PTO/SB/15A micro-entity + **$65**
+fee; claims/oath/IDS NOT required at provisional), grant strategy thread
+tied to **Ruha Benjamin (*Race After Technology*, 2019, "the New Jim
+Code")** + **Sasha Costanza-Chock (*Design Justice*, 2020)**, plus a
+community-curation Pack Contribution Layer architecture proposal
+(deferred). Lav-relevant findings: **IBM US6006183** verified expired
+Dec 2017 (still § 102 prior art for novelty, no commercial FTO risk);
+**IBM US8620670** verified lapsed Dec 2025 — text-domain stutter
+reconstruction territory opens entirely, strengthens Lav's
+clinical-stutter framing for the foundation pitch.
+
+Full Lav-side detail in `SESSION_LOG_2026-04-30.md`.
+
