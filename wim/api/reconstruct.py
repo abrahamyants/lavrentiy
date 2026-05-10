@@ -24,6 +24,7 @@ from pathlib import Path
 import openai
 
 import l1_pack
+import domain_pack
 
 # ─── Config ───
 MODEL = os.environ.get("WIM_MODEL", "gpt-4o")
@@ -519,6 +520,33 @@ def build_prompt(raw_text, tone="casual", layer=2, profile=None, situation="defa
     # L2/L3 general ASR artifact guidance
     if 2 <= layer <= 3:
         parts.append(
+            "\nALWAYS RESTATE — DO NOT RETURN INPUT UNCHANGED."
+            "\nThe input is raw spoken material. The output is text someone will READ. "
+            "CONVERT spoken cadence into written prose every time, even when input is fluent. "
+            "Identity output is a failure mode."
+            "\n\nApply these established prose rules (Strunk & White, federal Plain Language Guidelines):"
+            "\n- Omit needless words. A sentence should contain no unnecessary words."
+            "\n- Use the active voice."
+            "\n- Use definite, specific, concrete language."
+            "\n- Sentence length should average 15-20 words. Break run-on speech into multiple short sentences."
+            "\n- Drop verbal-tic discourse markers ('so', 'well', 'you know', 'like') even when not pure fillers."
+            "\n\nThe speaker is brain-dumping in stream-of-consciousness order. "
+            "REORDER clauses, GROUP related ideas, and RESTRUCTURE into the flow a written reader expects."
+            "\n\nHARD RULES while restating:"
+            "\n- PRESERVE all numbers, dates, dollar amounts, addresses, names, proper nouns exactly as spoken."
+            "\n- DO NOT add information or invent details not present in the input."
+            "\n- DO NOT soften, sanitize, or change profanity / strong language / slang."
+            "\n- TREAT unfamiliar or single-syllable unrecognized words as INTENTIONAL slang or brand names — do not substitute them."
+        )
+        parts.append(
+            "\n\nSELF-CORRECTION — CANONICAL OVERWRITE:"
+            "\nWhen the speaker uses 'I mean', 'actually', 'no wait', 'scratch that', or similar "
+            "mid-sentence revision markers, treat the content AFTER the marker as canonical "
+            "and DISCARD the content before it."
+            "\nExample: 'the meeting at 3pm, I mean 4pm' → 'the meeting at 4pm'"
+            "\nExample: 'let's go to Italian, actually let's go to Thai' → 'let's go to Thai'"
+        )
+        parts.append(
             "\nThe input is a voice transcription and may contain ASR artifacts:"
             "\n- Repeated words or phrases from natural speech hesitation"
             "\n- Filler sounds transcribed as real words (e.g., 'um' → 'come')"
@@ -532,6 +560,10 @@ def build_prompt(raw_text, tone="casual", layer=2, profile=None, situation="defa
             "\n  OUT: 'I was going to the store to get some milk'"
             "\n  IN:  'Can you send me the, the report by, by Friday'"
             "\n  OUT: 'Can you send me the report by Friday'"
+            "\n  IN:  'I think we should, we should probably move the meeting'"
+            "\n  OUT: 'I think we should probably move the meeting'"
+            "\n  IN:  'The, uh, what's it called, the database needs updating'"
+            "\n  OUT: 'The database needs updating'"
         )
 
         # L1-transfer pack injection (L2/L3 only — L4 has its own clinical
@@ -540,6 +572,12 @@ def build_prompt(raw_text, tone="casual", layer=2, profile=None, situation="defa
         l1_block = l1_pack.prompt_injection(profile)
         if l1_block:
             parts.append(l1_block)
+
+        # Domain pack injection — canonical vocab + phonetic-alias corrections
+        # per profile_industry. Mirrors lavrentiy.py domain_pack.prompt_injection.
+        domain_block = domain_pack.prompt_injection(profile)
+        if domain_block:
+            parts.append(domain_block)
 
     # L4: Full clinical stutter context
     if layer >= 4:
