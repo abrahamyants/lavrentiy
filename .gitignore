@@ -37,3 +37,8 @@ _backup_pre_fw_swap/
 # PyInstaller output (native Windows app build)
 build/
 dist/
+
+# PyInstaller --onedir build artifacts (v1.6.0+)
+build-onedir/
+dist-onedir/
+build_pyinstaller.log
