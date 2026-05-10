@@ -1512,6 +1512,8 @@ device_info = sd.query_devices(DEVICE)
 NATIVE_RATE = int(device_info['default_samplerate'])
 TARGET_RATE = 16000
 NEEDS_RESAMPLE = NATIVE_RATE != TARGET_RATE
+RESAMPLE_UP = 1
+RESAMPLE_DOWN = 1
 if NEEDS_RESAMPLE:
     _g = gcd(TARGET_RATE, NATIVE_RATE)
     RESAMPLE_UP = TARGET_RATE // _g
