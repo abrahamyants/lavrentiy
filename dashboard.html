@@ -184,6 +184,7 @@ body::before {
   display: grid;
   grid-template-columns: var(--sidebar-w, 280px) 4px 1fr;
   min-height: calc(100vh - 12px);
+  min-width: 900px;
   overflow: visible;
   position: relative;
   z-index: 1;
@@ -596,10 +597,10 @@ body::before {
   font-family: var(--mono);
   font-size: 11px;
   font-weight: 700;
-  color: #ee5a24;
+  color: #ffd700;
   letter-spacing: 2px;
   margin-top: 4px;
-  text-shadow: 0 0 8px rgba(238,90,36,0.4), 0 0 20px rgba(238,90,36,0.15);
+  text-shadow: 0 0 8px rgba(255,215,0,0.5), 0 0 20px rgba(255,215,0,0.2);
 }
 
 /* State animations */
@@ -627,6 +628,11 @@ body::before {
 @keyframes ring-throb {
   0%, 100% { box-shadow: 8px 8px 24px rgba(0,0,0,0.6), -4px -4px 16px rgba(255,255,255,0.02), 0 0 50px rgba(255,68,68,0.12), 0 0 80px rgba(238,90,36,0.06); }
   50% { box-shadow: 8px 8px 24px rgba(0,0,0,0.6), -4px -4px 16px rgba(255,255,255,0.02), 0 0 60px rgba(255,68,68,0.18), 0 0 100px rgba(238,90,36,0.1); }
+}
+
+/* Recording state — top-bar signal so eyes-on-content users see state */
+.app.st-recording .top-bars {
+  box-shadow: 0 0 0 2px var(--red-bright) inset;
 }
 
 /* Command Mode (F8 held): amber/cyan color distinct from red recording */
@@ -827,13 +833,13 @@ body::before {
   background: linear-gradient(180deg, #b0b0b5 0%, var(--raised) 100%);
 }
 .tone-btn.active {
-  background: linear-gradient(180deg, #8a1a1a 0%, #7a1515 40%, #6a1212 100%);
-  color: #ffd8d8;
+  background: linear-gradient(180deg, #6b4a1a 0%, #5a3e14 40%, #4a3210 100%);
+  color: #ffe8c0;
   font-weight: 600;
   border-color: rgba(0,0,0,0.4);
   border-top: 2px solid rgba(0,0,0,0.35);
   border-bottom: 1px solid rgba(0,0,0,0.2);
-  box-shadow: inset 0 3px 8px rgba(0,0,0,0.4), inset 0 1px 2px rgba(0,0,0,0.3), 0 0 18px rgba(185,28,28,0.35), 0 0 6px rgba(212,165,116,0.15);
+  box-shadow: inset 0 3px 8px rgba(0,0,0,0.4), inset 0 1px 2px rgba(0,0,0,0.3), 0 0 18px rgba(160,112,64,0.35), 0 0 6px rgba(212,165,116,0.2);
   transform: translateY(1px);
 }
 /* left-edge channel indicator strip */
@@ -842,8 +848,8 @@ body::before {
   position: absolute; left: 0; top: 4px; bottom: 4px;
   width: 3px;
   border-radius: 0 2px 2px 0;
-  background: linear-gradient(180deg, #ff8a8a, #ff5555, #ff8a8a);
-  box-shadow: 0 0 8px rgba(255,85,85,0.6), 0 0 20px rgba(255,85,85,0.25);
+  background: linear-gradient(180deg, #d4a574, #a07040, #d4a574);
+  box-shadow: 0 0 8px rgba(212,165,116,0.6), 0 0 20px rgba(212,165,116,0.25);
 }
 /* LED indicator dot — warm gold */
 .tone-btn.active::before {
@@ -892,11 +898,11 @@ body::before {
   box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
 }
 .layer-opt.active {
-  background: linear-gradient(180deg, #8a1a1a 0%, #7a1515 40%, #6a1212 100%);
+  background: linear-gradient(180deg, #6b4a1a 0%, #5a3e14 40%, #4a3210 100%);
   border-color: rgba(0,0,0,0.4);
   border-top: 2px solid rgba(0,0,0,0.35);
   border-bottom: 1px solid rgba(0,0,0,0.2);
-  box-shadow: inset 0 3px 8px rgba(0,0,0,0.4), inset 0 1px 2px rgba(0,0,0,0.3), 0 0 18px rgba(185,28,28,0.35), 0 0 6px rgba(212,165,116,0.15);
+  box-shadow: inset 0 3px 8px rgba(0,0,0,0.4), inset 0 1px 2px rgba(0,0,0,0.3), 0 0 18px rgba(160,112,64,0.35), 0 0 6px rgba(212,165,116,0.2);
   transform: translateY(1px);
 }
 /* left-edge channel indicator strip */
@@ -905,8 +911,8 @@ body::before {
   position: absolute; left: 0; top: 4px; bottom: 4px;
   width: 3px;
   border-radius: 0 2px 2px 0;
-  background: linear-gradient(180deg, #ff8a8a, #ff5555, #ff8a8a);
-  box-shadow: 0 0 8px rgba(255,85,85,0.6), 0 0 20px rgba(255,85,85,0.25);
+  background: linear-gradient(180deg, #d4a574, #a07040, #d4a574);
+  box-shadow: 0 0 8px rgba(212,165,116,0.6), 0 0 20px rgba(212,165,116,0.25);
 }
 /* LED indicator dot — warm gold */
 .layer-opt.active::before {
@@ -922,13 +928,13 @@ body::before {
   font-size: 12px; font-weight: 700; color: var(--text-muted);
   width: 16px; text-align: center; transition: all 0.15s; flex-shrink: 0;
 }
-.layer-opt.active .l-num { color: #ffd0d0; text-shadow: 0 1px 2px rgba(0,0,0,0.3); }
+.layer-opt.active .l-num { color: #ffe8c0; text-shadow: 0 1px 2px rgba(0,0,0,0.3); }
 .layer-opt .l-info { display: flex; align-items: baseline; gap: 6px; }
 .layer-opt .l-name {
   font-size: 11px; font-weight: 500; color: var(--text-dim);
   letter-spacing: 1px; transition: color 0.15s;
 }
-.layer-opt.active .l-name { color: #f0d0d0; }
+.layer-opt.active .l-name { color: #ffe8c0; }
 .layer-opt .l-desc { font-family: var(--mono); font-size: 10px; color: var(--red-bright); font-weight: 700; }
 .layer-opt.active .l-desc { color: var(--red-bright); }
 .mode-desc { font-family: var(--mono); font-size: 9px; color: var(--red-bright); font-weight: 700; margin-left: 6px; }
@@ -1242,13 +1248,13 @@ body::before {
   background: linear-gradient(180deg, #b0b0b5 0%, var(--raised) 100%);
 }
 .tab-btn.active {
-  background: linear-gradient(180deg, #8a1a1a 0%, #7a1515 40%, #6a1212 100%);
-  color: #ffd8d8;
+  background: linear-gradient(180deg, #6b4a1a 0%, #5a3e14 40%, #4a3210 100%);
+  color: #ffe8c0;
   font-weight: 600;
   border-color: rgba(0,0,0,0.4);
   border-top: 2px solid rgba(0,0,0,0.35);
   border-bottom: 1px solid rgba(0,0,0,0.2);
-  box-shadow: inset 0 3px 8px rgba(0,0,0,0.4), inset 0 1px 2px rgba(0,0,0,0.3), 0 0 18px rgba(185,28,28,0.35), 0 0 6px rgba(212,165,116,0.15);
+  box-shadow: inset 0 3px 8px rgba(0,0,0,0.4), inset 0 1px 2px rgba(0,0,0,0.3), 0 0 18px rgba(160,112,64,0.35), 0 0 6px rgba(212,165,116,0.2);
   transform: translateY(1px);
 }
 /* left-edge channel indicator strip */
@@ -1257,8 +1263,8 @@ body::before {
   position: absolute; left: 0; top: 4px; bottom: 4px;
   width: 3px;
   border-radius: 0 2px 2px 0;
-  background: linear-gradient(180deg, #ff8a8a, #ff5555, #ff8a8a);
-  box-shadow: 0 0 8px rgba(255,85,85,0.6), 0 0 20px rgba(255,85,85,0.25);
+  background: linear-gradient(180deg, #d4a574, #a07040, #d4a574);
+  box-shadow: 0 0 8px rgba(212,165,116,0.6), 0 0 20px rgba(212,165,116,0.25);
 }
 /* Gold LED indicator on active tab */
 .tab-btn.active::before {
@@ -1794,6 +1800,7 @@ body::before {
 .tab-panel.active .cal-card:hover { background: rgba(74,32,32,0.55); }
 .cal-title { font-family: var(--mono); font-size: 13px; font-weight: 700; letter-spacing: 2px; color: var(--red-bright); margin-bottom: 6px; }
 .cal-subtitle { font-size: 12px; color: #444; line-height: 1.5; margin-bottom: 16px; background: rgba(255,255,255,0.55); padding: 6px 10px; border-radius: 4px; border-left: 2px solid var(--red-bright); }
+[data-theme="dark"] .cal-subtitle { background: rgba(255,255,255,0.06); color: #c0b090; }
 .cal-progress-bar {
   height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-bottom: 6px;
 }
@@ -1869,6 +1876,7 @@ body::before {
 .aug-section { margin-top: 0; padding-top: 0; }
 .aug-title { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 2px; color: var(--red-bright); margin-bottom: 6px; }
 .aug-subtitle { font-size: 11px; color: #444; line-height: 1.5; margin-bottom: 16px; background: rgba(255,255,255,0.55); padding: 6px 10px; border-radius: 4px; border-left: 2px solid var(--red-bright); }
+[data-theme="dark"] .aug-subtitle { background: rgba(255,255,255,0.06); color: #c0b090; }
 .aug-stats { font-family: var(--mono); font-size: 10px; color: var(--text-muted); line-height: 1.8; margin-bottom: 12px; }
 .aug-stats strong { color: var(--text); }
 .aug-btn {
@@ -2316,9 +2324,9 @@ body::before {
   background: var(--elevated); color: var(--text-bright); border-color: rgba(0,0,0,0.2);
 }
 .compact-chip.active {
-  background: linear-gradient(180deg, #b91c1c 0%, #991b1b 100%);
-  color: #fff; border-color: rgba(0,0,0,0.3);
-  box-shadow: 0 2px 6px rgba(185,28,28,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
+  background: linear-gradient(180deg, #a07040 0%, #7a5428 100%);
+  color: #ffe8c0; border-color: rgba(0,0,0,0.3);
+  box-shadow: 0 2px 6px rgba(160,112,64,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
 }
 
 /* ─── BOOT SEQUENCE ───── */
@@ -2443,6 +2451,7 @@ body::before {
   font-family: var(--mono); line-height: 1; padding: 0;
 }
 .profile-add-btn:hover { color: var(--red-bright); border-color: rgba(185,28,28,0.4); }
+/* profile-add-btn aria-label="Add profile" applied inline */
 /* New profile modal */
 .profile-modal-backdrop {
   position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2000;
@@ -2512,6 +2521,7 @@ body::before {
   display: flex; align-items: center; justify-content: center; transition: all 0.15s;
 }
 .help-close:hover { color: var(--red-bright); border-color: rgba(185,28,28,0.3); background: var(--raised-hi); }
+/* help-close aria-label applied inline */
 
 .help-search {
   margin: 0 20px 12px; padding: 8px 12px; width: calc(100% - 40px);
@@ -2617,11 +2627,16 @@ body::before {
     transition: none !important;
   }
 }
+
+/* ─── SKIP LINK (a11y) ─── */
+.skip-link { position:absolute; left:-9999px; top:auto; width:1px; height:1px; overflow:hidden; }
+.skip-link:focus { position:static; width:auto; height:auto; padding:6px 12px; background:#d4a574; color:#1a1a1a; font-family:var(--mono); font-size:12px; font-weight:700; text-decoration:none; border-radius:4px; z-index:99999; }
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 </head>
 <body>
+<a href="#main-panel" class="skip-link">Skip to main content</a>
 
 <div class="boot-overlay" id="boot-overlay">
   <div class="boot-brand">&#1051;&#1072;&#1074;&#1088;&#1077;&#1085;&#1090;&#1080;&#1081;</div>
@@ -2630,8 +2645,8 @@ body::before {
   <div class="boot-bar"><div class="boot-bar-fill" id="boot-bar-fill"></div></div>
 </div>
 
-<div class="disconnected" id="disconnected">
-  <div id="ttt-close" onclick="document.getElementById('disconnected').classList.remove('show')" style="display:none;position:absolute;top:16px;right:20px;font-size:22px;color:var(--text-muted);cursor:pointer;font-family:var(--mono);line-height:1;padding:4px 8px;border-radius:4px;transition:color 0.2s,background 0.2s" onmouseover="this.style.color='var(--text-bright)';this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.color='var(--text-muted)';this.style.background='none'">&times;</div>
+<div class="disconnected" id="disconnected" role="alert" aria-live="assertive" aria-atomic="true">
+  <button id="ttt-close" onclick="document.getElementById('disconnected').classList.remove('show')" aria-label="Close" style="display:none;position:absolute;top:16px;right:20px;font-size:22px;color:var(--text-muted);cursor:pointer;font-family:var(--mono);line-height:1;padding:4px 8px;border-radius:4px;transition:color 0.2s,background 0.2s;background:none;border:none" onmouseover="this.style.color='var(--text-bright)';this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.color='var(--text-muted)';this.style.background='none'">&times;</button>
   <div class="msg" id="disconnected-msg">Starting engine</div>
   <div class="sub" id="disconnected-sub">Play Tic-Tac-Toe against young Garry Kasparov&#x2019;s bot</div>
   <div id="ttt-game" style="margin-top:20px;display:none">
@@ -2699,7 +2714,7 @@ body::before {
   <!-- ═══ COMPACT BAR — visible only in compact mode ═══ -->
   <div class="compact-bar" id="compact-bar">
     <div class="compact-row-top">
-      <button class="compact-toggle" onclick="toggleCompact()" title="Expand" style="position:static">&#8862;</button>
+      <button class="compact-toggle" onclick="toggleCompact()" title="Expand" aria-label="Expand" style="position:static">&#8862;</button>
       <div class="compact-brand">&#1051;&#1072;&#1074;&#1088;&#1077;&#1085;&#1090;&#1080;&#1081;</div>
       <div class="compact-status">
         <div class="compact-dot" id="compact-dot"></div>
@@ -2712,7 +2727,7 @@ body::before {
     <div class="compact-row-bottom" id="compact-chips"></div>
   </div>
 
-  <div class="sidebar">
+  <nav class="sidebar" role="navigation" aria-label="Controls">
     <div class="sidebar-frozen">
     <div class="sidebar-brand">
       <div class="brand-row">
@@ -2739,9 +2754,9 @@ body::before {
     </div>
 
 <div class="status-ring-wrap">
-      <button class="compact-toggle" onclick="toggleCompact()" title="Compact mode">&#8863;</button>
-      <div class="theme-toggle"><button class="theme-tog-btn" data-theme-set="dark" onclick="setTheme('dark')">D</button><button class="theme-tog-btn" data-theme-set="light" onclick="setTheme('light')">L</button></div>
-      <button class="help-btn" onclick="toggleHelp()" title="Manual">?</button>
+      <button class="compact-toggle" onclick="toggleCompact()" title="Compact mode" aria-label="Minimize to compact mode">&#8863;</button>
+      <div class="theme-toggle"><button class="theme-tog-btn" data-theme-set="dark" onclick="setTheme('dark')" aria-label="Dark theme">D</button><button class="theme-tog-btn" data-theme-set="light" onclick="setTheme('light')" aria-label="Light theme">L</button></div>
+      <button class="help-btn" onclick="toggleHelp()" title="Manual" aria-label="Help">?</button>
       <script>
         // Backup keyboard shortcuts: F5 and Ctrl+R reload the dashboard.
         // pywebview/WebView2 sometimes swallows F5 — wire explicitly.
@@ -2825,12 +2840,13 @@ body::before {
       <!-- DAF row — dial + toggle -->
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid rgba(0,0,0,0.08)">
         <span class="engine-group-label" style="margin-bottom:0">DAF</span>
-        <div class="hw-toggle" id="daf-toggle" onclick="toggleDAF()" title="DAF on/off"></div>
+        <div class="hw-toggle" id="daf-toggle" onclick="if(event.target===event.currentTarget)toggleDAF()" title="DAF on/off"></div>
         <div class="hw-dial-wrap" style="transform:scale(0.9)">
           <div class="hw-dial" id="daf-dial" title="Drag to adjust delay"></div>
           <div class="hw-dial-label" style="font-size:11px;font-weight:600"><span id="daf-delay">100</span>ms</div>
         </div>
         <input type="range" id="daf-slider" min="30" max="300" value="100" step="10"
+          aria-label="DAF delay in milliseconds"
           style="flex:1;accent-color:var(--red);opacity:0;width:0;height:0;position:absolute;pointer-events:none">
       </div>
       <!-- Patience mode slider -->
@@ -2842,6 +2858,7 @@ body::before {
           <div class="engine-row"><span>L4/Stress</span><span id="patience-stutter-val" class="engine-val">4.5s</span></div>
         </div>
         <input type="range" id="patience-slider" min="1.0" max="6.0" step="0.5" value="2.0"
+          aria-label="Patience threshold"
           style="width:100%;height:3px;accent-color:var(--red);cursor:pointer;opacity:0.7;margin:2px 0"
           oninput="updatePatience(this.value)">
         <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-muted);margin-top:2px;font-family:var(--font-mono)"><span>&#9664; 1.0s</span><span id="patience-pct">2.0s</span><span>6.0s &#9654;</span></div>
@@ -2868,7 +2885,7 @@ body::before {
           <div class="engine-row"><span>No Speech</span><span id="nst-value" class="engine-val">0.15</span></div>
           <div class="engine-row"><span>Avg LogProb</span><span id="avg-logprob" class="engine-val">—</span></div>
         </div>
-        <input type="range" id="nst-slider" min="0.05" max="0.80" step="0.05" value="0.15" style="width:100%;height:3px;accent-color:var(--red);cursor:pointer;opacity:0.7;margin:2px 0" oninput="updateNST(this.value)">
+        <input type="range" id="nst-slider" min="0.05" max="0.80" step="0.05" value="0.15" aria-label="Noise suppression threshold" style="width:100%;height:3px;accent-color:var(--red);cursor:pointer;opacity:0.7;margin:2px 0" oninput="updateNST(this.value)">
         <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-muted);margin-top:2px;font-family:var(--font-mono)"><span>&#9664; sensitive</span><span id="nst-pct">15%</span><span>tolerant &#9654;</span></div>
       </div>
       <!-- Speech metrics -->
@@ -2900,12 +2917,12 @@ body::before {
         Shortcuts <span class="arrow hotkey-arrow" style="font-size:9px;transition:transform 0.3s">&#9654;</span>
       </div>
       <div id="hotkey-editor" style="display:none">
-        <div class="hotkey-row"><kbd class="hk-key" id="hk-record">F9</kbd><span class="hk-label">Record</span><button class="hk-edit-btn" onclick="startRebind('record')" title="Click to rebind">⚙</button></div>
+        <div class="hotkey-row"><kbd class="hk-key" id="hk-record">F9</kbd><span class="hk-label">Record</span><button class="hk-edit-btn" onclick="startRebind('record')" title="Click to rebind" aria-label="Settings: rebind Record key">⚙</button></div>
         <div class="hotkey-row"><kbd class="hk-key">F8</kbd><span class="hk-label">Command (transform selection)</span></div>
-        <div class="hotkey-row"><kbd class="hk-key" id="hk-tone">F10</kbd><span class="hk-label">Cycle Tone</span><button class="hk-edit-btn" onclick="startRebind('tone')" title="Click to rebind">⚙</button></div>
-        <div class="hotkey-row"><kbd class="hk-key" id="hk-layer">F11</kbd><span class="hk-label">Cycle Layer</span><button class="hk-edit-btn" onclick="startRebind('layer')" title="Click to rebind">⚙</button></div>
-        <div class="hotkey-row"><kbd class="hk-key" id="hk-stats">F12</kbd><span class="hk-label">Print Stats</span><button class="hk-edit-btn" onclick="startRebind('stats')" title="Click to rebind">⚙</button></div>
-        <div class="hotkey-row"><kbd class="hk-key" id="hk-quit">F3</kbd><span class="hk-label">Quit (×3)</span><button class="hk-edit-btn" onclick="startRebind('quit')" title="Click to rebind">⚙</button></div>
+        <div class="hotkey-row"><kbd class="hk-key" id="hk-tone">F10</kbd><span class="hk-label">Cycle Tone</span><button class="hk-edit-btn" onclick="startRebind('tone')" title="Click to rebind" aria-label="Settings: rebind Cycle Tone key">⚙</button></div>
+        <div class="hotkey-row"><kbd class="hk-key" id="hk-layer">F11</kbd><span class="hk-label">Cycle Layer</span><button class="hk-edit-btn" onclick="startRebind('layer')" title="Click to rebind" aria-label="Settings: rebind Cycle Layer key">⚙</button></div>
+        <div class="hotkey-row"><kbd class="hk-key" id="hk-stats">F12</kbd><span class="hk-label">Print Stats</span><button class="hk-edit-btn" onclick="startRebind('stats')" title="Click to rebind" aria-label="Settings: rebind Print Stats key">⚙</button></div>
+        <div class="hotkey-row"><kbd class="hk-key" id="hk-quit">F3</kbd><span class="hk-label">Quit (×3)</span><button class="hk-edit-btn" onclick="startRebind('quit')" title="Click to rebind" aria-label="Settings: rebind Quit key">⚙</button></div>
         <div id="rebind-prompt" style="display:none;margin-top:8px;padding:8px 10px;background:rgba(185,28,28,0.1);border:1px solid rgba(185,28,28,0.2);border-radius:6px;font-family:var(--mono);font-size:10px;color:var(--red-bright);letter-spacing:1px;text-align:center">
           Press any key...
         </div>
@@ -2913,12 +2930,12 @@ body::before {
       </div>
     </div>
     </div><!-- end sidebar-scroll -->
-  </div>
+  </nav>
 
   <div class="resize-handle" id="resize-handle"></div>
 
-  <div class="main">
-    <div class="top-bars" id="top-bars">
+  <main class="main" id="main-panel" role="main">
+    <header class="top-bars" id="top-bars" role="banner">
     <div class="stats-bar">
       <div class="stat-cell"><div class="sv" id="s-words">0</div><div class="sl">Words</div></div>
       <div class="stat-cell"><div class="sv" id="s-sessions">0</div><div class="sl">Sessions</div></div>
@@ -2956,7 +2973,7 @@ body::before {
         <button class="tab-btn" data-tab="tips">Tips</button>
         <button class="tab-btn" data-tab="profile">Profile</button>
       </div>
-    </div>
+    </header>
 
     <div class="content-area" style="position:relative">
       <div class="tips-toggle show" id="tips-toggle-global" onclick="toggleTipsEnabled()" title="Toggle daily tips">
@@ -3139,19 +3156,19 @@ body::before {
           </div>
           <div class="profile-section" id="sec-trigger">
             <div class="profile-header" onclick="toggleSection('trigger')"><span><span class="ph-title">Trigger Words</span><span class="ph-count" id="cnt-trigger">(0)</span></span><span class="arrow">&#9654;</span></div>
-            <div class="profile-body" id="body-trigger"><div class="tag-list" id="tags-trigger"></div><div class="add-row"><input class="add-input" id="input-trigger" placeholder="Add trigger word..." onkeydown="if(event.key==='Enter')addTag('trigger')"><button class="add-btn" onclick="addTag('trigger')">+</button></div></div>
+            <div class="profile-body" id="body-trigger"><div class="tag-list" id="tags-trigger"></div><div class="add-row"><input class="add-input" id="input-trigger" placeholder="Add trigger word..." onkeydown="if(event.key==='Enter')addTag('trigger')"><button class="add-btn" onclick="addTag('trigger')" aria-label="Add trigger word">+</button></div></div>
           </div>
           <div class="profile-section" id="sec-filler">
             <div class="profile-header" onclick="toggleSection('filler')"><span><span class="ph-title">Filler Words</span><span class="ph-count" id="cnt-filler">(0)</span></span><span class="arrow">&#9654;</span></div>
-            <div class="profile-body" id="body-filler"><div class="tag-list" id="tags-filler"></div><div class="add-row"><input class="add-input" id="input-filler" placeholder="Add filler word..." onkeydown="if(event.key==='Enter')addTag('filler')"><button class="add-btn" onclick="addTag('filler')">+</button></div></div>
+            <div class="profile-body" id="body-filler"><div class="tag-list" id="tags-filler"></div><div class="add-row"><input class="add-input" id="input-filler" placeholder="Add filler word..." onkeydown="if(event.key==='Enter')addTag('filler')"><button class="add-btn" onclick="addTag('filler')" aria-label="Add filler word">+</button></div></div>
           </div>
           <div class="profile-section" id="sec-vocab">
             <div class="profile-header" onclick="toggleSection('vocab')"><span><span class="ph-title">Vocabulary</span><span class="ph-count" id="cnt-vocab">(0)</span></span><span class="arrow">&#9654;</span></div>
-            <div class="profile-body" id="body-vocab"><div class="tag-list" id="tags-vocab"></div><div class="add-row"><input class="add-input" id="input-vocab" placeholder="Add preferred term..." onkeydown="if(event.key==='Enter')addTag('vocab')"><button class="add-btn" onclick="addTag('vocab')">+</button></div></div>
+            <div class="profile-body" id="body-vocab"><div class="tag-list" id="tags-vocab"></div><div class="add-row"><input class="add-input" id="input-vocab" placeholder="Add preferred term..." onkeydown="if(event.key==='Enter')addTag('vocab')"><button class="add-btn" onclick="addTag('vocab')" aria-label="Add vocabulary term">+</button></div></div>
           </div>
           <div class="profile-section" id="sec-corrections">
             <div class="profile-header" onclick="toggleSection('corrections')"><span><span class="ph-title">Corrections</span><span class="ph-count" id="cnt-corrections">(0)</span></span><span class="arrow">&#9654;</span></div>
-            <div class="profile-body" id="body-corrections"><div id="corrections-list"></div><div class="add-row" style="margin-top:10px"><input class="add-input" id="input-corr-from" placeholder="Heard as..." style="flex:1" onkeydown="if(event.key==='Enter')document.getElementById('input-corr-to').focus()"><span style="color:var(--text-muted);font-size:11px;padding:0 4px;font-family:var(--mono)">&rarr;</span><input class="add-input" id="input-corr-to" placeholder="Should be..." style="flex:1" onkeydown="if(event.key==='Enter')addCorrection()"><button class="add-btn" onclick="addCorrection()">+</button></div></div>
+            <div class="profile-body" id="body-corrections"><div id="corrections-list"></div><div class="add-row" style="margin-top:10px"><input class="add-input" id="input-corr-from" placeholder="Heard as..." style="flex:1" onkeydown="if(event.key==='Enter')document.getElementById('input-corr-to').focus()"><span style="color:var(--text-muted);font-size:11px;padding:0 4px;font-family:var(--mono)">&rarr;</span><input class="add-input" id="input-corr-to" placeholder="Should be..." style="flex:1" onkeydown="if(event.key==='Enter')addCorrection()"><button class="add-btn" onclick="addCorrection()" aria-label="Add correction pair">+</button></div></div>
           </div>
           <div class="profile-section" id="sec-covert">
             <div class="profile-header" onclick="toggleSection('covert')"><span><span class="ph-title">Covert Avoidance Pairs</span><span class="ph-count" id="cnt-covert">(0)</span></span><span class="arrow">&#9654;</span></div>
@@ -3175,7 +3192,7 @@ body::before {
     </div>
 
     <div class="bottom-bar"><div class="disclaimer">"Лаврентий does his best. Check your work before you wreck your work." &nbsp; <a href="https://github.com/gugosf114/lavrentiy/blob/main/PRIVACY.md" target="_blank" style="color:#d4a574;text-decoration:none;font-style:normal;font-weight:400;font-size:9px">Privacy Policy</a></div></div>
-  </div>
+  </main>
 </div>
 
 <script>
@@ -5760,7 +5777,7 @@ function _checkProfileSync(){
   <div class="help-header">
     <div class="help-title">Guide</div>
     <div style="font-family:var(--mono);font-size:9px;color:var(--red-bright);opacity:0.5;letter-spacing:2px">OPERATIONS MANUAL</div>
-    <button class="help-close" onclick="closeHelp()">&#10005;</button>
+    <button class="help-close" onclick="closeHelp()" aria-label="Close help">&#10005;</button>
   </div>
   <input class="help-search" type="text" placeholder="Search..." oninput="filterHelp(this.value)">
 

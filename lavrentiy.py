@@ -1279,6 +1279,8 @@ class ClipboardPredictor:
         self._last_clipboard = ""
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
+        self._consecutive_fails = 0
+        self._backoff_until = 0.0
         self._thread = None
 
     def start(self):
@@ -1355,7 +1357,9 @@ class ClipboardPredictor:
         trigger_words = [w for w, _ in high_risk]
         log(f"CLIPBOARD triggers ({current_situation}): {trigger_words}", "info")
 
-        # Step 2: async LLM synonym call (runs in THIS background thread, never blocks recording)
+        # Step 2: async LLM synonym call — skip if in 429 backoff window
+        if time.time() < self._backoff_until:
+            return
         bias = self._build_bias(trigger_words, current_situation)
         if bias:
             with self._lock:
@@ -1384,12 +1388,18 @@ class ClipboardPredictor:
                 messages=[{"role": "user", "content": prompt}],
             )
             synonyms = response.choices[0].message.content.strip()
+            self._consecutive_fails = 0
+            self._backoff_until = 0.0
             return (
                 f"Speaker context ({situation}): {synonyms}. "
                 f"Reconstruct intended words from context when speech is unclear."
             )
         except Exception as e:
-            log(f"ClipboardPredictor LLM failed: {e}", "error")
+            self._consecutive_fails += 1
+            backoff = min(60 * self._consecutive_fails, 600)  # 60s, 120s, ... up to 10min
+            self._backoff_until = time.time() + backoff
+            if self._consecutive_fails == 1:
+                log(f"ClipboardPredictor LLM failed: {e} — backing off {backoff}s", "error")
             return None
 
 
