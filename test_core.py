@@ -159,7 +159,7 @@ if predict:
         ns['_onset_anomalies'] = []
         generic = predict('computer')
         check(f'personal weights change score ({personal:.2f} vs {generic:.2f})',
-              abs(personal - generic) > 0.001 or personal == generic)  # may be same if onset weight == 0.4
+              abs(personal - generic) > 0.001)  # personal onset weights must measurably shift the score
 
 # ============================================================
 # TEST 4: SITUATION_SEVERITY values match README

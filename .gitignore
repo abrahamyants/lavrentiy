@@ -42,3 +42,13 @@ dist/
 build-onedir/
 dist-onedir/
 build_pyinstaller.log
+
+# Audit reports and test artifacts
+reports/
+wim_now.png
+_phase*.json
+_phase*.py
+report_heavy_stutter_*.html
+results_heavy_stutter_*.json
+test_report.html
+test_results.json

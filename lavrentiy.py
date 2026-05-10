@@ -167,8 +167,8 @@ if not API_KEY:
     except Exception:
         pass
 
-# Anthropic key — used for cross-vendor Falcon validation (Claude Haiku 4.5).
-# Optional: if not set, falcon_validate falls back to GPT-4o on L2/L3.
+# Anthropic key — used for L4 Sonnet extended thinking reconstruction and L1 polish (Haiku).
+# Optional: falcon_validate is a no-op stub; the key is not used for validation.
 ANTHROPIC_KEY = ""
 _anthropic_key_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "anthropic_key.txt")
 if os.path.exists(_anthropic_key_file):
@@ -1312,7 +1312,7 @@ class ClipboardPredictor:
             try:
                 self._tick()
             except Exception as e:
-                pass  # never crash the background thread
+                log(f"ClipboardPredictor error: {e}", "error")
 
     def _tick(self):
         # Only activate in high-pressure situations
@@ -1403,15 +1403,15 @@ _clipboard_predictor = None  # initialized after profile load
 # call, so anything past it is "stuck", not "slow".
 CLOUD_TIMEOUT_SEC = 60
 
-# Toggle for the L1 Haiku polish step (Anthropic Haiku reads Moonshine
+# Toggle for the L1 Haiku polish step (Anthropic Haiku reads faster-whisper
 # output and fixes obvious errors before paste). Off while George tests
 # raw L1 behavior; flip back to True to re-enable.
 L1_POLISH = False
 
 client = openai.OpenAI(api_key=API_KEY, timeout=CLOUD_TIMEOUT_SEC) if API_KEY else None
 
-# Anthropic client for cross-vendor Falcon validation (different blind spots
-# from OpenAI's reconstruction → catches errors a self-eval would miss).
+# Anthropic client for L4 Sonnet extended thinking (clinical reconstruction)
+# and L1 Haiku polish. Falcon validation is a retired no-op stub.
 try:
     import anthropic
     anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY, timeout=CLOUD_TIMEOUT_SEC) if ANTHROPIC_KEY else None
@@ -1557,7 +1557,12 @@ def load_profile():
             data.pop("sessions", None)  # sessions live in SQLite now
             return data
         except (json.JSONDecodeError, IOError):
-            pass
+            try:
+                import shutil as _shutil
+                _bk = PROFILE_PATH.parent / f"profile_corrupt_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                _shutil.copy2(PROFILE_PATH, _bk)
+            except Exception:
+                pass
     p = dict(DEFAULT_PROFILE)
     p["created"] = datetime.now().isoformat()
     p["corrections"] = {}
@@ -1758,8 +1763,10 @@ def switch_profile(name):
 
 def create_profile(name):
     """Create a new blank profile. Does NOT switch to it."""
+    import re as _re
+    _WIN_RESERVED = {'nul','con','prn','aux','com1','com2','com3','com4','com5','com6','com7','com8','com9','lpt1','lpt2','lpt3','lpt4','lpt5','lpt6','lpt7','lpt8','lpt9'}
     name = name.strip()
-    if not name or '/' in name or '\\' in name or '..' in name:
+    if not name or not _re.match(r'^[A-Za-z0-9][A-Za-z0-9_\-]{0,62}$', name) or name.lower() in _WIN_RESERVED:
         raise ValueError(f"Invalid profile name: {name}")
     pdir = PROFILES_ROOT / name
     if pdir.exists():
@@ -2468,14 +2475,14 @@ def db_get_sessions(limit=50, offset=0):
         rows = _db.execute(
             "SELECT ts, raw, out, tone, layer, words, falcon, decision, timings, "
             "situation, disfluency_counts, exposure_difficulty, editorial_distance, "
-            "speech_metrics, lang, prosodic_summary "
+            "speech_metrics, lang, prosodic_summary, triggers_fired "
             "FROM sessions ORDER BY id DESC LIMIT ? OFFSET ?",
             (limit, offset)
         ).fetchall()
     result = []
     for row in rows:
         ts, raw, out, tone, layer, words, falcon, decision, timings, \
-            situation, disf, exposure, edit_dist, spmet, lang, prosodic_sum = row
+            situation, disf, exposure, edit_dist, spmet, lang, prosodic_sum, triggers_fired = row
         entry = {"ts": ts, "raw": raw, "out": out, "tone": tone,
                  "layer": layer, "words": words, "falcon": bool(falcon),
                  "situation": situation or "default",
@@ -2494,6 +2501,8 @@ def db_get_sessions(limit=50, offset=0):
             entry["speech_metrics"] = json.loads(spmet)
         if prosodic_sum:
             entry["prosodic_summary"] = json.loads(prosodic_sum)
+        if triggers_fired:
+            entry["triggers_fired"] = json.loads(triggers_fired)
         result.append(entry)
     return result
 
@@ -2983,7 +2992,7 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
                 block_notes.append(f"  \"{seg['text']}\" (no_speech_prob={seg['no_speech_prob']})")
             else:
                 lc_notes.append(
-                    f"  \"{seg['text']}\" (logprob={seg['avg_logprob']}, brown_risk={seg['brown_risk']})"
+                    f"  \"{seg['text']}\" (logprob={seg['avg_logprob']}, brown_risk={seg.get('brown_risk', 0.0)})"
                 )
         if lc_notes:
             if layer >= 4:
@@ -3376,94 +3385,6 @@ def falcon_validate(raw_text, clean_text, layer, tone="casual", onset_weights=No
     """
     return True
 
-    # ── Original Falcon body retained below as dead code; never reached ──
-    # noinspection PyUnreachableCode
-    """Tone-aware: formal tone expands contractions, casual keeps them — Falcon must know
-    which changes are expected per tone."""
-    tone_note = ""
-    if tone == "formal":
-        tone_note = (
-            " Tone is FORMAL: contractions expanded to full form (don't→do not, I'm→I am) "
-            "and colloquialisms replaced with standard English are expected, not meaning changes."
-        )
-    elif tone == "professional":
-        tone_note = " Tone is PROFESSIONAL: light formality adjustments are expected."
-    elif tone == "friend":
-        tone_note = " Tone is FRIEND: sentence fragments and casual contractions are expected."
-    # casual: no extra note needed
-    if layer <= 3:
-        prompt = (
-            "The reconstruction cleans up a voice transcription: removing filler words "
-            "(um, uh, like, you know), fixing grammar, and improving clarity. "
-            "Filler removal and grammar fixes are expected and acceptable." + tone_note + " "
-            "Does the reconstruction preserve the core content and intent? "
-            "Answer ONLY 'yes' or 'no'."
-        )
-    elif layer >= 4:
-        # Phonetic guard first, high-level criteria after. Does not re-specify
-        # the L4 rules already given to the reconstruction prompt.
-        _lc = _normalize_lang_code(language_code)
-        if onset_weights:
-            _top = ", ".join(
-                f"/{o}/" for o, _ in sorted(onset_weights.items(), key=lambda x: -x[1])[:5]
-            )
-        else:
-            _top = "(no personal onset data)"
-        _nr = _get_lang_natural_repeats(_lc)
-        _nr_str = ", ".join(_nr) if _nr else "none defined"
-        prompt = (
-            f"Validate a layer-4 speech-disfluency reconstruction. Language: {_lc.upper()}. "
-            f"Near the speaker's hardest phonemes ({_top}), the reconstruction MUST NOT "
-            "substitute a different-phoneme word — phonetic drift is the primary failure mode. "
-            "The reconstruction should also have: "
-            "(1) stripped overt disfluencies (part-word repetitions, prolongations, blocks, false starts); "
-            f"(2) preserved emphatic patterns that are NOT stuttering: {_nr_str}; "
-            "(3) NOT normalized the speaker's dialect or register forms; "
-            "(4) discarded Whisper hallucination strings ('thank you', 'subscribe', etc.)."
-            + tone_note
-            + " Does the reconstruction satisfy all criteria? Answer ONLY 'yes' or 'no'."
-        )
-
-    # L4 reconstruction uses Sonnet 4.6 with extended thinking — the reasoning
-    # trace IS the validator. A separate yes/no Falcon check after that adds
-    # latency without adding signal. Skip Falcon at L4.
-    if layer >= 4:
-        return True
-
-    # L2/L3 Falcon → Claude Haiku 4.5 (Anthropic) for cross-vendor validation.
-    # Different vendor = different blind spots → catches errors that self-eval misses.
-    # If Anthropic key isn't configured, fall back to GPT-4o (same vendor as recon).
-    if layer in (2, 3) and anthropic_client is not None:
-        try:
-            msg = anthropic_client.messages.create(
-                model=FALCON_HAIKU_MODEL,
-                max_tokens=5,
-                messages=[{
-                    "role": "user",
-                    "content": prompt + f"\n\nOriginal: {raw_text}\nReconstruction: {clean_text}",
-                }],
-            )
-            stats_inc("anthropic_calls")
-            return "yes" in msg.content[0].text.strip().lower()
-        except Exception:
-            pass  # fall through to OpenAI on Haiku error
-
-    # L4 Falcon (clinical) → GPT-4o (rich phonetic-rules prompt; keep on the
-    # same family that produced the reconstruction so the eval stays consistent
-    # with the reconstruction prompt's structure). Also used as L2/L3 fallback
-    # when anthropic_client is unavailable.
-    stats_inc("api_calls")
-    resp = client.chat.completions.create(
-        model=MODEL,
-        messages=[
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": f"Original: {raw_text}\nReconstruction: {clean_text}"}
-        ],
-        max_tokens=5,
-        temperature=0
-    )
-    return "yes" in resp.choices[0].message.content.strip().lower()
-
 
 # -- Disfluency post-filter (rule-based, zero API cost) ────────
 # Post-processing yields significant WER reduction on disfluent speech;
@@ -3593,7 +3514,7 @@ _REPUNC_QUESTION_STARTERS = frozenset({
 def repunctuate(text):
     """Lightweight deterministic capitalization + terminal punctuation.
 
-    Targets local ASR engines (Moonshine) that emit flat lowercase text with
+    Targets local ASR engines (faster-whisper) that emit flat lowercase text with
     no punctuation. Cheap (~10us per typical utterance), no model load, no
     cloud round-trip. Idempotent — skips text that already has BOTH a capital
     letter and terminal punctuation.
@@ -4150,6 +4071,15 @@ def detect_covert_avoidance(actual_text, prof):
 
     # Find words that are in prep but NOT in actual speech
     missing = [w for w in prep_content if w not in actual_content]
+    # Words that were prepped AND spoken successfully → increment used_count
+    spoken_prep = [w for w in prep_content if w in actual_content]
+    if spoken_prep and prof is not None:
+        covert = prof.setdefault("covert_profile", {"avoidance_pairs": {}})
+        pairs_map = covert.setdefault("avoidance_pairs", {})
+        sit_data = pairs_map.get("default", {})
+        for word in spoken_prep:
+            if word in sit_data:
+                sit_data[word]["used_count"] = sit_data[word].get("used_count", 0) + 1
     if not missing:
         with _prep_lock:
             _last_prep_text = None  # consumed
@@ -4220,7 +4150,6 @@ def update_covert_profile(prof, avoidance_pairs, situation):
         if len(subs) > 5:
             entry["common_substitutes"] = subs[-5:]
 
-    # Also count uses when prep word IS used (called separately in pipeline)
     # Cap at 30 tracked words per situation
     if len(sit_data) > 30:
         sorted_items = sorted(sit_data.items(), key=lambda x: x[1]["avoided_count"], reverse=True)
@@ -4396,88 +4325,89 @@ def learn_from_sessions(prof):
         log(f"Learn: parse failed ({e})", "error")
         return
 
-    promoted = 0
-    now = datetime.now().isoformat()
+    with _profile_lock:
+        promoted = 0
+        now = datetime.now().isoformat()
 
-    # Corrections → candidates → promote (vote-based)
-    existing_corr = {k.lower() for k in prof.get("corrections", {})}
-    cand_corr = prof.setdefault("candidate_corrections", {})
-    for wrong, right in learnings.get("corrections", {}).items():
-        wrong = _norm_str(wrong)
-        right = _norm_str(right)
-        if not wrong or not right:
-            continue
-        key = wrong.lower()
-        if key in existing_corr:
-            continue
-        if key not in cand_corr:
-            cand_corr[key] = {"votes": {}, "total": 0}
-        entry = cand_corr[key]
-        entry["votes"][right] = entry["votes"].get(right, 0) + 1
-        entry["total"] += 1
-        if entry["total"] >= LEARN_PROMOTION_THRESHOLD:
-            ranked = sorted(entry["votes"].items(), key=lambda x: x[1], reverse=True)
-            if len(ranked) >= 2 and ranked[0][1] == ranked[1][1]:
-                _learn_event({"ts": now, "type": "candidate", "value": f"{wrong}: tie ({entry['total']} votes), held"})
-                log(f"Candidate tie: \"{wrong}\" — not promoted", "info")
+        # Corrections → candidates → promote (vote-based)
+        existing_corr = {k.lower() for k in prof.get("corrections", {})}
+        cand_corr = prof.setdefault("candidate_corrections", {})
+        for wrong, right in learnings.get("corrections", {}).items():
+            wrong = _norm_str(wrong)
+            right = _norm_str(right)
+            if not wrong or not right:
+                continue
+            key = wrong.lower()
+            if key in existing_corr:
+                continue
+            if key not in cand_corr:
+                cand_corr[key] = {"votes": {}, "total": 0}
+            entry = cand_corr[key]
+            entry["votes"][right] = entry["votes"].get(right, 0) + 1
+            entry["total"] += 1
+            if entry["total"] >= LEARN_PROMOTION_THRESHOLD:
+                ranked = sorted(entry["votes"].items(), key=lambda x: x[1], reverse=True)
+                if len(ranked) >= 2 and ranked[0][1] == ranked[1][1]:
+                    _learn_event({"ts": now, "type": "candidate", "value": f"{wrong}: tie ({entry['total']} votes), held"})
+                    log(f"Candidate tie: \"{wrong}\" — not promoted", "info")
+                else:
+                    winner = ranked[0][0]
+                    if len(prof.get("corrections", {})) < MAX_PROFILE_ITEMS:
+                        prof.setdefault("corrections", {})[wrong] = winner
+                    del cand_corr[key]
+                    _learn_event({"ts": now, "type": "correction", "value": f"{wrong} → {winner}"})
+                    log(f"Promoted: \"{wrong}\" → \"{winner}\"", "info")
+                    promoted += 1
             else:
-                winner = ranked[0][0]
-                if len(prof.get("corrections", {})) < MAX_PROFILE_ITEMS:
-                    prof.setdefault("corrections", {})[wrong] = winner
-                del cand_corr[key]
-                _learn_event({"ts": now, "type": "correction", "value": f"{wrong} → {winner}"})
-                log(f"Promoted: \"{wrong}\" → \"{winner}\"", "info")
+                _learn_event({"ts": now, "type": "candidate", "value": f"{wrong} → {right} ({entry['total']}/{LEARN_PROMOTION_THRESHOLD})"})
+
+        # Fillers → candidates → promote
+        existing_fillers = {f.lower() for f in prof.get("filler_words", [])}
+        cand_fill = prof.setdefault("candidate_fillers", {})
+        for filler in learnings.get("fillers", []):
+            filler = _norm_str(filler)
+            if not filler:
+                continue
+            key = filler.lower()
+            if key in existing_fillers:
+                continue
+            cand_fill[key] = cand_fill.get(key, 0) + 1
+            if cand_fill[key] >= LEARN_PROMOTION_THRESHOLD:
+                if len(prof.get("filler_words", [])) < MAX_PROFILE_ITEMS:
+                    prof.setdefault("filler_words", []).append(key)
+                del cand_fill[key]
+                _learn_event({"ts": now, "type": "filler", "value": key})
+                log(f"Promoted filler: \"{filler}\"", "info")
                 promoted += 1
-        else:
-            _learn_event({"ts": now, "type": "candidate", "value": f"{wrong} → {right} ({entry['total']}/{LEARN_PROMOTION_THRESHOLD})"})
+            else:
+                _learn_event({"ts": now, "type": "candidate", "value": f"filler: {key} ({cand_fill[key]}/{LEARN_PROMOTION_THRESHOLD})"})
 
-    # Fillers → candidates → promote
-    existing_fillers = {f.lower() for f in prof.get("filler_words", [])}
-    cand_fill = prof.setdefault("candidate_fillers", {})
-    for filler in learnings.get("fillers", []):
-        filler = _norm_str(filler)
-        if not filler:
-            continue
-        key = filler.lower()
-        if key in existing_fillers:
-            continue
-        cand_fill[key] = cand_fill.get(key, 0) + 1
-        if cand_fill[key] >= LEARN_PROMOTION_THRESHOLD:
-            if len(prof.get("filler_words", [])) < MAX_PROFILE_ITEMS:
-                prof.setdefault("filler_words", []).append(key)
-            del cand_fill[key]
-            _learn_event({"ts": now, "type": "filler", "value": key})
-            log(f"Promoted filler: \"{filler}\"", "info")
-            promoted += 1
-        else:
-            _learn_event({"ts": now, "type": "candidate", "value": f"filler: {key} ({cand_fill[key]}/{LEARN_PROMOTION_THRESHOLD})"})
+        # Vocabulary → candidates → promote
+        existing_vocab = {v.lower() for v in prof.get("vocabulary", [])}
+        cand_vocab = prof.setdefault("candidate_vocabulary", {})
+        for term in learnings.get("vocabulary", []):
+            term = _norm_str(term)
+            if not term:
+                continue
+            key = term.lower()
+            if key in existing_vocab:
+                continue
+            cand_vocab[key] = cand_vocab.get(key, 0) + 1
+            if cand_vocab[key] >= LEARN_PROMOTION_THRESHOLD:
+                if len(prof.get("vocabulary", [])) < MAX_PROFILE_ITEMS:
+                    prof.setdefault("vocabulary", []).append(term)
+                del cand_vocab[key]
+                _learn_event({"ts": now, "type": "vocab", "value": term})
+                log(f"Promoted vocab: \"{term}\"", "info")
+                promoted += 1
+            else:
+                _learn_event({"ts": now, "type": "candidate", "value": f"vocab: {term} ({cand_vocab[key]}/{LEARN_PROMOTION_THRESHOLD})"})
 
-    # Vocabulary → candidates → promote
-    existing_vocab = {v.lower() for v in prof.get("vocabulary", [])}
-    cand_vocab = prof.setdefault("candidate_vocabulary", {})
-    for term in learnings.get("vocabulary", []):
-        term = _norm_str(term)
-        if not term:
-            continue
-        key = term.lower()
-        if key in existing_vocab:
-            continue
-        cand_vocab[key] = cand_vocab.get(key, 0) + 1
-        if cand_vocab[key] >= LEARN_PROMOTION_THRESHOLD:
-            if len(prof.get("vocabulary", [])) < MAX_PROFILE_ITEMS:
-                prof.setdefault("vocabulary", []).append(term)
-            del cand_vocab[key]
-            _learn_event({"ts": now, "type": "vocab", "value": term})
-            log(f"Promoted vocab: \"{term}\"", "info")
-            promoted += 1
+        learn_status["last_run"] = now
+        if promoted:
+            learn_status["total_learned"] += promoted
         else:
-            _learn_event({"ts": now, "type": "candidate", "value": f"vocab: {term} ({cand_vocab[key]}/{LEARN_PROMOTION_THRESHOLD})"})
-
-    learn_status["last_run"] = now
-    if promoted:
-        learn_status["total_learned"] += promoted
-    else:
-        log("Learn: no promotions this cycle", "info")
+            log("Learn: no promotions this cycle", "info")
     save_profile(prof)  # always save — candidate counts changed
 
 
@@ -5168,9 +5098,9 @@ def _whisper_single_call(filepath, temperature, prompt_text, max_retries=3):
         per-segment metadata (avg_logprob, no_speech_prob, timestamps) that the
         Sonnet-4.6-extended-thinking reconstructor needs to reason about block
         suspects, multi-temp disagreements, prosodic stress windows, etc.
-        Moonshine's flat output is useless for this — verified empirically
+        faster-whisper's flat output is useless for this — verified empirically
         that gpt-4o-transcribe also doesn't return verbose_json (HTTP 400).
-      - L1/L2/L3: local ASR (Moonshine -> Vosk via asr_local). Fast paste path.
+      - L1/L2/L3: local ASR (faster-whisper via asr_local). Fast paste path.
 
     Returns dict with: text, segments, engine.
     Retries up to max_retries on transient errors.
@@ -5271,8 +5201,8 @@ def _extract_low_confidence_segments(verbose_result, risk_threshold=-0.7):
     words_so_far = 0
 
     for seg in segments:
-        # Cloud Whisper emits floats for these; local Moonshine emits None because
-        # the ONNX decoder doesn't surface per-segment confidence. Coerce None →
+        # Cloud Whisper emits floats for these; local faster-whisper may emit None
+        # for segments without per-segment confidence data. Coerce None →
         # safe defaults so downstream comparisons don't crash:
         #   avg_logprob=0.0 → max confidence (won't flag as low-conf)
         #   no_speech_prob=0.0 → definitely speech (won't flag as block suspect)
@@ -5396,7 +5326,7 @@ def _multi_temperature_vote(filepath, prompt_text):
 
 
 def whisper_transcribe(filepath):
-    """Primary ASR: OpenAI Whisper API (cloud). Local Moonshine kicks in as fallback
+    """Primary ASR: OpenAI Whisper API (cloud). Local faster-whisper kicks in as fallback
     when the API path fails (no key, network down, etc.) — see `local/whisper_local.py`.
 
     Returns dict with:
@@ -6846,8 +6776,8 @@ def pipeline():
         global _last_low_conf_segments, _last_avg_logprob
         _last_low_conf_segments = whisper_low_conf or []
         if whisper_segments:
-            # Filter out None — Moonshine segments have avg_logprob=None because
-            # the ONNX decoder doesn't surface per-segment confidence. "in s"
+            # Filter out None — local ASR segments may have avg_logprob=None
+            # when per-segment confidence is not surfaced. "in s"
             # check alone passes (key is present) but sum() on Nones crashes.
             logprobs = [s["avg_logprob"] for s in whisper_segments if s.get("avg_logprob") is not None]
             _last_avg_logprob = round(sum(logprobs) / len(logprobs), 3) if logprobs else 0.0
@@ -6860,7 +6790,7 @@ def pipeline():
 
         # Log ASR pipeline details. The user-visible log doesn't name the
         # engine — it's an implementation detail that changes between
-        # layers (Moonshine local at L1/L2/L3, cloud whisper-1 at L4).
+        # layers (faster-whisper local at L1/L2/L3, cloud whisper-1 at L4).
         # Surfaces the prompt source + low-conf/disagreement signals only.
         used_local = (LOCAL_WHISPER and _local_transcribe_fn is not None) or whisper_meta['n_api_calls'] == 0
         source_label = "local" if used_local else f"{whisper_meta['n_api_calls']}calls"
@@ -6952,7 +6882,7 @@ def pipeline():
         # Block hallucination removal: strip phantom words Whisper invents during blocks
         # Runs at all layers — GPT shouldn't see Whisper's phantom words either
         filtered_text = strip_block_hallucinations(filtered_text, whisper_low_conf)
-        # Local ASR (Moonshine) returns flat lowercase no-punctuation text.
+        # Local ASR (faster-whisper) returns flat lowercase no-punctuation text.
         # Cheap deterministic re-punctuate gives L1 paste readable output
         # without a cloud round-trip. No-op when text already punctuated.
         filtered_text = repunctuate(filtered_text)
@@ -6976,7 +6906,7 @@ def pipeline():
         if filtered_text != raw_text and current_layer == 1:
             log(f"Filter: \"{raw_text}\" → \"{filtered_text}\"", "info")
 
-        # Layer 1 polish — Haiku reads Moonshine output and fixes obvious errors.
+        # Layer 1 polish — Haiku reads faster-whisper output and fixes obvious errors.
         # Adds ~500ms–1s. No tone, no profile injection — just "fix obvious typos
         # / mishears / truncations." Runs only when Anthropic is configured.
         # Output replaces filtered_text so the paste reflects the corrected version.
@@ -7278,11 +7208,12 @@ def pipeline():
                     speech_metrics=speech_metrics, lang=session_lang,
                     paralinguistic_events=para_events if para_events else None,
                     prosodic_summary=prosodic_sum)
-        state = 'idle'
-
         # Step 5: Trigger word detection (Layer 4)
-        # Capture epoch so background threads can detect if a profile switch occurred
+        # Capture epoch BEFORE setting state='idle' — a profile switch that races
+        # into the idle window increments _profile_switch_epoch; capturing here
+        # ensures background threads see the correct pre-switch epoch.
         _epoch_at_launch = _profile_switch_epoch
+        state = 'idle'
         if current_layer >= 4:
             regex_triggers = detect_triggers_regex(raw_text)
             if regex_triggers:
@@ -7444,7 +7375,7 @@ def stop_command_recording():
         tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         tmp.close()
         sf.write(tmp.name, audio_data, TARGET_RATE)
-        whisper_result, _ = whisper_transcribe(tmp.name)
+        whisper_result = whisper_transcribe(tmp.name)
         os.unlink(tmp.name)
         command_text = whisper_result.get("text", "").strip() if whisper_result else ""
     except Exception as e:
@@ -7887,8 +7818,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         # device on the same LAN can hit it via the desktop's LAN IP. The
         # earlier strict allowlist (loopback only) blocked the API XHRs in
         # that case so the page rendered but live data never loaded.
-        origin = self.headers.get('Origin', '') or 'null'
-        self.send_header('Access-Control-Allow-Origin', origin)
+        origin = self.headers.get('Origin', '') or ''
+        # Allow localhost and LAN http:// origins; reject https:// origins from the web
+        _safe = origin.startswith('http://') or not origin
+        self.send_header('Access-Control-Allow-Origin', origin if _safe else 'http://localhost:7878')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
@@ -8884,8 +8817,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         body = json.dumps(data).encode('utf-8')
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
-        origin = self.headers.get('Origin', '') or 'null'
-        self.send_header('Access-Control-Allow-Origin', origin)
+        origin = self.headers.get('Origin', '') or ''
+        # Allow localhost and LAN http:// origins; reject https:// origins from the web
+        _safe = origin.startswith('http://') or not origin
+        self.send_header('Access-Control-Allow-Origin', origin if _safe else 'http://localhost:7878')
         self.send_header('Content-Length', len(body))
         self.end_headers()
         self.wfile.write(body)

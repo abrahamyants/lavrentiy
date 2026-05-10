@@ -39,7 +39,7 @@ Firebase Auth, then Google ID token, then engine `/api/auth` stores it; backend 
 ## Active state (as of 2026-05-10)
 
 ### Shipping path
-- **v1.6.0 installer** built (`installer/Output/Lavrentiy-Setup-v1.6.0.exe`, 749 MB). PyInstaller `--onedir` (NOT `--onefile` — see DON'T list). Drift-proof: `[Files]` is one wildcard line, no manual file enumeration, so future imports auto-bundle. AppId `{B7E5F4A2-9C3D-4E1B-8A6F-2D8B5E9C1F3A}` (distinct from v1.5.7).
+- **v1.6.1 installer** built (`installer/Output/Lavrentiy-Setup-v1.6.1.exe`, 2026-05-07). PyInstaller `--onedir` (NOT `--onefile` — see DON'T list). Drift-proof: `[Files]` is one wildcard line, no manual file enumeration, so future imports auto-bundle. AppId `{B7E5F4A2-9C3D-4E1B-8A6F-2D8B5E9C1F3A}` (distinct from v1.5.7).
 - Installs to `%LOCALAPPDATA%\Programs\Lavrentiy\` (per-user, no admin elevation).
 - New launcher path: `lavrentiy_launcher.py` opens dashboard in default browser. **No more pywebview, no more Qt, no more `desktop.py` failure surface** as the primary path.
 - v1.5.7 was the prior ship (548 MB, `Lavrentiy-Eval` AppId, manual `[Files]` enumeration — the drift cause that broke wife's-laptop install: fresh `lavrentiy.py` imports `domain_pack` / `l1_pack` / `rejection_store` / `style_examples` that .iss never grew alongside, leading to instant `ModuleNotFoundError`).

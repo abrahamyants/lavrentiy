@@ -1,13 +1,15 @@
-"""Lavrentiy — single-file launcher (PyInstaller --onefile entry).
+"""Lavrentiy — launcher (PyInstaller --onedir entry point).
 
 Imports lavrentiy.py (which starts the HTTP server + hotkey hook), then opens
 the user's default browser to the dashboard once :7878 is accepting connections.
 
 Self-contained: when frozen, all .py modules + data files (l1_packs/,
 domain_packs/, lang_packs/, local/, dashboard.html, silero_vad.onnx, api keys,
-faster-whisper model) are bundled inside the .exe and extracted to sys._MEIPASS
-on launch. No install, no PATH, no internet needed to start. Internet is only
-required for cloud API calls (whisper-1, gpt-4o, sonnet) during use.
+faster-whisper model) are bundled alongside Lavrentiy.exe in the output
+directory under _internal/. Nothing is extracted to a temp folder on launch —
+the app runs directly from the install directory. No install, no PATH, no
+internet needed to start. Internet is only required for cloud API calls
+(whisper-1, gpt-4o, sonnet) during use.
 """
 import os
 import socket

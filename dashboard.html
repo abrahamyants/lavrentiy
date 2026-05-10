@@ -10,6 +10,10 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%231a1a1a'/%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-family='serif' font-weight='900' font-size='42' fill='%23d4a574'%3EЛ%3C/text%3E%3C/svg%3E">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:focus-visible {
+    outline: 2px solid #d4a574;
+    outline-offset: 2px;
+}
 
 :root {
   --bg: #d8d8dc;
@@ -1093,7 +1097,7 @@ body::before {
   font-variant-numeric: tabular-nums;
 }
 .stat-cell .sl {
-  font-family: var(--mono); font-size: 7px;
+  font-family: var(--mono); font-size: 9px;
   color: #5a4a3a;
   text-transform: uppercase; letter-spacing: 2px; margin-top: 3px;
   text-shadow: 0 0 4px rgba(238,90,36,0.1);
@@ -1153,7 +1157,7 @@ body::before {
     0 0 24px rgba(238,90,36,0.15);
 }
 .learn-cell .ll {
-  font-family: var(--mono); font-size: 7px; color: #5a4a3a;
+  font-family: var(--mono); font-size: 9px; color: #5a4a3a;
   text-transform: uppercase; letter-spacing: 2px; margin-top: 3px;
   text-shadow: 0 0 4px rgba(238,90,36,0.1);
 }
@@ -2599,6 +2603,20 @@ body::before {
   font-size: 9px; cursor: pointer; transition: all 0.15s;
 }
 .signout-btn:hover { color: var(--red-bright); border-color: rgba(185,28,28,0.4); }
+@media (prefers-reduced-motion: reduce) {
+  .eq-bars span,
+  .status-ring-outer,
+  .ring-spinner,
+  .ring-glow,
+  .cmd-hint-caret,
+  .tone-btn.active::after,
+  .tone-btn.active::before,
+  .layer-opt.active::after,
+  .layer-opt.active::before {
+    animation: none !important;
+    transition: none !important;
+  }
+}
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
@@ -2746,7 +2764,7 @@ body::before {
       <div class="eq-bars eq-right eq-near" aria-hidden="true">
         <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
       </div>
-      <div class="status-ring-outer">
+      <div class="status-ring-outer" role="button" aria-label="Start/stop recording (F9)" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleRecord();}">
         <div class="status-ring-inner">
           <div class="ring-spinner"></div>
           <div class="ring-glow"></div>
@@ -2760,6 +2778,7 @@ body::before {
         <span class="cmd-hint-prefix">F8:</span> <span class="cmd-hint-text" id="cmd-hint-text"></span><span class="cmd-hint-caret">|</span>
       </div>
     </div>
+    <div aria-live="polite" aria-atomic="true" id="ring-status-announce" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;"></div>
 
     </div><!-- end sidebar-frozen -->
 
@@ -2775,10 +2794,10 @@ body::before {
     <div class="sidebar-section">
       <div class="sidebar-section-title">Layer</div>
       <div class="layer-stack">
-        <div class="layer-opt" data-layer="1"><div class="l-info"><div class="l-name">I. Transcribe</div><div class="l-desc">raw text, no cleanup</div></div></div>
-        <div class="layer-opt" data-layer="2"><div class="l-info"><div class="l-name">II. Reconstruct</div><div class="l-desc">LLM + tone</div></div></div>
-        <div class="layer-opt" data-layer="3"><div class="l-info"><div class="l-name">III. Profile</div><div class="l-desc">+ vocabulary</div></div></div>
-        <div class="layer-opt" data-layer="4"><div class="l-info"><div class="l-name">IV. Stutter</div><div class="l-desc">+ disfluency</div></div></div>
+        <div class="layer-opt" data-layer="1" role="button" tabindex="0" aria-pressed="false"><div class="l-info"><div class="l-name">I. Transcribe</div><div class="l-desc">raw text, no cleanup</div></div></div>
+        <div class="layer-opt" data-layer="2" role="button" tabindex="0" aria-pressed="false"><div class="l-info"><div class="l-name">II. Reconstruct</div><div class="l-desc">LLM + tone</div></div></div>
+        <div class="layer-opt" data-layer="3" role="button" tabindex="0" aria-pressed="false"><div class="l-info"><div class="l-name">III. Profile</div><div class="l-desc">+ vocabulary</div></div></div>
+        <div class="layer-opt" data-layer="4" role="button" tabindex="0" aria-pressed="false"><div class="l-info"><div class="l-name">IV. Stutter</div><div class="l-desc">+ disfluency</div></div></div>
       </div>
     </div>
 
@@ -2796,8 +2815,8 @@ body::before {
     <div class="sidebar-section">
       <div class="sidebar-section-title">Situation</div>
       <div class="tone-stack">
-        <div class="layer-opt sit-btn" data-situation="default"><div class="l-info"><div class="l-name">Default</div><div class="l-desc">+ everyday use</div></div></div>
-        <div class="layer-opt sit-btn" data-situation="high_stress"><div class="l-info"><div class="l-name">High Stress</div><div class="l-desc">+ full assist</div></div></div>
+        <div class="layer-opt sit-btn" data-situation="default" role="button" tabindex="0" aria-pressed="false"><div class="l-info"><div class="l-name">Default</div><div class="l-desc">+ everyday use</div></div></div>
+        <div class="layer-opt sit-btn" data-situation="high_stress" role="button" tabindex="0" aria-pressed="false"><div class="l-info"><div class="l-name">High Stress</div><div class="l-desc">+ full assist</div></div></div>
       </div>
     </div>
 
@@ -2863,13 +2882,13 @@ body::before {
           <div class="engine-row"><span>Speaker State</span><span id="speaker-state" class="engine-val">—</span></div>
         </div>
         <div id="severity-breakdown" style="display:none;margin-top:2px;padding:3px 6px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:3px">
-          <div style="font-family:var(--mono);font-size:7px;letter-spacing:1px;color:var(--text-dim);line-height:1.6">
+          <div style="font-family:var(--mono);font-size:9px;letter-spacing:1px;color:var(--text-dim);line-height:1.6">
             <span id="sev-base">1.0</span><span style="color:var(--text-muted)"> base</span>
             <span style="color:var(--text-muted)"> + </span>
             <span id="sev-speech-mod">0</span><span style="color:var(--text-muted)"> speech</span>
             <span style="color:var(--text-muted)"> = </span>
             <span id="sev-final" style="color:var(--yellow)">1.0</span>
-            <span id="sev-band" style="margin-left:4px;padding:1px 4px;border-radius:2px;font-size:7px;letter-spacing:1.5px"></span>
+            <span id="sev-band" style="margin-left:4px;padding:1px 4px;border-radius:2px;font-size:9px;letter-spacing:1.5px"></span>
           </div>
         </div>
       </div>
@@ -3823,7 +3842,7 @@ async function fetchVoiceProfile(){
 function updateUI(){
   const s=state.state;
   document.getElementById('app').className='app st-'+s+(isCompact?' compact':'');
-  const stateKey='st_'+s;document.getElementById('state-label').textContent=I18N[stateKey]?t(stateKey):s;
+  const stateKey='st_'+s;const stateText=I18N[stateKey]?t(stateKey):s;document.getElementById('state-label').textContent=stateText;const _ann=document.getElementById('ring-status-announce');if(_ann)_ann.textContent=stateText;
   const elapsed=Math.floor(Date.now()/1000-state.stats.start_time);
   if(!(_toggleCooldown.timer>Date.now()))document.getElementById('uptime').textContent=String(Math.floor(elapsed/60)).padStart(2,'0')+':'+String(elapsed%60).padStart(2,'0');
   document.querySelectorAll('.tone-btn:not(.mode-btn):not(.sit-btn)').forEach(b=>b.classList.toggle('active',b.dataset.tone===state.tone));
@@ -3843,9 +3862,9 @@ function updateUI(){
     modeSec.classList.toggle('inactive',noLLM2);
     if(modeNote)modeNote.innerHTML=noLLM2?t('note_select'):'';
   }
-  document.querySelectorAll('.layer-opt:not(.sit-btn):not(.use-opt):not(.ind-opt):not(.hr-opt)').forEach(b=>b.classList.toggle('active',parseInt(b.dataset.layer)===state.layer));
+  document.querySelectorAll('.layer-opt:not(.sit-btn):not(.use-opt):not(.ind-opt):not(.hr-opt)').forEach(b=>{const on=parseInt(b.dataset.layer)===state.layer;b.classList.toggle('active',on);if(b.hasAttribute('aria-pressed'))b.setAttribute('aria-pressed',on?'true':'false');});
   document.querySelectorAll('.mode-btn').forEach(b=>b.classList.toggle('active',b.dataset.mode===state.mode));
-  document.querySelectorAll('.sit-btn').forEach(b=>b.classList.toggle('active',b.dataset.situation===(state.situation||'default')));
+  document.querySelectorAll('.sit-btn').forEach(b=>{const on=b.dataset.situation===(state.situation||'default');b.classList.toggle('active',on);if(b.hasAttribute('aria-pressed'))b.setAttribute('aria-pressed',on?'true':'false');});
   const st=state.stats;
   document.getElementById('s-words').textContent=st.words.toLocaleString();
   document.getElementById('s-sessions').textContent=st.sessions;
@@ -4026,9 +4045,8 @@ function renderConsole(){
   el.innerHTML=[...logLines].reverse().map(e=>{
     const d=new Date(e.ts*1000);
     const ts=d.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
-    // "polish" kind contains pre-built HTML diff spans — render as raw HTML.
-    // All other kinds get HTML-escaped to prevent injection.
-    const body = (e.kind === 'polish') ? e.text : esc(e.text);
+    // All kinds get HTML-escaped to prevent injection.
+    const body = esc(e.text);
     return `<div class="log-line kind-${e.kind}"><span class="log-ts">${ts}</span>${body}</div>`;
   }).join('');
   if(banner)el.insertBefore(banner, el.firstChild);
@@ -4190,7 +4208,7 @@ function renderLangOnsets(){
       const color=weight>=0.7?'var(--red-bright)':weight>=0.4?'var(--yellow)':'var(--text-muted)';
       return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px" title="/${onset}/ — ${Math.round(weight*100)}%">
         <div style="width:18px;height:${h}px;background:${color};border-radius:3px 3px 0 0"></div>
-        <span style="font-family:var(--mono);font-size:7px;color:var(--text-dim)">/${onset}/</span>
+        <span style="font-family:var(--mono);font-size:9px;color:var(--text-dim)">/${onset}/</span>
       </div>`;
     }).join('');
     return `<div><div style="font-family:var(--mono);font-size:8px;letter-spacing:1px;color:var(--text-dim);margin-bottom:6px">${langLabels[lang]||lang}</div><div style="display:flex;flex-wrap:wrap;gap:3px;align-items:flex-end">${bars}</div></div>`;
@@ -4647,9 +4665,17 @@ async function fetchPatience(){
 }
 
 document.querySelectorAll('.tone-btn:not(.mode-btn):not(.sit-btn)').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/tone',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tone:btn.dataset.tone})});}catch(e){}});});
-document.querySelectorAll('.layer-opt:not(.sit-btn):not(.use-opt):not(.ind-opt):not(.hr-opt)').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/layer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layer:parseInt(btn.dataset.layer)})});}catch(e){}});});
+document.querySelectorAll('.layer-opt:not(.sit-btn):not(.use-opt):not(.ind-opt):not(.hr-opt)').forEach(btn=>{
+  const handler=async()=>{try{await fetch(API+'/api/layer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layer:parseInt(btn.dataset.layer)})});}catch(e){}};
+  btn.addEventListener('click',handler);
+  btn.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();handler();}});
+});
 document.querySelectorAll('.mode-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:btn.dataset.mode})});}catch(e){}});});
-document.querySelectorAll('.sit-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/situation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({situation:btn.dataset.situation})});}catch(e){}});});
+document.querySelectorAll('.sit-btn').forEach(btn=>{
+  const handler=async()=>{try{await fetch(API+'/api/situation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({situation:btn.dataset.situation})});}catch(e){}};
+  btn.addEventListener('click',handler);
+  btn.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();handler();}});
+});
 
 // ─── TIMER RESET ─────────────────────────
 document.getElementById('uptime').addEventListener('click',async()=>{
@@ -5445,13 +5471,13 @@ async function runBootSequence(){
     {t:'SYS',m:'Python 3.14 / Windows 11',d:100},
     {t:'OK',m:'Whisper model loaded',d:200},
     {t:'OK',m:'GPT-4o endpoint verified',d:150},
-    {t:'OK',m:'Falcon validator online',d:100},
+    {t:'OK',m:'Falcon: disabled (stub)',d:100},
     {t:'OK',m:'Profile loaded ('+Math.floor(Math.random()*30+5)+' corrections)',d:120},
     {t:'OK',m:'Keyboard hooks registered (F9-F12)',d:100},
     {t:'OK',m:'DAF audio pipeline ready',d:80},
     {t:'OK',m:'Paralinguistic analyzer armed',d:100},
     {t:'OK',m:'Prosodic F0 tracker initialized',d:80},
-    {t:'SYS',m:'Dashboard server :7865',d:100},
+    {t:'SYS',m:'Dashboard server :7878',d:100},
     {t:'OK',m:'All systems nominal',d:150},
   ];
 

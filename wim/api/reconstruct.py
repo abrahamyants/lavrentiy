@@ -687,6 +687,8 @@ def falcon_validate(raw_text, clean_text, layer, tone="casual", onset_weights=No
     """Binary meaning check. Returns True if meaning preserved.
     Tone-aware: formal tone expands contractions, casual keeps them — Falcon must know
     which changes are expected per tone."""
+    if client is None:
+        return True
     tone_note = ""
     if tone == "formal":
         tone_note = (

@@ -81,29 +81,31 @@ def get_user_tier(uid):
 
 
 def check_rate_limit(uid, tier_config):
-    """Check and increment daily usage. Returns (ok, remaining, error_response)."""
+    """Check and increment daily usage atomically. Returns (ok, remaining, error_response)."""
     ref = db.collection("wim_users").document(uid)
-    doc = ref.get()
-    data = doc.to_dict() if doc.exists else {}
+    daily_limit = tier_config["daily_limit"]
 
-    daily_count = data.get("daily_count", 0)
-    daily_reset = data.get("daily_reset", 0)
+    @firestore.transactional
+    def _txn(transaction):
+        snapshot = ref.get(transaction=transaction)
+        data = snapshot.to_dict() if snapshot.exists else {}
+        count = data.get("daily_count", 0)
+        reset_ts = data.get("daily_reset", 0)
+        if time.time() - reset_ts > 86400:
+            count = 0
+            transaction.update(ref, {"daily_count": 0, "daily_reset": time.time()})
+        if count >= daily_limit:
+            return False, 0
+        transaction.update(ref, {"daily_count": firestore.Increment(1)})
+        return True, daily_limit - count - 1
 
-    # Reset counter if it's a new day (86400 seconds)
-    if time.time() - daily_reset > 86400:
-        daily_count = 0
-        ref.update({"daily_count": 0, "daily_reset": time.time()})
-
-    if daily_count >= tier_config["daily_limit"]:
+    ok, remaining = _txn(db.transaction())
+    if not ok:
         return False, 0, (json.dumps({
             "error": "Daily limit reached",
-            "limit": tier_config["daily_limit"],
+            "limit": daily_limit,
             "tier": tier_config["name"],
         }), 429, CORS_HEADERS)
-
-    # Increment
-    ref.update({"daily_count": firestore.Increment(1)})
-    remaining = tier_config["daily_limit"] - daily_count - 1
     return True, remaining, None
 
 
@@ -134,7 +136,12 @@ def handle(request):
 
     # Profile sync: Lavrentiy desktop pushes learned profile to Firestore
     if body.get("action") == "sync_profile":
-        profile_data = body.get("profile", {})
+        _ALLOWED_PROFILE_KEYS = {
+            "trigger_words", "onset_weights", "covert_profile",
+            "filler_words", "vocabulary", "corrections"
+        }
+        raw = body.get("profile", {})
+        profile_data = {k: v for k, v in raw.items() if k in _ALLOWED_PROFILE_KEYS}
         profile_data["sync_ts"] = time.time()
         db.collection("wim_users").document(uid).set(profile_data, merge=True)
         return (json.dumps({"ok": True}), 200, {**CORS_HEADERS, "Content-Type": "application/json"})

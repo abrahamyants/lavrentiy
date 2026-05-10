@@ -1,13 +1,13 @@
 import unittest
 from unittest.mock import patch, MagicMock
-from lavrentiy.firestore_publisher import publish_profile_to_firestore
-import lavrentiy.firestore_publisher as fp
+from lavrentiy_pkg.firestore_publisher import publish_profile_to_firestore
+import lavrentiy_pkg.firestore_publisher as fp
 
 class TestFirestorePublisher(unittest.TestCase):
     def setUp(self):
         fp._last_payload_hash = None
 
-    @patch('lavrentiy.firestore_publisher.firestore')
+    @patch('lavrentiy_pkg.firestore_publisher.firestore')
     def test_publish_success(self, mock_firestore):
         mock_client = MagicMock()
         mock_firestore.Client.return_value = mock_client
@@ -31,7 +31,7 @@ class TestFirestorePublisher(unittest.TestCase):
         mock_client.collection().document.assert_called_with(uid)
         mock_client.collection().document().set.assert_called_with(expected_payload, merge=True)
 
-    @patch('lavrentiy.firestore_publisher.firestore')
+    @patch('lavrentiy_pkg.firestore_publisher.firestore')
     def test_publish_idempotency(self, mock_firestore):
         mock_client = MagicMock()
         mock_firestore.Client.return_value = mock_client
