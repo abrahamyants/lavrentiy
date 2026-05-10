@@ -3249,3 +3249,21 @@ Full detail in `SESSION_LOG_2026-04-30.md` section 9.
 - **~2.5 GB of stale build artifacts deleted**: 8 obsolete .exe versions, dist/Lavrentiy/, build/Lavrentiy/, eval-build/{engine,ollama-bundle,large-v3-turbo,base}/, dead `Lavrentiy.iss` v1.2 variant, broken desktop shortcuts. Output dir holds exactly one installer.
 
 Full detail in `SESSION_LOG_2026-05-01.md` "Session B" section.
+
+
+### 2026-05-05 — Lav v1.6.0: drift-proof installer (rebuilt the launcher path)
+
+- **Shareable installer location**:
+  ```
+  C:\Users\georg\Documents\GitHub\lavrentiy\installer\Output\Lavrentiy-Setup-v1.6.0.exe
+  ```
+  **749 MB**, signed=NO, Inno Setup output. Per-user install at `%LOCALAPPDATA%\Programs\Lavrentiy`, no admin elevation. PyInstaller dist folder (alternative single-folder distribution): `C:\Users\georg\Documents\GitHub\lavrentiy\dist-onedir\Lavrentiy\` (1.6 GB, contains `Lavrentiy.exe` + `_internal\`).
+- **Diagnosis of v1.5.7 "stuck on first window"**: engine crashes on import (`ModuleNotFoundError: No module named 'domain_pack'`). Cause: `installer/Lavrentiy-Eval.iss` manually enumerated engine files; never updated when `lavrentiy.py` grew imports for `domain_pack`, `l1_pack`, `rejection_store`, `style_examples`. Fresh installs got a `lavrentiy.py` that imports modules not on disk → instant crash. George's machine "worked" only because old install dirs accumulated those files from prior runs.
+- **Fix architecture**: PyInstaller `--onedir` (walks the import graph, can't drift) + a new Inno Setup script whose entire `[Files]` section is one line (`Source: dist-onedir\Lavrentiy\*; Flags: recursesubdirs createallsubdirs`). New imports added later auto-bundle on next build, no human in the loop.
+- **Files added**: `lavrentiy_launcher.py` (30-line entry, opens browser to `:7878` once port binds — no pywebview/Qt/splash), `Lavrentiy-onedir.spec` (PyInstaller spec with all data dirs + binary deps), `installer/Lavrentiy.iss` (drift-proof Inno script, new `AppId={B7E5F4A2-9C3D-4E1B-8A6F-2D8B5E9C1F3A}` distinct from v1.5.7's so they coexist).
+- **Architecture-only smoke test passed**: port 7878 LISTENING in 8s, `/api/state` returns valid JSON, no `ModuleNotFoundError`. End-to-end voice flow (F9 → Whisper → GPT-4o → paste) NOT yet verified.
+- **Near-miss**: started building `--onefile` before catching failure log #78 from `SESSION_LOG_2026-04-26-claude-session-2.md` — prior session abandoned `--onefile` due to 30-60s cold-launch from `%TEMP%` extraction every run. Killed the in-flight build, switched to `--onedir`. Caught only because George said "PyInstaller shit sounds very familiar."
+- **Code signing deferred**: SignPath Foundation (free OSS) is the right path but blocked on a `LICENSE` file — Lavrentiy has none. Apache 2.0 recommended (permissive + patent grant). Azure Trusted Signing ($9.99/mo) is the no-license alternative. v1.6.0 ships unsigned; recipients hit Edge "Keep" + SmartScreen "Run anyway" once.
+- **v1.6.1 backlog**: trim `ctranslate2` + `onnxruntime` CUDA/ROCm/DirectML compute-backend variants (CPU-only build) — should drop installer well below 500 MB.
+
+Full detail in `SESSION_LOG_2026-05-05.md`.
