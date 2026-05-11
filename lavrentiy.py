@@ -1558,7 +1558,9 @@ DEFAULT_PROFILE = {
     "candidate_corrections": {},
     "candidate_fillers": {},
     "candidate_vocabulary": {},
-    "preferences": {"tone": "casual", "layer": 2, "paralinguistic": False, "prosodic": False, "paralinguistic_transcribe": False}
+    "preferences": {"tone": "casual", "layer": 2, "paralinguistic": False, "prosodic": False, "paralinguistic_transcribe": False},
+    "contribute_l1_data": False,
+    "_anonymous_id": "",
 }
 
 def load_profile():
@@ -2574,7 +2576,8 @@ stats = {
     "api_calls": 0, "falcon_rejects": 0,
     "multi_temp_votes": 0, "multi_temp_disagreements": 0,
     "local_transcriptions": 0,
-    "repetition_loops": 0
+    "repetition_loops": 0,
+    "l1_patterns_normalized": 0,
 }
 _stats_lock = threading.Lock()
 
@@ -2821,6 +2824,28 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
             rejection_store.record(list(previous_outputs)[-1])
         except Exception as _e:
             log(f"rejection_store.record failed: {_e}", "warn")
+        # L1 contribution: regenerate = rejection signal = training data
+        if prof.get("contribute_l1_data") and prof.get("profile_l1"):
+            _last_rejected = list(previous_outputs)[-1]
+            def _bg_contribute(raw=raw_text, rejected=_last_rejected, l1=prof.get("profile_l1"), anon_id=prof.get("_anonymous_id", "")):
+                try:
+                    import urllib.request, json as _json
+                    payload = _json.dumps({
+                        "raw": raw[:2000],
+                        "model_output": rejected[:2000],
+                        "user_correction": "",  # unknown at rejection time — empty string signals implicit rejection
+                        "profile_l1": l1,
+                        "anonymous_id": anon_id,
+                    }).encode()
+                    req = urllib.request.Request(
+                        "https://us-central1-bakers-agent.cloudfunctions.net/wim-l1-contribute",
+                        data=payload, method="POST",
+                        headers={"Content-Type": "application/json"}
+                    )
+                    urllib.request.urlopen(req, timeout=5)
+                except Exception as _e:
+                    pass  # contribution is best-effort, never block the pipeline
+            threading.Thread(target=_bg_contribute, daemon=True).start()
 
     # Detect if input contains Cyrillic (bilingual speaker)
     has_cyrillic = any('\u0400' <= c <= '\u04ff' for c in raw_text)
@@ -3134,6 +3159,7 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
         l1_block = l1_pack.prompt_injection(prof)
         if l1_block:
             parts.append(l1_block)
+            stats_inc("l1_patterns_normalized")
 
         # Domain pack injection (L2/L3 only — same scope as L1 pack).
         # Activated by profile_industry. Appends canonical-vocab list
@@ -6770,6 +6796,12 @@ def pipeline():
         speech_metrics = analyze_speech_rate(audio_data, TARGET_RATE)
         if speech_metrics["severity_modifier"] > 0:
             log(f"Speech: pause_ratio={speech_metrics['pause_ratio']:.0%} rate={speech_metrics['speaking_rate_sps']:.1f}syl/s → severity +{speech_metrics['severity_modifier']}", "info")
+    # Basic speaking rate — computed at ALL layers from raw audio + ASR word count.
+    # audio_duration_s is measured after DSP (DC removal, high-pass, AGC, soft clip)
+    # but before Whisper, so it reflects actual recorded speech duration.
+    # speaking_rate_wps is populated below after raw_text is available; we store
+    # audio_duration_s here so it's in scope for the post-ASR assignment.
+    _pipeline_audio_duration_s = len(audio_data) / TARGET_RATE
 
     tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
     sf.write(tmp.name, audio_data, TARGET_RATE)
@@ -6799,6 +6831,15 @@ def pipeline():
         if not raw_text:
             state = 'idle'
             return
+
+        # Populate audio_duration_s + speaking_rate_wps in speech_metrics for ALL layers.
+        # audio_duration_s was computed before Whisper; word_count from ASR output.
+        # These two fields are the minimum needed to populate the fluency trend at L1/L2/L3
+        # (without requiring full Whisper verbose segments).
+        _pipeline_word_count = len(raw_text.split())
+        _pipeline_speaking_rate_wps = _pipeline_word_count / _pipeline_audio_duration_s if _pipeline_audio_duration_s > 0 else 0
+        speech_metrics["audio_duration_s"] = round(_pipeline_audio_duration_s, 2)
+        speech_metrics["speaking_rate_wps"] = round(_pipeline_speaking_rate_wps, 3)
 
         # Log ASR pipeline details. The user-visible log doesn't name the
         # engine — it's an implementation detail that changes between
@@ -7267,6 +7308,41 @@ def pipeline():
                         return
                     decay_stale_profile_entries(prof)
                 threading.Thread(target=_bg_decay, args=(profile,), daemon=True).start()
+
+            # L1 auto-detect: after 5 reconstruction sessions with profile_l1 unset,
+            # call wim-l1-guess and prompt once. Runs at L2+ to ensure meaningful
+            # transcription quality for pattern detection.
+            if current_layer >= 2 and not profile.get("profile_l1") and not profile.get("_l1_detect_prompted"):
+                _l1_detect_count = profile.get("_l1_detect_count", 0) + 1
+                profile["_l1_detect_count"] = _l1_detect_count
+                save_profile(profile)
+                if _l1_detect_count >= 5:
+                    def _bg_l1_detect(raw=raw_text, pr=profile):
+                        try:
+                            import urllib.request, json as _json
+                            # Gather last 5 session outputs for better signal
+                            recent_sessions = db_get_sessions(limit=5)
+                            texts = [s.get("out", "") or s.get("raw", "") for s in recent_sessions if s.get("out")]
+                            texts.append(raw)
+                            combined = " ".join(texts[:6])[:3000]
+                            payload = _json.dumps({"text": combined}).encode()
+                            req = urllib.request.Request(
+                                "https://us-central1-bakers-agent.cloudfunctions.net/wim-l1-guess",
+                                data=payload, method="POST",
+                                headers={"Content-Type": "application/json"}
+                            )
+                            resp = urllib.request.urlopen(req, timeout=8)
+                            data = _json.loads(resp.read())
+                            top_l1 = data.get("top_l1", "")
+                            confidence = data.get("confidence", 0)
+                            if top_l1 and confidence >= 0.7:
+                                log(f"L1 auto-detect: {top_l1} ({confidence:.0%} confidence) — click to set", "info")
+                                # Mark as prompted so we don't re-run
+                                pr["_l1_detect_prompted"] = True
+                                save_profile(pr)
+                        except Exception:
+                            pass
+                    threading.Thread(target=_bg_l1_detect, daemon=True).start()
 
         # Step 7: Archive audio for future Whisper fine-tuning
         # Runs synchronously — must complete before finally{} deletes tmp

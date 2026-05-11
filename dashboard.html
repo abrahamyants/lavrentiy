@@ -4058,16 +4058,47 @@ function renderConsole(){
   const el=document.getElementById('console');const atTop=el.scrollTop<=20;
   // Preserve pinned banner across re-renders (e.g. command mode intro)
   const banner=document.getElementById('cmd-intro-banner');
-  // Newest entries at top — reverse the array before rendering
-  el.innerHTML=[...logLines].reverse().map(e=>{
+  // Build DOM nodes — safer than innerHTML string concatenation.
+  const frag = document.createDocumentFragment();
+  [...logLines].reverse().forEach(function(e){
     const d=new Date(e.ts*1000);
     const ts=d.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
-    // All kinds get HTML-escaped to prevent injection.
-    const body = esc(e.text);
-    return `<div class="log-line kind-${e.kind}"><span class="log-ts">${ts}</span>${body}</div>`;
-  }).join('');
+    const row = document.createElement('div');
+    row.className = 'log-line kind-' + e.kind;
+    const tsSpan = document.createElement('span');
+    tsSpan.className = 'log-ts';
+    tsSpan.textContent = ts;
+    row.appendChild(tsSpan);
+    // L1 auto-detect lines get a clickable "Set [language]" link.
+    // Pattern emitted by engine: "L1 auto-detect: russian (85% confidence) — click to set"
+    const l1Match = e.text && e.text.match(/^L1 auto-detect: (\w+) \(.+?\) — click to set$/);
+    if(l1Match){
+      const lang = l1Match[1];
+      row.appendChild(document.createTextNode(e.text.replace(' — click to set', ' — ')));
+      const link = document.createElement('a');
+      link.href = '#';
+      link.textContent = 'Set ' + lang;
+      link.style.color = 'var(--orange)';
+      link.style.textDecoration = 'underline';
+      link.style.cursor = 'pointer';
+      link.addEventListener('click', (function(l){ return function(ev){ ev.preventDefault(); _setL1FromDetect(l); }; })(lang));
+      row.appendChild(link);
+    } else {
+      row.appendChild(document.createTextNode(e.text));
+    }
+    frag.appendChild(row);
+  });
+  el.textContent = '';
+  el.appendChild(frag);
   if(banner)el.insertBefore(banner, el.firstChild);
   if(atTop)el.scrollTop=0;
+}
+function _setL1FromDetect(lang){
+  if(!lang || !/^\w+$/.test(lang)) return;
+  fetch('/api/profile', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({profile_l1: lang, _l1_detect_prompted: true})})
+  .then(function(){ fetchProfile(); _refreshProfileStats(); })
+  .catch(function(){});
 }
 
 function renderLearn(){
@@ -5615,6 +5646,21 @@ function _seedProfileTabExtras(){
           <div><div style="color:var(--text-dim);font-size:9px;letter-spacing:1px">API CALLS</div><div id="ps-api" style="color:var(--orange);font-size:14px">—</div></div>
           <div><div style="color:var(--text-dim);font-size:9px;letter-spacing:1px">AVG DIFFIC.</div><div id="ps-diff" style="color:var(--orange);font-size:14px">—</div></div>
           <div><div style="color:var(--text-dim);font-size:9px;letter-spacing:1px">EST. COST</div><div id="ps-cost" style="color:var(--orange);font-size:14px">—</div></div>
+          <div id="ps-l1-patterns-cell" style="display:none"><div style="color:var(--text-dim);font-size:9px;letter-spacing:1px">L1 NORMALIZED</div><div id="ps-l1-patterns" style="color:var(--orange);font-size:14px">—</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="profile-section" style="margin-top:14px" id="l1-contribute-section">
+      <div class="profile-header" style="cursor:default"><span><span class="ph-title">L1 pack contribution</span></span></div>
+      <div class="profile-body" style="display:block">
+        <div class="toggle-row" style="padding:8px 0">
+          <label class="toggle-switch"><input type="checkbox" id="toggle-contribute-l1"><span class="toggle-slider"></span></label>
+          <span class="toggle-label" id="l1-contribute-label">Help improve your L1 pack for everyone</span>
+          <span class="toggle-hint">anonymous before/after pairs</span>
+        </div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);line-height:1.6;margin-top:6px">
+          When you correct a reconstruction, we anonymously share the before/after pair with other speakers of the same first language. No audio, no personal info.
         </div>
       </div>
     </div>`;
@@ -5632,6 +5678,22 @@ function _refreshProfileStats(){
     setStat('ps-api', s.api_calls || 0);
     setStat('ps-diff', '0.00');
     setStat('ps-cost', '$' + ((s.api_calls || 0) * 0.003).toFixed(2));
+    // L1 patterns normalized stat — only show cell when non-zero
+    const l1n = s.l1_patterns_normalized || 0;
+    const l1Cell = document.getElementById('ps-l1-patterns-cell');
+    if(l1Cell) l1Cell.style.display = l1n > 0 ? '' : 'none';
+    setStat('ps-l1-patterns', l1n);
+    // Reflect current profile_l1 in the contribute toggle label
+    fetch('/api/profile').then(r=>r.json()).then(p=>{
+      const l1 = p.profile_l1 || '';
+      const lbl = document.getElementById('l1-contribute-label');
+      if(lbl) lbl.textContent = l1 ? `Help improve the ${l1} pack for everyone` : 'Help improve your L1 pack for everyone';
+      const tog = document.getElementById('toggle-contribute-l1');
+      if(tog && document.activeElement !== tog) tog.checked = !!p.contribute_l1_data;
+      // Hide section entirely when no L1 is set (nothing to contribute yet)
+      const sec = document.getElementById('l1-contribute-section');
+      if(sec) sec.style.display = l1 ? '' : 'none';
+    }).catch(()=>{});
   }).catch(()=>{});
 }
 document.addEventListener('DOMContentLoaded', _seedProfileTabExtras);
@@ -5665,6 +5727,13 @@ document.addEventListener('change', e => {
   if (e.target && e.target.id === 'toggle-stutter-support') {
     fetch('/api/profile', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({preferences: {stutter_support: !!e.target.checked}})}).catch(()=>{});
+  }
+});
+// Wire the L1 contribute toggle
+document.addEventListener('change', e => {
+  if (e.target && e.target.id === 'toggle-contribute-l1') {
+    fetch('/api/profile', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({contribute_l1_data: !!e.target.checked})}).catch(()=>{});
   }
 });
 function toggleHa(header){
