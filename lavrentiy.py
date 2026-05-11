@@ -1560,7 +1560,7 @@ DEFAULT_PROFILE = {
     "candidate_vocabulary": {},
     "preferences": {"tone": "casual", "layer": 2, "paralinguistic": False, "prosodic": False, "paralinguistic_transcribe": False},
     "contribute_l1_data": False,
-    "_anonymous_id": "",
+    "_anonymous_id": "",  # generated on first contribution; empty = not yet set
 }
 
 def load_profile():
@@ -2827,6 +2827,10 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
         # L1 contribution: regenerate = rejection signal = training data
         if prof.get("contribute_l1_data") and prof.get("profile_l1"):
             _last_rejected = list(previous_outputs)[-1]
+            if not prof.get("_anonymous_id"):
+                import uuid as _uuid
+                prof["_anonymous_id"] = str(_uuid.uuid4())
+                save_profile(prof)
             def _bg_contribute(raw=raw_text, rejected=_last_rejected, l1=prof.get("profile_l1"), anon_id=prof.get("_anonymous_id", "")):
                 try:
                     import urllib.request, json as _json
@@ -7317,14 +7321,19 @@ def pipeline():
                 profile["_l1_detect_count"] = _l1_detect_count
                 save_profile(profile)
                 if _l1_detect_count >= 5:
+                    # Pre-lock: mark prompted BEFORE thread fires so network failure
+                    # doesn't leave the guard unset and cause a thread-per-session leak.
+                    profile["_l1_detect_prompted"] = True
+                    save_profile(profile)
                     def _bg_l1_detect(raw=raw_text, pr=profile):
                         try:
                             import urllib.request, json as _json
-                            # Gather last 5 session outputs for better signal
                             recent_sessions = db_get_sessions(limit=5)
                             texts = [s.get("out", "") or s.get("raw", "") for s in recent_sessions if s.get("out")]
                             texts.append(raw)
                             combined = " ".join(texts[:6])[:3000]
+                            if not combined.strip():
+                                return
                             payload = _json.dumps({"text": combined}).encode()
                             req = urllib.request.Request(
                                 "https://us-central1-bakers-agent.cloudfunctions.net/wim-l1-guess",
@@ -7337,11 +7346,8 @@ def pipeline():
                             confidence = data.get("confidence", 0)
                             if top_l1 and confidence >= 0.7:
                                 log(f"L1 auto-detect: {top_l1} ({confidence:.0%} confidence) — click to set", "info")
-                                # Mark as prompted so we don't re-run
-                                pr["_l1_detect_prompted"] = True
-                                save_profile(pr)
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log(f"L1 auto-detect failed (non-blocking): {_e}", "warn")
                     threading.Thread(target=_bg_l1_detect, daemon=True).start()
 
         # Step 7: Archive audio for future Whisper fine-tuning

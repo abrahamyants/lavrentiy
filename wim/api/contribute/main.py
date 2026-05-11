@@ -64,11 +64,13 @@ def handle(request):
     except Exception:
         return (json.dumps({"error": "Invalid JSON"}), 400, CORS_HEADERS)
 
-    # Required field presence check
-    required = ("raw", "model_output", "user_correction", "profile_l1", "anonymous_id")
+    # Required field presence check — user_correction may be empty string (implicit rejection signal)
+    required = ("raw", "model_output", "profile_l1", "anonymous_id")
     for field in required:
         if not body.get(field):
             return (json.dumps({"error": f"Missing required field: {field}"}), 400, CORS_HEADERS)
+    if "user_correction" not in body:
+        return (json.dumps({"error": "Missing required field: user_correction"}), 400, CORS_HEADERS)
 
     raw = body["raw"].strip()
     model_output = body["model_output"].strip()
@@ -116,10 +118,17 @@ def handle(request):
     if confidence is not None:
         doc_data["confidence"] = confidence
 
-    # Write to l1_contributions/{profile_l1}/{auto_id}
-    # Firestore path: collection "l1_contributions" → document profile_l1 → subcollection "entries" → document auto_id
-    # Matches the spec intent: grouped by L1 tag, individually addressable by auto_id
-    db.collection("l1_contributions").document(profile_l1).collection("entries").document(auto_id).set(doc_data)
+    # Write to l1_contributions/{profile_l1}/entries/{auto_id}
+    try:
+        db.collection("l1_contributions").document(profile_l1).collection("entries").document(auto_id).set(doc_data)
+    except Exception as e:
+        import logging
+        logging.exception("Firestore write failed for l1_contributions")
+        return (
+            json.dumps({"error": "Storage unavailable"}),
+            503,
+            {**CORS_HEADERS, "Content-Type": "application/json"},
+        )
 
     return (
         json.dumps({"ok": True, "contribution_id": auto_id}),
