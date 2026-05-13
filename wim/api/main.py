@@ -91,12 +91,20 @@ def check_rate_limit(uid, tier_config):
         data = snapshot.to_dict() if snapshot.exists else {}
         count = data.get("daily_count", 0)
         reset_ts = data.get("daily_reset", 0)
-        if time.time() - reset_ts > 86400:
+        now = time.time()
+        is_reset = now - reset_ts > 86400
+        if is_reset:
             count = 0
-            transaction.update(ref, {"daily_count": 0, "daily_reset": time.time()})
         if count >= daily_limit:
             return False, 0
-        transaction.update(ref, {"daily_count": firestore.Increment(1)})
+        # Single update() per ref — two update() calls in one transaction
+        # merge such that the later call's field mutations replace the
+        # earlier's (Firestore Python SDK semantics), which silently
+        # clobbers a daily_count reset followed by an Increment(1).
+        update_data = {"daily_count": count + 1}
+        if is_reset:
+            update_data["daily_reset"] = now
+        transaction.update(ref, update_data)
         return True, daily_limit - count - 1
 
     ok, remaining = _txn(db.transaction())
