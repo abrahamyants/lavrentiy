@@ -722,65 +722,12 @@ def build_prompt(raw_text, tone="casual", layer=2, profile=None, situation="defa
 
 
 def falcon_validate(raw_text, clean_text, layer, tone="casual", onset_weights=None, language_code="en"):
-    """Binary meaning check. Returns True if meaning preserved.
-    Tone-aware: formal tone expands contractions, casual keeps them — Falcon must know
-    which changes are expected per tone."""
-    if client is None:
-        return True
-    tone_note = ""
-    if tone == "formal":
-        tone_note = (
-            " Tone is FORMAL: contractions expanded to full form (don't→do not, I'm→I am) "
-            "and colloquialisms replaced with standard English are expected, not meaning changes."
-        )
-    elif tone == "professional":
-        tone_note = " Tone is PROFESSIONAL: light formality adjustments are expected."
-    elif tone == "friend":
-        tone_note = " Tone is FRIEND: sentence fragments and casual contractions are expected."
-    # casual: no extra note needed
-    if layer <= 3:
-        prompt = (
-            "The reconstruction cleans up a voice transcription: removing filler words "
-            "(um, uh, like, you know), fixing grammar, and improving clarity. "
-            "Filler removal and grammar fixes are expected and acceptable." + tone_note + " "
-            "Does the reconstruction preserve the core content and intent? "
-            "Answer ONLY 'yes' or 'no'."
-        )
-    elif layer >= 4:
-        # Phonetic guard first, high-level criteria after. Does not re-specify
-        # the L4 rules already given to the reconstruction prompt.
-        _lc = _normalize_lang_code(language_code)
-        if onset_weights:
-            _top = ", ".join(
-                f"/{o}/" for o, _ in sorted(onset_weights.items(), key=lambda x: -x[1])[:5]
-            )
-        else:
-            _top = "(no personal onset data)"
-        _nr = _get_lang_natural_repeats(_lc)
-        _nr_str = ", ".join(_nr) if _nr else "none defined"
-        prompt = (
-            f"Validate a layer-4 speech-disfluency reconstruction. Language: {_lc.upper()}. "
-            f"Near the speaker's hardest phonemes ({_top}), the reconstruction MUST NOT "
-            "substitute a different-phoneme word — phonetic drift is the primary failure mode. "
-            "The reconstruction should also have: "
-            "(1) stripped overt disfluencies (part-word repetitions, prolongations, blocks, false starts); "
-            f"(2) preserved emphatic patterns that are NOT stuttering: {_nr_str}; "
-            "(3) NOT normalized the speaker's dialect or register forms; "
-            "(4) discarded Whisper hallucination strings ('thank you', 'subscribe', etc.)."
-            + tone_note
-            + " Does the reconstruction satisfy all criteria? Answer ONLY 'yes' or 'no'."
-        )
+    """Retired 2026-05-10. L4 Sonnet ET self-validates; L2/L3 GPT-4o quality
+    is sufficient without cross-provider QA. Stub matches lavrentiy.py:3420-3428.
 
-    resp = client.chat.completions.create(
-        model=MODEL,
-        messages=[
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": f"Original: {raw_text}\nReconstruction: {clean_text}"}
-        ],
-        max_tokens=5,
-        temperature=0
-    )
-    return "yes" in resp.choices[0].message.content.strip().lower()
+    The live body was burning an extra GPT-4o roundtrip per request, doubling
+    OpenAI quota usage. Keep the signature so existing call sites compile."""
+    return True
 
 def compute_confidence(raw_text, clean_text, falcon_ok, layer=2):
     """Compute intent confidence score (γ) between 0 and 1.
