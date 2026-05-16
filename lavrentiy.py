@@ -7906,878 +7906,32 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._serve_file(Path(__file__).parent / 'onboard.html', 'text/html')
         elif self.path == '/auth/google':
             self._serve_file(Path(__file__).parent / 'auth_google.html', 'text/html')
-        elif self.path == '/api/state':
-            # Network status: green if recent API success, red if recent error, gray if idle
-            _now = time.time()
-            if _last_api_error_ts > _last_api_ok_ts and _now - _last_api_error_ts < 60:
-                _net_status = "error"
-            elif _last_api_ok_ts > 0 and _now - _last_api_ok_ts < 300:
-                _net_status = "ok"
+        elif self.path.startswith('/api/'):
+            # All /api/* GET routes delegate to dispatch_api — single source
+            # of truth shared with the native bridge in native/lavrentiy_app.py.
+            # Replaces ~345 lines of inline branching that drifted from the
+            # handle_GET_api_* functions; the /api/state mode-field drift
+            # earlier today demonstrated the cost. Architecture critic H-1.
+            result = dispatch_api(self.path, None, method='GET')
+            if result is None:
+                self.send_error(404, f'Unknown /api/* route: {self.path}')
             else:
-                _net_status = "idle"
-            self._json({
-                'state': ('command' if is_command_mode else state),
-                'is_command_mode': is_command_mode,
-                'mode': current_mode,
-                'network_status': _net_status,
-                'network_error': _last_api_error_msg if _net_status == "error" else "",
-                'tone': current_tone,
-                'layer': current_layer,
-                'layer_name': LAYER_NAMES.get(current_layer, '?'),
-                'situation': current_situation,
-                'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0),
-                'stats': stats,
-                'model': MODEL_L4 if current_layer >= 4 else MODEL,
-                'whisper_temp': WHISPER_TEMP,
-                'whisper_no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD,
-                'whisper_multi_temp': WHISPER_MULTI_TEMP,
-                'speech_metrics': _last_speech_metrics,
-                'avg_logprob': _last_avg_logprob,
-                'redo_count': _redo_count,
-                'block_count': _block_count,
-                'avg_exposure': self._compute_avg_exposure(),
-                'paralinguistic_events': _last_paralinguistic_events,
-                'speaker_state': _last_speaker_state,
-                'paralinguistic_enabled': paralinguistic_enabled,
-                'paralinguistic_transcribe': paralinguistic_transcribe,
-                'prosodic_enabled': prosodic_enabled,
-                'quiet_mode_enabled': quiet_mode_enabled,
-                'l1_cloud_asr': L1_CLOUD_ASR,
-                'profile_name': _active_profile_name,
-                'auth': {
-                    'signed_in': is_authenticated(),
-                    'user': _auth_user,
-                    'has_local_key': bool(API_KEY),
-                },
-            })
-        elif self.path == '/api/profiles':
-            self._json({
-                'profiles': list_profiles(),
-                'active': _active_profile_name,
-            })
-        elif self.path == '/api/profile':
-            self._json(profile)
-        elif self.path == '/api/sessions':
-            self._json(db_get_sessions(limit=50))
-        elif self.path == '/api/log':
-            self._json(console_log)
-        elif self.path == '/api/learn':
-            # Compute fluency improvement from editorial distance trend
-            _fl_sessions = db_get_sessions(limit=50)
-            _fl_dists = [s["editorial_distance"] for s in _fl_sessions
-                         if s.get("editorial_distance") is not None]
-            _fl_imp = None
-            if len(_fl_dists) >= 6:
-                half = len(_fl_dists) // 2
-                first_avg = sum(_fl_dists[:half]) / half
-                second_avg = sum(_fl_dists[half:]) / half
-                if first_avg > 0:
-                    _fl_imp = round((first_avg - second_avg) / first_avg * 100, 1)
-            learn_status_with_fluency = dict(learn_status)
-            learn_status_with_fluency['fluency_improvement'] = _fl_imp
-            self._json({
-                'status': learn_status_with_fluency,
-                'events': _learn_events_snapshot(),
-                'totals': {
-                    'corrections': len(profile.get('corrections', {})),
-                    'fillers': len(profile.get('filler_words', [])),
-                    'vocabulary': len(profile.get('vocabulary', [])),
-                    'triggers': len(profile.get('trigger_words', [])),
-                    'candidates': {
-                        'corrections': len(profile.get('candidate_corrections', {})),
-                        'fillers': len(profile.get('candidate_fillers', {})),
-                        'vocabulary': len(profile.get('candidate_vocabulary', {}))
-                    }
-                },
-                'avg_edit_dist': self._compute_avg_edit_dist(),
-                'redo_count': _redo_count,
-                'low_conf_segments': _last_low_conf_segments[:10],
-                'avg_logprob': _last_avg_logprob,
-                'insights': build_stutter_insights(profile) if current_layer >= 4 else [],
-                'insights_enabled': current_layer >= 4,
-                'onset_weights': {
-                    'personal': _personal_onset_weights,
-                    'by_lang': _personal_onset_weights_by_lang,
-                    'dominant': _personal_dominant_onsets,
-                    'has_data': bool(_personal_onset_weights),
-                },
-                'trigger_types': profile.get('trigger_types', {}),
-                'severity': compute_severity_score(),
-                'covert_profile': profile.get('covert_profile', {}),
-                'onset_anomalies': _onset_anomalies,
-                'substitution_fingerprint': compute_substitution_fingerprint(profile),
-                'shadow_utterance': {
-                    'history': list(_shadow_history[-5:]),
-                    'trend': compute_avoidance_trend(),
-                },
-                'decay': {
-                    'stale_threshold': DECAY_STALE_SESSIONS,
-                    'dead_threshold': DECAY_DEAD_SESSIONS,
-                    'sweep_every': DECAY_EVERY,
-                    'next_sweep_in': max(0, DECAY_EVERY - _decay_counter),
-                    'relevance_tracked': bool(profile.get('_relevance')),
-                },
-            })
-        elif self.path == '/api/wer':
-            # Compute WER stats from recent sessions (raw vs corrected)
-            sessions = db_get_sessions(limit=100)
-            l2_plus = [s for s in sessions if s.get("layer", 1) >= 2 and s.get("raw") != s.get("out")]
-            if l2_plus:
-                wers = []
-                for s in l2_plus:
-                    w, _, _, _ = compute_wer(s["out"], s["raw"])
-                    wers.append(w)
-                avg_wer = sum(wers) / len(wers)
-                recent_wers = wers[:10]
-                recent_avg = sum(recent_wers) / len(recent_wers) if recent_wers else 0
-                self._json({
-                    'avg_wer': round(avg_wer, 4),
-                    'recent_wer': round(recent_avg, 4),
-                    'sample_count': len(l2_plus),
-                    'interpretation': (
-                        'excellent (<10%)' if avg_wer < 0.10 else
-                        'good (10-20%)' if avg_wer < 0.20 else
-                        'moderate (20-30%) — reconstruction doing heavy lifting' if avg_wer < 0.30 else
-                        'high (>30%) — fine-tuned local Whisper would help significantly'
-                    )
-                })
-            else:
-                self._json({'avg_wer': None, 'sample_count': 0, 'interpretation': 'no data yet'})
-        elif self.path == '/api/fluency':
-            # Historical fluency metrics from persisted speech_metrics per session
-            sessions = db_get_sessions(limit=50)
-            trend = []
-            lang_dist = {"en": 0, "ru": 0}
-            for s in sessions:
-                sm = s.get("speech_metrics")
-                if sm and sm.get("pause_ratio") is not None:
-                    trend.append({
-                        "ts": s["ts"][:16],
-                        "pause_ratio": sm["pause_ratio"],
-                        "speaking_rate": sm.get("speaking_rate_sps", 0),
-                        "severity_modifier": sm.get("severity_modifier", 0),
-                        "situation": s.get("situation", "default"),
-                        "lang": s.get("lang", "en"),
-                    })
-                lang_dist[s.get("lang", "en")] = lang_dist.get(s.get("lang", "en"), 0) + 1
-            # Compute averages
-            if trend:
-                avg_pause = round(sum(t["pause_ratio"] for t in trend) / len(trend), 3)
-                avg_rate = round(sum(t["speaking_rate"] for t in trend) / len(trend), 2)
-                avg_sev = round(sum(t["severity_modifier"] for t in trend) / len(trend), 2)
-                # Trend direction: compare last 5 vs previous 5
-                recent_5 = [t["pause_ratio"] for t in trend[:5]]
-                prev_5 = [t["pause_ratio"] for t in trend[5:10]]
-                if recent_5 and prev_5:
-                    r_avg = sum(recent_5) / len(recent_5)
-                    p_avg = sum(prev_5) / len(prev_5)
-                    pause_trend = "improving" if r_avg < p_avg - 0.03 else \
-                                  "worsening" if r_avg > p_avg + 0.03 else "stable"
-                else:
-                    pause_trend = "insufficient_data"
-            else:
-                avg_pause = avg_rate = avg_sev = 0
-                pause_trend = "no_data"
-            # Severity breakdown (current session)
-            base_sev = SITUATION_SEVERITY.get(current_situation, 1.0)
-            sev_mod = _last_speech_metrics.get("severity_modifier", 0) if _last_speech_metrics else 0
-            self._json({
-                "trend": trend,  # newest first
-                "avg_pause_ratio": avg_pause,
-                "avg_speaking_rate": avg_rate,
-                "avg_severity_modifier": avg_sev,
-                "pause_trend": pause_trend,
-                "sample_count": len(trend),
-                "lang_distribution": lang_dist,
-                "severity_breakdown": {
-                    "base": base_sev,
-                    "situation": current_situation,
-                    "speech_modifier": sev_mod,
-                    "final": round(base_sev + sev_mod, 2),
-                    "aggression": (
-                        "HIGH" if base_sev + sev_mod >= 1.6 else
-                        "MODERATE" if base_sev + sev_mod >= 1.2 else
-                        "LOW"
-                    ),
-                },
-                "current": _last_speech_metrics or {},
-            })
-        elif self.path == '/api/archive':
-            # Archive stats
-            count = 0
-            total_bytes = 0
-            if ARCHIVE_DIR.exists():
-                wavs = list(ARCHIVE_DIR.glob("*.wav"))
-                count = len(wavs)
-                total_bytes = sum(f.stat().st_size for f in ARCHIVE_DIR.rglob("*") if f.is_file())
-            self._json({
-                'enabled': ARCHIVE_AUDIO,
-                'sessions_archived': count,
-                'size_mb': round(total_bytes / (1024 * 1024), 1),
-                'max_mb': ARCHIVE_MAX_MB,
-                'path': str(ARCHIVE_DIR),
-                'ready_for_finetuning': count >= 50,
-                'finetuning_note': (
-                    f'{count} sessions archived — need ~50 for meaningful fine-tuning'
-                    if count < 50 else
-                    f'{count} sessions archived — sufficient for LoRA fine-tuning'
-                )
-            })
-        elif self.path == '/api/report':
-            # Weekly clinical report — GPT summarizes recent session data
-            sessions = db_get_sessions(limit=100)
-            if not sessions:
-                self._json({"report": "No sessions recorded yet.", "data": {}})
-            else:
-                # Extract report data
-                edit_dists = [s["editorial_distance"] for s in sessions if s.get("editorial_distance") is not None]
-                sit_breakdown = {}
-                lang_breakdown = {"en": 0, "ru": 0}
-                total_words = 0
-                total_redos = 0
-                onset_triggers = {}
-                for s in sessions:
-                    sit = s.get("situation", "default")
-                    sit_breakdown[sit] = sit_breakdown.get(sit, 0) + 1
-                    total_words += s.get("words", 0)
-                    lang_breakdown[s.get("lang", "en")] = lang_breakdown.get(s.get("lang", "en"), 0) + 1
-                    sm = s.get("speech_metrics")
-                    if sm:
-                        total_redos += 1 if sm.get("severity_modifier", 0) > 0.2 else 0
-                triggers = profile.get("trigger_words", [])
-                for t in triggers[:20]:
-                    onset = _extract_onset(t)
-                    if onset:
-                        onset_triggers[onset] = onset_triggers.get(onset, 0) + 1
-                # Compute pause data from sessions with speech_metrics
-                pause_data = [s["speech_metrics"]["pause_ratio"] for s in sessions
-                              if s.get("speech_metrics") and s["speech_metrics"].get("pause_ratio") is not None]
-                report_data = {
-                    "total_sessions": len(sessions),
-                    "total_words": total_words,
-                    "avg_edit_dist": round(sum(edit_dists) / len(edit_dists), 3) if edit_dists else None,
-                    "edit_dist_trend": {
-                        "first_half": round(sum(edit_dists[len(edit_dists)//2:]) / max(len(edit_dists)//2, 1), 3) if edit_dists else None,
-                        "second_half": round(sum(edit_dists[:len(edit_dists)//2]) / max(len(edit_dists)//2, 1), 3) if edit_dists else None,
-                    },
-                    "situation_breakdown": sit_breakdown,
-                    "language_breakdown": lang_breakdown,
-                    "avg_pause_ratio": round(sum(pause_data) / len(pause_data), 3) if pause_data else None,
-                    "top_onset_triggers": dict(sorted(onset_triggers.items(), key=lambda x: -x[1])[:5]),
-                    "trigger_count": len(triggers),
-                    "corrections_count": len(profile.get("corrections", {})),
-                    "covert_avoidance_events": sum(
-                        entry.get("avoided_count", 0)
-                        for sit_words in profile.get("covert_profile", {}).get("avoidance_pairs", {}).values()
-                        for entry in sit_words.values()
-                    ),
-                }
-                stats_inc("api_calls")
-                try:
-                    resp = client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[{"role": "system", "content": (
-                            "You are a speech-language pathology assistant generating a clinical weekly "
-                            "progress report for a person who stutters. Be direct, use data. Use emoji "
-                            "sparingly (✅ ❌ 🎯 📞). Format as a concise summary with bullet points. "
-                            "Highlight improvements, flag concerns, suggest focus areas."
-                        )}, {"role": "user", "content": (
-                            f"Generate a weekly clinical stutter progress report from this data:\n"
-                            f"{json.dumps(report_data, indent=2)}"
-                        )}],
-                        max_tokens=600, temperature=0.3
-                    )
-                    self._json({
-                        "report": resp.choices[0].message.content.strip(),
-                        "data": report_data
-                    })
-                except Exception as e:
-                    log(f"Report generation failed: {e}", "error")
-                    self._json({"report": f"Report generation failed: {e}", "data": report_data})
-        elif self.path == '/api/preview':
-            with preview_lock:
-                text = preview_state['text']
-                # Score each word for phonetic risk (live trigger warning)
-                scored_words = []
-                if text:
-                    words = text.split()
-                    n = len(words)
-                    trigger_set = {t.lower() for t in profile.get('trigger_words', [])}
-                    for i, w in enumerate(words):
-                        risk = predict_phonetic_risk(w, sentence_position=i, sentence_length=n)
-                        if w.lower() in trigger_set:
-                            risk = 1.0
-                        scored_words.append({"word": w, "risk": round(risk, 2)})
-                self._json({
-                    'enabled': LIVE_PREVIEW_ENABLED,
-                    'active': preview_state['active'],
-                    'text': text,
-                    'scored_words': scored_words,
-                    'final_text': preview_state['final_text'],
-                    'updated_at': preview_state['updated_at']
-                })
-        elif self.path == '/api/daf':
-            self._json({
-                'active': _daf_active,
-                'delay_ms': _daf_delay_ms,
-                'min': DAF_MIN_DELAY_MS,
-                'max': DAF_MAX_DELAY_MS
-            })
-        elif self.path == '/api/calibration':
-            status = calibration_status()
-            nxt = calibration_next_prompt()
-            status["next_prompt"] = nxt
-            self._json(status)
-        elif self.path == '/api/calibration/prompts':
-            self._json(CALIBRATION_PROMPTS)
-        elif self.path == '/api/augment':
-            self._json(augment_status())
-        elif self.path == '/api/severity':
-            self._json(compute_severity_score())
-        elif self.path == '/api/hotkeys':
-            self._json({
-                'record': RECORD_KEY.upper(),
-                'tone': TONE_KEY.upper(),
-                'layer': LAYER_KEY.upper(),
-                'stats': STATS_KEY.upper(),
-                'quit': QUIT_KEY.upper(),
-            })
-        elif self.path == '/api/patience':
-            self._json({"patience": get_patience_timeout(),
-                        "default": PATIENCE_DEFAULT,
-                        "stutter": PATIENCE_STUTTER})
-        elif self.path == '/api/clinical_profile':
-            profile_data = generate_clinical_profile()
-            self._json(profile_data)
-        elif self.path == '/api/voice_profile':
-            self._json(generate_voice_profile())
+                self._json(result)
         else:
             self.send_error(404)
 
     def do_POST(self):
         body = self._read_body()
-        if self.path == '/api/auth':
-            # Delegate to handle_POST_api_auth — single source of truth shared
-            # with the native bridge (dispatch_api). Inline duplicate removed
-            # 2026-05-16 (was byte-equivalent and had already almost leaked
-            # the CQ-P0-3 epoch-race bug back via drift, per audit H-2).
-            self._json(handle_POST_api_auth(body))
-        elif self.path == '/api/open-signin':
-            # Same delegation pattern.
-            self._json(handle_POST_api_open_signin(body))
-        elif self.path == '/api/tone':
-            if body and isinstance(body.get('tone'), str):
-                set_tone(body['tone'])
-            self._json({'tone': current_tone})
-        elif self.path == '/api/layer':
-            if body and 'layer' in body:
-                try:
-                    set_layer(int(body['layer']))
-                except (ValueError, TypeError):
-                    pass
-            self._json({'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?')})
-        elif self.path == '/api/paralinguistic':
-            if body and 'enabled' in body:
-                set_paralinguistic(body['enabled'])
-            self._json({'paralinguistic_enabled': paralinguistic_enabled})
-        elif self.path == '/api/paralinguistic_transcribe':
-            if body and 'enabled' in body:
-                set_paralinguistic_transcribe(body['enabled'])
-            self._json({'paralinguistic_transcribe': paralinguistic_transcribe})
-        elif self.path == '/api/prosodic':
-            if body and 'enabled' in body:
-                set_prosodic(body['enabled'])
-            self._json({'prosodic_enabled': prosodic_enabled})
-        elif self.path == '/api/quiet_mode':
-            if body and 'enabled' in body:
-                set_quiet_mode(body['enabled'])
-            self._json({'quiet_mode_enabled': quiet_mode_enabled})
-        elif self.path == '/api/accent_mode':
-            if body and 'mode' in body:
-                set_accent_mode(body['mode'])
-            self._json({'accent_mode': accent_mode})
-        elif self.path == '/api/l1_asr':
-            global L1_CLOUD_ASR
-            if body and 'cloud' in body:
-                L1_CLOUD_ASR = bool(body['cloud'])
-                log(f"L1 ASR source: {'cloud whisper-1' if L1_CLOUD_ASR else 'local'}", "info")
-            self._json({'l1_cloud_asr': L1_CLOUD_ASR})
-        elif self.path == '/api/mode':
-            if body and isinstance(body.get('mode'), str):
-                set_mode(body['mode'].upper())
-            self._json({'mode': current_mode})
-        elif self.path == '/api/situation':
-            if body and isinstance(body.get('situation'), str):
-                set_situation(body['situation'].lower())
-            preset = SITUATION_PRESETS.get(current_situation, {})
-            self._json({
-                'situation': current_situation,
-                'severity': SITUATION_SEVERITY.get(current_situation, 1.0),
-                'situations': SITUATIONS,
-                'preset_applied': {
-                    'daf_ms': preset.get('daf_ms', 0),
-                    'layer': preset.get('layer'),
-                    'prep_loaded': bool(preset.get('prep')),
-                } if preset else None,
-            })
-        elif self.path == '/api/profiles/switch':
-            if body and isinstance(body.get('name'), str):
-                try:
-                    switched = switch_profile(body['name'])
-                    self._json({'ok': True, 'active': switched, 'profiles': list_profiles()})
-                except ValueError as e:
-                    self._json({'ok': False, 'error': str(e)})
+        if self.path.startswith('/api/'):
+            # All /api/* POST routes delegate to dispatch_api — single source
+            # of truth shared with the native bridge. Replaces ~520 lines of
+            # inline branching that drifted from handle_POST_api_* functions.
+            # Architecture critic H-1.
+            result = dispatch_api(self.path, body, method='POST')
+            if result is None:
+                self.send_error(404, f'Unknown /api/* route: {self.path}')
             else:
-                self._json({'ok': False, 'error': 'Missing name'})
-        elif self.path == '/api/profiles/create':
-            if body and isinstance(body.get('name'), str):
-                try:
-                    created = create_profile(body['name'])
-                    self._json({'ok': True, 'name': created, 'profiles': list_profiles()})
-                except ValueError as e:
-                    self._json({'ok': False, 'error': str(e)})
-            else:
-                self._json({'ok': False, 'error': 'Missing name'})
-        elif self.path == '/api/reset_timer':
-            stats["start_time"] = time.time()
-            log("Timer reset", "info")
-            self._json({'start_time': stats["start_time"]})
-        elif self.path == '/api/profile':
-            if body and isinstance(body, dict):
-                for key in ('trigger_words', 'filler_words', 'vocabulary'):
-                    if key in body and isinstance(body[key], list):
-                        profile[key] = _dedupe_list(
-                            [str(v) for v in body[key] if isinstance(v, str)])
-                if 'corrections' in body and isinstance(body['corrections'], dict):
-                    profile['corrections'] = _norm_corrections({
-                        str(k): str(v) for k, v in body['corrections'].items()
-                        if isinstance(k, str) and isinstance(v, str)
-                    })
-                save_profile(profile)
-            self._json({'ok': True})
-        elif self.path == '/api/daf':
-            if body and isinstance(body, dict):
-                if 'active' in body:
-                    if body['active']:
-                        daf_start(body.get('delay_ms'))
-                    else:
-                        daf_stop()
-                elif 'delay_ms' in body:
-                    try:
-                        daf_set_delay(int(body['delay_ms']))
-                    except (ValueError, TypeError):
-                        pass
-            self._json({
-                'active': _daf_active,
-                'delay_ms': _daf_delay_ms
-            })
-        elif self.path == '/api/whisper_temp':
-            global WHISPER_TEMP
-            if body and 'temperature' in body:
-                try:
-                    t = float(body['temperature'])
-                    WHISPER_TEMP = max(0.0, min(1.0, t))
-                    log(f"Whisper temperature: {WHISPER_TEMP}", "info")
-                except (ValueError, TypeError):
-                    pass
-            self._json({'temperature': WHISPER_TEMP})
-        elif self.path == '/api/whisper_config':
-            global WHISPER_NO_SPEECH_THRESHOLD, WHISPER_MULTI_TEMP
-            if body:
-                if 'no_speech_threshold' in body:
-                    try:
-                        v = float(body['no_speech_threshold'])
-                        WHISPER_NO_SPEECH_THRESHOLD = max(0.0, min(1.0, v))
-                        log(f"Whisper no_speech_threshold: {WHISPER_NO_SPEECH_THRESHOLD}", "info")
-                    except (ValueError, TypeError):
-                        pass
-                if 'multi_temp' in body:
-                    WHISPER_MULTI_TEMP = bool(body['multi_temp'])
-                    log(f"Whisper multi-temp voting: {'ON' if WHISPER_MULTI_TEMP else 'OFF'}", "info")
-            self._json({
-                'temperature': WHISPER_TEMP,
-                'no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD,
-                'multi_temp': WHISPER_MULTI_TEMP,
-                'multi_temps': WHISPER_MULTI_TEMPS,
-            })
-        elif self.path == '/api/prep':
-            if body and isinstance(body.get('text'), str):
-                result = prep_text(body['text'], profile)
                 self._json(result)
-            else:
-                self._json({"error": "Send {\"text\": \"your script here\"}"})
-        elif self.path == '/api/covert/remove':
-            # Remove a specific avoidance pair from covert_profile
-            if body and 'situation' in body and 'word' in body:
-                sit = body['situation']
-                word = body['word']
-                pairs = profile.get('covert_profile', {}).get('avoidance_pairs', {})
-                if sit in pairs:
-                    if word in pairs[sit]:
-                        del pairs[sit][word]
-                        save_profile(profile)
-                        log(f"Removed covert pair: {word} from {sit}", "info")
-                        self._json({"removed": True, "word": word, "situation": sit})
-                    else:
-                        self._json({"removed": False, "error": "word not found"})
-                else:
-                    self._json({"removed": False, "error": "situation not found"})
-            else:
-                self._json({"error": "Send {\"situation\": \"...\", \"word\": \"...\"}"})
-        elif self.path == '/api/calibration/start':
-            _calibration_state["active"] = True
-            _calibration_state["started_at"] = datetime.now().isoformat()
-            log("Calibration mode started", "info")
-            nxt = calibration_next_prompt()
-            self._json({"started": True, "next_prompt": nxt, "status": calibration_status()})
-        elif self.path == '/api/calibration/stop':
-            _calibration_state["active"] = False
-            log(f"Calibration stopped — {len(_calibration_state['completed'])}/{len(CALIBRATION_PROMPTS)} completed", "info")
-            self._json({"stopped": True, "status": calibration_status()})
-        elif self.path == '/api/calibration/record':
-            # Receives base64-encoded WAV audio for a specific prompt
-            if body and 'prompt_id' in body and 'audio_b64' in body:
-                import base64
-                tmp = None
-                try:
-                    audio_bytes = base64.b64decode(body['audio_b64'])
-                    # Write to temp file, read back as numpy array
-                    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-                    tmp.write(audio_bytes)
-                    tmp.close()
-                    audio_data, sr = sf.read(tmp.name)
-                    result = calibration_save_audio(int(body['prompt_id']), audio_data, sr)
-                    result["next_prompt"] = calibration_next_prompt()
-                    result["status"] = calibration_status()
-                    self._json(result)
-                except Exception as e:
-                    log(f"Calibration record failed: {e}", "error")
-                    self._json({"error": str(e)})
-                finally:
-                    if tmp:
-                        try: os.unlink(tmp.name)
-                        except OSError: pass
-            else:
-                self._json({"error": "Send {\"prompt_id\": N, \"audio_b64\": \"...\"}"})
-        elif self.path == '/api/calibration/skip':
-            if body and 'prompt_id' in body:
-                pid = int(body['prompt_id'])
-                if pid not in _calibration_state["skipped"]:
-                    _calibration_state["skipped"].append(pid)
-                self._json({"skipped": pid, "next_prompt": calibration_next_prompt(), "status": calibration_status()})
-            else:
-                self._json({"error": "Send {\"prompt_id\": N}"})
-        elif self.path == '/api/hotkeys':
-            global RECORD_KEY, TONE_KEY, LAYER_KEY, STATS_KEY, QUIT_KEY
-            if body and isinstance(body, dict):
-                valid_keys = {'f1','f2','f3','f4','f5','f6','f7','f8','f9','f10','f11','f12'}
-                if 'record' in body:
-                    k = str(body['record']).lower()
-                    if k in valid_keys:
-                        RECORD_KEY = k
-                if 'tone' in body:
-                    k = str(body['tone']).lower()
-                    if k in valid_keys:
-                        TONE_KEY = k
-                if 'layer' in body:
-                    k = str(body['layer']).lower()
-                    if k in valid_keys:
-                        LAYER_KEY = k
-                if 'stats' in body:
-                    k = str(body['stats']).lower()
-                    if k in valid_keys:
-                        STATS_KEY = k
-                if 'quit' in body:
-                    k = str(body['quit']).lower()
-                    if k in valid_keys:
-                        QUIT_KEY = k
-                log(f"Hotkeys updated: record={RECORD_KEY} tone={TONE_KEY} layer={LAYER_KEY} stats={STATS_KEY} quit={QUIT_KEY}", "info")
-            self._json({
-                'record': RECORD_KEY.upper(),
-                'tone': TONE_KEY.upper(),
-                'layer': LAYER_KEY.upper(),
-                'stats': STATS_KEY.upper(),
-                'quit': QUIT_KEY.upper(),
-            })
-        elif self.path == '/api/transcribe':
-            # Mobile PWA endpoint: accept base64 WAV, run pipeline, return text
-            if not body or not isinstance(body.get('audio_b64'), str):
-                self._json({"error": "Send {\"audio_b64\": \"...\"}"})
-                return
-            import base64
-            tmp = None
-            tmp2 = None
-            try:
-                audio_bytes = base64.b64decode(body['audio_b64'])
-                tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-                tmp.write(audio_bytes)
-                tmp.close()
-                audio_data, sr = sf.read(tmp.name)
-                # Resample if needed
-                if sr != TARGET_RATE:
-                    from scipy.signal import resample_poly
-                    import math
-                    gcd = math.gcd(TARGET_RATE, sr)
-                    audio_data = resample_poly(audio_data, TARGET_RATE // gcd, sr // gcd)
-                # Flatten to mono if stereo
-                if len(audio_data.shape) > 1:
-                    audio_data = audio_data.mean(axis=1)
-                # Shared DSP chain — now honors Quiet Mode on HTTP /api/transcribe.
-                audio_data = preprocess_audio(audio_data, quiet=quiet_mode_enabled)
-                # Speech rate analysis (zero cost, informs reconstruction)
-                speech_metrics = analyze_speech_rate(audio_data, TARGET_RATE)
-                # Write resampled WAV
-                tmp2 = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-                sf.write(tmp2.name, audio_data, TARGET_RATE)
-                tmp2.close()
-                # Run Whisper
-                t0 = time.time()
-                whisper_result = whisper_transcribe(tmp2.name)
-                raw_text = whisper_result["text"].strip()
-                t_asr = time.time()
-                if not raw_text:
-                    self._json({"error": "No speech detected", "raw": "", "clean": ""})
-                    return
-                # Paralinguistic detection (Layer 5, zero API cost)
-                para_events = detect_paralinguistic_events(
-                    audio_data, TARGET_RATE, whisper_result.get("segments", []),
-                    whisper_result.get("low_confidence"),
-                    whisper_result.get("disagreements")
-                )
-                # Disfluency filter
-                filtered = strip_disfluencies(raw_text)
-                # Reconstruct (if layer >= 2)
-                clean_text = filtered
-                t_recon = t_asr
-                if current_layer >= 2:
-                    try:
-                        clean_text = reconstruct(
-                            filtered, current_tone, current_layer, profile,
-                            whisper_low_conf=whisper_result.get("low_confidence"),
-                            whisper_disagreements=whisper_result.get("disagreements"),
-                            speech_severity_mod=speech_metrics["severity_modifier"],
-                            paralinguistic_events=para_events if paralinguistic_enabled else None)
-                    except Exception as e:
-                        log(f"Mobile reconstruct failed: {e}", "error")
-                        clean_text = filtered
-                    t_recon = time.time()
-                total_ms = round((t_recon - t0) * 1000)
-                stats_inc("sessions")
-                stats_inc("words", len(clean_text.split()))
-                log(f"Mobile transcribe: {len(raw_text)}c -> {len(clean_text)}c ({total_ms}ms)", "info")
-                self._json({
-                    "raw": raw_text,
-                    "filtered": filtered,
-                    "clean": clean_text,
-                    "layer": current_layer,
-                    "tone": current_tone,
-                    "total_ms": total_ms,
-                })
-            except Exception as e:
-                log(f"Mobile transcribe failed: {e}", "error")
-                self._json({"error": str(e)})
-            finally:
-                for f in (tmp, tmp2):
-                    if f:
-                        try: os.unlink(f.name)
-                        except OSError: pass
-        elif self.path == '/api/reconstruct_test':
-            # Cross-platform parity test endpoint: feed raw text into pipeline, skip mic/Whisper.
-            # POST {"raw": "I I I w-want to go", "tone": "casual", "layer": 2, "situation": "default"}
-            # Returns same structure as mobile /api/transcribe but without audio path.
-            if not body or not isinstance(body.get('raw'), str):
-                self._json({"error": "Send {\"raw\": \"text\", \"tone\"?: \"...\", \"layer\"?: N, \"situation\"?: \"...\"}"})
-                return
-            try:
-                import time as _t
-                _t0 = _t.time()
-                raw_text = body['raw']
-                tone = body.get('tone', current_tone)
-                layer = body.get('layer', current_layer)
-                situation = body.get('situation', current_situation)
-                # Strip disfluencies (same as main pipeline)
-                filtered = strip_disfluencies(raw_text)
-                clean_text = filtered
-                falcon_ok = True
-                if layer >= 2:
-                    try:
-                        clean_text = reconstruct(filtered, tone, layer, profile, situation=situation)
-                    except Exception as e:
-                        log(f"reconstruct_test failed: {e}", "error")
-                        clean_text = filtered
-                    # Falcon validation (SAFE mode)
-                    try:
-                        falcon_ok = falcon_validate(raw_text, clean_text, layer, tone)
-                        if not falcon_ok:
-                            clean_text = filtered
-                    except Exception:
-                        falcon_ok = True
-                _ms = round((_t.time() - _t0) * 1000)
-                # Compute WER
-                raw_words = raw_text.lower().split()
-                clean_words = clean_text.lower().split()
-                _n, _m = len(raw_words), len(clean_words)
-                if _n > 0:
-                    dp = list(range(_m + 1))
-                    for i in range(1, _n + 1):
-                        prev, dp[0] = dp[0], i
-                        for j in range(1, _m + 1):
-                            cost = 0 if raw_words[i-1] == clean_words[j-1] else 1
-                            dp[j], prev = min(dp[j]+1, dp[j-1]+1, prev+cost), dp[j]
-                    wer = round(dp[_m] / _n, 4)
-                else:
-                    wer = 0.0
-                self._json({
-                    "raw": raw_text,
-                    "filtered": filtered,
-                    "clean": clean_text,
-                    "tone": tone,
-                    "layer": layer,
-                    "situation": situation,
-                    "falcon_ok": falcon_ok,
-                    "wer": wer,
-                    "recon_ms": _ms,
-                    "pipeline": "lavrentiy",
-                })
-            except Exception as e:
-                log(f"reconstruct_test error: {e}", "error")
-                self._json({"error": str(e)})
-        elif self.path == '/api/record':
-            if is_recording:
-                stop_recording()
-                self._json({"recording": False})
-            else:
-                threading.Thread(target=start_recording, daemon=True).start()
-                self._json({"recording": True})
-        elif self.path == '/api/export-my-data':
-            # GDPR: export all local + cloud data for signed-in user
-            local_data = dict(profile)
-            cloud_data = None
-            if is_authenticated() and _firebase_id_token:
-                try:
-                    import urllib.request
-                    req = urllib.request.Request(
-                        BACKEND_URL,
-                        data=json.dumps({"action": "export_data"}).encode("utf-8"),
-                        headers={"Content-Type": "application/json", "Authorization": f"Bearer {_firebase_id_token}"},
-                        method="POST",
-                    )
-                    with urllib.request.urlopen(req, timeout=10) as resp:
-                        cloud_data = json.loads(resp.read()).get("data", {})
-                except Exception as e:
-                    log(f"Cloud export failed: {str(e)[:80]}", "warn")
-            self._json({"local": local_data, "cloud": cloud_data, "user": _auth_user})
-        elif self.path == '/api/delete-my-data':
-            # GDPR: delete cloud data for signed-in user
-            if not is_authenticated() or not _firebase_id_token:
-                self._json({"error": "Not signed in"})
-            else:
-                try:
-                    import urllib.request
-                    req = urllib.request.Request(
-                        BACKEND_URL,
-                        data=json.dumps({"action": "delete_data"}).encode("utf-8"),
-                        headers={"Content-Type": "application/json", "Authorization": f"Bearer {_firebase_id_token}"},
-                        method="POST",
-                    )
-                    with urllib.request.urlopen(req, timeout=10) as resp:
-                        resp.read()
-                    log("Cloud data deleted", "info")
-                    self._json({"ok": True, "deleted": True})
-                except Exception as e:
-                    log(f"Cloud delete failed: {str(e)[:80]}", "error")
-                    self._json({"error": str(e)[:200]})
-        elif self.path == '/api/reset-session-history':
-            # Reset: clear session history (SQLite), keep learned profile intact
-            try:
-                with _db_lock:
-                    _db.execute("DELETE FROM sessions")
-                    _db.commit()
-                with _stats_lock:
-                    stats["words"] = 0
-                    stats["sessions"] = 0
-                    stats["chars"] = 0
-                    stats["api_calls"] = 0
-                    stats["falcon_rejects"] = 0
-                    stats["repetition_loops"] = 0
-                    stats["start_time"] = time.time()
-                log("Session history reset — profile kept", "info")
-                self._json({"ok": True, "reset": "session_history"})
-            except Exception as e:
-                log(f"Reset session failed: {e}", "error")
-                self._json({"error": str(e)[:200]})
-        elif self.path == '/api/delete-profile':
-            # DELETE: wipe entire profile (corrections, vocabulary, triggers, everything)
-            try:
-                # Clear profile fields but preserve identity/structure
-                profile["trigger_words"] = []
-                profile["filler_words"] = []
-                profile["vocabulary"] = []
-                profile["corrections"] = {}
-                profile["candidate_corrections"] = {}
-                profile["candidate_fillers"] = {}
-                profile["candidate_vocabulary"] = {}
-                profile["covert_profile"] = {}
-                profile["onset_weights"] = {}
-                profile["onset_weights_by_lang"] = {}
-                profile["trigger_types"] = {}
-                profile["_relevance"] = {}
-                save_profile(profile)
-                # Also clear session history
-                with _db_lock:
-                    _db.execute("DELETE FROM sessions")
-                    _db.commit()
-                # Reset stats
-                with _stats_lock:
-                    for k in ("words", "sessions", "chars", "api_calls", "falcon_rejects", "repetition_loops"):
-                        stats[k] = 0
-                    stats["start_time"] = time.time()
-                # Clear in-memory onset weights
-                global _personal_onset_weights, _personal_onset_weights_by_lang, _personal_dominant_onsets
-                _personal_onset_weights = {}
-                _personal_onset_weights_by_lang = {}
-                _personal_dominant_onsets = []
-                log("Profile deleted — all learned data wiped", "warn")
-                self._json({"ok": True, "reset": "profile"})
-            except Exception as e:
-                log(f"Delete profile failed: {e}", "error")
-                self._json({"error": str(e)[:200]})
-        elif self.path == '/api/augment':
-            if _augment_state["running"]:
-                self._json({"error": "augmentation already running", "status": augment_status()})
-            else:
-                # Run in background thread — TTS calls take a while
-                threading.Thread(target=augment_calibration_data, daemon=True).start()
-                self._json({"started": True, "status": augment_status()})
-        elif self.path == '/api/patience':
-            global PATIENCE_DEFAULT, PATIENCE_STUTTER
-            if body:
-                if 'default' in body:
-                    try:
-                        PATIENCE_DEFAULT = float(body['default'])
-                    except (ValueError, TypeError):
-                        pass
-                if 'stutter' in body:
-                    try:
-                        PATIENCE_STUTTER = float(body['stutter'])
-                    except (ValueError, TypeError):
-                        pass
-            self._json({"ok": True, "patience": get_patience_timeout(),
-                        "default": PATIENCE_DEFAULT, "stutter": PATIENCE_STUTTER})
-        elif self.path == '/api/set-key':
-            global API_KEY, client
-            key = (body or {}).get('key', '').strip()
-            if key:
-                API_KEY = key
-                client = openai.OpenAI(api_key=API_KEY, timeout=CLOUD_TIMEOUT_SEC)
-                try:
-                    with open(_key_file, 'w') as f:
-                        f.write(key)
-                except Exception:
-                    pass
-                self._json({'ok': True})
-            else:
-                self._json({'ok': False, 'error': 'no key provided'})
         else:
             self.send_error(404)
 
@@ -9322,6 +8476,11 @@ def handle_POST_api_prosodic(body=None) -> dict:
         set_prosodic(body['enabled'])
     return {'prosodic_enabled': prosodic_enabled}
 
+def handle_POST_api_accent_mode(body=None) -> dict:
+    if body and 'mode' in body:
+        set_accent_mode(body['mode'])
+    return {'accent_mode': accent_mode}
+
 def handle_POST_api_quiet_mode(body=None) -> dict:
     if body and 'enabled' in body:
         set_quiet_mode(body['enabled'])
@@ -9748,118 +8907,143 @@ def handle_POST_api_set_key(body=None) -> dict:
     else:
         return {'ok': False, 'error': 'no key provided'}
 
-def dispatch_api(path: str, body: dict = None) -> dict:
-    if path == '/api/state':
-        return handle_GET_api_state(body)
-    if path == '/api/profiles':
-        return handle_GET_api_profiles(body)
-    if path == '/api/profile':
-        return handle_GET_api_profile(body)
-    if path == '/api/sessions':
-        return handle_GET_api_sessions(body)
-    if path == '/api/log':
-        return handle_GET_api_log(body)
-    if path == '/api/learn':
-        return handle_GET_api_learn(body)
-    if path == '/api/wer':
-        return handle_GET_api_wer(body)
-    if path == '/api/fluency':
-        return handle_GET_api_fluency(body)
-    if path == '/api/archive':
-        return handle_GET_api_archive(body)
-    if path == '/api/report':
-        return handle_GET_api_report(body)
-    if path == '/api/preview':
-        return handle_GET_api_preview(body)
-    if path == '/api/daf':
-        return handle_GET_api_daf(body)
-    if path == '/api/calibration':
-        return handle_GET_api_calibration(body)
-    if path == '/api/calibration/prompts':
-        return handle_GET_api_calibration_prompts(body)
-    if path == '/api/augment':
-        return handle_GET_api_augment(body)
-    if path == '/api/severity':
-        return handle_GET_api_severity(body)
-    if path == '/api/hotkeys':
-        return handle_GET_api_hotkeys(body)
-    if path == '/api/patience':
-        return handle_GET_api_patience(body)
-    if path == '/api/clinical_profile':
-        return handle_GET_api_clinical_profile(body)
-    if path == '/api/voice_profile':
-        return handle_GET_api_voice_profile(body)
-    if path == '/api/auth':
-        return handle_POST_api_auth(body)
-    if path == '/api/open-signin':
-        return handle_POST_api_open_signin(body)
-    if path == '/api/tone':
-        return handle_POST_api_tone(body)
-    if path == '/api/layer':
-        return handle_POST_api_layer(body)
-    if path == '/api/paralinguistic':
-        return handle_POST_api_paralinguistic(body)
-    if path == '/api/paralinguistic_transcribe':
-        return handle_POST_api_paralinguistic_transcribe(body)
-    if path == '/api/prosodic':
-        return handle_POST_api_prosodic(body)
-    if path == '/api/quiet_mode':
-        return handle_POST_api_quiet_mode(body)
-    if path == '/api/l1_asr':
-        return handle_POST_api_l1_asr(body)
-    if path == '/api/mode':
-        return handle_POST_api_mode(body)
-    if path == '/api/situation':
-        return handle_POST_api_situation(body)
-    if path == '/api/profiles/switch':
-        return handle_POST_api_profiles_switch(body)
-    if path == '/api/profiles/create':
-        return handle_POST_api_profiles_create(body)
-    if path == '/api/reset_timer':
-        return handle_POST_api_reset_timer(body)
-    if path == '/api/profile':
-        return handle_POST_api_profile(body)
-    if path == '/api/daf':
-        return handle_POST_api_daf(body)
-    if path == '/api/whisper_temp':
-        return handle_POST_api_whisper_temp(body)
-    if path == '/api/whisper_config':
-        return handle_POST_api_whisper_config(body)
-    if path == '/api/prep':
-        return handle_POST_api_prep(body)
-    if path == '/api/covert/remove':
-        return handle_POST_api_covert_remove(body)
-    if path == '/api/calibration/start':
-        return handle_POST_api_calibration_start(body)
-    if path == '/api/calibration/stop':
-        return handle_POST_api_calibration_stop(body)
-    if path == '/api/calibration/record':
-        return handle_POST_api_calibration_record(body)
-    if path == '/api/calibration/skip':
-        return handle_POST_api_calibration_skip(body)
-    if path == '/api/hotkeys':
-        return handle_POST_api_hotkeys(body)
-    if path == '/api/transcribe':
-        return handle_POST_api_transcribe(body)
-    if path == '/api/reconstruct_test':
-        return handle_POST_api_reconstruct_test(body)
-    if path == '/api/record':
-        return handle_POST_api_record(body)
-    if path == '/api/export-my-data':
-        return handle_POST_api_export_my_data(body)
-    if path == '/api/delete-my-data':
-        return handle_POST_api_delete_my_data(body)
-    if path == '/api/reset-session-history':
-        return handle_POST_api_reset_session_history(body)
-    if path == '/api/delete-profile':
-        return handle_POST_api_delete_profile(body)
-    if path == '/api/augment':
-        return handle_POST_api_augment(body)
-    if path == '/api/patience':
-        return handle_POST_api_patience(body)
-    if path == '/api/set-key':
-        return handle_POST_api_set_key(body)
-    return {"error": "Not found"}
+def dispatch_api(path: str, body: dict = None, method: str = None):
+    """Route an API request to the right handle_*_api_* function.
+
+    method: 'GET' or 'POST'. If omitted, inferred from body — a non-empty
+    body implies POST, otherwise GET. HTTP path (DashboardHandler.do_GET /
+    do_POST) passes method explicitly so paths that exist in BOTH verbs
+    (e.g. /api/profile read vs write, /api/daf read vs write,
+    /api/hotkeys read vs write, /api/augment read vs write, /api/patience
+    read vs write) dispatch to the correct handler. The native bridge in
+    native/lavrentiy_app.py passes only path+body and relies on inference,
+    which works because the dashboard's bridge.api() calls carry a
+    non-empty body for POSTs.
+
+    Returns None when no handler matches the (method, path) pair. The
+    HTTP layer turns that into a 404.
+    """
+    if method is None:
+        method = 'POST' if (isinstance(body, dict) and body) else 'GET'
+    method = method.upper()
+
+    if method == 'GET':
+        if path == '/api/state':
+            return handle_GET_api_state(body)
+        if path == '/api/profiles':
+            return handle_GET_api_profiles(body)
+        if path == '/api/profile':
+            return handle_GET_api_profile(body)
+        if path == '/api/sessions':
+            return handle_GET_api_sessions(body)
+        if path == '/api/log':
+            return handle_GET_api_log(body)
+        if path == '/api/learn':
+            return handle_GET_api_learn(body)
+        if path == '/api/wer':
+            return handle_GET_api_wer(body)
+        if path == '/api/fluency':
+            return handle_GET_api_fluency(body)
+        if path == '/api/archive':
+            return handle_GET_api_archive(body)
+        if path == '/api/report':
+            return handle_GET_api_report(body)
+        if path == '/api/preview':
+            return handle_GET_api_preview(body)
+        if path == '/api/daf':
+            return handle_GET_api_daf(body)
+        if path == '/api/calibration':
+            return handle_GET_api_calibration(body)
+        if path == '/api/calibration/prompts':
+            return handle_GET_api_calibration_prompts(body)
+        if path == '/api/augment':
+            return handle_GET_api_augment(body)
+        if path == '/api/severity':
+            return handle_GET_api_severity(body)
+        if path == '/api/hotkeys':
+            return handle_GET_api_hotkeys(body)
+        if path == '/api/patience':
+            return handle_GET_api_patience(body)
+        if path == '/api/clinical_profile':
+            return handle_GET_api_clinical_profile(body)
+        if path == '/api/voice_profile':
+            return handle_GET_api_voice_profile(body)
+        return None
+
+    if method == 'POST':
+        if path == '/api/auth':
+            return handle_POST_api_auth(body)
+        if path == '/api/open-signin':
+            return handle_POST_api_open_signin(body)
+        if path == '/api/tone':
+            return handle_POST_api_tone(body)
+        if path == '/api/layer':
+            return handle_POST_api_layer(body)
+        if path == '/api/paralinguistic':
+            return handle_POST_api_paralinguistic(body)
+        if path == '/api/paralinguistic_transcribe':
+            return handle_POST_api_paralinguistic_transcribe(body)
+        if path == '/api/prosodic':
+            return handle_POST_api_prosodic(body)
+        if path == '/api/quiet_mode':
+            return handle_POST_api_quiet_mode(body)
+        if path == '/api/accent_mode':
+            return handle_POST_api_accent_mode(body)
+        if path == '/api/mode':
+            return handle_POST_api_mode(body)
+        if path == '/api/situation':
+            return handle_POST_api_situation(body)
+        if path == '/api/profiles/switch':
+            return handle_POST_api_profiles_switch(body)
+        if path == '/api/profiles/create':
+            return handle_POST_api_profiles_create(body)
+        if path == '/api/reset_timer':
+            return handle_POST_api_reset_timer(body)
+        if path == '/api/profile':
+            return handle_POST_api_profile(body)
+        if path == '/api/daf':
+            return handle_POST_api_daf(body)
+        if path == '/api/whisper_temp':
+            return handle_POST_api_whisper_temp(body)
+        if path == '/api/whisper_config':
+            return handle_POST_api_whisper_config(body)
+        if path == '/api/prep':
+            return handle_POST_api_prep(body)
+        if path == '/api/covert/remove':
+            return handle_POST_api_covert_remove(body)
+        if path == '/api/calibration/start':
+            return handle_POST_api_calibration_start(body)
+        if path == '/api/calibration/stop':
+            return handle_POST_api_calibration_stop(body)
+        if path == '/api/calibration/record':
+            return handle_POST_api_calibration_record(body)
+        if path == '/api/calibration/skip':
+            return handle_POST_api_calibration_skip(body)
+        if path == '/api/hotkeys':
+            return handle_POST_api_hotkeys(body)
+        if path == '/api/transcribe':
+            return handle_POST_api_transcribe(body)
+        if path == '/api/reconstruct_test':
+            return handle_POST_api_reconstruct_test(body)
+        if path == '/api/record':
+            return handle_POST_api_record(body)
+        if path == '/api/export-my-data':
+            return handle_POST_api_export_my_data(body)
+        if path == '/api/delete-my-data':
+            return handle_POST_api_delete_my_data(body)
+        if path == '/api/reset-session-history':
+            return handle_POST_api_reset_session_history(body)
+        if path == '/api/delete-profile':
+            return handle_POST_api_delete_profile(body)
+        if path == '/api/augment':
+            return handle_POST_api_augment(body)
+        if path == '/api/patience':
+            return handle_POST_api_patience(body)
+        if path == '/api/set-key':
+            return handle_POST_api_set_key(body)
+        return None
+
+    return None
 
 
 def start_engine(*, run_http_server=True, block=True):

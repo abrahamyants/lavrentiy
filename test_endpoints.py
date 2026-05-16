@@ -274,6 +274,32 @@ for node in ast.walk(tree):
             except Exception as e:
                 print(f'SKIP {node.name}: {e}')
 
+# Auto-inject dispatch_api + every handle_(GET|POST)_api_* + a few helpers
+# the refactored DashboardHandler delegates through. After the H-1 refactor
+# do_GET / do_POST no longer hold inline route bodies — they delegate to
+# dispatch_api(path, body), which calls handle_*_api_* functions defined at
+# module scope. The class-only extraction previously missed these; without
+# this fix every endpoint test failed with "Remote end closed connection
+# without response" (NameError inside the request thread).
+_auto_prefixes = ('handle_GET_api_', 'handle_POST_api_')
+_auto_exact = {'dispatch_api', 'set_accent_mode', 'set_quiet_mode',
+               'list_profiles', 'create_profile', 'switch_profile',
+               'cycle_layer', 'set_l1_cloud_asr', 'generate_voice_profile',
+               'generate_shadow_utterance', 'compute_avg_exposure',
+               '_compute_avg_exposure', '_compute_avg_edit_dist'}
+for node in ast.walk(tree):
+    if isinstance(node, ast.FunctionDef):
+        if (any(node.name.startswith(p) for p in _auto_prefixes)
+                or node.name in _auto_exact):
+            if node.name in ns:
+                continue  # already loaded via target_funcs
+            func_source = ast.get_source_segment(source, node)
+            if func_source:
+                try:
+                    exec(func_source, ns)
+                except Exception as e:
+                    print(f'SKIP {node.name}: {e}')
+
 # Extract the DashboardHandler class
 for node in ast.walk(tree):
     if isinstance(node, ast.ClassDef) and node.name == 'DashboardHandler':
