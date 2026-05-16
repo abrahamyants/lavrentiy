@@ -6758,6 +6758,41 @@ def compute_prosodic_summary(prosodic_features):
     }
 
 
+# -- Audio preprocessing ───────────────────────────────────────────
+def preprocess_audio(audio_data, *, quiet=False):
+    """Standard DSP chain applied before every Whisper call:
+    DC offset removal → high-pass filter → AGC → soft clip.
+
+    Quiet Mode (whispered / soft speech) tightens the high-pass cutoff to
+    100 Hz and doubles AGC gain (-6 dB target instead of -12 dB).
+
+    Before 2026-05-16 this chain was duplicated inline at four sites
+    (pipeline(), Command Mode F8, HTTP /api/transcribe, native handler).
+    Only the pipeline() copy honored quiet_mode_enabled, so the toggle
+    silently did nothing on the other three paths. Extracted here so all
+    four call sites share the same behavior. DO NOT REINLINE.
+    """
+    hp_cutoff = 100.0 if quiet else 70.0
+    agc_target_db = -6 if quiet else -12
+    # 1. DC offset removal — center waveform around zero.
+    audio_data = audio_data - numpy.mean(audio_data)
+    # 2. High-pass — strips AC hum / desk rumble / wind. Butterworth order 2
+    #    preserves speech fundamentals; Quiet mode tightens to 100 Hz since
+    #    whispers carry no usable low-frequency content anyway.
+    nyq = TARGET_RATE / 2.0
+    b_hp, a_hp = butter(2, hp_cutoff / nyq, btype="highpass")
+    audio_data = filtfilt(b_hp, a_hp, audio_data).astype(numpy.float32)
+    # 3. AGC: normalize RMS so Whisper sees consistent input levels.
+    rms = numpy.sqrt(numpy.mean(audio_data ** 2))
+    if rms > 1e-6:
+        target_rms = 10 ** (agc_target_db / 20)
+        audio_data = audio_data * (target_rms / rms)
+    # 4. Soft clip via tanh — gentler than hard clip, avoids artifacts in
+    #    Whisper's mel spectrogram from peak transients.
+    audio_data = numpy.tanh(1.2 * audio_data).astype(numpy.float32)
+    return audio_data
+
+
 # -- Pipeline ─────────────────────────────────────────────────────
 def pipeline():
     global state
@@ -6772,27 +6807,10 @@ def pipeline():
     if NEEDS_RESAMPLE:
         audio_data = resample_poly(audio_data, RESAMPLE_UP, RESAMPLE_DOWN)
 
-    # Audio preprocessing: DC removal → high-pass filter → AGC → soft clip
-    # Quiet Mode: aggressive gain for whispered/soft speech, tighter high-pass to kill room noise
-    hp_cutoff = 100.0 if quiet_mode_enabled else 70.0
-    agc_target_db = -6 if quiet_mode_enabled else -12
-    # 1. DC offset removal — centers waveform around zero
-    audio_data = audio_data - numpy.mean(audio_data)
-    # 2. High-pass filter — removes AC hum, desk vibrations, wind rumble
-    #    Butterworth order 2 is gentle enough to preserve speech fundamentals
-    #    Quiet mode uses 100Hz (tighter) since whispers have no low-freq content anyway
-    nyq = TARGET_RATE / 2.0
-    b_hp, a_hp = butter(2, hp_cutoff / nyq, btype="highpass")
-    audio_data = filtfilt(b_hp, a_hp, audio_data).astype(numpy.float32)
-    # 3. AGC: normalize RMS so Whisper gets consistent input levels
-    #    Normal: -12dB, Quiet mode: -6dB (double the gain for whispered speech)
-    rms = numpy.sqrt(numpy.mean(audio_data ** 2))
-    if rms > 1e-6:
-        target_rms = 10 ** (agc_target_db / 20)
-        audio_data = audio_data * (target_rms / rms)
-    # 4. Soft clip via tanh — gentler than hard clip, avoids digital artifacts
-    #    in Whisper's mel spectrogram from peak transients
-    audio_data = numpy.tanh(1.2 * audio_data).astype(numpy.float32)
+    # Audio preprocessing — DC removal → high-pass → AGC → soft clip.
+    # Quiet Mode tightens high-pass + doubles AGC gain. Shared with Command
+    # Mode and the two /api/transcribe paths via preprocess_audio() above.
+    audio_data = preprocess_audio(audio_data, quiet=quiet_mode_enabled)
 
     # Step 0: Speech rate & pause analysis — pure numpy, ~2ms, feeds reconstruction severity at L2+
     speech_metrics = {"pause_ratio": 0, "speaking_rate_sps": 0, "severity_modifier": 0}
@@ -7457,15 +7475,8 @@ def stop_command_recording():
         audio_data = numpy.concatenate(frames, axis=0).flatten()
         if NEEDS_RESAMPLE:
             audio_data = resample_poly(audio_data, RESAMPLE_UP, RESAMPLE_DOWN)
-        # Basic preprocessing
-        audio_data = audio_data - numpy.mean(audio_data)
-        nyq = TARGET_RATE / 2.0
-        b_hp, a_hp = butter(2, 70.0 / nyq, btype="highpass")
-        audio_data = filtfilt(b_hp, a_hp, audio_data).astype(numpy.float32)
-        rms = numpy.sqrt(numpy.mean(audio_data ** 2))
-        if rms > 1e-6:
-            audio_data = audio_data * (10 ** (-12 / 20) / rms)
-        audio_data = numpy.tanh(1.2 * audio_data).astype(numpy.float32)
+        # Shared DSP chain — now honors Quiet Mode on Command Mode (F8).
+        audio_data = preprocess_audio(audio_data, quiet=quiet_mode_enabled)
         tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         tmp.close()
         sf.write(tmp.name, audio_data, TARGET_RATE)
@@ -8624,16 +8635,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 # Flatten to mono if stereo
                 if len(audio_data.shape) > 1:
                     audio_data = audio_data.mean(axis=1)
-                # Audio preprocessing (same as main pipeline)
-                audio_data = audio_data - numpy.mean(audio_data)  # DC removal
-                nyq = TARGET_RATE / 2.0
-                b_hp, a_hp = butter(2, 70.0 / nyq, btype="highpass")
-                audio_data = filtfilt(b_hp, a_hp, audio_data).astype(numpy.float32)
-                rms = numpy.sqrt(numpy.mean(audio_data ** 2))
-                if rms > 1e-6:
-                    target_rms = 10 ** (-12 / 20)
-                    audio_data = audio_data * (target_rms / rms)
-                audio_data = numpy.tanh(1.2 * audio_data).astype(numpy.float32)
+                # Shared DSP chain — now honors Quiet Mode on HTTP /api/transcribe.
+                audio_data = preprocess_audio(audio_data, quiet=quiet_mode_enabled)
                 # Speech rate analysis (zero cost, informs reconstruction)
                 speech_metrics = analyze_speech_rate(audio_data, TARGET_RATE)
                 # Write resampled WAV
@@ -9649,15 +9652,8 @@ def handle_POST_api_transcribe(body=None) -> dict:
             audio_data = resample_poly(audio_data, TARGET_RATE // gcd, sr // gcd)
         if len(audio_data.shape) > 1:
             audio_data = audio_data.mean(axis=1)
-        audio_data = audio_data - numpy.mean(audio_data)
-        nyq = TARGET_RATE / 2.0
-        b_hp, a_hp = butter(2, 70.0 / nyq, btype='highpass')
-        audio_data = filtfilt(b_hp, a_hp, audio_data).astype(numpy.float32)
-        rms = numpy.sqrt(numpy.mean(audio_data ** 2))
-        if rms > 1e-06:
-            target_rms = 10 ** (-12 / 20)
-            audio_data = audio_data * (target_rms / rms)
-        audio_data = numpy.tanh(1.2 * audio_data).astype(numpy.float32)
+        # Shared DSP chain — now honors Quiet Mode on the native handler path.
+        audio_data = preprocess_audio(audio_data, quiet=quiet_mode_enabled)
         speech_metrics = analyze_speech_rate(audio_data, TARGET_RATE)
         tmp2 = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
         sf.write(tmp2.name, audio_data, TARGET_RATE)
