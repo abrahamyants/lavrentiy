@@ -4,7 +4,7 @@ Covers F0 extraction, prosodic feature extraction, speaker baseline,
 state inference, prosodic context formatting, and prosodic summary.
 Uses the same ast.parse extraction pattern as other test suites.
 """
-import re, json, sys, ast, math, io
+import re, json, sys, ast, math, io, os
 import numpy as np
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
@@ -16,7 +16,7 @@ tree = ast.parse(source)
 lines = source.split('\n')
 
 from pathlib import Path
-ns = {'re': re, 'json': json, 'Path': Path, 'numpy': np, 'np': np, 'math': math}
+ns = {'re': re, 'json': json, 'Path': Path, 'numpy': np, 'np': np, 'math': math, 'os': os}
 
 # Load constants
 start_idx = next(i for i, l in enumerate(lines) if l.startswith('LANGUAGE = '))

@@ -4,7 +4,7 @@ Covers HNR computation (synthetic ground truth), error-pattern classification,
 multi-signal detection, and temporal gating.
 Uses the same ast.parse extraction pattern as other test suites.
 """
-import re, json, sys, ast, math, io
+import re, json, sys, ast, math, io, os
 import numpy as np
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
@@ -17,7 +17,7 @@ lines = source.split('\n')
 
 # Build namespace
 from pathlib import Path
-ns = {'re': re, 'json': json, 'Path': Path, 'numpy': np, 'np': np, 'math': math}
+ns = {'re': re, 'json': json, 'Path': Path, 'numpy': np, 'np': np, 'math': math, 'os': os}
 
 # Load constants block
 start_idx = next(i for i, l in enumerate(lines) if l.startswith('LANGUAGE = '))

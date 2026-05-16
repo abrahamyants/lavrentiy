@@ -2,7 +2,7 @@
 Preview state and redo guardrail tests.
 Targets start/stop/update preview helpers and set_state coverage gap.
 """
-import ast, io, sys, time, threading
+import ast, io, sys, time, threading, os
 from pathlib import Path
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
@@ -16,7 +16,7 @@ lines = source.split('\n')
 # Build namespace with needed globals/constants
 start_idx = next(i for i, l in enumerate(lines) if l.startswith('LANGUAGE = '))
 end_idx = next(i for i, l in enumerate(lines) if '_personal_onset_weights_by_lang' in l and '=' in l)
-ns = {'threading': threading, 'time': time, 'Path': Path}
+ns = {'threading': threading, 'time': time, 'Path': Path, 'os': os}
 exec('\n'.join(lines[start_idx:end_idx + 1]), ns)
 
 # Locks/state used by preview helpers

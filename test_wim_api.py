@@ -75,7 +75,7 @@ p_l4 = bp('hello world', layer=4, profile={'trigger_words': ['computer'], 'onset
 check('L2 has ASR artifact guidance', 'ASR artifact' in p_l2 or 'transcription' in p_l2.lower())
 check('L3 includes vocabulary', 'synecdoche' in p_l3)
 check('L3 includes corrections', 'Duncan' in p_l3 or 'Dankeschoen' in p_l3)
-check('L4 has stutter context', 'stutter' in p_l4.lower())
+check('L4 has disfluency context', 'disfluency' in p_l4.lower())
 check('L4 has trigger words', 'computer' in p_l4)
 check('L4 has onset weights', '/c/' in p_l4)
 check('L4 longer than L2', len(p_l4) > len(p_l2))
@@ -245,26 +245,17 @@ try:
     check('L2 FAST: tone preserved', r2['tone'] == 'professional')
     check('L2 FAST: layer preserved', r2['layer'] == 2)
 
-    # L2 SAFE mode — 2 API calls (reconstruct + falcon)
+    # L2 SAFE mode — falcon_validate retired 2026-05-10 (stub returns True).
+    # Only the reconstruction call hits the API now; the cross-provider
+    # validation roundtrip was removed across both lavrentiy.py and wim/api/.
     R.client = FakeClient()
     r3 = R.reconstruct_intent('um hello world', tone='casual', layer=2, mode='SAFE')
-    check('L2 SAFE: 2 API calls (reconstruct + falcon)', len(R.client.chat.completions.calls) == 2)
-    check('L2 SAFE: falcon_ok = True', r3['falcon_ok'] is True)
+    check('L2 SAFE: 1 API call (falcon retired)', len(R.client.chat.completions.calls) == 1)
+    check('L2 SAFE: falcon_ok = True (stub)', r3['falcon_ok'] is True)
 
-    # SAFE mode with falcon rejection
-    class FakeCompletionsReject(FakeCompletions):
-        def create(self, **kwargs):
-            self.calls.append(kwargs)
-            if kwargs.get('max_tokens') == 5:
-                return FakeResponse('no')  # falcon rejects
-            return FakeResponse('Completely wrong output that changes meaning.')
-
-    R.client = FakeClient()
-    R.client.chat.completions = FakeCompletionsReject()
-    r4 = R.reconstruct_intent('I want to go to the store', tone='casual', layer=2, mode='SAFE')
-    check('falcon reject: falcon_ok = False', r4['falcon_ok'] is False)
-    check('falcon reject: falls back to strip_disfluencies', r4['clean'] != 'Completely wrong output that changes meaning.')
-    check('falcon reject: low confidence', r4['confidence'] == 0.3)
+    # Falcon-rejection scenarios are no longer reachable — stub always returns
+    # True. Prior tests at this location (falcon_ok=False / strip_disfluencies
+    # fallback / confidence=0.3) were removed when Falcon retired.
 
     # L3 with profile
     R.client = FakeClient()
@@ -283,7 +274,7 @@ try:
     r6 = R.reconstruct_intent('hello', layer=4, mode='FAST', profile={'trigger_words': ['hello']})
     api_call = R.client.chat.completions.calls[0]
     check('L4: uses MODEL_L4', api_call['model'] == R.MODEL_L4)
-    check('L4: prompt has stutter context', 'stutter' in api_call['messages'][0]['content'].lower())
+    check('L4: prompt has disfluency context', 'disfluency' in api_call['messages'][0]['content'].lower())
 
     # Whisper signals forwarded
     R.client = FakeClient()
@@ -444,13 +435,9 @@ check('professional temp = 0.15', R.TONE_TEMP.get('professional') == 0.15)
 check('casual temp = 0.35', R.TONE_TEMP.get('casual') == 0.35)
 check('friend temp = 0.4', R.TONE_TEMP.get('friend') == 0.4)
 
-# Falcon prompt format — backend uses "Original:" / "Reconstruction:"
-R.client = FakeClient()
-R.reconstruct_intent('test input', layer=2, mode='SAFE')
-falcon_call = R.client.chat.completions.calls[-1]  # last call is falcon
-falcon_user_msg = falcon_call['messages'][-1]['content']
-check('falcon uses "Original:" label', 'Original:' in falcon_user_msg)
-check('falcon uses "Reconstruction:" label', 'Reconstruction:' in falcon_user_msg)
+# Falcon prompt format — falcon_validate retired 2026-05-10 (stub returns
+# True), no separate falcon prompt to inspect. Prior assertions for
+# "Original:" / "Reconstruction:" labels removed.
 R.client = original_client
 
 # build_prompt includes profile fields when provided (backend must receive these)

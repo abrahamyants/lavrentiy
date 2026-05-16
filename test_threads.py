@@ -4,7 +4,7 @@ Verifies no corruption when multiple threads hit _shadow_history,
 _onset_anomalies, stats, preview_state, and the learn loop concurrently.
 No API keys, no audio, no Win32.
 """
-import re, json, sys, ast, time, io, threading
+import re, json, sys, ast, time, io, threading, os
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 from pathlib import Path
@@ -17,7 +17,7 @@ tree = ast.parse(source)
 lines = source.split('\n')
 
 ns = {
-    're': re, 'json': json, 'time': time,
+    're': re, 'json': json, 'time': time, 'os': os,
     'datetime': datetime, 'timedelta': timedelta,
     'Path': Path, 'difflib': __import__('difflib'),
     'threading': threading,
