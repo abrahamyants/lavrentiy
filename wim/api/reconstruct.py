@@ -24,8 +24,11 @@ import openai
 from prompt_builder import build_prompt, TONE_TEMP, TONE_RULES, SITUATION_SEVERITY
 
 # ─── Config ───
-MODEL = os.environ.get("WIM_MODEL", "gpt-4o")
-MODEL_L4 = os.environ.get("WIM_MODEL_L4", "gpt-4o")
+# Model pinned to a specific snapshot so silent OpenAI version drift can't
+# change reconstruction behavior without us noticing. Override via env when
+# A/B-testing newer snapshots.
+MODEL = os.environ.get("WIM_MODEL", "gpt-4o-2024-11-20")
+MODEL_L4 = os.environ.get("WIM_MODEL_L4", "gpt-4o-2024-11-20")
 API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
 # Try reading from api_key.txt (same dir as this file, or parent)
@@ -38,7 +41,10 @@ if not API_KEY:
             API_KEY = open(p).read().strip()
             break
 
-client = openai.OpenAI(api_key=API_KEY) if API_KEY else None
+# timeout=20s: Cloud Function default is 60s but we want a hard cap well below
+# that so a slow OpenAI call doesn't burn the full CF window. max_retries=2:
+# transient 5xx/429s self-recover without surfacing to the client.
+client = openai.OpenAI(api_key=API_KEY, timeout=20.0, max_retries=2) if API_KEY else None
 
 # ─── Bilingual filler set ───
 _STRIP_FILLERS = {
@@ -156,6 +162,11 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
 
     temp = TONE_TEMP.get(tone, 0.3)
     use_model = MODEL_L4 if layer >= 4 else MODEL
+    # L4 clinical reconstructions can run long when the clinical block paints
+    # detailed disfluency context; 1000 tokens occasionally truncated mid-sentence.
+    # L2/L3 are short rewrites that almost never exceed 1000 tokens, so kept tight
+    # to avoid the model padding output.
+    max_out = 4000 if layer >= 4 else 1000
 
     resp = client.chat.completions.create(
         model=use_model,
@@ -163,7 +174,7 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": raw_text}
         ],
-        max_tokens=1000,
+        max_tokens=max_out,
         temperature=temp
     )
     clean_text = resp.choices[0].message.content.strip()

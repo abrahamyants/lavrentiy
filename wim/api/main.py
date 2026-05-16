@@ -18,6 +18,7 @@ Body: {
 """
 
 import json
+import logging
 import os
 import time
 
@@ -26,6 +27,19 @@ from google.cloud import firestore
 from firebase_admin import auth, initialize_app
 
 from reconstruct import reconstruct_intent
+
+# Structured logging — Cloud Run / Functions parses JSON lines on stdout into
+# Cloud Logging fields. INFO level for normal flow, ERROR for failures.
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+
+def _emit(level, **fields):
+    """Emit a single JSON-shaped log line for Cloud Logging structured search."""
+    try:
+        logging.log(level, json.dumps(fields, default=str))
+    except Exception:
+        # Never let logging itself break a request.
+        pass
 
 # Initialize Firebase Admin (uses default GCP credentials)
 try:
@@ -233,20 +247,67 @@ def handle(request):
     if not ok:
         return rate_err
 
-    # Process
-    result = reconstruct_intent(
-        raw_text=raw,
-        tone=body.get("tone", "casual"),
+    # Process — wrap so the client sees a structured retriable/terminal
+    # signal instead of an opaque body-less 500. retriable=True covers
+    # OpenAI timeouts, rate-limit 429s, and transient 5xx. Anything else
+    # is reported as a terminal app-level error.
+    t_call = time.time()
+    try:
+        result = reconstruct_intent(
+            raw_text=raw,
+            tone=body.get("tone", "casual"),
+            layer=requested_layer,
+            profile=body.get("profile"),
+            situation=body.get("situation", "default"),
+            mode=body.get("mode", "SAFE"),
+            whisper_low_conf=body.get("whisper_low_conf"),
+            whisper_disagreements=body.get("whisper_disagreements"),
+            speech_severity_mod=body.get("speech_severity_mod", 0.0),
+            paralinguistic_events=body.get("paralinguistic_events"),
+            prosodic_context=body.get("prosodic_context"),
+            language_code=body.get("language_code", "en"),
+        )
+    except Exception as e:
+        latency_ms = round((time.time() - t_call) * 1000)
+        # OpenAI SDK exceptions are subclassed by retryability — APITimeoutError
+        # and RateLimitError are retriable; APIStatusError ≥500 is retriable;
+        # 4xx (excluding 429) is terminal. We don't import openai exception
+        # types directly to keep this file robust to SDK reshuffles, so we
+        # introspect by name + status_code attribute when available.
+        retriable = False
+        status_code = getattr(e, "status_code", None)
+        exc_name = type(e).__name__
+        if exc_name in ("APITimeoutError", "APIConnectionError", "RateLimitError"):
+            retriable = True
+        elif status_code is not None and status_code >= 500:
+            retriable = True
+        _emit(
+            logging.ERROR,
+            event="reconstruct_failed",
+            uid=uid,
+            layer=requested_layer,
+            latency_ms=latency_ms,
+            exception=exc_name,
+            error=str(e)[:300],
+            retriable=retriable,
+        )
+        body_out = {
+            "error": f"Reconstruction failed: {exc_name}",
+            "retriable": retriable,
+            "tier": tier_config["name"],
+        }
+        http_code = 503 if retriable else 500
+        return (json.dumps(body_out), http_code, CORS_HEADERS)
+
+    latency_ms = round((time.time() - t_call) * 1000)
+    _emit(
+        logging.INFO,
+        event="reconstruct_ok",
+        uid=uid,
         layer=requested_layer,
-        profile=body.get("profile"),
-        situation=body.get("situation", "default"),
-        mode=body.get("mode", "SAFE"),
-        whisper_low_conf=body.get("whisper_low_conf"),
-        whisper_disagreements=body.get("whisper_disagreements"),
-        speech_severity_mod=body.get("speech_severity_mod", 0.0),
-        paralinguistic_events=body.get("paralinguistic_events"),
-        prosodic_context=body.get("prosodic_context"),
-        language_code=body.get("language_code", "en"),
+        latency_ms=latency_ms,
+        model="gpt-4o-2024-11-20" if requested_layer < 4 else "gpt-4o-2024-11-20",
+        mode=result.get("mode"),
     )
 
     result["tier"] = tier_config["name"]
