@@ -208,7 +208,10 @@ WHISPER_MULTI_TEMPS = [0.0, 0.2, 0.4]  # Temperature schedule for voting passes
 PATIENCE_DEFAULT = 2.0   # seconds — normal silence threshold
 PATIENCE_STUTTER = 4.5   # seconds — Layer 4 / High Stress
 LOCAL_WHISPER = True                 # L1 ASR runs locally (no cloud fallback at L1 — local layers stay local).
-LOCAL_WHISPER_MODEL_SIZE = "base"    # legacy arg, ignored by faster-whisper (size set via LAV_FW_MODEL_SIZE)
+# LOCAL_WHISPER_MODEL_SIZE constant removed 2026-05-16. Was passed positionally
+# to _local_transcribe_fn at 4 call sites but ignored by fw_local.py — the
+# actual model size is resolved from LAV_FW_MODEL_SIZE env var inside
+# local/fw_local.py at load time. Callers now omit the 5th arg entirely.
 
 # L1 source toggle: when True, route L1 transcription through cloud whisper-1
 # instead of the local engine. Same model family at both endpoints — the toggle
@@ -2031,7 +2034,7 @@ def calibration_save_audio(prompt_id, audio_data, sample_rate):
     whisper_raw = ""
     try:
         if _local_transcribe_fn is not None:
-            r = _local_transcribe_fn(str(wav_path), 0.0, None, LANGUAGE, LOCAL_WHISPER_MODEL_SIZE)
+            r = _local_transcribe_fn(str(wav_path), 0.0, None, LANGUAGE)
             whisper_raw = r["text"]
             stats_inc("local_transcriptions")
         else:
@@ -2305,7 +2308,7 @@ def augment_calibration_data():
                 whisper_raw = ""
                 try:
                     if _local_transcribe_fn is not None:
-                        r = _local_transcribe_fn(str(wav_path), 0.0, None, LANGUAGE, LOCAL_WHISPER_MODEL_SIZE)
+                        r = _local_transcribe_fn(str(wav_path), 0.0, None, LANGUAGE)
                         whisper_raw = r["text"]
                         stats_inc("local_transcriptions")
                     else:
@@ -5127,7 +5130,7 @@ def _whisper_single_call(filepath, temperature, prompt_text, max_retries=3):
     last_err = None
     for attempt in range(max_retries):
         try:
-            result = _local_transcribe_fn(filepath, temperature, prompt_text, LANGUAGE, LOCAL_WHISPER_MODEL_SIZE)
+            result = _local_transcribe_fn(filepath, temperature, prompt_text, LANGUAGE)
             stats_inc("local_transcriptions")
             return result
         except Exception as e:
@@ -9017,7 +9020,7 @@ def _prewarm_l1():
                 _sf.write(_tmp.name, _silence, 16000)
                 _tmp_path = _tmp.name
             try:
-                _local_transcribe_fn(_tmp_path, 0.0, None, LANGUAGE, LOCAL_WHISPER_MODEL_SIZE)
+                _local_transcribe_fn(_tmp_path, 0.0, None, LANGUAGE)
                 print("faster-whisper pre-warmed")
             finally:
                 try: os.unlink(_tmp_path)
