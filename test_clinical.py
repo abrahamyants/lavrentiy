@@ -75,7 +75,7 @@ ns['learn_events'] = []
 ns['HOLD_ON_HIGH_RISK'] = False
 
 # Stub save_profile (no-op for tests)
-ns['save_profile'] = lambda prof: None
+ns['save_profile'] = lambda prof, _epoch=None: None
 
 # Stub db_session_count (controllable)
 _mock_session_count = [50]

@@ -233,7 +233,7 @@ ns['PROFILE_DIR'] = _test_cal_dir.parent
 # Stubs
 ns['log'] = lambda msg, level='info': None
 ns['stats_inc'] = lambda key, n=1: None
-ns['save_profile'] = lambda prof: None
+ns['save_profile'] = lambda prof, _epoch=None: None
 ns['db_session_count'] = lambda: 50
 ns['db_get_sessions'] = lambda limit=50: []
 def _stub_daf_start(ms=None):

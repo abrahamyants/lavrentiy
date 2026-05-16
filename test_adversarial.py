@@ -65,7 +65,7 @@ ns['current_mode'] = 'SAFE'
 ns['current_situation'] = 'default'
 ns['HOLD_ON_HIGH_RISK'] = False
 ns['_DANGLING'] = re.compile(r'(?:,|\band\s*$|\bor\s*$|\bbut\s*$|\.{2}(?!\.)|\bthe\s*$)', re.IGNORECASE)
-ns['save_profile'] = lambda prof: None
+ns['save_profile'] = lambda prof, _epoch=None: None
 # Thread locks (needed by functions that now use locking)
 import threading
 ns['threading'] = threading

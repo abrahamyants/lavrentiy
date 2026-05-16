@@ -80,7 +80,7 @@ ns['preview_state'] = {"active": False, "text": "", "final_text": "", "updated_a
 
 # Stubs
 ns['log'] = lambda msg, level='info': None
-ns['save_profile'] = lambda prof: None
+ns['save_profile'] = lambda prof, _epoch=None: None
 ns['db_session_count'] = lambda: 50
 
 # Extract functions
@@ -602,6 +602,86 @@ with _http_lock:
     final = dict(_http_state)
 check('final state is consistent',
       final['layer'] in (1,2,3,4) and final['mode'] in ('RAW','FAST','SAFE'))
+
+
+# ============================================================
+# TEST 9: M-1 — profile-switch epoch rejects stale bg-thread writes
+# ============================================================
+print()
+print('=== TEST 9: M-1 epoch plumbing rejects stale bg writes ===')
+
+# Build a minimal save_profile + add_trigger_words harness with a writable
+# counter so we can prove the epoch check fires. Mirrors production code at
+# lavrentiy.py:1316 (save_profile) and 3870 (add_trigger_words).
+_m1_epoch = 0
+_m1_writes = []  # records of every (epoch_at_save, contents)
+
+def _m1_save_profile(prof, _epoch=None):
+    """Production-equivalent save_profile epoch gate."""
+    if _epoch is not None and _epoch != _m1_epoch:
+        return  # stale — discard
+    _m1_writes.append((_m1_epoch, json.dumps(prof, sort_keys=True)))
+
+def _m1_add_trigger_words(new_triggers, prof, _epoch=None):
+    """Production-equivalent add_trigger_words epoch through-pass."""
+    existing = {w.lower() for w in prof.get("trigger_words", [])}
+    added = []
+    for w in new_triggers:
+        if w.lower() not in existing:
+            prof.setdefault("trigger_words", []).append(w)
+            existing.add(w.lower())
+            added.append(w)
+    if added:
+        _m1_save_profile(prof, _epoch=_epoch)
+    return added
+
+# Scenario A: bg thread captures epoch, no switch, save should happen.
+_m1_epoch = 5
+prof_a = {"trigger_words": []}
+_m1_add_trigger_words(["alpha"], prof_a, _epoch=5)
+check('M-1 epoch matches → save persists', len(_m1_writes) == 1)
+check('M-1 saved word is alpha',
+      'alpha' in _m1_writes[-1][1])
+
+# Scenario B: bg thread captures epoch, switch happens, save should bail.
+_m1_writes.clear()
+_m1_epoch = 5
+prof_b = {"trigger_words": []}
+# Simulate the race: bg thread launched at epoch=5, switch_profile fires,
+# then bg thread completes its work and tries to save with stale epoch.
+_m1_epoch = 6
+_m1_add_trigger_words(["beta"], prof_b, _epoch=5)
+check('M-1 epoch mismatch → save discarded', len(_m1_writes) == 0)
+check('M-1 prof object was still mutated in-memory (expected — only persist is gated)',
+      prof_b.get("trigger_words") == ["beta"])
+
+# Scenario C: foreground caller (no _epoch) — never gated, always saves.
+_m1_writes.clear()
+_m1_epoch = 7
+prof_c = {"trigger_words": []}
+_m1_add_trigger_words(["gamma"], prof_c)  # no _epoch passed
+check('M-1 foreground (no _epoch) → save persists', len(_m1_writes) == 1)
+
+# Verify the production add_trigger_words signature now accepts _epoch.
+prod_atw = re.search(r'def add_trigger_words\((.*?)\):', source, re.DOTALL)
+check('production add_trigger_words has _epoch param',
+      prod_atw is not None and '_epoch' in prod_atw.group(1))
+
+prod_lfs = re.search(r'def learn_from_sessions\((.*?)\):', source, re.DOTALL)
+check('production learn_from_sessions has _epoch param',
+      prod_lfs is not None and '_epoch' in prod_lfs.group(1))
+
+prod_dec = re.search(r'def decay_stale_profile_entries\((.*?)\):', source, re.DOTALL)
+check('production decay_stale_profile_entries has _epoch param',
+      prod_dec is not None and '_epoch' in prod_dec.group(1))
+
+# Verify bg-thread call sites pass _epoch through.
+check('_bg_trigger_detect passes _epoch=epoch',
+      'add_trigger_words(detect_triggers_llm(rt, out, prof), prof, _epoch=epoch)' in source)
+check('_bg_learn passes _epoch=epoch',
+      'learn_from_sessions(prof, _epoch=epoch)' in source)
+check('_bg_decay passes _epoch=epoch',
+      'decay_stale_profile_entries(prof, _epoch=epoch)' in source)
 
 
 # ============================================================

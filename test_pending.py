@@ -123,7 +123,7 @@ ns['HOLD_ON_HIGH_RISK'] = False
 # Controllable stubs
 _mock_session_count = [50]
 ns['db_session_count'] = lambda: _mock_session_count[0]
-ns['save_profile'] = lambda prof: None
+ns['save_profile'] = lambda prof, _epoch=None: None
 ns['stats_inc'] = lambda key, n=1: None
 
 # Load target functions (and their dependencies)

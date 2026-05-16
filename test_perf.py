@@ -110,7 +110,7 @@ ns['stats'] = {'api_calls': 0, 'sessions': 50, 'falcon_rejects': 0,
                'words': 0, 'chars': 0, 'start_time': time.time(),
                'multi_temp_votes': 0, 'multi_temp_disagreements': 0}
 ns['learn_events'] = []
-ns['save_profile'] = lambda prof: None
+ns['save_profile'] = lambda prof, _epoch=None: None
 ns['stats_inc'] = lambda key, n=1: None
 ns['db_session_count'] = lambda: 50
 ns['REDO_SIMILARITY_THRESHOLD'] = 0.7

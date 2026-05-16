@@ -78,7 +78,13 @@ check('L3 includes corrections', 'Duncan' in p_l3 or 'Dankeschoen' in p_l3)
 check('L4 has disfluency context', 'disfluency' in p_l4.lower())
 check('L4 has trigger words', 'computer' in p_l4)
 check('L4 has onset weights', '/c/' in p_l4)
-check('L4 longer than L2', len(p_l4) > len(p_l2))
+# L4 has the clinical taxonomy that L2 lacks (HARDEST PHONEMES, overt/covert,
+# anticipatory behavior, lang few-shot). L2 has the generic restate/Strunk
+# block that L4 skips. After H-4 unification, the L2 block grew (full Strunk,
+# anti-censoring, no-markdown, single-line) so the prompts are closer in
+# size; the meaningful invariant is L4-specific clinical content presence.
+check('L4 has clinical phoneme content', 'HARDEST PHONEMES' in p_l4)
+check('L2 has prose-restate scaffolding', 'ALWAYS RESTATE' in p_l2)
 
 print()
 print('=== TEST 4: build_prompt — situations ===')
@@ -477,6 +483,72 @@ check('accepts speech_severity_mod', 'speech_severity_mod' in params)
 check('accepts situation', 'situation' in params)
 check('accepts mode', 'mode' in params)
 check('accepts profile', 'profile' in params)
+
+
+# ============================================================
+# H-4 REGRESSION: shared prompt-builder is single source of truth
+# ============================================================
+print()
+print('=== H-4: prompt_builder is sole source — drift-prevention ===')
+
+# Import the shared builder directly and verify reconstruct.build_prompt is
+# the same callable. If someone re-introduces a local build_prompt in
+# wim/api/reconstruct.py without going through prompt_builder, this fails.
+import prompt_builder as PB
+check('R.build_prompt IS prompt_builder.build_prompt',
+      R.build_prompt is PB.build_prompt)
+check('R.TONE_TEMP IS prompt_builder.TONE_TEMP',
+      R.TONE_TEMP is PB.TONE_TEMP)
+check('R.SITUATION_SEVERITY IS prompt_builder.SITUATION_SEVERITY',
+      R.SITUATION_SEVERITY is PB.SITUATION_SEVERITY)
+
+# Specific rules required at L2/L3 that drifted out of WiM CF pre-H-4.
+# These are non-negotiable product correctness assertions — if any of these
+# disappear from the L2/L3 prompt, the CF will silently start softening
+# profanity, emitting markdown, or returning multi-line output.
+p_l2 = PB.build_prompt('I need to fucking go to the store', tone='professional', layer=2)
+check('L2 has anti-censoring rule',
+      "Do NOT censor, sanitize, or soften" in p_l2)
+check('L2 has no-Markdown rule',
+      "no asterisks, no backticks" in p_l2)
+check('L2 has single-line output rule',
+      "Output exactly one line" in p_l2)
+check('L2 has no-preamble rule',
+      "Do not include any preamble" in p_l2)
+check('L2 has full active-voice example',
+      'John threw the ball' in p_l2)
+check('L2 has subject-verb-close-together rule',
+      'Keep subject and verb close together' in p_l2)
+check('L2 has everyday-words rule',
+      'Use everyday words' in p_l2)
+check('L2 has simple-active-declarative rule',
+      'simple, active, affirmative, declarative' in p_l2)
+check('L2 has "let me rephrase" self-correction marker',
+      'let me rephrase' in p_l2)
+check('L2 has DO-NOT-summarize hard rule',
+      "DO NOT summarize away content" in p_l2)
+check('L2 has PRESERVE-intent hard rule',
+      "PRESERVE the speaker's intent and the substance" in p_l2)
+
+# Cross-session memory (L3+) renders only when supplied — not on bare L3.
+p_l3 = PB.build_prompt(
+    'hello', tone='casual', layer=3,
+    profile={'vocabulary': ['Kubernetes']},
+    prior_rejections=['some rejected output'],
+    style_examples=[{'raw': 'r', 'output': 'o'}],
+)
+check('L3 renders prior_rejections when supplied',
+      'PERSISTENT REJECTION HISTORY' in p_l3)
+check('L3 renders style_examples when supplied',
+      'USER STYLE EXAMPLES' in p_l3)
+
+# WiM CF passes None for the lavrentiy-only kwargs; those sections must
+# vanish completely (CF doesn't have a rejection_store).
+p_l3_bare = PB.build_prompt('hello', tone='casual', layer=3, profile={})
+check('L3 bare (CF path) omits prior_rejections section',
+      'PERSISTENT REJECTION HISTORY' not in p_l3_bare)
+check('L3 bare (CF path) omits style_examples section',
+      'USER STYLE EXAMPLES' not in p_l3_bare)
 
 
 # ============================================================
