@@ -3,7 +3,7 @@ Tests for the 9 functions that had zero test coverage.
 Uses the same ast.parse extraction pattern as test_core.py / test_clinical.py.
 No API keys, no audio hardware, no Win32.
 """
-import re, json, sys, ast, time, io, threading
+import re, json, sys, ast, time, io, threading, os
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 from pathlib import Path
@@ -17,10 +17,12 @@ lines = source.split('\n')
 
 # Build namespace with needed constants
 ns = {
-    're': re, 'json': json, 'time': time,
+    're': re, 'json': json, 'time': time, 'os': os,
     'datetime': datetime, 'timedelta': timedelta,
     'Path': Path, 'difflib': __import__('difflib'),
     'threading': threading,
+    # Globals from lavrentiy.py module scope that extracted functions reference.
+    '_profile_lock': threading.Lock(),
 }
 
 # Load constants block (LANGUAGE through _personal_onset_weights_by_lang)
@@ -763,17 +765,20 @@ if insights_fn:
     check('evidence has triggers', 'triggers' in tc['evidence'])
     check('evidence has count', 'count' in tc['evidence'])
 
-    # High filler load: >=5 learned fillers beyond baseline
-    # Baseline = union of KNOWN_FILLERS values + DEFAULT_PROFILE filler_words (typically ~24)
-    # Need len(filler_words) - baseline >= 5, so add many unique fillers beyond baseline
-    baseline_fillers = list(ns['DEFAULT_PROFILE']['filler_words'])
-    # Add enough unique non-baseline fillers to exceed threshold
-    extra = baseline_fillers + [
-        "basically", "honestly", "literally", "whatever", "right",
-        "actually", "seriously", "totally", "obviously", "definitely",
-        "clearly", "frankly", "certainly", "apparently", "presumably",
-        "supposedly", "arguably", "admittedly", "incidentally", "reportedly",
-    ]
+    # High filler load: >=5 learned fillers beyond baseline.
+    # Production baseline = set(KNOWN_FILLERS values | DEFAULT_PROFILE['filler_words'])
+    # — typically ~40+ unique tokens. Real English fillers ("basically",
+    # "honestly", "literally", etc.) often overlap with KNOWN_FILLERS and
+    # silently undershoot the threshold. Use guaranteed-non-baseline tokens
+    # so the math is always correct regardless of how KNOWN_FILLERS evolves.
+    known_lower = set(f.lower() for lang_fillers in ns['KNOWN_FILLERS'].values() for f in lang_fillers)
+    default_lower = set(f.lower() for f in ns['DEFAULT_PROFILE']['filler_words'])
+    baseline_set = known_lower | default_lower
+    # Need len(extra) - len(baseline_set) >= 5. baseline is ~40-50 in practice,
+    # so generate enough synthetic tokens that the math always clears.
+    synthetic_extras = [f"zzfiller{i:03d}zz" for i in range(60)]
+    assert all(s not in baseline_set for s in synthetic_extras)
+    extra = list(default_lower) + synthetic_extras
     r = insights_fn({"trigger_words": [], "filler_words": extra, "corrections": {}})
     ids = [i['id'] for i in r]
     check('high_filler_load detected', 'high_filler_load' in ids)

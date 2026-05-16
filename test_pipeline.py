@@ -3,7 +3,7 @@ Pipeline integration tests: function chaining, decision routing, critical token 
 Tests the wiring between pipeline stages that unit tests miss.
 Uses the same ast.parse extraction pattern. No API keys, no audio, no Win32.
 """
-import re, json, sys, ast, time, io, threading
+import re, json, sys, ast, time, io, threading, os
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 from pathlib import Path
@@ -15,12 +15,15 @@ with open('lavrentiy.py', 'r', encoding='utf-8') as f:
 tree = ast.parse(source)
 lines = source.split('\n')
 
-# Build namespace with needed constants
+# Build namespace with needed constants. `os` is required because the
+# extracted LANGUAGE→_personal_onset_weights_by_lang config block contains
+# `LOCAL_FW_MODEL_SIZE = os.environ.get(...)` and several siblings.
 ns = {
-    're': re, 'json': json, 'time': time,
+    're': re, 'json': json, 'time': time, 'os': os,
     'datetime': datetime, 'timedelta': timedelta,
     'Path': Path, 'difflib': __import__('difflib'),
     'threading': threading,
+    '_profile_lock': threading.Lock(),
 }
 
 # Load constants block (LANGUAGE through _personal_onset_weights_by_lang)
