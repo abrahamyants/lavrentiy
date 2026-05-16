@@ -225,7 +225,6 @@ L1_CLOUD_ASR = True
 LOCAL_FW_MODEL_SIZE = os.environ.get("LAV_FW_MODEL_SIZE", "large-v3-turbo")  # faster-whisper primary (real Whisper, full verbose JSON)
 LOCAL_FW_COMPUTE_TYPE = os.environ.get("LAV_FW_COMPUTE_TYPE", "int8")         # CPU-friendly quantization
 LOCAL_FW_DEVICE = os.environ.get("LAV_FW_DEVICE", "cpu")                       # target eval hardware
-LOCAL_LLM_MODEL = os.environ.get("LAV_LOCAL_LLM", "llama3.2:3b-instruct-q4_K_M")  # L2/L3 brain
 # Local ASR: faster-whisper only (Moonshine + Vosk retired 2026-04-30).
 # Dispatcher in local/asr_local.py exposes the same `transcribe` signature
 # the call sites use. If the import fails (missing faster-whisper install),
@@ -236,16 +235,11 @@ try:
 except ImportError:
     _local_transcribe_fn = None
 
-# Local LLM for L2/L3 reconstruction (Gemma via Ollama). L4 stays on cloud
-# GPT-4o. If the local LLM isn't available or returns None, L2/L3 fall
-# back to the pre-cleaned raw text (strip_disfluencies + profile corrections)
-# rather than the cloud — per the "local layers stay local" principle.
-try:
-    from local.llm_local import complete as _local_llm_complete  # noqa: F401
-    from local.llm_local import is_available as _local_llm_available  # noqa: F401
-except ImportError:
-    _local_llm_complete = None
-    _local_llm_available = lambda: False  # noqa: E731
+# Local LLM L2/L3 reconstruction (Gemma 2 2B via Ollama, then Llama 3.2 3B)
+# was retired April 24 2026 after the 3B model's latency proved untenable
+# for live dictation. L2/L3 now go straight to cloud GPT-4o, L4 to Sonnet ET.
+# The previous imports, helpers (_postprocess_local_llm + regex set), and
+# LOCAL_LLM_MODEL constant were removed 2026-05-16 as dead code.
 
 LAVRENTIY_DIR = Path.home() / ".lavrentiy"
 PROFILES_ROOT = LAVRENTIY_DIR / "profiles"
@@ -2740,68 +2734,10 @@ def log(text, kind="info"):
     except Exception:
         pass
 
-# -- Post-processing for local-LLM chattiness ───────────────────
-# Small local models (Llama 3.2 3B, Qwen 2.5 3B, Gemma 2 2B) add preambles
-# ("Here's the cleaned sentence:"), markdown bold/emphasis, bullet lists,
-# and emojis despite system-prompt instructions to output plain text.
-# Any of that pastes into the user's active app. Strip deterministically.
-_MD_BOLD_RE = re.compile(r'\*\*([^*]+)\*\*')
-_MD_ITAL_RE = re.compile(r'(?<!\*)\*([^*\n]+)\*(?!\*)')
-_MD_CODE_RE = re.compile(r'`([^`]+)`')
-_MD_HEADER_RE = re.compile(r'^#{1,6}\s+', re.MULTILINE)
-_MD_BULLET_RE = re.compile(r'^\s*[-*+]\s+', re.MULTILINE)
-_EMOJI_RE = re.compile(
-    "["
-    "\U0001F600-\U0001F64F"
-    "\U0001F300-\U0001F5FF"
-    "\U0001F680-\U0001F6FF"
-    "\U0001F700-\U0001F77F"
-    "\U0001F780-\U0001F7FF"
-    "\U0001F800-\U0001F8FF"
-    "\U0001F900-\U0001F9FF"
-    "\U0001FA00-\U0001FA6F"
-    "\U0001FA70-\U0001FAFF"
-    "\U00002702-\U000027B0"
-    "\U000024C2-\U0001F251"
-    "]+", flags=re.UNICODE
-)
-_PREAMBLE_RE = re.compile(
-    r"^(here(?:'s| is)?|the cleaned(?:[-\s]up)? (?:sentence|text)|cleaned(?:[-\s]up)?|reconstructed|output|result)[^\n]*[:.]\s*",
-    re.IGNORECASE
-)
-
-
-def _postprocess_local_llm(text):
-    """Strip small-model chattiness before the output reaches the paste target.
-    Takes first non-empty line, removes preamble/markdown/emoji, normalizes
-    whitespace. Returns empty string if nothing meaningful remains (caller
-    falls back to raw L1 text)."""
-    if not text:
-        return text
-    t = text.strip()
-    # First non-empty line is the answer. If the model wrote multiple
-    # paragraphs, the rest is commentary.
-    lines = [ln for ln in t.split("\n") if ln.strip()]
-    if not lines:
-        return ""
-    t = lines[0]
-    # Strip preamble ("Here's the cleaned sentence:")
-    t = _PREAMBLE_RE.sub("", t, count=1)
-    # Strip surrounding quotes that models love to add
-    if len(t) >= 2 and t[0] in '"“\'' and t[-1] in '"”\'':
-        t = t[1:-1]
-    # Strip markdown formatting
-    t = _MD_BOLD_RE.sub(r'\1', t)
-    t = _MD_ITAL_RE.sub(r'\1', t)
-    t = _MD_CODE_RE.sub(r'\1', t)
-    t = _MD_HEADER_RE.sub("", t)
-    t = _MD_BULLET_RE.sub("", t)
-    # Strip emojis
-    t = _EMOJI_RE.sub("", t)
-    # Normalize whitespace
-    t = re.sub(r'\s{2,}', ' ', t).strip()
-    return t
-
+# Local-LLM post-processing helpers (markdown / emoji / preamble strippers)
+# were removed 2026-05-16 along with the local-LLM imports — see note at
+# the import section above. L2/L3 reconstruction now runs exclusively on
+# cloud GPT-4o, which doesn't emit small-model chattiness.
 
 # -- LLM Calls ───────────────────────────────────────────────────
 def reconstruct(raw_text, tone, layer, prof, situation=None,
