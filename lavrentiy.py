@@ -8933,81 +8933,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_error(404, 'Dashboard not found')
 
 
-# ── Native bridge: in-process dispatch into DashboardHandler routing ──────
-# The native PySide6 app does NOT bind an HTTP socket. It calls dispatch_api()
-# directly. _VirtualHandler subclasses DashboardHandler and overrides every
-# response/IO method so the existing if/elif routing in do_GET/do_POST runs
-# unchanged but writes its result into self._captured instead of a socket.
-class _VirtualHandler(DashboardHandler):
-    def __init__(self, path, body):
-        # Skip BaseHTTPRequestHandler.__init__ — it expects a socket. We set
-        # the few attributes the routing code actually reads.
-        self.path = path
-        self._captured = None
-        self._captured_status = 200
-        self._body_bytes = json.dumps(body).encode('utf-8') if body else b''
-        self.headers = {
-            'Content-Length': str(len(self._body_bytes)),
-            'Origin': '',
-        }
-
-    def _read_body(self):
-        if not self._body_bytes:
-            return {}
-        try:
-            return json.loads(self._body_bytes)
-        except (json.JSONDecodeError, ValueError):
-            return None
-
-    def _json(self, data):
-        self._captured = data
-
-    def _serve_file(self, path, content_type):
-        # Native window loads dashboard.html via file:// directly, so this
-        # path is rare — but we still capture in case any /api/* handler
-        # routes through it.
-        try:
-            with open(path, 'rb') as f:
-                self._captured = {'__file__': str(path), '__mime__': content_type,
-                                  '__bytes_b64__': __import__('base64').b64encode(f.read()).decode('ascii')}
-        except FileNotFoundError:
-            self._captured = {'error': 'not_found'}
-            self._captured_status = 404
-
-    def send_response(self, code, *_):
-        self._captured_status = code
-
-    def send_header(self, *_args, **_kw):
-        pass
-
-    def end_headers(self):
-        pass
-
-    def send_error(self, code, msg=''):
-        self._captured = {'error': msg, 'status': code}
-        self._captured_status = code
-
-
-def dispatch_api(method: str, path: str, body):
-    """Route a request through DashboardHandler without an HTTP socket.
-
-    Called by native/lavrentiy_app.py via the QWebChannel Bridge.
-    Returns the dict that would have been sent as JSON.
-    """
-    h = _VirtualHandler(path, body)
-    m = (method or 'GET').upper()
-    try:
-        if m == 'POST':
-            h.do_POST()
-        elif m == 'OPTIONS':
-            h.do_OPTIONS()
-        else:
-            h.do_GET()
-    except Exception as e:
-        return {'error': f'{type(e).__name__}: {e}', 'status': 500}
-    if h._captured is None:
-        return {'error': 'no response', 'status': h._captured_status}
-    return h._captured
+# Dead-code removal 2026-05-16: a 3-arg dispatch_api(method, path, body) plus
+# its _VirtualHandler(DashboardHandler) helper class previously lived here.
+# Python keeps the later 2-arg dispatch_api(path, body) definition (below in
+# this same file), which made the whole 75-line block permanently dead. The
+# only external caller — native/lavrentiy_app.py:27 — uses the 2-arg form
+# already. Architecture critic flagged this in the 2026-05-16 review.
 
 
 def run_dashboard():
