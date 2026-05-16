@@ -8254,66 +8254,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         body = self._read_body()
         if self.path == '/api/auth':
-            global _firebase_id_token, _auth_user
-            _action_str = (body or {}).get('action', 'NONE') if body else 'NO_BODY'
-            _has_token = bool((body or {}).get('id_token')) if body else False
-            log(f"[AUTH] /api/auth received: action={_action_str} has_token={_has_token}", "info")
-            if body and body.get('action') == 'sign_in' and body.get('id_token'):
-                _firebase_id_token = body['id_token']
-                _auth_user = {
-                    'email': body.get('email', ''),
-                    'displayName': body.get('displayName', ''),
-                    'uid': body.get('uid', ''),
-                }
-                log(f"Google Sign-In: {_auth_user.get('email', 'unknown')}", "info")
-                # Auto-switch to a profile linked to this Google account
-                email = body.get('email', '').strip()
-                if email:
-                    profile_name = email.split('@')[0]  # "george" from "george@gmail.com"
-                    try:
-                        log(f"[AUTH] step1: checking if profile '{profile_name}' exists", "info")
-                        existing = list_profiles()
-                        log(f"[AUTH] step2: existing profiles = {existing}", "info")
-                        if profile_name not in existing:
-                            log(f"[AUTH] step3: creating profile '{profile_name}'", "info")
-                            create_profile(profile_name)
-                            log(f"[AUTH] step4: created profile for {email}: {profile_name}", "info")
-                        log(f"[AUTH] step5: about to switch_profile('{profile_name}')", "info")
-                        switch_profile(profile_name)
-                        log(f"[AUTH] step6: switch_profile returned successfully", "info")
-                    except Exception as e:
-                        import traceback
-                        log(f"[AUTH] Profile switch FAILED: {type(e).__name__}: {e}", "error")
-                        log(f"[AUTH] Traceback: {traceback.format_exc()[:600]}", "error")
-                self._json({'signed_in': True, 'user': _auth_user, 'profile': _active_profile_name})
-            elif body and body.get('action') == 'sign_out':
-                _firebase_id_token = None
-                _auth_user = None
-                log("Google Sign-Out", "info")
-                # Switch back to Default profile
-                try:
-                    switch_profile("Default")
-                except Exception as e:
-                    log(f"Profile switch on sign-out failed: {e}", "error")
-                self._json({'signed_in': False, 'profile': _active_profile_name})
-            elif body and body.get('action') == 'refresh' and body.get('id_token'):
-                _firebase_id_token = body['id_token']
-                self._json({'signed_in': True, 'refreshed': True})
-            else:
-                self._json({'signed_in': is_authenticated(), 'user': _auth_user})
+            # Delegate to handle_POST_api_auth — single source of truth shared
+            # with the native bridge (dispatch_api). Inline duplicate removed
+            # 2026-05-16 (was byte-equivalent and had already almost leaked
+            # the CQ-P0-3 epoch-race bug back via drift, per audit H-2).
+            self._json(handle_POST_api_auth(body))
         elif self.path == '/api/open-signin':
-            # Open Google sign-in in the system default browser.
-            # Edge --app= mode + pywebview both register as embedded browsers and
-            # Google refuses OAuth there. Popping the real system browser lets
-            # OAuth complete normally; auth_google.html posts the token back to /api/auth.
-            import webbrowser
-            try:
-                opened = webbrowser.open('http://localhost:7878/auth/google', new=2)
-                log(f"[AUTH] /api/open-signin called — webbrowser.open returned {opened}", "info")
-                self._json({'ok': True, 'browser_opened': bool(opened)})
-            except Exception as e:
-                log(f"[AUTH] /api/open-signin EXCEPTION: {e}", "error")
-                self._json({'ok': False, 'error': str(e)[:200]})
+            # Same delegation pattern.
+            self._json(handle_POST_api_open_signin(body))
         elif self.path == '/api/tone':
             if body and isinstance(body.get('tone'), str):
                 set_tone(body['tone'])
