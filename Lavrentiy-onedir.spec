@@ -41,6 +41,10 @@ datas = [
     (str(REPO / 'domain_pack.py'),     '.'),
     (str(REPO / 'rejection_store.py'), '.'),
     (str(REPO / 'style_examples.py'),  '.'),
+    # H-4 unified prompt builder lives at wim/api/prompt_builder.py and is
+    # imported by lavrentiy.py via a runtime sys.path.append("wim/api").
+    # PyInstaller can't follow runtime path tricks — bundle it explicitly.
+    (str(REPO / 'wim' / 'api' / 'prompt_builder.py'), '.'),
     (str(REPO / 'dashboard.html'),     '.'),
     (str(REPO / 'onboard.html'),       '.'),
     (str(REPO / 'auth_google.html'),   '.'),
@@ -62,6 +66,7 @@ datas = [
 binaries = []
 hiddenimports = [
     'l1_pack', 'domain_pack', 'rejection_store', 'style_examples',
+    'prompt_builder',
     'local', 'local.asr_local', 'local.fw_local', 'local.llm_local',
     'scipy.signal',
     'pyperclip',
@@ -96,6 +101,17 @@ a = Analysis(
         'PySide6', 'PyQt5', 'PyQt6',
         'tkinter', 'matplotlib',
         'IPython', 'jupyter', 'notebook',
+        # v1.6.1 trim — none of these are imported by lavrentiy.py or its sibling
+        # modules. They were pulled in transitively via collect_all on ctranslate2 /
+        # onnxruntime / faster_whisper. Stripping ~470 MB of dead weight.
+        'torch', 'torchvision', 'torchaudio',
+        'transformers',
+        'numba',
+        'pyarrow',
+        'pandas',
+        'sklearn',
+        'tensorflow',
+        'cv2',
     ],
     noarchive=False,
     optimize=0,
