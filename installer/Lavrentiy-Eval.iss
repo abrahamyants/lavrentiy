@@ -101,10 +101,11 @@
 ; Launchers + bundled Python: pulled from the live install dir at
 ; %LOCALAPPDATA%\Programs\Lavrentiy-Eval\, minus the engine + transient files.
 ;
-; Installer size: ~600 MB (engine + Python runtime + Moonshine model). Down
-; from the v1.3.0 plan that bundled faster-whisper (1.6 GB) and Llama Ollama
-; blobs (2 GB) — both reverted in the 2026-04-24 evening pivot back to cloud
-; L2-L4.
+; Installer size: ~600 MB (engine + Python runtime + faster-whisper small.en
+; model). Down from the v1.3.0 plan that bundled faster-whisper large-v3-turbo
+; (1.6 GB) and Llama Ollama blobs (2 GB) — both reverted in the 2026-04-24
+; evening pivot back to cloud L2-L4. Moonshine + Vosk fallbacks retired
+; 2026-04-30 (see v1.5.1 entry above).
 ;
 ; --- Previous releases ---
 ; v1.3.0: Fast cold-start — HTTP server binds :7878 in ~1s via a stub handler

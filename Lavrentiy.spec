@@ -56,7 +56,7 @@ hiddenimports = [
 ]
 
 for pkg in (
-    'PySide6', 'moonshine_onnx',
+    'PySide6',
     'faster_whisper', 'ctranslate2', 'onnxruntime',
     'sounddevice', 'soundfile', 'keyboard',
     'openai', 'anthropic', 'metaphone', 'pyperclip', 'pyautogui',

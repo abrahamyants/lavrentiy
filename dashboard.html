@@ -2863,9 +2863,11 @@ body::before {
           oninput="updatePatience(this.value)">
         <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-muted);margin-top:2px;font-family:var(--font-mono)"><span>&#9664; 1.0s</span><span id="patience-pct">2.0s</span><span>6.0s &#9654;</span></div>
       </div>
-      <!-- Whisper settings — only meaningful at L4 (cloud whisper-1).
-           At L1/L2/L3 (Moonshine), no segment metadata exists so all values
-           stay 0. Greyed out outside L4 so users aren't confused by dead numbers. -->
+      <!-- Whisper settings — only meaningful at L4. Per-segment metadata
+           (avg_logprob, no_speech_prob, multi-temp disagreements) is emitted
+           by both cloud whisper-1 and local faster-whisper, but only the L4
+           Sonnet 4.6 ext-think prompt consumes it. Greyed out outside L4 so
+           users aren't confused by knobs that don't affect output. -->
       <!-- L1 source picker — always interactive (this toggle is FOR L1, so it
            must stay live regardless of current layer). Off = local faster-whisper
            small.en (~2-5s, offline). On = cloud whisper-1 (~1-2s, needs internet). -->
