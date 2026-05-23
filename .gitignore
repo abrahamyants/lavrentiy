@@ -43,6 +43,11 @@ build-onedir/
 dist-onedir/
 build_pyinstaller.log
 
+# PyInstaller native (PySide6 QWebEngineView) build artifacts
+build-native/
+dist-native/
+build-native*.log
+
 # Audit reports and test artifacts
 reports/
 wim_now.png
