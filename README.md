@@ -1879,7 +1879,7 @@ since it didn't exist there. Repo is now self-contained for installer
 compile.
 
 `{userprofile}` Inno Setup constant rejected at compile time on the
-per-user install George got via `is.exe`. Swapped to `{%USERPROFILE}`
+per-user install George got via `is.exe`. Swapped to `&#123;%USERPROFILE}`
 env-var syntax — that compiled. Single byte difference, hour saved.
 
 Compile via `~\AppData\Local\Inno Setup 6\ISCC.exe Lavrentiy-Eval.iss`
@@ -2102,7 +2102,7 @@ The .iss had two `Source: ... DestDir: "{userprofile}\.cache\moonshine\base"`
 lines. Inno Setup 6.x rejected the constant on this per-user install
 flavor. Per the public docs `{userprofile}` is supposed to exist in
 Inno 6+, but the version George installed did not recognize it. Fix was
-trivial — `{%USERPROFILE}` env-var syntax — but the failure cost a
+trivial — `&#123;%USERPROFILE}` env-var syntax — but the failure cost a
 full recompile cycle. Should have validated the constant against the
 specific Inno version BEFORE handing the script to the compiler.
 
@@ -2857,12 +2857,12 @@ prior commit and nobody re-ran the test locally. Fix (`581fdc4`):
 when introducing new module references in a code range that's exec'd
 from a test, update the test's namespace at the same commit.
 
-#### 98. README.md `{%USERPROFILE}` broke Pages Liquid build for ~3 days (2026-04-27)
+#### 98. README.md `&#123;%USERPROFILE}` broke Pages Liquid build for ~3 days (2026-04-27)
 
-Line 1865 had `` `{%USERPROFILE}\.cache\moonshine\base\` ``. Jekyll's
-Liquid templating engine parses `{%` as an unterminated tag opener
+Line 1865 had `` `&#123;%USERPROFILE}\.cache\moonshine\base\` ``. Jekyll's
+Liquid templating engine parses `&#123;%` as an unterminated tag opener
 and crashed the Pages build with
-`Liquid syntax error (line 1865): Tag '{%' was not properly terminated`.
+`Liquid syntax error (line 1865): Tag '&#123;%' was not properly terminated`.
 Bonus: it's also a real Windows env-var typo — should be `%USERPROFILE%`
 (percent on both sides, no braces). Single-character fix
 (`c12c01f`) resolved both the Liquid failure AND the content correctness.

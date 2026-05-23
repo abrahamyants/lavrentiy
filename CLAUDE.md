@@ -103,7 +103,7 @@ Currently must edit `~/.lavrentiy/profile.json` by hand. WiM Android has the Pro
 ### Test discipline
 - ~1,500+ assertions across 19 test files. Run with `python <test_file>.py` directly (NOT pytest — files use `sys.exit` at module level).
 - RUN TESTS AFTER EVERY CHANGE.
-- CI on GitHub Actions: `Tests` workflow + `pages-build-deployment`. Both went red for ~3 days in late April 2026 with nobody looking. `test_core.py:22` `exec()` of `const_block` from `lavrentiy.py` requires `os` in the namespace dict (broken when `os.environ.get(...)` was added to the LANGUAGE constants block). README Liquid syntax can break Pages build (`{%USERPROFILE}` on line 1865 was an unterminated tag).
+- CI on GitHub Actions: `Tests` workflow + `pages-build-deployment`. Both went red for ~3 days in late April 2026 with nobody looking. `test_core.py:22` `exec()` of `const_block` from `lavrentiy.py` requires `os` in the namespace dict (broken when `os.environ.get(...)` was added to the LANGUAGE constants block). README Liquid syntax can break Pages build (`&#123;%USERPROFILE}` on line 1865 was an unterminated tag).
 - See README "Test Coverage" table for per-suite assertion counts. New since old CLAUDE.md: `test_speech_rate.py` (33), `test_audio_preprocess.py` (29), `test_wim_api.py` (122), `test_pending.py` (127), `test_profile_db.py` (83).
 
 ## DO

@@ -88,7 +88,7 @@ George asked for a happy-or-sad read on the commit history. Surface answer: comm
 ### Lav CI — `pages-build-deployment` workflow
 
 **Failure mode:** content typo manifesting as Liquid syntax error.
-**Root cause:** `README.md:1865` had `` `{%USERPROFILE}\.cache\moonshine\base\` ``. Jekyll's Liquid parser saw `{%` as an unterminated tag opener. Pages build crashed with `Liquid syntax error (line 1865): Tag '{%' was not properly terminated`. Bonus: `{%USERPROFILE}` is also a real Windows env-var typo — should be `%USERPROFILE%` (percent on both sides, no braces).
+**Root cause:** `README.md:1865` had `` `&#123;%USERPROFILE}\.cache\moonshine\base\` ``. Jekyll's Liquid parser saw `&#123;%` as an unterminated tag opener. Pages build crashed with `Liquid syntax error (line 1865): Tag '&#123;%' was not properly terminated`. Bonus: `&#123;%USERPROFILE}` is also a real Windows env-var typo — should be `%USERPROFILE%` (percent on both sides, no braces).
 **Fix:** commit `c12c01f` — single-character fix. Both Liquid AND content correctness resolved.
 
 ### WiM CI — `Build & Test` workflow (cross-repo finding)
@@ -121,7 +121,7 @@ In session order:
 - `4b2d6ef test(heavy-stutter): additional run results 02:38 + 02:42` — 4 result files
 - `6d21014 feat(wim/api): L1-pack injection wiring for Cloud Function reconstruct` — another session's L1-pack work that landed during my push
 - `581fdc4 fix(ci): add os to test_core namespace dict for exec'd constants block`
-- `c12c01f fix(ci): correct {%USERPROFILE} typo in README, unblocks Pages Liquid build`
+- `c12c01f fix(ci): correct &#123;%USERPROFILE} typo in README, unblocks Pages Liquid build`
 
 ## Memories saved this session
 
