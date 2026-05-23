@@ -120,11 +120,12 @@ Collapsed from 6 situations to 3 (phone/presentation/interview merged into High 
 - Python 3.10+
 - Windows (uses Win32 APIs for focus management and single-instance mutex)
 - OpenAI API key: reads from `api_key.txt` (gitignored) first, falls back to `OPENAI_API_KEY` env var
+- Anthropic API key (for L4 Sonnet 4.6 extended thinking + optional L1 Haiku polish): reads from `anthropic_key.txt` (gitignored) first, falls back to `ANTHROPIC_API_KEY` env var
 
 ### Install dependencies
 
 ```
-pip install openai sounddevice soundfile keyboard pyperclip pyautogui numpy scipy
+pip install openai anthropic faster-whisper sounddevice soundfile keyboard pyperclip pyautogui numpy scipy
 ```
 
 ### Run
@@ -830,6 +831,36 @@ Architectural flip: L1-L3 are now **fully local**. L4 stays cloud by design. No 
 - LoRA fine-tune on George's voice — blocked on audio-archive being opt-in (only 69 / 3,958 sessions have paired WAVs).
 - `ru.json` lang pack — Russian still falls through to English defaults for L4.
 - Benchmark harness run against live ears branches.
+
+### 2026-04-23 — L1 cloud-default flip, optional Haiku polish, tighter timeouts
+
+- **Changed**: `L1_CLOUD_ASR = True` is now the default. Cloud OpenAI `whisper-1` fires first; local `faster-whisper` is opt-in via the dashboard L1 source toggle (`POST /api/l1_asr`). First-impression UX: an evaluator hitting F9 on a cold install sees text in 1–2s (cloud) rather than ~30s (local model load). Commit `3343b08`.
+- **Added**: Optional L1 Anthropic Haiku 4.5 polish step (`L1_POLISH` toggle, `FALCON_HAIKU_MODEL = "claude-haiku-4-5-20251001"`). Reads faster-whisper output and lightly corrects mishears/truncations. Off by default. Commit `c75d643`.
+- **Changed**: Cloud SDK timeout ceiling lowered to 60s on every OpenAI + Anthropic call (was 90s). Commits `9c70484`, `967348a`.
+
+### 2026-04-24 — Local LLM retired; L4 to Anthropic Sonnet 4.6 extended thinking
+
+- **Removed**: Local L2/L3 reconstruction (Gemma 2 2B → Llama 3.2 3B via Ollama). Latency proved untenable for live dictation. L2/L3 now go straight to cloud `gpt-4o`. Final dead-code cleanup of `LOCAL_LLM_MODEL` constant + helpers landed 2026-05-16.
+- **Added**: L4 clinical reconstruction now uses Claude Sonnet 4.6 with extended thinking (`SONNET_THINK_MODEL = "claude-sonnet-4-6"`). Anthropic key read from `anthropic_key.txt` (gitignored) or `ANTHROPIC_API_KEY` env. Falls back to `gpt-4o` on Anthropic error, empty output, or missing key.
+- **Closed**: Falcon validator cloud-leak — was always hitting cloud GPT-4o regardless of layer, even when L2/L3 was "local-only." Resolved simultaneously with the local LLM retirement (no more "local-only" claim to leak from).
+
+### 2026-04-30 — Moonshine + Vosk fallback engines retired; single local L1 engine
+
+- **Removed**: `local/whisper_local.py` (Useful Sensors Moonshine ONNX wrapper) and `local/vosk_local.py`. `local/asr_local.py` simplified from a multi-engine fallback dispatcher to a single-engine wrapper around `local/fw_local.py`. The dispatcher now surfaces faster-whisper errors directly rather than silently degrading.
+- **Sole local L1 engine**: `faster-whisper large-v3-turbo` (CTranslate2, int8 CPU) via `local/asr_local.py` → `local/fw_local.py`. Model resolved from `LAV_FW_MODEL_DIR` env, installer-bundled `{app}/models/faster-whisper/<size>/`, repo-relative `eval-build/models/`, `~/.cache/faster-whisper/`, or auto-downloaded from HuggingFace (suppressed if `LAV_OFFLINE=1`). Per-segment `avg_logprob` and `no_speech_prob` are re-activated — block detection, multi-temp voting, paralinguistic detection, and prosodic bridging are no longer dormant.
+- **`local/` directory contents** (all gitignored): `__init__.py`, `asr_local.py` (dispatcher), `fw_local.py` (faster-whisper wrapper), `llm_local.py` (vestigial — local LLM retired 2026-04-24, file remains but is unimported).
+
+**Pipeline reality after these three entries (current truth as of 2026-05-23):**
+
+| Layer | Engine | Cloud? |
+|-------|--------|--------|
+| L1 transcribe | OpenAI `whisper-1` (default) **or** `faster-whisper large-v3-turbo` (local, via toggle) | Cloud by default; opt-in local |
+| L1 polish (opt) | Claude Haiku 4.5 | Yes (off by default) |
+| L2 reconstruct | OpenAI `gpt-4o` | Yes |
+| L3 profile | OpenAI `gpt-4o` | Yes |
+| L4 clinical stutter | Claude Sonnet 4.6 (extended thinking) → `gpt-4o` fallback | Yes |
+
+Supersedes the "Pipeline now" table in the 2026-04-21 entry above — Moonshine, Vosk, Gemma, and Ollama are no longer part of the stack.
 
 ---
 
