@@ -3819,11 +3819,11 @@ async function pollState(){
   }
   setTimeout(pollState,250);
 }
-async function fetchPreview(){try{const r=await fetch(API+'/api/preview');const d=await r.json();const bar=document.getElementById('preview-bar');if(d.enabled&&d.active&&d.text){bar.style.display='block';const sw=d.scored_words||[];if(sw.length){document.getElementById('preview-text').innerHTML=sw.map(w=>{if(w.risk>=0.8)return`<span class="trigger-risk-high">${esc(w.word)}</span>`;if(w.risk>=0.6)return`<span class="trigger-risk">${esc(w.word)}</span>`;return esc(w.word);}).join(' ');}else{document.getElementById('preview-text').textContent=d.text;}}else{bar.style.display='none';}}catch(e){}}
-async function fetchSessions(){try{const r=await fetch(API+'/api/sessions');sessions=await r.json();renderSessions();}catch(e){}}
-async function fetchLog(){try{const r=await fetch(API+'/api/log');const entries=await r.json();const n=entries.filter(e=>e.id>lastLogId);if(n.length>0){lastLogId=entries[entries.length-1].id;logLines=entries;renderConsole();}}catch(e){}}
-async function fetchProfile(){try{const r=await fetch(API+'/api/profile');profile=await r.json();renderProfile();}catch(e){}}
-async function fetchLearn(){try{const r=await fetch(API+'/api/learn');learnData=await r.json();if(learnData.events.length!==lastLearnEventCount){lastLearnEventCount=learnData.events.length;renderLearn();}updateLearnProgress();renderInsights();}catch(e){}}
+async function fetchPreview(){try{const r=await fetch(API+'/api/preview');const d=await r.json();const bar=document.getElementById('preview-bar');if(d.enabled&&d.active&&d.text){bar.style.display='block';const sw=d.scored_words||[];if(sw.length){document.getElementById('preview-text').innerHTML=sw.map(w=>{if(w.risk>=0.8)return`<span class="trigger-risk-high">${esc(w.word)}</span>`;if(w.risk>=0.6)return`<span class="trigger-risk">${esc(w.word)}</span>`;return esc(w.word);}).join(' ');}else{document.getElementById('preview-text').textContent=d.text;}}else{bar.style.display='none';}}catch(e){console.warn("silent catch:", e)}}
+async function fetchSessions(){try{const r=await fetch(API+'/api/sessions');sessions=await r.json();renderSessions();}catch(e){console.warn("silent catch:", e)}}
+async function fetchLog(){try{const r=await fetch(API+'/api/log');const entries=await r.json();const n=entries.filter(e=>e.id>lastLogId);if(n.length>0){lastLogId=entries[entries.length-1].id;logLines=entries;renderConsole();}}catch(e){console.warn("silent catch:", e)}}
+async function fetchProfile(){try{const r=await fetch(API+'/api/profile');profile=await r.json();renderProfile();}catch(e){console.warn("silent catch:", e)}}
+async function fetchLearn(){try{const r=await fetch(API+'/api/learn');learnData=await r.json();if(learnData.events.length!==lastLearnEventCount){lastLearnEventCount=learnData.events.length;renderLearn();}updateLearnProgress();renderInsights();}catch(e){console.warn("silent catch:", e)}}
 async function fetchVoiceProfile(){
   try{
     const r=await fetch(API+'/api/voice_profile');
@@ -3915,34 +3915,37 @@ function updateUI(){
   const now=Date.now();
   const paraToggle=document.getElementById('toggle-paralinguistic');
   const prosToggle=document.getElementById('toggle-prosodic');
-  // Paralinguistic + Prosodic only do anything at L4 (need Whisper segments).
-  // Grey out + disable the toggles outside L4 so the UI matches reality.
-  const _isL4 = (state.layer||0) >= 4;
+  // Availability is decided by the engine and surfaced as paralinguistic_available
+  // / prosodic_available on /api/state. UI just reflects that — grey + disable
+  // when not available, toggleable when available.
+  const _paraAvail = state.paralinguistic_available !== false;
+  const _prosAvail = state.prosodic_available !== false;
   const paraRow = document.getElementById('paralinguistic-row');
   const prosRow = document.getElementById('prosodic-row');
   const paraSubRow = document.getElementById('para-transcribe-row');
   if(paraRow){
-    paraRow.classList.toggle('toggle-disabled', !_isL4);
-    paraRow.title = _isL4 ? '' : 'Layer 4 only — needs Whisper segment data';
+    paraRow.classList.toggle('toggle-disabled', !_paraAvail);
+    paraRow.title = _paraAvail ? '' : 'Not available on current layer';
   }
   if(prosRow){
-    prosRow.classList.toggle('toggle-disabled', !_isL4);
-    prosRow.title = _isL4 ? '' : 'Layer 4 only — needs Whisper segment data';
+    prosRow.classList.toggle('toggle-disabled', !_prosAvail);
+    prosRow.title = _prosAvail ? '' : 'Not available on current layer';
   }
   if(paraSubRow){
-    paraSubRow.classList.toggle('toggle-disabled', !_isL4);
-    paraSubRow.title = _isL4 ? '' : 'Layer 4 only';
+    paraSubRow.classList.toggle('toggle-disabled', !_paraAvail);
+    paraSubRow.title = _paraAvail ? '' : 'Not available on current layer';
   }
-  // Same treatment for the Whisper diagnostic panel — only meaningful at L4.
+  // Whisper diagnostic panel — keep gating to L4 (separate concern, untouched).
+  const _isL4 = (state.layer||0) >= 4;
   const whisperCard = document.getElementById('whisper-card');
   if(whisperCard){
     whisperCard.classList.toggle('toggle-disabled', !_isL4);
     whisperCard.title = _isL4 ? '' : 'Layer 4 only — Whisper signals only fire at L4';
   }
-  if(paraToggle){paraToggle.disabled = !_isL4;}
-  if(prosToggle){prosToggle.disabled = !_isL4;}
+  if(paraToggle){paraToggle.disabled = !_paraAvail;}
+  if(prosToggle){prosToggle.disabled = !_prosAvail;}
   const paraTransSub = document.getElementById('toggle-para-transcribe');
-  if(paraTransSub){paraTransSub.disabled = !_isL4;}
+  if(paraTransSub){paraTransSub.disabled = !_paraAvail;}
   if(paraToggle&&!(_toggleCooldown.para>now)&&document.activeElement!==paraToggle)paraToggle.checked=!!state.paralinguistic_enabled;
   const paraTransToggle=document.getElementById('toggle-para-transcribe');
   if(paraTransToggle&&!(_toggleCooldown.paraTrans>now)&&document.activeElement!==paraTransToggle)paraTransToggle.checked=!!state.paralinguistic_transcribe;
@@ -4370,7 +4373,7 @@ async function fetchFluencyData(){
     fluencyData=await r.json();
     renderFluencyTrend();
     updateSeverityBreakdown();
-  }catch(e){}
+  }catch(e){console.warn("silent catch:", e)}
 }
 function renderFluencyTrend(){
   const el=document.getElementById('fluency-trend-section');
@@ -4455,13 +4458,13 @@ async function addTag(key){const input=document.getElementById('input-'+key);con
 async function removeTag(key,idx){profile[FIELD_MAP[key]].splice(idx,1);renderProfile();await saveProfile();}
 async function addCorrection(){const from=document.getElementById('input-corr-from');const to=document.getElementById('input-corr-to');const f=from.value.trim(),t=to.value.trim();if(!f||!t)return;if(!profile.corrections)profile.corrections={};profile.corrections[f]=t;from.value='';to.value='';renderProfile();await saveProfile();}
 async function removeCorrection(key){delete profile.corrections[key];renderProfile();await saveProfile();}
-async function saveProfile(){try{await fetch(API+'/api/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({trigger_words:profile.trigger_words,filler_words:profile.filler_words,vocabulary:profile.vocabulary,corrections:profile.corrections})});}catch(e){}}
+async function saveProfile(){try{await fetch(API+'/api/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({trigger_words:profile.trigger_words,filler_words:profile.filler_words,vocabulary:profile.vocabulary,corrections:profile.corrections})});}catch(e){console.warn("silent catch:", e)}}
 async function removeCovertPair(situation,word){
   try{
     await fetch(API+'/api/covert/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({situation,word})});
     // Refresh profile to reflect removal
     await fetchProfile();
-  }catch(e){}
+  }catch(e){console.warn("silent catch:", e)}
 }
 
 // ─── STUTTERING FOUNDATION TIPS DATA ─────────────────
@@ -4566,14 +4569,14 @@ async function toggleDAF(){
     const r=await fetch(API+'/api/daf',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({active:!dafActive,delay_ms:parseInt(slider.value)})});
     const d=await r.json();dafActive=d.active;updateDAFUI(d);
-  }catch(e){}
+  }catch(e){console.warn("silent catch:", e)}
 }
 async function setDAFDelay(val){
   document.getElementById('daf-delay').textContent=val;
   updateDialRotation(val);
   if(!dafActive)return;
   try{await fetch(API+'/api/daf',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({delay_ms:parseInt(val)})});}catch(e){}
+    body:JSON.stringify({delay_ms:parseInt(val)})});}catch(e){console.warn("silent catch:", e)}
 }
 function updateDialRotation(val){
   const pct=(val-30)/(300-30);
@@ -4597,7 +4600,7 @@ async function toggleMultiTemp(){
     const d=await r.json();
     const tog=document.getElementById('multitemp-toggle');
     if(tog)tog.classList.toggle('on',d.multi_temp);
-  }catch(e){}
+  }catch(e){console.warn("silent catch:", e)}
 }
 async function toggleL1Asr(){
   // Flip cloud whisper-1 ↔ local faster-whisper small.en. Engine reads
@@ -4609,7 +4612,7 @@ async function toggleL1Asr(){
     const d=await r.json();
     const tog=document.getElementById('l1-asr-toggle');
     if(tog)tog.classList.toggle('on',!!d.l1_cloud_asr);
-  }catch(e){}
+  }catch(e){console.warn("silent catch:", e)}
 }
 async function generateReport(){
   const btn=document.getElementById('report-btn');
@@ -4665,13 +4668,13 @@ async function updatePatience(val){
     const r=await fetch(API+'/api/patience');
     const d=await r.json();
     if(document.getElementById('patience-value'))document.getElementById('patience-value').textContent=d.patience.toFixed(1)+'s';
-  }catch(e){}
+  }catch(e){console.warn("silent catch:", e)}
 }
 async function updateNST(val){
   const v=parseFloat(val);
   document.getElementById('nst-value').textContent=v.toFixed(2);
   const pct=document.getElementById('nst-pct');if(pct)pct.textContent=Math.round(v*100)+'%';
-  try{await fetch(API+'/api/whisper_config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({no_speech_threshold:v})});}catch(e){}
+  try{await fetch(API+'/api/whisper_config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({no_speech_threshold:v})});}catch(e){console.warn("silent catch:", e)}
 }
 // Dial drag interaction
 (function(){
@@ -4700,7 +4703,7 @@ async function updateNST(val){
     slider.value=nv;setDAFDelay(nv);
   });
 })();
-async function fetchDAF(){try{const r=await fetch(API+'/api/daf');const d=await r.json();dafActive=d.active;updateDAFUI(d);}catch(e){}}
+async function fetchDAF(){try{const r=await fetch(API+'/api/daf');const d=await r.json();dafActive=d.active;updateDAFUI(d);}catch(e){console.warn("silent catch:", e)}}
 async function fetchPatience(){
   try{
     const r=await fetch(API+'/api/patience');
@@ -4711,18 +4714,18 @@ async function fetchPatience(){
     const pdv=document.getElementById('patience-default-val');if(pdv)pdv.textContent=d.default.toFixed(1)+'s';
     const psv=document.getElementById('patience-stutter-val');if(psv)psv.textContent=d.stutter.toFixed(1)+'s';
     const pp=document.getElementById('patience-pct');if(pp)pp.textContent=d.default.toFixed(1)+'s';
-  }catch(e){}
+  }catch(e){console.warn("silent catch:", e)}
 }
 
-document.querySelectorAll('.tone-btn:not(.mode-btn):not(.sit-btn)').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/tone',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tone:btn.dataset.tone})});}catch(e){}});});
+document.querySelectorAll('.tone-btn:not(.mode-btn):not(.sit-btn)').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/tone',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tone:btn.dataset.tone})});}catch(e){console.warn("silent catch:", e)}});});
 document.querySelectorAll('.layer-opt:not(.sit-btn):not(.use-opt):not(.ind-opt):not(.hr-opt)').forEach(btn=>{
-  const handler=async()=>{try{await fetch(API+'/api/layer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layer:parseInt(btn.dataset.layer)})});}catch(e){}};
+  const handler=async()=>{try{await fetch(API+'/api/layer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({layer:parseInt(btn.dataset.layer)})});}catch(e){console.warn("silent catch:", e)}};
   btn.addEventListener('click',handler);
   btn.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();handler();}});
 });
-document.querySelectorAll('.mode-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:btn.dataset.mode})});}catch(e){}});});
+document.querySelectorAll('.mode-btn').forEach(btn=>{btn.addEventListener('click',async()=>{try{await fetch(API+'/api/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:btn.dataset.mode})});}catch(e){console.warn("silent catch:", e)}});});
 document.querySelectorAll('.sit-btn').forEach(btn=>{
-  const handler=async()=>{try{await fetch(API+'/api/situation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({situation:btn.dataset.situation})});}catch(e){}};
+  const handler=async()=>{try{await fetch(API+'/api/situation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({situation:btn.dataset.situation})});}catch(e){console.warn("silent catch:", e)}};
   btn.addEventListener('click',handler);
   btn.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();handler();}});
 });
@@ -4733,7 +4736,7 @@ document.getElementById('uptime').addEventListener('click',async()=>{
   const el=document.getElementById('uptime');
   el.textContent='00:00';el.style.color='var(--green)';
   setTimeout(()=>{el.style.color='';},1500);
-  try{await fetch(API+'/api/reset_timer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});}catch(e){}
+  try{await fetch(API+'/api/reset_timer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});}catch(e){console.warn("silent catch:", e)}
 });
 // ─── STAT CARD COUNT-UP ON HOVER ─────────────────
 function animateCountUp(el,duration=2500){
@@ -4776,11 +4779,11 @@ document.querySelectorAll('.learn-progress-cell').forEach(cell=>{
   });
 });
 // ─── ENHANCEMENT TOGGLES ─────────────────────────
-document.getElementById('toggle-paralinguistic').addEventListener('change',async(e)=>{_toggleCooldown.para=Date.now()+3000;try{await fetch(API+'/api/paralinguistic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}document.getElementById('para-transcribe-row').style.display=e.target.checked?'flex':'none';});
-document.getElementById('toggle-para-transcribe').addEventListener('change',async(e)=>{_toggleCooldown.paraTrans=Date.now()+3000;try{await fetch(API+'/api/paralinguistic_transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}});
-document.getElementById('toggle-prosodic').addEventListener('change',async(e)=>{_toggleCooldown.pros=Date.now()+3000;try{await fetch(API+'/api/prosodic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}});
-document.getElementById('toggle-quiet-mode').addEventListener('change',async(e)=>{_toggleCooldown.quiet=Date.now()+3000;try{await fetch(API+'/api/quiet_mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){}});
-document.getElementById('toggle-accent').addEventListener('change',async(e)=>{try{await fetch(API+'/api/accent_mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:e.target.checked?'keep':'polish'})});}catch(err){}});
+document.getElementById('toggle-paralinguistic').addEventListener('change',async(e)=>{_toggleCooldown.para=Date.now()+3000;try{await fetch(API+'/api/paralinguistic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){console.warn("silent catch:", err)}document.getElementById('para-transcribe-row').style.display=e.target.checked?'flex':'none';});
+document.getElementById('toggle-para-transcribe').addEventListener('change',async(e)=>{_toggleCooldown.paraTrans=Date.now()+3000;try{await fetch(API+'/api/paralinguistic_transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){console.warn("silent catch:", err)}});
+document.getElementById('toggle-prosodic').addEventListener('change',async(e)=>{_toggleCooldown.pros=Date.now()+3000;try{await fetch(API+'/api/prosodic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){console.warn("silent catch:", err)}});
+document.getElementById('toggle-quiet-mode').addEventListener('change',async(e)=>{_toggleCooldown.quiet=Date.now()+3000;try{await fetch(API+'/api/quiet_mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});}catch(err){console.warn("silent catch:", err)}});
+document.getElementById('toggle-accent').addEventListener('change',async(e)=>{try{await fetch(API+'/api/accent_mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:e.target.checked?'keep':'polish'})});}catch(err){console.warn("silent catch:", err)}});
 
 // ─── SCRIPT PREP ─────────────────────────────────
 async function runPrep(){
@@ -5060,7 +5063,7 @@ document.querySelector('[data-tab="calibrate"]').addEventListener('click',async(
     if(d.completed>0){
       document.getElementById('cal-start-btn').textContent=t('cal_resume');
     }
-  }catch(e){}
+  }catch(e){console.warn("silent catch:", e)}
   augRefresh();
   fetchWERTrend();
 });
@@ -5092,7 +5095,7 @@ async function fetchWERTrend(){
         return `<div title="${b.ts} WER:${Math.round(b.wer*100)}%" style="width:6px;height:${h}px;background:${color};border-radius:1px 1px 0 0;opacity:0.8;flex-shrink:0"></div>`;
       }).join('');
     }
-  }catch(e){}
+  }catch(e){console.warn("silent catch:", e)}
 }
 
 // ─── AUGMENTATION ──────────────────────────────
@@ -5224,7 +5227,7 @@ async function saveHotkeys(){
   }catch(e){const btn=document.querySelector('.hk-save-btn');btn.textContent=currentLang==='ru'?'ДВИЖОК ОФФЛАЙН':'ENGINE OFFLINE';setTimeout(()=>{btn.textContent=t('hk_save');},2000);}
 }
 async function fetchHotkeys(){
-  try{const r=await fetch(API+'/api/hotkeys');if(r.ok){const d=await r.json();Object.assign(hotkeys,d);for(const[k,v]of Object.entries(hotkeys)){const el=document.getElementById('hk-'+k);if(el)el.textContent=v;}updateHotkeyFooter();}}catch(e){}
+  try{const r=await fetch(API+'/api/hotkeys');if(r.ok){const d=await r.json();Object.assign(hotkeys,d);for(const[k,v]of Object.entries(hotkeys)){const el=document.getElementById('hk-'+k);if(el)el.textContent=v;}updateHotkeyFooter();}}catch(e){console.warn("silent catch:", e)}
 }
 
 // ─── COMPACT MODE ──────────────────────────────
@@ -5242,10 +5245,10 @@ function applyCompact() {
   if (isCompact) {
     app.classList.add('compact');
     // Try to resize window smaller (works in --app mode)
-    try { window.resizeTo(780, 120); } catch(e) {}
+    try { window.resizeTo(780, 120); } catch(e){console.warn("silent catch:", e)}
   } else {
     app.classList.remove('compact');
-    try { window.resizeTo(1140, 820); } catch(e) {}
+    try { window.resizeTo(1140, 820); } catch(e){console.warn("silent catch:", e)}
   }
 }
 
@@ -5296,14 +5299,14 @@ function updateCompactBar() {
       const cc = chip.dataset.cc;
       const cv = chip.dataset.cv;
       const payload = cc === 'layer' ? {layer: parseInt(cv)} : cc === 'tone' ? {tone: cv} : cc === 'mode' ? {mode: cv} : {situation: cv};
-      try { await fetch(API + '/api/' + cc, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)}); } catch(e) {}
+      try { await fetch(API + '/api/' + cc, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)}); } catch(e){console.warn("silent catch:", e)}
     });
   });
 }
 
 // Click state label to toggle recording
 async function toggleRecord(){
-  try{await fetch(API+'/api/record',{method:'POST'});}catch(e){}
+  try{await fetch(API+'/api/record',{method:'POST'});}catch(e){console.warn("silent catch:", e)}
 }
 // GDPR: export user's data
 async function exportMyData(){
@@ -5557,7 +5560,7 @@ function toggleHelp(){
   document.getElementById('help-overlay').classList.toggle('open');
   document.getElementById('help-backdrop').classList.toggle('open');
 }
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeHelp();closeProfile();}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeHelp();closeProfileModal();}});
 function closeHelp(){
   document.getElementById('help-overlay').classList.remove('open');
   document.getElementById('help-backdrop').classList.remove('open');
@@ -5771,7 +5774,7 @@ async function fetchProfiles(){
     sel.innerHTML=d.profiles.map(p=>
       `<option value="${esc(p)}"${p===current?' selected':''}>${esc(p)}</option>`
     ).join('');
-  }catch(e){}
+  }catch(e){console.warn("silent catch:", e)}
 }
 
 async function switchProfile(name){
@@ -5830,7 +5833,7 @@ async function createProfileFromModal(){
       input.style.borderColor='var(--red-bright)';
       setTimeout(()=>{input.style.borderColor='';},1500);
     }
-  }catch(e){}
+  }catch(e){console.warn("silent catch:", e)}
 }
 
 // Detect external profile switch (e.g., from another dashboard tab)

@@ -340,6 +340,432 @@ def _get_lang_few_shot_examples(code):
     return _LANG_FEW_SHOT.get(_normalize_lang_code(code), _LANG_FEW_SHOT["en"])
 
 
+# ─── Prompt-section helpers ───
+# build_prompt was a 450-line monolith with CC=65. Each helper below returns one
+# discrete block (or "" if not applicable). Strings are preserved verbatim from
+# the original — same prompts, just decomposed.
+
+def _pb_severity_aggression(situation, speech_severity_mod, audio_duration_s, word_count):
+    """Severity-based aggression hint + rate-gap signal, appended to the
+    opening directive. Returns a string that begins with a leading space."""
+    severity = SITUATION_SEVERITY.get(situation, 1.0) + speech_severity_mod
+    note = ""
+    if severity >= 1.4:
+        note = (
+            " Speaker is in a HIGH-STRESS context (phone/presentation/interview). "
+            "Expect more disfluencies, heavier avoidance, more filler stacking. "
+            "Be MORE aggressive in reconstructing — strip more, trust less of the literal words."
+        )
+    elif severity >= 1.1:
+        note = (
+            " Speaker's speech shows elevated pausing or slow rate. "
+            "Apply moderate cleanup — fix grammar, strip fillers, smooth hesitations."
+        )
+    elif severity <= 0.6:
+        note = (
+            " Speaker is in a low-stress context. Expect near-fluent speech. "
+            "Be conservative — minor cleanup only."
+        )
+    if speech_severity_mod > 0:
+        note += f" [Speech metrics: severity_boost={speech_severity_mod:.1f}]"
+    if audio_duration_s is not None and word_count is not None and audio_duration_s > 1.0:
+        wps = word_count / audio_duration_s
+        if wps < 1.5:
+            note += (
+                f" [Rate gap: {word_count} words in {audio_duration_s:.1f}s "
+                f"= {wps:.2f} wps; normal fluent = 2.0-2.5 wps; "
+                f"low ratio implies pre-smoothing pauses/blocks]"
+            )
+        elif wps > 4.0:
+            note += (
+                f" [Rate gap: {word_count} words in {audio_duration_s:.1f}s "
+                f"= {wps:.2f} wps; high ratio implies cluttered/rushed delivery]"
+            )
+    return note
+
+
+def _pb_layer3_user_context(profile, prior_rejections, style_examples):
+    """L3+ block: user vocabulary/corrections + rejection history + style examples."""
+    if not profile:
+        return ""
+    out_parts = []
+    ctx = []
+    if profile.get("vocabulary"):
+        ctx.append(f"Preferred terms: {', '.join(profile['vocabulary'][:20])}")
+    if profile.get("corrections"):
+        pairs = [f"{k}->{v}" for k, v in list(profile["corrections"].items())[:10]]
+        ctx.append(f"Known corrections: {'; '.join(pairs)}")
+    if ctx:
+        out_parts.append("\nUser context:\n" + "\n".join(ctx))
+
+    if prior_rejections:
+        block = [
+            "\n\nPERSISTENT REJECTION HISTORY (recent reconstructions this user "
+            "rejected — DO NOT echo back, use only to avoid producing structurally "
+            "similar text):"
+        ]
+        for i, prev in enumerate(prior_rejections, start=1):
+            block.append(f'\n  {i}. "{prev}"')
+        block.append(
+            "\nThese don't fit this user's voice. Pick distinctively different "
+            "word choices, sentence shapes, and rhythm. Variety in style across "
+            "these examples beats imitation of any single one."
+        )
+        out_parts.append("".join(block))
+
+    if style_examples:
+        block = [
+            "\n\nUSER STYLE EXAMPLES (recent reconstructions this user accepted "
+            "as final — apply same style choices when relevant; DO NOT echo back):"
+        ]
+        for i, ex in enumerate(style_examples, start=1):
+            block.append(f'\n  {i}. Raw: "{ex.get("raw", "")}" → Output: "{ex.get("output", "")}"')
+        block.append(
+            "\nThis user's voice across these examples is the target. Match "
+            "sentence rhythm, comma placement, contraction usage, and overall "
+            "tone — not specific words."
+        )
+        out_parts.append("".join(block))
+    return "\n".join(out_parts)
+
+
+def _pb_whisper_signals(whisper_low_conf, whisper_disagreements, layer):
+    """Whisper low-confidence + multi-pass disagreement notes."""
+    out_parts = []
+    if whisper_low_conf:
+        lc_notes = []
+        block_notes = []
+        for seg in whisper_low_conf[:5]:
+            if seg.get("block_suspect"):
+                block_notes.append(f"  \"{seg['text']}\" (no_speech_prob={seg['no_speech_prob']})")
+            else:
+                lc_notes.append(
+                    f"  \"{seg['text']}\" (logprob={seg['avg_logprob']}, brown_risk={seg.get('brown_risk', 0.0)})"
+                )
+        if lc_notes:
+            if layer >= 4:
+                out_parts.append(
+                    "\n⚠ WHISPER UNCERTAINTY — these segments have low decoder confidence "
+                    "AND high stuttering risk. They are almost certainly transcription artifacts:\n"
+                    + "\n".join(lc_notes)
+                    + "\nReconstruct aggressively. Trust semantic context, not the literal words."
+                )
+            else:
+                out_parts.append(
+                    "\n⚠ LOW CONFIDENCE — Whisper's decoder was uncertain about these words:\n"
+                    + "\n".join(lc_notes)
+                    + "\nThese may be misheard. Use surrounding context to determine what was actually said."
+                )
+        if block_notes:
+            if layer >= 4:
+                out_parts.append(
+                    "\n⚠ BLOCK SUSPECTS — Whisper nearly classified these as silence "
+                    "(high no_speech_prob). For this speaker, silence before/during a word "
+                    "is a BLOCK, not absence of speech. The text here is likely hallucinated "
+                    "filler that Whisper invented to fill the gap:\n"
+                    + "\n".join(block_notes)
+                    + "\nDiscard these words entirely or replace with the word the speaker "
+                    "was trying to say (use semantic context from surrounding words)."
+                )
+            else:
+                out_parts.append(
+                    "\n⚠ POSSIBLE HALLUCINATION — Whisper nearly classified these segments as silence "
+                    "but produced text anyway. The words here may be fabricated:\n"
+                    + "\n".join(block_notes)
+                    + "\nEvaluate carefully — if these words don't fit the context, discard them."
+                )
+
+    if whisper_disagreements:
+        dis_notes = []
+        for d in whisper_disagreements[:5]:
+            variants = "/".join(set(d["variants"]))
+            dis_notes.append(f"  position {d['position']}: [{variants}]")
+        out_parts.append(
+            "\n⚠ MULTI-PASS DISAGREEMENT — Whisper produced different words at these positions "
+            "across 3 decoding temperatures. Disagreement = uncertain = likely misheard:\n"
+            + "\n".join(dis_notes)
+            + "\nThe truth is in the semantic context, not any single variant."
+        )
+    return "\n".join(out_parts)
+
+
+def _pb_layer2_3_restate(profile, previous_outputs):
+    """L2/L3 prose-restate (Strunk & White), self-correction, ASR examples,
+    plus l1_pack/domain_pack injections and within-session regenerate signal."""
+    out_parts = []
+    out_parts.append(
+        "\nALWAYS RESTATE — DO NOT RETURN INPUT UNCHANGED."
+        "\nThe input is raw spoken material. The output is text someone will READ. "
+        "CONVERT spoken cadence into written prose every time, even when input is fluent. "
+        "Identity output is a failure mode."
+        "\n\nApply these established prose rules (Strunk & White, federal Plain Language Guidelines):"
+        "\n- Omit needless words. A sentence should contain no unnecessary words."
+        "\n- Use the active voice. \"John threw the ball,\" not \"The ball was thrown by John.\""
+        "\n- Use definite, specific, concrete language. \"It rained for a week,\" not \"a period of unfavorable weather.\""
+        "\n- Sentence length should average 15-20 words. Break run-on speech into multiple short sentences."
+        "\n- Keep subject and verb close together."
+        "\n- Use everyday words. Avoid jargon unless the speaker used it specifically."
+        "\n- Sentences should be simple, active, affirmative, declarative."
+        "\n- Drop verbal-tic discourse markers ('so', 'well', 'you know', 'like') even when not pure fillers."
+        "\n\nThe speaker is brain-dumping in stream-of-consciousness order. "
+        "They are offloading the structuring task to you. REORDER clauses, "
+        "GROUP related ideas, and RESTRUCTURE into the flow a written reader expects "
+        "(e.g., context → ask → close for an email; setup → question → specifics for a message; "
+        "thesis → support → conclusion for an argument)."
+        "\n\nHARD RULES while restating:"
+        "\n- PRESERVE all numbers, dates, dollar amounts, addresses, names, proper nouns exactly as spoken."
+        "\n- PRESERVE the speaker's intent and the substance of every clause."
+        "\n- DO NOT add information or invent details not present in the input."
+        "\n- DO NOT soften, sanitize, or change profanity / strong language / slang. Output the words the speaker chose."
+        "\n- DO NOT summarize away content; restate, don't compress."
+        "\n- TREAT unfamiliar, invented-looking, or single-syllable unrecognized words as INTENTIONAL slang, brand names, or in-group vocabulary. "
+        "Do not substitute them, do not assume transcription error, do not 'fix' them. "
+        "Examples of what to PRESERVE without modification: 'rizz', 'bussin', 'no cap', 'mid', 'delulu', 'skibidi', 'ick', 'fanum tax', "
+        "any proper noun the speaker emphasized, any startup or tool name the speaker said clearly."
+    )
+    out_parts.append(
+        "\n\nSELF-CORRECTION — CANONICAL OVERWRITE:"
+        "\nWhen the speaker uses 'I mean', 'actually', 'no wait', 'scratch that', 'let me rephrase', "
+        "or similar mid-sentence revision markers, treat the content AFTER the marker as canonical "
+        "and DISCARD the content before it. This is intentional self-correction, not disfluency."
+        "\nExample: 'the meeting at 3pm, I mean 4pm' → 'the meeting at 4pm' (NOT '3pm 4pm', NOT '3pm')."
+        "\nExample: 'I'm going to the s-s-s-the place' → 'I'm going to the place' (covert revision past a hard onset)."
+        "\nExample: 'let's go to Italian, actually let's go to Thai' → 'let's go to Thai'."
+    )
+    out_parts.append(
+        "\nThe input is a voice transcription and may contain ASR artifacts:"
+        "\n- Repeated words or phrases from natural speech hesitation"
+        "\n- Filler sounds transcribed as real words (e.g., 'um' → 'come')"
+        "\n- Phantom words inserted during pauses in speech"
+        "\n- Phonetically similar but semantically wrong words (misheard)"
+        "\n- Truncated or garbled words from unclear pronunciation"
+        "\nWhen a word is phonetically plausible but doesn't fit the context, "
+        "prefer the contextually correct interpretation."
+        "\n\nExamples:"
+        "\n  IN:  'So um I was going to uh the store to get some, some milk'"
+        "\n  OUT: 'I was going to the store to get some milk'"
+        "\n  IN:  'Can you send me the, the report by, by Friday'"
+        "\n  OUT: 'Can you send me the report by Friday'"
+        "\n  IN:  'I think we should, we should probably move the meeting'"
+        "\n  OUT: 'I think we should probably move the meeting'"
+        "\n  IN:  'The, uh, what's it called, the database needs updating'"
+        "\n  OUT: 'The database needs updating'"
+    )
+
+    # L1-transfer pack — phonetic accent dies at ASR, syntactic/morphological/
+    # lexical patterns survive in the transcript and are deterministically detectable.
+    l1_block = l1_pack.prompt_injection(profile)
+    if l1_block:
+        out_parts.append(l1_block)
+
+    # Domain pack — canonical-vocab list + phonetic-alias corrections.
+    domain_block = domain_pack.prompt_injection(profile)
+    if domain_block:
+        out_parts.append(domain_block)
+
+    # Within-session regenerate signal: previous outputs the user rejected.
+    if previous_outputs:
+        recent = list(previous_outputs)[-4:]
+        out_parts.append(
+            "\n\nThe speaker is asking for a DIFFERENT phrasing of the same intent. "
+            "You have already produced these reconstructions, which the speaker rejected:"
+        )
+        for i, prev in enumerate(recent, start=1):
+            out_parts.append(f'\n  {i}. "{prev}"')
+        out_parts.append(
+            "\nProduce a new reconstruction that preserves the same meaning but uses "
+            "different word choices, sentence structure, and rhythm. Do not return any "
+            "of the prior outputs verbatim or with only trivial edits."
+        )
+    return "\n".join(out_parts)
+
+
+def _pb_layer4_onset_hint(personal_onset_weights, profile):
+    """L4 per-speaker hardest-phonemes line."""
+    onset_weights = personal_onset_weights or profile.get("onset_weights", {})
+    if not onset_weights:
+        return ""
+    ranked = sorted(onset_weights.items(), key=lambda x: -x[1])
+    hard_onsets = [f"/{o}/ ({round(w*100)}%)" for o, w in ranked[:6] if w >= 0.4]
+    if not hard_onsets:
+        return ""
+    return (
+        f"\n⚠ THIS SPEAKER'S HARDEST PHONEMES: {', '.join(hard_onsets)}"
+        "\nWhisper output near these onsets is unreliable — expect hallucinations, "
+        "syllable drops, or phantom word insertions. Trust semantic context over "
+        "literal transcription when words starting with these sounds look garbled."
+    )
+
+
+def _pb_layer4_covert_avoidance(profile):
+    """L4 covert-avoidance pairs note."""
+    covert = profile.get("covert_profile", {}).get("avoidance_pairs", {})
+    if not covert:
+        return ""
+    covert_note = []
+    for sit, words in list(covert.items())[:3]:
+        for word, data in list(words.items())[:3]:
+            subs = data.get("common_substitutes", [])[:2]
+            if subs:
+                covert_note.append(f"'{word}' → {subs} (avoidance of /{data.get('dominant_onset', '?')}/)")
+    if not covert_note:
+        return ""
+    return (
+        "\n⚠ KNOWN COVERT AVOIDANCE: speaker sometimes swaps these words: "
+        + "; ".join(covert_note)
+        + "\nIf you see a synonym where the original word would fit better, "
+        "the original IS what they meant. Reconstruct with the intended word."
+    )
+
+
+def _pb_layer4_clinical_core(language_code):
+    """L4 multilingual clinical block (the big one)."""
+    _lang_code = _normalize_lang_code(language_code)
+    _lang_name_str = _lang_name(_lang_code)
+    _lang_fillers = _get_lang_fillers(_lang_code)
+    _lang_natural_repeats = _get_lang_natural_repeats(_lang_code)
+    _dialect_note = _get_lang_dialect_avoidance_note(_lang_code)
+    _timing_note = _get_lang_syllable_timing_note(_lang_code)
+
+    out_parts = []
+    out_parts.append(
+        f"\nThe speaker has a speech disfluency. Language: {_lang_code.upper()} ({_lang_name_str}). "
+        "Raw transcription is evidence of intent, not truth. "
+        "Reconstruct the intended message. Preserve FULL meaning."
+    )
+    if _lang_fillers:
+        out_parts.append(f"\n\nFILLERS TO STRIP ({_lang_code}): {', '.join(_lang_fillers)}")
+    if _lang_natural_repeats:
+        out_parts.append(
+            f"\n\nEMPHATIC PATTERNS — DO NOT STRIP in {_lang_code}: {', '.join(_lang_natural_repeats)}"
+            f"\nThese are pragmatically meaningful in {_lang_name_str}, not stuttering."
+        )
+    out_parts.append("\n\nOvert disfluencies — strip and reconstruct:")
+    out_parts.append(f"\n- Part-word repetitions: {_get_lang_part_word_example(_lang_code)}")
+    out_parts.append("\n- Whole-word repetitions (NOT matching the emphatic allow-list above)")
+    out_parts.append(f"\n- Prolongations: {_get_lang_prolongation_example(_lang_code)}")
+    out_parts.append(f"\n- Epenthetic insertions during blocks: {_get_lang_epenthesis_note(_lang_code)}")
+    out_parts.append("\n- Blocks: silence or frozen onset before a word (locked articulators)")
+    out_parts.append("\n- Tremors: lip/jaw quivering during a fixation")
+    out_parts.append("\n- Secondary behaviors: eye blinks, foot taps, head movements during blocks")
+    out_parts.append("\n- False starts and restarts")
+
+    out_parts.append("\n\nCovert avoidance — recognize as avoidance behavior, not content:")
+    out_parts.append("\n- Filler clusters before a content word = postponement (see filler list above)")
+    out_parts.append("\n- Synonym substitution = avoiding a feared word")
+    out_parts.append("\n- Circumlocution = talking around a feared word")
+    out_parts.append("\n- Sentence abandonment = dropping thought before feared word ('Oh, never mind')")
+    out_parts.append("\n- Covert interruption = jumping in while someone talks to mask onset difficulty")
+    out_parts.append(
+        "\n- Mazes: extended filler runs adding no information. DISTINCT from cluttered "
+        "rapid speech — do not over-strip if the speaker's speech is globally rapid."
+    )
+    if _dialect_note:
+        out_parts.append(f"\n{_dialect_note}")
+
+    out_parts.append("\n\nAnticipatory behavior:")
+    out_parts.append(
+        "\n- A pause or silence BEFORE a content word with a hard onset MAY INDICATE anticipatory fear"
+    )
+    out_parts.append(
+        "\n- Confidence increases when a filler cluster appears in the preceding 1–3 words "
+        "AND the following word begins with a documented hard onset"
+    )
+    out_parts.append("\n- Treat as a block candidate, not certainty")
+    if _timing_note:
+        out_parts.append(f"\n{_timing_note}")
+
+    out_parts.append("\n\nWhisper ASR failure modes on disfluent speech:")
+    out_parts.append("\n- HALLUCINATION DURING BLOCKS: silence → Whisper generates phantom text.")
+    out_parts.append(
+        "\n  Known hallucination strings to discard: 'thank you', 'thanks for watching', "
+        "'subscribe', 'like and subscribe', 'transcribed by', 'captions by', 'otter.ai'."
+    )
+    if _lang_code != "en":
+        out_parts.append(
+            f"\n  In {_lang_name_str} transcripts, English phrases appearing mid-utterance "
+            "are likely Whisper hallucinations — discard them."
+        )
+    out_parts.append("\n- SYLLABLE DELETION: repeated syllables collapsed or dropped")
+    out_parts.append("\n- PHANTOM INSERTIONS: prolongations → Whisper hallucinates similar-sounding words")
+    out_parts.append(f"\n- {_get_lang_epenthesis_corruption_note(_lang_code)}")
+    out_parts.append("\n- PAUSE HALLUCINATION: long pauses → Whisper generates filler text (see above)")
+
+    out_parts.append("\n\n")
+    out_parts.append(_get_lang_few_shot_examples(_lang_code))
+
+    out_parts.append(
+        "\n\nDo not mistake disfluency for emphasis — but PRESERVE the emphatic patterns listed above."
+        "\nReconstruct within the speaker's established dialect — do not substitute dialectal forms."
+        "\nWhen uncertain, prefer conservative cleanup over aggressive rewriting."
+    )
+
+    _onset_caveat = _get_lang_onset_caveat(_lang_code)
+    if _onset_caveat:
+        out_parts.append(f"\n{_onset_caveat}")
+    if _lang_has_no_onset_research(_lang_code):
+        out_parts.append(
+            f"\n\nONSET NOTE: No published phoneme-difficulty research exists for {_lang_code} "
+            "as of April 2026. Do not apply English-derived onset assumptions. Focus on word-level "
+            "repetitions, prolongations, filler clusters, and Whisper hallucination strings."
+        )
+    return "".join(out_parts)
+
+
+def _pb_layer4_block(profile, language_code, personal_onset_weights,
+                     personal_dominant_onsets, predicted_triggers):
+    """Full L4 prompt block — onset hint + covert + clinical core + triggers."""
+    out_parts = []
+    onset_hint = _pb_layer4_onset_hint(personal_onset_weights, profile)
+    if onset_hint:
+        out_parts.append(onset_hint)
+    covert_note = _pb_layer4_covert_avoidance(profile)
+    if covert_note:
+        out_parts.append(covert_note)
+
+    out_parts.append(_pb_layer4_clinical_core(language_code))
+
+    if profile.get("trigger_words"):
+        out_parts.append(f"\nKnown trigger words: {', '.join(profile['trigger_words'])}")
+
+    if personal_dominant_onsets:
+        onset_desc = ", ".join(f"/{d['onset']}/ ({d['pct']}%)" for d in personal_dominant_onsets)
+        out_parts.append(
+            f"\nThis speaker's personal block pattern: {onset_desc} of triggers. "
+            "Words starting with these sounds are HIGH PRIORITY for reconstruction — "
+            "expect heavier disfluency on these onsets specifically."
+        )
+
+    if predicted_triggers:
+        flagged = [f"{w}({r})" for w, r in predicted_triggers[:10]]
+        out_parts.append(f"\nPhonetically predicted high-risk words in this utterance: {', '.join(flagged)}")
+
+    return "\n".join(out_parts)
+
+
+def _pb_paralinguistic_events(paralinguistic_events):
+    """Lavrentiy L5 paralinguistic-events block."""
+    if not paralinguistic_events:
+        return ""
+    notes = []
+    for ev in paralinguistic_events[:8]:
+        notes.append(
+            f"  [{ev['type']}] at {ev['start_s']:.1f}s–{ev['end_s']:.1f}s "
+            f"(confidence={ev['confidence']}, HNR={ev.get('hnr_db', '?')}dB)"
+        )
+    if not notes:
+        return ""
+    return (
+        "\n⚠ PARALINGUISTIC EVENTS DETECTED — the following non-speech sounds were "
+        "found in the audio. Whisper likely hallucinated words in these windows. "
+        "IGNORE or DISCARD any transcribed text that falls within ±1 second of "
+        "these timestamps — it is not speech:\n"
+        + "\n".join(notes)
+        + "\nReconstruct using surrounding context only. Do not try to interpret "
+        "non-speech sounds as words."
+    )
+
+
 def build_prompt(
     raw_text,
     *,
@@ -378,43 +804,7 @@ def build_prompt(
 
     has_cyrillic = any('Ѐ' <= c <= 'ӿ' for c in raw_text)
     lang_note = " Speaker is bilingual (English/Russian) and may mix languages." if has_cyrillic else ""
-
-    severity = SITUATION_SEVERITY.get(situation, 1.0) + speech_severity_mod
-    aggression_note = ""
-    if severity >= 1.4:
-        aggression_note = (
-            " Speaker is in a HIGH-STRESS context (phone/presentation/interview). "
-            "Expect more disfluencies, heavier avoidance, more filler stacking. "
-            "Be MORE aggressive in reconstructing — strip more, trust less of the literal words."
-        )
-    elif severity >= 1.1:
-        aggression_note = (
-            " Speaker's speech shows elevated pausing or slow rate. "
-            "Apply moderate cleanup — fix grammar, strip fillers, smooth hesitations."
-        )
-    elif severity <= 0.6:
-        aggression_note = (
-            " Speaker is in a low-stress context. Expect near-fluent speech. "
-            "Be conservative — minor cleanup only."
-        )
-    if speech_severity_mod > 0:
-        aggression_note += f" [Speech metrics: severity_boost={speech_severity_mod:.1f}]"
-
-    # Rate-gap signal — ASR words-per-second from audio_duration_s/word_count.
-    # < 1.5 wps = blocks/silences/extended pauses; > 4.0 wps = cluttering/rushing.
-    if audio_duration_s is not None and word_count is not None and audio_duration_s > 1.0:
-        wps = word_count / audio_duration_s
-        if wps < 1.5:
-            aggression_note += (
-                f" [Rate gap: {word_count} words in {audio_duration_s:.1f}s "
-                f"= {wps:.2f} wps; normal fluent = 2.0-2.5 wps; "
-                f"low ratio implies pre-smoothing pauses/blocks]"
-            )
-        elif wps > 4.0:
-            aggression_note += (
-                f" [Rate gap: {word_count} words in {audio_duration_s:.1f}s "
-                f"= {wps:.2f} wps; high ratio implies cluttered/rushed delivery]"
-            )
+    aggression_note = _pb_severity_aggression(situation, speech_severity_mod, audio_duration_s, word_count)
 
     parts = [
         f"Rebuild this raw voice transcription into clean {tone} text.{lang_note}{aggression_note}",
@@ -442,352 +832,30 @@ def build_prompt(
     if profile.get("filler_words"):
         parts.append(f"\nStrip these fillers: {', '.join(profile['filler_words'][:25])}")
 
-    if layer >= 3 and profile:
-        ctx = []
-        if profile.get("vocabulary"):
-            ctx.append(f"Preferred terms: {', '.join(profile['vocabulary'][:20])}")
-        if profile.get("corrections"):
-            pairs = [f"{k}->{v}" for k, v in list(profile["corrections"].items())[:10]]
-            ctx.append(f"Known corrections: {'; '.join(pairs)}")
-        if ctx:
-            parts.append("\nUser context:\n" + "\n".join(ctx))
+    if layer >= 3:
+        l3_block = _pb_layer3_user_context(profile, prior_rejections, style_examples)
+        if l3_block:
+            parts.append(l3_block)
 
-        # Cross-session rejection history (lavrentiy-only; WiM CF passes None).
-        if prior_rejections:
-            block = [
-                "\n\nPERSISTENT REJECTION HISTORY (recent reconstructions this user "
-                "rejected — DO NOT echo back, use only to avoid producing structurally "
-                "similar text):"
-            ]
-            for i, prev in enumerate(prior_rejections, start=1):
-                block.append(f'\n  {i}. "{prev}"')
-            block.append(
-                "\nThese don't fit this user's voice. Pick distinctively different "
-                "word choices, sentence shapes, and rhythm. Variety in style across "
-                "these examples beats imitation of any single one."
-            )
-            parts.append("".join(block))
-
-        # Cross-session style examples (lavrentiy-only; WiM CF passes None).
-        if style_examples:
-            block = [
-                "\n\nUSER STYLE EXAMPLES (recent reconstructions this user accepted "
-                "as final — apply same style choices when relevant; DO NOT echo back):"
-            ]
-            for i, ex in enumerate(style_examples, start=1):
-                block.append(f'\n  {i}. Raw: "{ex.get("raw", "")}" → Output: "{ex.get("output", "")}"')
-            block.append(
-                "\nThis user's voice across these examples is the target. Match "
-                "sentence rhythm, comma placement, contraction usage, and overall "
-                "tone — not specific words."
-            )
-            parts.append("".join(block))
-
-    # Whisper confidence signals (L2+ — same prompt text both apps).
-    if whisper_low_conf:
-        lc_notes = []
-        block_notes = []
-        for seg in whisper_low_conf[:5]:
-            if seg.get("block_suspect"):
-                block_notes.append(f"  \"{seg['text']}\" (no_speech_prob={seg['no_speech_prob']})")
-            else:
-                lc_notes.append(
-                    f"  \"{seg['text']}\" (logprob={seg['avg_logprob']}, brown_risk={seg.get('brown_risk', 0.0)})"
-                )
-        if lc_notes:
-            if layer >= 4:
-                parts.append(
-                    "\n⚠ WHISPER UNCERTAINTY — these segments have low decoder confidence "
-                    "AND high stuttering risk. They are almost certainly transcription artifacts:\n"
-                    + "\n".join(lc_notes)
-                    + "\nReconstruct aggressively. Trust semantic context, not the literal words."
-                )
-            else:
-                parts.append(
-                    "\n⚠ LOW CONFIDENCE — Whisper's decoder was uncertain about these words:\n"
-                    + "\n".join(lc_notes)
-                    + "\nThese may be misheard. Use surrounding context to determine what was actually said."
-                )
-        if block_notes:
-            if layer >= 4:
-                parts.append(
-                    "\n⚠ BLOCK SUSPECTS — Whisper nearly classified these as silence "
-                    "(high no_speech_prob). For this speaker, silence before/during a word "
-                    "is a BLOCK, not absence of speech. The text here is likely hallucinated "
-                    "filler that Whisper invented to fill the gap:\n"
-                    + "\n".join(block_notes)
-                    + "\nDiscard these words entirely or replace with the word the speaker "
-                    "was trying to say (use semantic context from surrounding words)."
-                )
-            else:
-                parts.append(
-                    "\n⚠ POSSIBLE HALLUCINATION — Whisper nearly classified these segments as silence "
-                    "but produced text anyway. The words here may be fabricated:\n"
-                    + "\n".join(block_notes)
-                    + "\nEvaluate carefully — if these words don't fit the context, discard them."
-                )
-
-    if whisper_disagreements:
-        dis_notes = []
-        for d in whisper_disagreements[:5]:
-            variants = "/".join(set(d["variants"]))
-            dis_notes.append(f"  position {d['position']}: [{variants}]")
-        parts.append(
-            "\n⚠ MULTI-PASS DISAGREEMENT — Whisper produced different words at these positions "
-            "across 3 decoding temperatures. Disagreement = uncertain = likely misheard:\n"
-            + "\n".join(dis_notes)
-            + "\nThe truth is in the semantic context, not any single variant."
-        )
+    whisper_block = _pb_whisper_signals(whisper_low_conf, whisper_disagreements, layer)
+    if whisper_block:
+        parts.append(whisper_block)
 
     # L2/L3 prose-restate block (Strunk & White + restructure + self-correction + ASR examples)
     if 2 <= layer <= 3:
-        parts.append(
-            "\nALWAYS RESTATE — DO NOT RETURN INPUT UNCHANGED."
-            "\nThe input is raw spoken material. The output is text someone will READ. "
-            "CONVERT spoken cadence into written prose every time, even when input is fluent. "
-            "Identity output is a failure mode."
-            "\n\nApply these established prose rules (Strunk & White, federal Plain Language Guidelines):"
-            "\n- Omit needless words. A sentence should contain no unnecessary words."
-            "\n- Use the active voice. \"John threw the ball,\" not \"The ball was thrown by John.\""
-            "\n- Use definite, specific, concrete language. \"It rained for a week,\" not \"a period of unfavorable weather.\""
-            "\n- Sentence length should average 15-20 words. Break run-on speech into multiple short sentences."
-            "\n- Keep subject and verb close together."
-            "\n- Use everyday words. Avoid jargon unless the speaker used it specifically."
-            "\n- Sentences should be simple, active, affirmative, declarative."
-            "\n- Drop verbal-tic discourse markers ('so', 'well', 'you know', 'like') even when not pure fillers."
-            "\n\nThe speaker is brain-dumping in stream-of-consciousness order. "
-            "They are offloading the structuring task to you. REORDER clauses, "
-            "GROUP related ideas, and RESTRUCTURE into the flow a written reader expects "
-            "(e.g., context → ask → close for an email; setup → question → specifics for a message; "
-            "thesis → support → conclusion for an argument)."
-            "\n\nHARD RULES while restating:"
-            "\n- PRESERVE all numbers, dates, dollar amounts, addresses, names, proper nouns exactly as spoken."
-            "\n- PRESERVE the speaker's intent and the substance of every clause."
-            "\n- DO NOT add information or invent details not present in the input."
-            "\n- DO NOT soften, sanitize, or change profanity / strong language / slang. Output the words the speaker chose."
-            "\n- DO NOT summarize away content; restate, don't compress."
-            "\n- TREAT unfamiliar, invented-looking, or single-syllable unrecognized words as INTENTIONAL slang, brand names, or in-group vocabulary. "
-            "Do not substitute them, do not assume transcription error, do not 'fix' them. "
-            "Examples of what to PRESERVE without modification: 'rizz', 'bussin', 'no cap', 'mid', 'delulu', 'skibidi', 'ick', 'fanum tax', "
-            "any proper noun the speaker emphasized, any startup or tool name the speaker said clearly."
-        )
-        parts.append(
-            "\n\nSELF-CORRECTION — CANONICAL OVERWRITE:"
-            "\nWhen the speaker uses 'I mean', 'actually', 'no wait', 'scratch that', 'let me rephrase', "
-            "or similar mid-sentence revision markers, treat the content AFTER the marker as canonical "
-            "and DISCARD the content before it. This is intentional self-correction, not disfluency."
-            "\nExample: 'the meeting at 3pm, I mean 4pm' → 'the meeting at 4pm' (NOT '3pm 4pm', NOT '3pm')."
-            "\nExample: 'I'm going to the s-s-s-the place' → 'I'm going to the place' (covert revision past a hard onset)."
-            "\nExample: 'let's go to Italian, actually let's go to Thai' → 'let's go to Thai'."
-        )
-        parts.append(
-            "\nThe input is a voice transcription and may contain ASR artifacts:"
-            "\n- Repeated words or phrases from natural speech hesitation"
-            "\n- Filler sounds transcribed as real words (e.g., 'um' → 'come')"
-            "\n- Phantom words inserted during pauses in speech"
-            "\n- Phonetically similar but semantically wrong words (misheard)"
-            "\n- Truncated or garbled words from unclear pronunciation"
-            "\nWhen a word is phonetically plausible but doesn't fit the context, "
-            "prefer the contextually correct interpretation."
-            "\n\nExamples:"
-            "\n  IN:  'So um I was going to uh the store to get some, some milk'"
-            "\n  OUT: 'I was going to the store to get some milk'"
-            "\n  IN:  'Can you send me the, the report by, by Friday'"
-            "\n  OUT: 'Can you send me the report by Friday'"
-            "\n  IN:  'I think we should, we should probably move the meeting'"
-            "\n  OUT: 'I think we should probably move the meeting'"
-            "\n  IN:  'The, uh, what's it called, the database needs updating'"
-            "\n  OUT: 'The database needs updating'"
-        )
-
-        # L1-transfer pack — phonetic accent dies at ASR, syntactic/morphological/
-        # lexical patterns survive in the transcript and are deterministically detectable.
-        l1_block = l1_pack.prompt_injection(profile)
-        if l1_block:
-            parts.append(l1_block)
-
-        # Domain pack — canonical-vocab list + phonetic-alias corrections.
-        domain_block = domain_pack.prompt_injection(profile)
-        if domain_block:
-            parts.append(domain_block)
-
-        # Within-session regenerate signal: previous outputs the user rejected.
-        if previous_outputs:
-            recent = list(previous_outputs)[-4:]
-            parts.append(
-                "\n\nThe speaker is asking for a DIFFERENT phrasing of the same intent. "
-                "You have already produced these reconstructions, which the speaker rejected:"
-            )
-            for i, prev in enumerate(recent, start=1):
-                parts.append(f'\n  {i}. "{prev}"')
-            parts.append(
-                "\nProduce a new reconstruction that preserves the same meaning but uses "
-                "different word choices, sentence structure, and rhythm. Do not return any "
-                "of the prior outputs verbatim or with only trivial edits."
-            )
+        parts.append(_pb_layer2_3_restate(profile, previous_outputs))
 
     # L4 clinical block — full disfluency context, multilingual lang pack, onset weights.
     if layer >= 4:
-        # Per-speaker phoneme difficulty map: lavrentiy passes learned weights;
-        # WiM CF reads from profile.onset_weights. Either source is accepted.
-        onset_weights = personal_onset_weights or profile.get("onset_weights", {})
-        if onset_weights:
-            ranked = sorted(onset_weights.items(), key=lambda x: -x[1])
-            hard_onsets = [f"/{o}/ ({round(w*100)}%)" for o, w in ranked[:6] if w >= 0.4]
-            if hard_onsets:
-                parts.append(
-                    f"\n⚠ THIS SPEAKER'S HARDEST PHONEMES: {', '.join(hard_onsets)}"
-                    "\nWhisper output near these onsets is unreliable — expect hallucinations, "
-                    "syllable drops, or phantom word insertions. Trust semantic context over "
-                    "literal transcription when words starting with these sounds look garbled."
-                )
-
-        # Covert avoidance pairs from profile.
-        covert = profile.get("covert_profile", {}).get("avoidance_pairs", {})
-        if covert:
-            covert_note = []
-            for sit, words in list(covert.items())[:3]:
-                for word, data in list(words.items())[:3]:
-                    subs = data.get("common_substitutes", [])[:2]
-                    if subs:
-                        covert_note.append(f"'{word}' → {subs} (avoidance of /{data.get('dominant_onset', '?')}/)")
-            if covert_note:
-                parts.append(
-                    "\n⚠ KNOWN COVERT AVOIDANCE: speaker sometimes swaps these words: "
-                    + "; ".join(covert_note)
-                    + "\nIf you see a synonym where the original word would fit better, "
-                    "the original IS what they meant. Reconstruct with the intended word."
-                )
-
-        # Language-parameterized L4 block (docs/l4_prompt_engineering_memo.md § 4–5)
-        _lang_code = _normalize_lang_code(language_code)
-        _lang_name_str = _lang_name(_lang_code)
-        _lang_fillers = _get_lang_fillers(_lang_code)
-        _lang_natural_repeats = _get_lang_natural_repeats(_lang_code)
-        _dialect_note = _get_lang_dialect_avoidance_note(_lang_code)
-        _timing_note = _get_lang_syllable_timing_note(_lang_code)
-
-        _l4 = []
-        _l4.append(
-            f"\nThe speaker has a speech disfluency. Language: {_lang_code.upper()} ({_lang_name_str}). "
-            "Raw transcription is evidence of intent, not truth. "
-            "Reconstruct the intended message. Preserve FULL meaning."
-        )
-        if _lang_fillers:
-            _l4.append(f"\n\nFILLERS TO STRIP ({_lang_code}): {', '.join(_lang_fillers)}")
-        if _lang_natural_repeats:
-            _l4.append(
-                f"\n\nEMPHATIC PATTERNS — DO NOT STRIP in {_lang_code}: {', '.join(_lang_natural_repeats)}"
-                f"\nThese are pragmatically meaningful in {_lang_name_str}, not stuttering."
-            )
-        _l4.append("\n\nOvert disfluencies — strip and reconstruct:")
-        _l4.append(f"\n- Part-word repetitions: {_get_lang_part_word_example(_lang_code)}")
-        _l4.append("\n- Whole-word repetitions (NOT matching the emphatic allow-list above)")
-        _l4.append(f"\n- Prolongations: {_get_lang_prolongation_example(_lang_code)}")
-        _l4.append(f"\n- Epenthetic insertions during blocks: {_get_lang_epenthesis_note(_lang_code)}")
-        _l4.append("\n- Blocks: silence or frozen onset before a word (locked articulators)")
-        _l4.append("\n- Tremors: lip/jaw quivering during a fixation")
-        _l4.append("\n- Secondary behaviors: eye blinks, foot taps, head movements during blocks")
-        _l4.append("\n- False starts and restarts")
-
-        _l4.append("\n\nCovert avoidance — recognize as avoidance behavior, not content:")
-        _l4.append("\n- Filler clusters before a content word = postponement (see filler list above)")
-        _l4.append("\n- Synonym substitution = avoiding a feared word")
-        _l4.append("\n- Circumlocution = talking around a feared word")
-        _l4.append("\n- Sentence abandonment = dropping thought before feared word ('Oh, never mind')")
-        _l4.append("\n- Covert interruption = jumping in while someone talks to mask onset difficulty")
-        _l4.append(
-            "\n- Mazes: extended filler runs adding no information. DISTINCT from cluttered "
-            "rapid speech — do not over-strip if the speaker's speech is globally rapid."
-        )
-        if _dialect_note:
-            _l4.append(f"\n{_dialect_note}")
-
-        _l4.append("\n\nAnticipatory behavior:")
-        _l4.append(
-            "\n- A pause or silence BEFORE a content word with a hard onset MAY INDICATE anticipatory fear"
-        )
-        _l4.append(
-            "\n- Confidence increases when a filler cluster appears in the preceding 1–3 words "
-            "AND the following word begins with a documented hard onset"
-        )
-        _l4.append("\n- Treat as a block candidate, not certainty")
-        if _timing_note:
-            _l4.append(f"\n{_timing_note}")
-
-        _l4.append("\n\nWhisper ASR failure modes on disfluent speech:")
-        _l4.append("\n- HALLUCINATION DURING BLOCKS: silence → Whisper generates phantom text.")
-        _l4.append(
-            "\n  Known hallucination strings to discard: 'thank you', 'thanks for watching', "
-            "'subscribe', 'like and subscribe', 'transcribed by', 'captions by', 'otter.ai'."
-        )
-        if _lang_code != "en":
-            _l4.append(
-                f"\n  In {_lang_name_str} transcripts, English phrases appearing mid-utterance "
-                "are likely Whisper hallucinations — discard them."
-            )
-        _l4.append("\n- SYLLABLE DELETION: repeated syllables collapsed or dropped")
-        _l4.append("\n- PHANTOM INSERTIONS: prolongations → Whisper hallucinates similar-sounding words")
-        _l4.append(f"\n- {_get_lang_epenthesis_corruption_note(_lang_code)}")
-        _l4.append("\n- PAUSE HALLUCINATION: long pauses → Whisper generates filler text (see above)")
-
-        _l4.append("\n\n")
-        _l4.append(_get_lang_few_shot_examples(_lang_code))
-
-        _l4.append(
-            "\n\nDo not mistake disfluency for emphasis — but PRESERVE the emphatic patterns listed above."
-            "\nReconstruct within the speaker's established dialect — do not substitute dialectal forms."
-            "\nWhen uncertain, prefer conservative cleanup over aggressive rewriting."
-        )
-
-        _onset_caveat = _get_lang_onset_caveat(_lang_code)
-        if _onset_caveat:
-            _l4.append(f"\n{_onset_caveat}")
-        if _lang_has_no_onset_research(_lang_code):
-            _l4.append(
-                f"\n\nONSET NOTE: No published phoneme-difficulty research exists for {_lang_code} "
-                "as of April 2026. Do not apply English-derived onset assumptions. Focus on word-level "
-                "repetitions, prolongations, filler clusters, and Whisper hallucination strings."
-            )
-
-        parts.append("".join(_l4))
-        if profile.get("trigger_words"):
-            parts.append(f"\nKnown trigger words: {', '.join(profile['trigger_words'])}")
-
-        # Personal phonetic pattern — passed in by lavrentiy from learned weights.
-        if personal_dominant_onsets:
-            onset_desc = ", ".join(
-                f"/{d['onset']}/ ({d['pct']}%)" for d in personal_dominant_onsets
-            )
-            parts.append(
-                f"\nThis speaker's personal block pattern: {onset_desc} of triggers. "
-                "Words starting with these sounds are HIGH PRIORITY for reconstruction — "
-                "expect heavier disfluency on these onsets specifically."
-            )
-
-        # Predicted high-risk words in this utterance — passed in by lavrentiy.
-        if predicted_triggers:
-            flagged = [f"{w}({r})" for w, r in predicted_triggers[:10]]
-            parts.append(f"\nPhonetically predicted high-risk words in this utterance: {', '.join(flagged)}")
+        l4_block = _pb_layer4_block(profile, language_code, personal_onset_weights,
+                                     personal_dominant_onsets, predicted_triggers)
+        if l4_block:
+            parts.append(l4_block)
 
     # Paralinguistic event context (lavrentiy L5).
-    if paralinguistic_events:
-        para_notes = []
-        for ev in paralinguistic_events[:8]:
-            para_notes.append(
-                f"  [{ev['type']}] at {ev['start_s']:.1f}s–{ev['end_s']:.1f}s "
-                f"(confidence={ev['confidence']}, HNR={ev.get('hnr_db', '?')}dB)"
-            )
-        if para_notes:
-            parts.append(
-                "\n⚠ PARALINGUISTIC EVENTS DETECTED — the following non-speech sounds were "
-                "found in the audio. Whisper likely hallucinated words in these windows. "
-                "IGNORE or DISCARD any transcribed text that falls within ±1 second of "
-                "these timestamps — it is not speech:\n"
-                + "\n".join(para_notes)
-                + "\nReconstruct using surrounding context only. Do not try to interpret "
-                "non-speech sounds as words."
-            )
+    para_block = _pb_paralinguistic_events(paralinguistic_events)
+    if para_block:
+        parts.append(para_block)
 
     # Prosodic bridging (lavrentiy L5.5) — caller passes a pre-formatted block.
     if prosodic_context:

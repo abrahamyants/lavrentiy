@@ -10,6 +10,11 @@ docs/*
 !docs/L1_Transfer_Markers_in_Written_English.md
 !docs/L1_Transfer_Markers_in_Written_English.docx
 profile.json
+style_examples.json
+.coverage
+build-native/
+dist-native/
+build-native-*.log
 __pycache__/
 *.pyc
 api_key*.txt

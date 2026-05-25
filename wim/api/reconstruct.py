@@ -21,7 +21,7 @@ import time
 
 import openai
 
-from prompt_builder import build_prompt, TONE_TEMP, TONE_RULES, SITUATION_SEVERITY
+from prompt_builder import build_prompt, TONE_TEMP
 
 # ─── Config ───
 # Model pinned to a specific snapshot so silent OpenAI version drift can't

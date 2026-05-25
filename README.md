@@ -27,7 +27,8 @@ Mic → Whisper (Script Prep seed | verbose JSON | multi-temp voting)
 ```
 
 - **Engine** (`lavrentiy.py`): Hotkey listener, audio capture, LLM pipeline, DAF streaming, calibration, augmentation, embedded HTTP server
-- **Dashboard** (`dashboard.html`): Browser-based control panel served on `localhost:7878`
+- **Dashboard** (`dashboard.html`): Browser-based control panel served on `localhost:7878`. Open in any browser at that URL, OR use the native window launcher below.
+- **Native window launcher** (`native/pywebview_app.py`): Renders the dashboard in a native OS window via pywebview + Windows WebView2 (Edge Chromium). Run with `pythonw.exe native/pywebview_app.py` — engine and dashboard start together; closing the window leaves the engine + system tray running; quit via tray right-click. Replaces the prior PySide6+QWebEngineView attempt, which is now deprecated due to QtWebEngine's older bundled Chromium rendering modern CSS in dashboard.html unreliably.
 - **Profiles** (`~/.lavrentiy/profiles/<name>/`): Multi-user support — each profile gets its own profile.json, history.db, and backups/
 - **Active Profile** (`~/.lavrentiy/active_profile`): Tracks which profile is loaded across restarts
 - **Calibration** (`~/.lavrentiy/calibration/`): 60-prompt structured data collection with WER tracking

@@ -121,7 +121,7 @@ def handle(request):
     # Write to l1_contributions/{profile_l1}/entries/{auto_id}
     try:
         db.collection("l1_contributions").document(profile_l1).collection("entries").document(auto_id).set(doc_data)
-    except Exception as e:
+    except Exception:
         import logging
         logging.exception("Firestore write failed for l1_contributions")
         return (

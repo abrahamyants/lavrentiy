@@ -45,7 +45,6 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 import l1_pack
-import domain_pack
 import rejection_store
 import style_examples
 # Unified L1-L4 prompt builder (lives at wim/api/prompt_builder.py — the same
@@ -104,7 +103,7 @@ def _check_existing_engine():
     and made running engines suicide on near-simultaneous launches."""
     import urllib.request
     try:
-        resp = urllib.request.urlopen(f"http://localhost:7878/api/state", timeout=5)
+        resp = urllib.request.urlopen("http://localhost:7878/api/state", timeout=5)
         return resp.status == 200
     except Exception:
         return False
@@ -1433,40 +1432,40 @@ def switch_profile(name):
 
     log(f"[SWP] A: enter switch_profile('{name}')", "info")
     save_profile(profile)
-    log(f"[SWP] B: save_profile done", "info")
+    log("[SWP] B: save_profile done", "info")
 
     _profile_switch_epoch += 1
-    log(f"[SWP] C: epoch bumped", "info")
+    log("[SWP] C: epoch bumped", "info")
 
-    log(f"[SWP] D: acquiring _db_lock", "info")
+    log("[SWP] D: acquiring _db_lock", "info")
     with _db_lock:
-        log(f"[SWP] E: _db_lock acquired", "info")
+        log("[SWP] E: _db_lock acquired", "info")
         try:
             _db.close()
         except Exception as _e:
             log(f"[SWP] F: _db.close exception (ignored): {_e}", "warn")
-        log(f"[SWP] G: _db closed", "info")
+        log("[SWP] G: _db closed", "info")
 
         _active_profile_name = name
         PROFILE_DIR, PROFILE_PATH, DB_PATH, BACKUP_DIR = _resolve_profile_paths(name)
         PROFILE_DIR.mkdir(parents=True, exist_ok=True)
         _write_active_profile_name(name)
-        log(f"[SWP] H: paths updated, active_profile written", "info")
+        log("[SWP] H: paths updated, active_profile written", "info")
 
         profile = load_profile()
-        log(f"[SWP] I: load_profile done", "info")
+        log("[SWP] I: load_profile done", "info")
         profile = migrate_profile(profile)
-        log(f"[SWP] J: migrate_profile done", "info")
+        log("[SWP] J: migrate_profile done", "info")
         if normalize_profile(profile):
             save_profile(profile)
-        log(f"[SWP] K: normalize+save done", "info")
+        log("[SWP] K: normalize+save done", "info")
         migrate_fillers(profile)
-        log(f"[SWP] L: migrate_fillers done", "info")
+        log("[SWP] L: migrate_fillers done", "info")
         learn_onset_weights(profile.get("trigger_words", []))
-        log(f"[SWP] M: learn_onset_weights done", "info")
+        log("[SWP] M: learn_onset_weights done", "info")
 
         _db = _init_db(DB_PATH)
-        log(f"[SWP] N: _init_db done", "info")
+        log("[SWP] N: _init_db done", "info")
 
     # Reset transient state
     _shadow_history.clear() if isinstance(_shadow_history, list) else None
@@ -2491,7 +2490,8 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
                 save_profile(prof)
             def _bg_contribute(raw=raw_text, rejected=_last_rejected, l1=prof.get("profile_l1"), anon_id=prof.get("_anonymous_id", "")):
                 try:
-                    import urllib.request, json as _json
+                    import urllib.request
+                    import json as _json
                     payload = _json.dumps({
                         "raw": raw[:2000],
                         "model_output": rejected[:2000],
@@ -5280,77 +5280,154 @@ def _classify_from_error_patterns(whisper_low_conf, whisper_disagreements,
     return candidates
 
 
+def _localize_candidate_window(cand, whisper_segments, total_duration):
+    """Locate the audio window for a candidate using ±_EVENT_WINDOW_S around
+    the matching Whisper segment (Zhang's ±1s temporal error zone). Falls back
+    to the full audio when no segment matches.
+    """
+    if cand.get("text") and whisper_segments:
+        for seg in whisper_segments:
+            if cand["text"] in seg.get("text", ""):
+                seg_start = seg.get("start", 0)
+                seg_end = seg.get("end", seg_start + 1)
+                return (max(0, seg_start - _EVENT_WINDOW_S),
+                        min(total_duration, seg_end + _EVENT_WINDOW_S))
+    return (0.0, total_duration)
+
+
+def _classify_unknown_event_type(hnr, zcr, rms, energy_db, duration):
+    """Classify a paralinguistic event of type "unknown" using acoustic features.
+    Returns one of: Sneezing, Cough, Sniff, Gasp, Yawning, Crying, Sigh.
+    """
+    if hnr < _HNR_CERTAIN_THRESHOLD and zcr > _ZCR_LOW_THRESHOLD:
+        # Very low HNR + high ZCR = impulsive voiced noise (Sneeze vs Cough by RMS)
+        return "Sneezing" if rms > 0.15 else "Cough"
+    if hnr < _HNR_CERTAIN_THRESHOLD and zcr < _ZCR_NASAL_THRESHOLD and duration < 0.8:
+        return "Sniff"
+    if energy_db > -15.0 and duration < 0.6 and zcr > 2000:
+        return "Gasp"
+    if duration >= _MIN_YAWNING_DURATION_S and rms < 0.03:
+        return "Yawning"
+    if 2.5 <= hnr < _HNR_SPEECH_THRESHOLD and rms > 0.05:
+        return "Crying"
+    return "Sigh"  # fallback for any low-HNR unclassifiable case
+
+
+def _passes_duration_gate(event_type, duration):
+    """True iff the event clears its per-type minimum-duration floor.
+    Per-type floors fall back to _MIN_EVENT_DURATION_S for any event without
+    a specific minimum.
+    """
+    floors = {
+        "Laughter": _MIN_LAUGHTER_DURATION_S,
+        "Yawning":  _MIN_YAWNING_DURATION_S,
+        "Crying":   _MIN_CRYING_DURATION_S,
+        "Sniff":    _MIN_SNIFF_DURATION_S,
+        "Gasp":     _MIN_GASP_DURATION_S,
+    }
+    return duration >= floors.get(event_type, _MIN_EVENT_DURATION_S)
+
+
+def _build_voiced_event(cand, hnr, zcr, energy_db, audio_window,
+                       window_start_s, window_end_s):
+    """Build a voiced-event dict (HNR < speech threshold path). Returns None
+    if the candidate should be skipped per the confidence / duration gates.
+    """
+    import numpy as np
+    duration = window_end_s - window_start_s
+
+    # Confidence boosts
+    hnr_boost = min(0.3, (_HNR_SPEECH_THRESHOLD - hnr) * 0.05)
+    zcr_boost = 0.15 if (zcr < _ZCR_LOW_THRESHOLD and
+                         cand["detection_method"] in ("error_pattern_ins", "error_pattern_ins_high")) else 0.0
+    final_confidence = min(0.95, cand["confidence"] + hnr_boost + zcr_boost)
+
+    # Gupta masking — drop anything below T0 / confidence floor
+    if final_confidence < _GUPTA_T0 or final_confidence < _CONFIDENCE_FLOOR:
+        return None
+
+    event_type = cand["type"]
+    if event_type == "unknown":
+        rms = float(np.sqrt(np.mean(audio_window.astype(float) ** 2)))
+        event_type = _classify_unknown_event_type(hnr, zcr, rms, energy_db, duration)
+
+    # ZCR refinement: previously-classified Sigh may actually be Sniff
+    if event_type == "Sigh" and zcr < _ZCR_NASAL_THRESHOLD and duration < 0.8:
+        event_type = "Sniff"
+
+    if not _passes_duration_gate(event_type, duration):
+        return None
+
+    return {
+        "type": event_type,
+        "start_s": round(window_start_s, 2),
+        "end_s": round(window_end_s, 2),
+        "confidence": round(final_confidence, 2),
+        "detection_method": cand["detection_method"],
+        "hnr_db": hnr,
+        "zcr_hz": zcr,
+        "energy_db": energy_db,
+        "committed": final_confidence >= _GUPTA_T1,
+    }
+
+
+def _build_pause_breathing_event(cand, hnr, window_start_s, window_end_s):
+    """Build an event for Pause/Breathing candidates with HNR above the
+    speech threshold (silence has no meaningful HNR; breathing can be
+    slightly harmonic). Returns None if the candidate fails gates.
+    """
+    if cand["confidence"] < 0.5:
+        return None
+    duration = window_end_s - window_start_s
+    if duration < _MIN_EVENT_DURATION_S:
+        return None
+    return {
+        "type": cand["type"],
+        "start_s": round(window_start_s, 2),
+        "end_s": round(window_end_s, 2),
+        "confidence": round(cand["confidence"], 2),
+        "detection_method": cand["detection_method"],
+        "hnr_db": hnr,
+    }
+
+
 def detect_paralinguistic_events(audio_data, sample_rate, whisper_segments,
                                   whisper_low_conf, whisper_disagreements,
                                   wer_sdi=None):
     """Main Layer 5 detection: find paralinguistic events in audio.
 
-    Combines multiple signals:
-    1. Error-type patterns from Whisper metadata (zero-cost, already computed)
-    2. HNR analysis on candidate windows (numpy/scipy, ~5ms per window)
-    3. Temporal gating (discard events < 500ms, laughter < 1000ms)
+    Combines three signals:
+      1. Error-type patterns from Whisper metadata (zero-cost, already computed)
+      2. HNR analysis on candidate windows (numpy/scipy, ~5ms per window)
+      3. Temporal gating (per-type duration floors)
 
-    The ±1s rule (Zhang): 96.1% of ASR errors cluster within 1s of a
-    paralinguistic event. We use Whisper error locations to find candidate
-    windows, then analyze the raw audio in those windows.
-
-    Args:
-        audio_data: numpy array of audio samples
-        sample_rate: sample rate (typically 16000)
-        whisper_segments: Whisper verbose JSON segments
-        whisper_low_conf: low-confidence segments from _extract_low_confidence_segments
-        whisper_disagreements: multi-temp voting disagreements
-        wer_sdi: optional (substitutions, deletions, insertions) tuple
+    Zhang's ±1s rule: 96.1% of ASR errors cluster within 1s of a paralinguistic
+    event. We use Whisper error locations to find candidate windows, then analyze
+    the raw audio in those windows.
 
     Returns list of detected events:
-        [{type, start_s, end_s, confidence, detection_method, hnr_db}]
+        [{type, start_s, end_s, confidence, detection_method, hnr_db, ...}]
     """
-    import numpy as np
-
     total_duration = len(audio_data) / sample_rate if sample_rate > 0 else 0
     if total_duration < 0.5:
         return []  # Audio too short for meaningful detection
 
-    events = []
-
-    # Step 1: Get candidate events from error patterns
     candidates = _classify_from_error_patterns(
         whisper_low_conf, whisper_disagreements, wer_sdi
     )
-
-    # Step 2: For each candidate, find the audio window and compute HNR
-    # Use Whisper segment timestamps to locate the candidate in audio
-    segment_times = []
-    if whisper_segments:
-        for seg in whisper_segments:
-            start = seg.get("start", 0)
-            end = seg.get("end", start + 1)
-            segment_times.append((start, end))
+    events = []
+    min_window_samples = int(sample_rate * 0.05)  # 50ms
 
     for cand in candidates:
-        # Determine the audio window for this candidate
-        # Default: analyze the full audio if we can't localize
-        window_start_s = 0.0
-        window_end_s = total_duration
-
-        # Try to localize from low-confidence segment text
-        if cand.get("text") and segment_times:
-            for seg, (seg_start, seg_end) in zip(whisper_segments, segment_times):
-                if cand["text"] in seg.get("text", ""):
-                    # Apply +-1s window (Zhang's temporal error zone)
-                    window_start_s = max(0, seg_start - _EVENT_WINDOW_S)
-                    window_end_s = min(total_duration, seg_end + _EVENT_WINDOW_S)
-                    break
-
-        # Extract audio window
+        window_start_s, window_end_s = _localize_candidate_window(
+            cand, whisper_segments, total_duration
+        )
         start_sample = int(window_start_s * sample_rate)
         end_sample = min(len(audio_data), int(window_end_s * sample_rate))
-        if end_sample - start_sample < int(sample_rate * 0.05):  # < 50ms
+        if end_sample - start_sample < min_window_samples:
             continue
-
         audio_window = audio_data[start_sample:end_sample]
 
-        # Compute acoustic features on the window
         hnr = compute_hnr(audio_window, sample_rate)
         zcr = compute_zcr(audio_window, sample_rate)
         energy_db = compute_log_energy(audio_window)
@@ -5359,101 +5436,16 @@ def detect_paralinguistic_events(audio_data, sample_rate, whisper_segments,
         if energy_db < _ENERGY_FLOOR_DB:
             continue
 
-        event_duration = window_end_s - window_start_s
-
-        # Decision: HNR < 4.0 dB confirms paralinguistic event
         if hnr < _HNR_SPEECH_THRESHOLD:
-            # Boost confidence based on how low the HNR is
-            hnr_boost = min(0.3, (_HNR_SPEECH_THRESHOLD - hnr) * 0.05)
-            # Boost from ZCR agreement: low ZCR + insertion errors = strong signal
-            zcr_boost = 0.0
-            if zcr < _ZCR_LOW_THRESHOLD and cand["detection_method"] in ("error_pattern_ins", "error_pattern_ins_high"):
-                zcr_boost = 0.15  # ZCR confirms the insertion-based classification
-            final_confidence = min(0.95, cand["confidence"] + hnr_boost + zcr_boost)
+            ev = _build_voiced_event(cand, hnr, zcr, energy_db, audio_window,
+                                     window_start_s, window_end_s)
+        elif cand["type"] in ("Pause", "Breathing"):
+            ev = _build_pause_breathing_event(cand, hnr, window_start_s, window_end_s)
+        else:
+            ev = None
 
-            # Gupta masking: aggressive suppression below T0
-            if final_confidence < _GUPTA_T0:
-                continue
-            if final_confidence < _CONFIDENCE_FLOOR:
-                continue
-
-            # Classify unknown candidates using HNR + ZCR + energy + duration
-            event_type = cand["type"]
-            if event_type == "unknown":
-                rms = float(np.sqrt(np.mean(audio_window.astype(float) ** 2)))
-
-                if hnr < _HNR_CERTAIN_THRESHOLD and zcr > _ZCR_LOW_THRESHOLD:
-                    # Very low HNR + high ZCR = impulsive voiced noise
-                    if rms > 0.15:
-                        event_type = "Sneezing"
-                    else:
-                        event_type = "Cough"
-                elif hnr < _HNR_CERTAIN_THRESHOLD and zcr < _ZCR_NASAL_THRESHOLD and event_duration < 0.8:
-                    # Very low HNR + very low ZCR + short = nasal burst
-                    event_type = "Sniff"
-                elif energy_db > -15.0 and event_duration < 0.6 and zcr > 2000:
-                    # Sudden high energy + short + high ZCR = gasp (sudden air intake)
-                    event_type = "Gasp"
-                elif event_duration >= _MIN_YAWNING_DURATION_S and rms < 0.03:
-                    # Long, breathy, low energy = yawning
-                    event_type = "Yawning"
-                elif hnr >= 2.5 and hnr < _HNR_SPEECH_THRESHOLD and rms > 0.05:
-                    # Partially voiced + moderate energy + irregular = crying
-                    event_type = "Crying"
-                elif zcr < _ZCR_LOW_THRESHOLD:
-                    # Low ZCR = aperiodic broadband = sigh
-                    event_type = "Sigh"
-                else:
-                    event_type = "Sigh"  # Default fallback for unclassifiable low-HNR
-
-            # Refine existing classifications using ZCR
-            # If error patterns said "Sigh" but ZCR is very low + short duration = could be Sniff
-            if event_type == "Sigh" and zcr < _ZCR_NASAL_THRESHOLD and event_duration < 0.8:
-                event_type = "Sniff"
-
-            # Apply duration gates
-            if event_type == "Laughter" and event_duration < _MIN_LAUGHTER_DURATION_S:
-                continue
-            elif event_type == "Yawning" and event_duration < _MIN_YAWNING_DURATION_S:
-                continue
-            elif event_type == "Crying" and event_duration < _MIN_CRYING_DURATION_S:
-                continue
-            elif event_type == "Sniff" and event_duration < _MIN_SNIFF_DURATION_S:
-                continue
-            elif event_type == "Gasp" and event_duration < _MIN_GASP_DURATION_S:
-                continue
-            elif event_duration < _MIN_EVENT_DURATION_S:
-                continue
-
-            # Gupta T1 gate: only commit high-confidence events to transcript
-            # Events between T0 and T1 are logged but not tagged
-            committed = final_confidence >= _GUPTA_T1
-
-            events.append({
-                "type": event_type,
-                "start_s": round(window_start_s, 2),
-                "end_s": round(window_end_s, 2),
-                "confidence": round(final_confidence, 2),
-                "detection_method": cand["detection_method"],
-                "hnr_db": hnr,
-                "zcr_hz": zcr,
-                "energy_db": energy_db,
-                "committed": committed,
-            })
-        elif hnr >= _HNR_SPEECH_THRESHOLD and cand["type"] in ("Pause", "Breathing"):
-            # Pause/Breathing can still be valid even with higher HNR
-            # (silence has no meaningful HNR; breathing can be slightly harmonic)
-            if cand["confidence"] >= 0.5:
-                event_duration = window_end_s - window_start_s
-                if event_duration >= _MIN_EVENT_DURATION_S:
-                    events.append({
-                        "type": cand["type"],
-                        "start_s": round(window_start_s, 2),
-                        "end_s": round(window_end_s, 2),
-                        "confidence": round(cand["confidence"], 2),
-                        "detection_method": cand["detection_method"],
-                        "hnr_db": hnr,
-                    })
+        if ev is not None:
+            events.append(ev)
 
     return events
 
@@ -5786,87 +5778,85 @@ def compute_speaker_baseline(prof, db_sessions_func, limit=50):
     return baseline
 
 
+def _compute_session_prosodic_aggregates(prosodic_features):
+    """Reduce a list of per-segment prosodic features to session-level averages."""
+    import numpy as np
+    f0s        = [f["f0_mean"]   for f in prosodic_features if f["f0_mean"]   > 0]
+    energies   = [f["energy"]    for f in prosodic_features if f["energy"]    > 0]
+    rates      = [f["rate_sps"]  for f in prosodic_features if f["rate_sps"]  > 0]
+    f0_vars    = [f["f0_var"]    for f in prosodic_features if f["f0_var"]    > 0]
+    pitch_dirs = [f["pitch_direction"] for f in prosodic_features]
+    return {
+        "f0":            float(np.mean(f0s))      if f0s      else 0.0,
+        "energy":        float(np.mean(energies)) if energies else 0.0,
+        "rate":          float(np.mean(rates))    if rates    else 0.0,
+        "f0_var":        float(np.mean(f0_vars))  if f0_vars  else 0.0,
+        "erratic_ratio": pitch_dirs.count("erratic") / max(len(pitch_dirs), 1),
+        "_has_data":     bool(f0s or energies),
+    }
+
+
+def _compute_baseline_deviations(sess, baseline):
+    """Sigma-unit deviation of session aggregates from personal baseline."""
+    b = baseline
+
+    def _z(value, mean, std):
+        return (value - mean) / std if std > 0 and mean > 0 else 0.0
+
+    return {
+        "f0":     _z(sess["f0"],     b["f0_mean"],     b["f0_std"]),
+        "energy": _z(sess["energy"], b["energy_mean"], b["energy_std"]),
+        "rate":   _z(sess["rate"],   b["rate_mean"],   b["rate_std"]),
+    }
+
+
+def _classify_speaker_state(sess, dev):
+    """Heuristic rule chain — returns a single human-readable state phrase.
+
+    Rules (from USDM + SpeechEmotionLlama findings):
+      High F0 var + fast rate + high energy = elevated arousal/stress
+      Dropping energy + slow rate          = fatigue/shutdown
+      Erratic F0                            = vocal fold tension (often near a block)
+      High energy + high F0 variance        = amused/animated
+      Everything near baseline              = calm/casual
+      Otherwise                             = mild deviation summary
+    """
+    f0_dev, energy_dev, rate_dev = dev["f0"], dev["energy"], dev["rate"]
+    f0_var, erratic = sess["f0_var"], sess["erratic_ratio"]
+
+    if (f0_var > 200 or f0_dev > 1.5) and rate_dev > 0.5 and energy_dev > 0.5:
+        return f"Elevated stress/arousal (F0 {f0_dev:+.1f}σ, energy {energy_dev:+.1f}σ, rate {rate_dev:+.1f}σ)"
+    if energy_dev < -1.0 and rate_dev < -0.5:
+        return f"Low energy/fatigue (energy {energy_dev:+.1f}σ, rate {rate_dev:+.1f}σ)"
+    if erratic > 0.3:
+        return f"Vocal tension (erratic pitch in {erratic:.0%} of segments)"
+    if energy_dev > 0.5 and f0_var > 150:
+        return f"Amused/animated (F0 variance elevated, energy {energy_dev:+.1f}σ)"
+    if abs(f0_dev) < 1.0 and abs(energy_dev) < 1.0 and abs(rate_dev) < 1.0:
+        return "Calm/casual (features near baseline)"
+
+    deviations = [f"{label} {val:+.1f}σ"
+                  for label, val in (("F0", f0_dev), ("energy", energy_dev), ("rate", rate_dev))
+                  if abs(val) > 1.0]
+    return f"Mild deviation ({', '.join(deviations)})" if deviations else ""
+
+
 def infer_speaker_state(prosodic_features, baseline):
     """Map prosodic deviations to a natural language state description.
 
     Compares current session features against personal baseline.
     Returns a descriptive sentence, not a label.
-
-    Deviation rules (from USDM + SpeechEmotionLlama findings):
-      High F0 var + fast rate + high energy = elevated arousal/stress
-      Dropping energy + slow rate = fatigue/shutdown
-      Erratic F0 near a block = vocal fold tension
-      Stable features = calm/casual
     """
     if not prosodic_features:
         return ""
-
-    import numpy as np
-
-    # Compute session-level averages
-    f0s = [f["f0_mean"] for f in prosodic_features if f["f0_mean"] > 0]
-    energies = [f["energy"] for f in prosodic_features if f["energy"] > 0]
-    rates = [f["rate_sps"] for f in prosodic_features if f["rate_sps"] > 0]
-    f0_vars = [f["f0_var"] for f in prosodic_features if f["f0_var"] > 0]
-    pitch_dirs = [f["pitch_direction"] for f in prosodic_features]
-
-    if not f0s and not energies:
+    sess = _compute_session_prosodic_aggregates(prosodic_features)
+    if not sess["_has_data"]:
         return ""
-
-    sess_f0 = float(np.mean(f0s)) if f0s else 0
-    sess_energy = float(np.mean(energies)) if energies else 0
-    sess_rate = float(np.mean(rates)) if rates else 0
-    sess_f0_var = float(np.mean(f0_vars)) if f0_vars else 0
-    erratic_ratio = pitch_dirs.count("erratic") / max(len(pitch_dirs), 1)
-
-    # Compute deviations from baseline in sigma units
-    b = baseline
-    f0_dev = (sess_f0 - b["f0_mean"]) / b["f0_std"] if b["f0_std"] > 0 and b["f0_mean"] > 0 else 0
-    energy_dev = (sess_energy - b["energy_mean"]) / b["energy_std"] if b["energy_std"] > 0 and b["energy_mean"] > 0 else 0
-    rate_dev = (sess_rate - b["rate_mean"]) / b["rate_std"] if b["rate_std"] > 0 and b["rate_mean"] > 0 else 0
-
-    # State inference rules
-    parts = []
-
-    # High arousal: elevated F0 variance + fast rate + high energy
-    if (sess_f0_var > 200 or f0_dev > 1.5) and rate_dev > 0.5 and energy_dev > 0.5:
-        parts.append(f"Elevated stress/arousal (F0 {f0_dev:+.1f}σ, energy {energy_dev:+.1f}σ, rate {rate_dev:+.1f}σ)")
-
-    # Fatigue/shutdown: dropping energy + slow rate
-    elif energy_dev < -1.0 and rate_dev < -0.5:
-        parts.append(f"Low energy/fatigue (energy {energy_dev:+.1f}σ, rate {rate_dev:+.1f}σ)")
-
-    # Erratic pitch = vocal tension (often near blocks)
-    elif erratic_ratio > 0.3:
-        parts.append(f"Vocal tension (erratic pitch in {erratic_ratio:.0%} of segments)")
-
-    # Amused/laughing: high energy + high F0 variance + erratic
-    elif energy_dev > 0.5 and sess_f0_var > 150:
-        parts.append(f"Amused/animated (F0 variance elevated, energy {energy_dev:+.1f}σ)")
-
-    # Calm/casual: everything near baseline
-    elif abs(f0_dev) < 1.0 and abs(energy_dev) < 1.0 and abs(rate_dev) < 1.0:
-        parts.append("Calm/casual (features near baseline)")
-
-    # Mild deviation — note it but don't over-interpret
-    else:
-        deviations = []
-        if abs(f0_dev) > 1.0:
-            deviations.append(f"F0 {f0_dev:+.1f}σ")
-        if abs(energy_dev) > 1.0:
-            deviations.append(f"energy {energy_dev:+.1f}σ")
-        if abs(rate_dev) > 1.0:
-            deviations.append(f"rate {rate_dev:+.1f}σ")
-        if deviations:
-            parts.append(f"Mild deviation ({', '.join(deviations)})")
-
-    # Situation inference suggestion
-    suggestion = ""
-    if f0_dev > 1.5 and energy_dev > 1.0:
-        suggestion = "auto_suggest: situation may warrant upgrade (elevated prosodic stress)"
-
-    state = "; ".join(parts) if parts else "Neutral"
-    return state + (f" [{suggestion}]" if suggestion else "")
+    dev = _compute_baseline_deviations(sess, baseline)
+    state = _classify_speaker_state(sess, dev) or "Neutral"
+    if dev["f0"] > 1.5 and dev["energy"] > 1.0:
+        state += " [auto_suggest: situation may warrant upgrade (elevated prosodic stress)]"
+    return state
 
 
 def build_prosodic_context(prosodic_features, paralinguistic_events, speaker_state):
@@ -5985,6 +5975,305 @@ def preprocess_audio(audio_data, *, quiet=False):
     #    Whisper's mel spectrogram from peak transients.
     audio_data = numpy.tanh(1.2 * audio_data).astype(numpy.float32)
     return audio_data
+
+
+# Pre-compiled list of LLM-leak patterns (chatbot responses, system-prompt
+# fragments, refusal text). Cheaper to keep at module scope than rebuild
+# per pipeline() call. Each entry is matched against the lowercased output;
+# any startswith / containment hit triggers fallback to raw.
+_LLM_LEAK_PATTERNS = (
+    "i'm sorry", "i apologize", "i didn't catch that",
+    "could you please clarify", "could you please repeat",
+    "could you say that again", "i'm not sure what you meant",
+    "please clarify", "please provide more context",
+    "i cannot assist", "i can't assist", "i can't help",
+    "as an ai", "as a language model",
+    "please ensure that you", "ensure that you construct",
+    "i'd be happy to help",
+    "no output", "identified as hallucinated", "hallucinated filler",
+    "no transcription", "unable to transcribe", "no speech detected",
+    "[no output", "[hallucin", "[unable to",
+)
+
+# Length-explosion threshold: a reconstruction that's >2.5× longer than the
+# input fabricated content. Cleanups SHORTEN. (Triggered for the "fabricated
+# README paragraph from 5-word input" incident.)
+_LLM_LENGTH_EXPLOSION_RATIO = 2.5
+
+
+def _render_polish_diff_html(before, after):
+    """Character-level diff HTML for the L1 polish log line. Word-level was
+    too noisy (whole tokens flagged for tiny changes like comma/period and
+    capitalization). Character diff highlights only the chars that changed.
+    """
+    import difflib as _dl
+    import html as _html
+    sm = _dl.SequenceMatcher(None, before, after)
+    parts = []
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == 'equal':
+            parts.append(_html.escape(before[i1:i2]))
+        elif tag == 'delete':
+            parts.append(f"<span class='diff-removed'>{_html.escape(before[i1:i2])}</span>")
+        elif tag == 'insert':
+            parts.append(f"<span class='diff-added'>{_html.escape(after[j1:j2])}</span>")
+        elif tag == 'replace':
+            parts.append(f"<span class='diff-removed'>{_html.escape(before[i1:i2])}</span>")
+            parts.append(f"<span class='diff-added'>{_html.escape(after[j1:j2])}</span>")
+    return "".join(parts)
+
+
+def _run_l1_haiku_polish(filtered_text):
+    """Run Anthropic Haiku as a quick proofreader on L1 (faster-whisper) output.
+    Returns the polished text on success, or the input unchanged on any error.
+    No tone shift, no profile injection — strictly "fix obvious typos / mishears
+    / truncations." Adds ~500ms–1s of latency.
+    """
+    polish_t0 = time.time()
+    try:
+        msg = anthropic_client.messages.create(
+            model=FALCON_HAIKU_MODEL,
+            max_tokens=400,
+            messages=[{
+                "role": "user",
+                "content": (
+                    "You are a quick proofreader for voice transcription output. "
+                    "The text below came from a local speech-to-text engine and may contain: "
+                    "wrong-word substitutions (homophones, similar-sounding words), "
+                    "truncated sentences, missing punctuation, obvious mishears. "
+                    "Your job: fix ONLY clear errors. Do NOT rewrite, do NOT change tone, "
+                    "do NOT add or remove content. Preserve casual speech, profanity, slang. "
+                    "Output ONLY the corrected text — no preamble, no explanation, no markdown.\n\n"
+                    f"Text: {filtered_text}"
+                ),
+            }],
+        )
+    except Exception as e:
+        log(f"L1 polish failed (using raw filtered): {e}", "warn")
+        return filtered_text
+
+    polished = "".join(b.text for b in msg.content if getattr(b, "type", None) == "text").strip()
+    if not polished:
+        return filtered_text
+
+    if polished != filtered_text:
+        elapsed_ms = int((time.time() - polish_t0) * 1000)
+        try:
+            diff_html = _render_polish_diff_html(filtered_text, polished)
+            log(f"L1 polish ({elapsed_ms}ms): {diff_html}", "polish")
+        except Exception:
+            log(f"L1 polish: \"{filtered_text}\" → \"{polished}\" ({elapsed_ms}ms)", "info")
+    stats_inc("anthropic_calls")
+    return polished
+
+
+def _detect_and_fallback_on_llm_leak(clean_text, filtered_text, used_fallback):
+    """Pattern + length-explosion leak detection on reconstruction output.
+    Returns (text_to_use, used_fallback). If a leak is detected, swaps to
+    filtered_text and flips used_fallback to True; otherwise returns inputs
+    unchanged.
+    """
+    lower = clean_text.strip().lower()
+    for pattern in _LLM_LEAK_PATTERNS:
+        if lower.startswith(pattern) or pattern in lower:
+            log(f"LLM leak detected in reconstruction: \"{clean_text[:80]}\" -- using raw", "warn")
+            stats_inc("llm_leaks")
+            return filtered_text, True
+
+    filtered_wc = len(filtered_text.split())
+    if filtered_wc >= 3:
+        ratio = len(clean_text.split()) / max(1, filtered_wc)
+        if ratio > _LLM_LENGTH_EXPLOSION_RATIO:
+            log(f"LLM length explosion: {filtered_wc}w -> {len(clean_text.split())}w ({ratio:.1f}x) -- using raw", "warn")
+            stats_inc("llm_leaks")
+            return filtered_text, True
+
+    return clean_text, used_fallback
+
+
+def _detect_redo_and_update_style_pair(raw_text):
+    """Two coupled decisions made just before reconstruction:
+
+      1. Inferred regenerate: does this raw_text substantially overlap the
+         previous recording? If so, treat it as a redo and pass the recent
+         outputs as rejected examples so the model picks distinctively
+         different phrasing. Lav has no explicit "regenerate" button (unlike
+         WiM's IME) — we infer intent from input similarity.
+
+      2. Persistent style_examples verdict on the PENDING pair. The pending
+         pair was set after the previous successful reconstruction:
+           - regenerate (overlap detected) → DROP it (was rejected)
+           - fresh dictation (no overlap)  → PROMOTE it to style_examples
+                                              (implicitly accepted)
+    """
+    prior_outputs_for_regen = _detect_input_overlap_redo(raw_text)
+    if prior_outputs_for_regen:
+        log(
+            f"Regenerate detected (input overlap ≥ 0.6) — passing "
+            f"{len(prior_outputs_for_regen)} prior outputs as negative examples",
+            "info",
+        )
+
+    try:
+        pending = style_examples.pending_pair
+        if prior_outputs_for_regen:
+            style_examples.pending_pair = None
+        elif pending is not None:
+            style_examples.record(*pending)
+            style_examples.pending_pair = None
+    except Exception as e:
+        log(f"style_examples verdict failed: {e}", "warn")
+        style_examples.pending_pair = None
+
+    return prior_outputs_for_regen
+
+
+def _clean_and_filter_text(raw_text, whisper_low_conf, current_layer):
+    """Layered text cleanup applied to every reconstruction:
+
+      1. strip_disfluencies — rule-based filler removal (zero cost). At L1 this
+         IS the output cleanup; at L2+ it pre-cleans before GPT.
+      2. strip_block_hallucinations — remove phantom words Whisper invented
+         inside blocks. Runs at all layers — GPT shouldn't see them either.
+      3. repunctuate — local ASR returns lowercase no-punctuation; cheap
+         deterministic punctuation gives L1 paste readable output without a
+         cloud round-trip. No-op when text already punctuated.
+      4. apply_profile_corrections — L2+ so GPT sees learned fixes.
+      5. phonetic_match (Double Metaphone) — L2/L3 only. Catches mishears
+         that aren't explicit correction pairs ("smyth" → "Smith"). Skipped at
+         L1 (paste-raw, no LLM benefit) and L4 (Sonnet ext-think handles
+         phonetic context via the onset_weights prompt block).
+    """
+    filtered_text = strip_disfluencies(raw_text)
+    filtered_text = strip_block_hallucinations(filtered_text, whisper_low_conf)
+    filtered_text = repunctuate(filtered_text)
+    if current_layer >= 2:
+        filtered_text = apply_profile_corrections(filtered_text, profile)
+    if 2 <= current_layer <= 3:
+        filtered_text = phonetic_match(
+            filtered_text,
+            profile.get("vocabulary", []),
+            profile.get("onset_weights", {}),
+        )
+    return filtered_text
+
+
+def _spawn_bg_l1_autodetect(raw_text):
+    """Spawn the L1-language auto-detect probe in a daemon thread. Caller is
+    responsible for setting profile['_l1_detect_prompted']=True BEFORE
+    spawning, so a network failure doesn't leak threads.
+    """
+    def _bg(raw=raw_text):
+        try:
+            import urllib.request
+            import json as _json
+            recent_sessions = db_get_sessions(limit=5)
+            texts = [s.get("out", "") or s.get("raw", "") for s in recent_sessions if s.get("out")]
+            texts.append(raw)
+            combined = " ".join(texts[:6])[:3000]
+            if not combined.strip():
+                return
+            payload = _json.dumps({"text": combined}).encode()
+            req = urllib.request.Request(
+                "https://us-central1-bakers-agent.cloudfunctions.net/wim-l1-guess",
+                data=payload, method="POST",
+                headers={"Content-Type": "application/json"},
+            )
+            resp = urllib.request.urlopen(req, timeout=8)
+            data = _json.loads(resp.read())
+            top_l1 = data.get("top_l1", "")
+            confidence = data.get("confidence", 0)
+            if top_l1 and confidence >= 0.7:
+                log(f"L1 auto-detect: {top_l1} ({confidence:.0%} confidence) — click to set", "info")
+        except Exception as e:
+            log(f"L1 auto-detect failed (non-blocking): {e}", "warn")
+
+    threading.Thread(target=_bg, daemon=True).start()
+
+
+def _run_l2plus_learning_loops(raw_text, epoch_at_launch):
+    """L2+ background learning machinery: profile-relevance tracking, the
+    learn-every-N counter, the decay-every-N counter, and the L1 auto-detect
+    probe. Spawns daemon threads gated by _profile_switch_epoch so a profile
+    switch between launch and execution drops the work.
+    """
+    track_profile_relevance(profile, raw_text)
+
+    global _learn_counter, _decay_counter
+    _learn_counter += 1
+    _decay_counter += 1
+    learn_status["next_in"] = max(0, LEARN_EVERY - _learn_counter)
+
+    if _learn_counter >= LEARN_EVERY:
+        _learn_counter = 0
+        learn_status["next_in"] = LEARN_EVERY
+
+        def _bg_learn(prof, epoch=epoch_at_launch):
+            if epoch != _profile_switch_epoch:
+                return
+            learn_from_sessions(prof, _epoch=epoch)
+
+        threading.Thread(target=_bg_learn, args=(profile,), daemon=True).start()
+        # Onset anomaly detection (covert avoidance signal, zero API cost)
+        detect_onset_anomalies(db_get_sessions(limit=200))
+
+    if _decay_counter >= DECAY_EVERY:
+        _decay_counter = 0
+
+        def _bg_decay(prof, epoch=epoch_at_launch):
+            if epoch != _profile_switch_epoch:
+                return
+            decay_stale_profile_entries(prof, _epoch=epoch)
+
+        threading.Thread(target=_bg_decay, args=(profile,), daemon=True).start()
+
+    # L1 auto-detect: after 5 L2+ sessions with profile_l1 unset, probe once.
+    if not profile.get("profile_l1") and not profile.get("_l1_detect_prompted"):
+        l1_count = profile.get("_l1_detect_count", 0) + 1
+        profile["_l1_detect_count"] = l1_count
+        save_profile(profile)
+        if l1_count >= 5:
+            # Mark BEFORE spawning so network failure doesn't leak a thread per session.
+            profile["_l1_detect_prompted"] = True
+            save_profile(profile)
+            _spawn_bg_l1_autodetect(raw_text)
+
+
+def _run_l4_stutter_analytics(raw_text, output, current_situation):
+    """L4-only clinical metrics: disfluency counts, exposure difficulty, redo
+    detection, shadow utterance (side-effect logging), and covert-avoidance
+    detection (mutates profile via update_covert_profile).
+    Returns (disf_counts, exposure, covert_pairs) for downstream session logging.
+    """
+    disf_counts = count_disfluencies(raw_text)
+    if disf_counts.get("total", 0) > 0:
+        log(f"Disfluencies: {disf_counts}", "info")
+
+    exposure = compute_exposure_difficulty(raw_text, current_situation, disf_counts, profile)
+    if exposure["score"] >= 0.4:
+        log(
+            f"Exposure: {exposure['band']} ({exposure['score']}) — triggers used: "
+            f"{exposure['components'].get('trigger_words_used', [])}",
+            "info",
+        )
+
+    redo_n = check_redo(output)
+    if redo_n >= REDO_NUDGE_THRESHOLD:
+        log(f"Redo x{redo_n} — consider accepting this version and moving on", "info")
+
+    # Shadow utterance — "what you meant to say". Side-effect only; result unused.
+    generate_shadow_utterance(raw_text, profile)
+
+    covert_pairs = detect_covert_avoidance(raw_text, profile)
+    if covert_pairs:
+        update_covert_profile(profile, covert_pairs, current_situation)
+        for cp in covert_pairs:
+            log(
+                f"Covert avoidance: \"{cp['intended']}\" → \"{cp['said']}\" "
+                f"(avoided /{cp['onset_avoided']}/)",
+                "info",
+            )
+    return disf_counts, exposure, covert_pairs
 
 
 # -- Pipeline ─────────────────────────────────────────────────────
@@ -6143,92 +6432,15 @@ def pipeline():
             log("Entire output was Whisper hallucination — nothing to paste", "warn")
             set_state('idle')
             return
-        # Step 1.5b: Disfluency post-filter (rule-based, zero cost)
-        # At L1: this IS the output cleanup (no GPT reconstruction)
-        # At L2+: pre-cleans Whisper output before sending to GPT
-        filtered_text = strip_disfluencies(raw_text)
-
-        # Block hallucination removal: strip phantom words Whisper invents during blocks
-        # Runs at all layers — GPT shouldn't see Whisper's phantom words either
-        filtered_text = strip_block_hallucinations(filtered_text, whisper_low_conf)
-        # Local ASR (faster-whisper) returns flat lowercase no-punctuation text.
-        # Cheap deterministic re-punctuate gives L1 paste readable output
-        # without a cloud round-trip. No-op when text already punctuated.
-        filtered_text = repunctuate(filtered_text)
-        # Profile corrections (vocabulary/corrections map): L2+ so GPT sees learned fixes
-        if current_layer >= 2:
-            filtered_text = apply_profile_corrections(filtered_text, profile)
-
-        # Phonetic-neighbor swap (Double Metaphone) — L2/L3 ONLY.
-        # Catches ASR mishears that aren't explicit profile-correction pairs:
-        # "smyth" -> "Smith", "wisper" -> "Wispr". Gated to the user's high-risk
-        # onsets so we don't re-score every token in the utterance. Skipped at
-        # L1 (paste-raw, no LLM benefit) and L4 (Sonnet ext-think handles
-        # phonetic context with the rich onset_weights prompt block).
-        if 2 <= current_layer <= 3:
-            filtered_text = phonetic_match(
-                filtered_text,
-                profile.get("vocabulary", []),
-                profile.get("onset_weights", {}),
-            )
+        # Step 1.5b: Disfluency strip + repunctuate + profile/phonetic corrections.
+        filtered_text = _clean_and_filter_text(raw_text, whisper_low_conf, current_layer)
 
         if filtered_text != raw_text and current_layer == 1:
             log(f"Filter: \"{raw_text}\" → \"{filtered_text}\"", "info")
 
         # Layer 1 polish — Haiku reads faster-whisper output and fixes obvious errors.
-        # Adds ~500ms–1s. No tone, no profile injection — just "fix obvious typos
-        # / mishears / truncations." Runs only when Anthropic is configured.
-        # Output replaces filtered_text so the paste reflects the corrected version.
         if L1_POLISH and current_layer == 1 and anthropic_client is not None and filtered_text.strip():
-            try:
-                _polish_t0 = time.time()
-                _polish_msg = anthropic_client.messages.create(
-                    model=FALCON_HAIKU_MODEL,
-                    max_tokens=400,
-                    messages=[{
-                        "role": "user",
-                        "content": (
-                            "You are a quick proofreader for voice transcription output. "
-                            "The text below came from a local speech-to-text engine and may contain: "
-                            "wrong-word substitutions (homophones, similar-sounding words), "
-                            "truncated sentences, missing punctuation, obvious mishears. "
-                            "Your job: fix ONLY clear errors. Do NOT rewrite, do NOT change tone, "
-                            "do NOT add or remove content. Preserve casual speech, profanity, slang. "
-                            "Output ONLY the corrected text — no preamble, no explanation, no markdown.\n\n"
-                            f"Text: {filtered_text}"
-                        ),
-                    }],
-                )
-                _polished = "".join(b.text for b in _polish_msg.content if getattr(b, "type", None) == "text").strip()
-                if _polished:
-                    if _polished != filtered_text:
-                        # Character-level diff — word-level was lighting up
-                        # whole tokens for tiny changes ("this," vs "this." or
-                        # "you" vs "You" got flagged as full word swaps).
-                        # Character diff highlights ONLY the chars that
-                        # actually changed.
-                        try:
-                            import difflib as _dl, html as _html
-                            _sm = _dl.SequenceMatcher(None, filtered_text, _polished)
-                            _parts = []
-                            for tag, i1, i2, j1, j2 in _sm.get_opcodes():
-                                if tag == 'equal':
-                                    _parts.append(_html.escape(filtered_text[i1:i2]))
-                                elif tag == 'delete':
-                                    _parts.append(f"<span class='diff-removed'>{_html.escape(filtered_text[i1:i2])}</span>")
-                                elif tag == 'insert':
-                                    _parts.append(f"<span class='diff-added'>{_html.escape(_polished[j1:j2])}</span>")
-                                elif tag == 'replace':
-                                    _parts.append(f"<span class='diff-removed'>{_html.escape(filtered_text[i1:i2])}</span>")
-                                    _parts.append(f"<span class='diff-added'>{_html.escape(_polished[j1:j2])}</span>")
-                            _diff_html = "".join(_parts)
-                            log(f"L1 polish ({int((time.time()-_polish_t0)*1000)}ms): {_diff_html}", "polish")
-                        except Exception:
-                            log(f"L1 polish: \"{filtered_text}\" → \"{_polished}\" ({int((time.time()-_polish_t0)*1000)}ms)", "info")
-                    filtered_text = _polished
-                    stats_inc("anthropic_calls")
-            except Exception as _e:
-                log(f"L1 polish failed (using raw filtered): {_e}", "warn")
+            filtered_text = _run_l1_haiku_polish(filtered_text)
 
         if current_layer > 1 and current_mode != "RAW":
             log(f"Raw: \"{raw_text}\"", "raw")
@@ -6244,36 +6456,8 @@ def pipeline():
             audio_duration_s = len(audio_data) / TARGET_RATE
             raw_word_count = len(raw_text.split())
 
-            # Pre-reconstruction redo detection: did the user just record
-            # something that substantially overlaps the previous recording's
-            # input? If so, treat as a regenerate and pass the recent outputs
-            # as rejected examples so the model picks distinctively different
-            # phrasing. Empty list when this isn't a redo. Lav doesn't have
-            # an explicit "regenerate" button (unlike WiM's IME), so we infer
-            # the user's intent from input similarity. See
-            # _detect_input_overlap_redo() for the heuristic.
-            prior_outputs_for_regen = _detect_input_overlap_redo(raw_text)
-            if prior_outputs_for_regen:
-                log(f"Regenerate detected (input overlap ≥ 0.6) — passing {len(prior_outputs_for_regen)} prior outputs as negative examples", "info")
-
-            # Persistent learning state machine for style_examples (positive
-            # few-shot counterpart to rejection_store). The pending pair was
-            # set after the previous successful reconstruction; this call
-            # decides its fate:
-            #   - regenerate (prior_outputs_for_regen non-empty) → DROP
-            #     the pending pair (it was the rejected reconstruction).
-            #   - fresh dictation (no overlap) → PROMOTE the pending pair
-            #     to style_examples (it was implicitly accepted).
-            try:
-                _pending_style_pair = style_examples.pending_pair
-                if prior_outputs_for_regen:
-                    style_examples.pending_pair = None
-                elif _pending_style_pair is not None:
-                    style_examples.record(*_pending_style_pair)
-                    style_examples.pending_pair = None
-            except Exception as _e:
-                log(f"style_examples verdict failed: {_e}", "warn")
-                style_examples.pending_pair = None
+            # Inferred-redo detection + style-examples verdict on the pending pair.
+            prior_outputs_for_regen = _detect_redo_and_update_style_pair(raw_text)
 
             # Step 2: Reconstruct (using pre-cleaned text to reduce GPT noise)
             # Pass Whisper confidence data so L4 can target uncertain segments
@@ -6338,46 +6522,10 @@ def pipeline():
             t_recon = time.time()
 
             # Step 2.5: Catch LLM hallucinations in reconstruction output.
-            # Two defenses:
-            # A) Pattern match: chatbot responses, system prompt fragments
-            # B) Length explosion: reconstruction should SHORTEN, not expand.
-            #    If output is 2.5x longer than input, GPT fabricated content.
-            #    (The "hallucination of the millennium" was a full fabricated
-            #    paragraph about GitHub/Whisper/README from a 5-word input.)
             if clean_text and not used_fallback:
-                _recon_lower = clean_text.strip().lower()
-                _LLM_LEAK_PATTERNS = [
-                    "i'm sorry", "i apologize", "i didn't catch that",
-                    "could you please clarify", "could you please repeat",
-                    "could you say that again", "i'm not sure what you meant",
-                    "please clarify", "please provide more context",
-                    "i cannot assist", "i can't assist", "i can't help",
-                    "as an ai", "as a language model",
-                    "please ensure that you", "ensure that you construct",
-                    "i'd be happy to help",
-                    "no output", "identified as hallucinated", "hallucinated filler",
-                    "no transcription", "unable to transcribe", "no speech detected",
-                    "[no output", "[hallucin", "[unable to",
-                ]
-                _leak_detected = False
-                for pattern in _LLM_LEAK_PATTERNS:
-                    if _recon_lower.startswith(pattern) or pattern in _recon_lower:
-                        log(f"LLM leak detected in reconstruction: \"{clean_text[:80]}\" -- using raw", "warn")
-                        _leak_detected = True
-                        break
-
-                # Length explosion check: if GPT output is 2.5x longer than input,
-                # it fabricated content instead of cleaning speech
-                if not _leak_detected and len(filtered_text.split()) >= 3:
-                    _len_ratio = len(clean_text.split()) / max(1, len(filtered_text.split()))
-                    if _len_ratio > 2.5:
-                        log(f"LLM length explosion: {len(filtered_text.split())}w -> {len(clean_text.split())}w ({_len_ratio:.1f}x) -- using raw", "warn")
-                        _leak_detected = True
-
-                if _leak_detected:
-                    clean_text = filtered_text
-                    used_fallback = True
-                    stats_inc("llm_leaks")
+                clean_text, used_fallback = _detect_and_fallback_on_llm_leak(
+                    clean_text, filtered_text, used_fallback
+                )
 
             # Step 3: Falcon (SAFE mode only, skip if fallback)
             if current_mode == "SAFE" and clean_text and not used_fallback:
@@ -6439,31 +6587,16 @@ def pipeline():
             stats_inc("chars", len(output))
             stats_inc("sessions")
             paste(output)
-        # Stutter analytics: L4+ only — these are clinical metrics, not needed for basic transcription/rewrite
-        disf_counts = {}
-        exposure = {"score": 0, "band": "none", "components": {}}
-        edit_dist = {}
-        shadow_result = None
-        covert_pairs = []
+        # Stutter analytics: L4+ only — clinical metrics, not needed for basic transcription/rewrite
         if current_layer >= 4:
-            disf_counts = count_disfluencies(raw_text)
-            if disf_counts.get("total", 0) > 0:
-                log(f"Disfluencies: {disf_counts}", "info")
-            exposure = compute_exposure_difficulty(raw_text, current_situation, disf_counts, profile)
-            if exposure["score"] >= 0.4:
-                log(f"Exposure: {exposure['band']} ({exposure['score']}) — triggers used: {exposure['components'].get('trigger_words_used', [])}", "info")
-            # Redo detection (anti-compulsion)
-            redo_n = check_redo(output)
-            if redo_n >= REDO_NUDGE_THRESHOLD:
-                log(f"Redo x{redo_n} — consider accepting this version and moving on", "info")
-            # Shadow utterance: generate "what you meant to say"
-            shadow_result = generate_shadow_utterance(raw_text, profile)
-            # Covert avoidance detection (Script Prep vs actual speech)
-            covert_pairs = detect_covert_avoidance(raw_text, profile)
-            if covert_pairs:
-                update_covert_profile(profile, covert_pairs, current_situation)
-                for cp in covert_pairs:
-                    log(f"Covert avoidance: \"{cp['intended']}\" → \"{cp['said']}\" (avoided /{cp['onset_avoided']}/)", "info")
+            disf_counts, exposure, covert_pairs = _run_l4_stutter_analytics(
+                raw_text, output, current_situation
+            )
+        else:
+            disf_counts = {}
+            exposure = {"score": 0, "band": "none", "components": {}}
+            covert_pairs = []
+        edit_dist = {}
         # Editorial distance: L2+ (meaningful when any rewrite changes text)
         if current_layer >= 2:
             edit_dist = compute_editorial_distance(raw_text, output)
@@ -6495,76 +6628,9 @@ def pipeline():
                 add_trigger_words(detect_triggers_llm(rt, out, prof), prof, _epoch=epoch)
             threading.Thread(target=_bg_trigger_detect, args=(raw_text, output, profile), daemon=True).start()
 
-        # Step 6: Auto-learn (async, Layer 2+)
-        # L2 pairs are generic but still reveal corrections/fillers/vocabulary.
-        # Learning runs in a background thread — zero latency impact on the pipeline.
+        # Step 6: Auto-learn (async, Layer 2+).
         if current_layer >= 2:
-            # Track which profile entries were relevant to this session
-            track_profile_relevance(profile, raw_text)
-
-            global _learn_counter, _decay_counter
-            _learn_counter += 1
-            _decay_counter += 1
-            learn_status["next_in"] = max(0, LEARN_EVERY - _learn_counter)
-            if _learn_counter >= LEARN_EVERY:
-                _learn_counter = 0
-                learn_status["next_in"] = LEARN_EVERY
-                def _bg_learn(prof, epoch=_epoch_at_launch):
-                    if epoch != _profile_switch_epoch:
-                        return  # profile switched — discard
-                    # M-1: epoch through-passes to inner save_profile.
-                    learn_from_sessions(prof, _epoch=epoch)
-                threading.Thread(target=_bg_learn, args=(profile,), daemon=True).start()
-                # Onset anomaly detection (covert avoidance signal, zero API cost)
-                all_sessions = db_get_sessions(limit=200)
-                detect_onset_anomalies(all_sessions)
-
-            # Decay sweep: prune stale corrections/fillers/vocab
-            if _decay_counter >= DECAY_EVERY:
-                _decay_counter = 0
-                def _bg_decay(prof, epoch=_epoch_at_launch):
-                    if epoch != _profile_switch_epoch:
-                        return
-                    # M-1: epoch through-passes to inner save_profile.
-                    decay_stale_profile_entries(prof, _epoch=epoch)
-                threading.Thread(target=_bg_decay, args=(profile,), daemon=True).start()
-
-            # L1 auto-detect: after 5 reconstruction sessions with profile_l1 unset,
-            # call wim-l1-guess and prompt once. Runs at L2+ to ensure meaningful
-            # transcription quality for pattern detection.
-            if current_layer >= 2 and not profile.get("profile_l1") and not profile.get("_l1_detect_prompted"):
-                _l1_detect_count = profile.get("_l1_detect_count", 0) + 1
-                profile["_l1_detect_count"] = _l1_detect_count
-                save_profile(profile)
-                if _l1_detect_count >= 5:
-                    # Pre-lock: mark prompted BEFORE thread fires so network failure
-                    # doesn't leave the guard unset and cause a thread-per-session leak.
-                    profile["_l1_detect_prompted"] = True
-                    save_profile(profile)
-                    def _bg_l1_detect(raw=raw_text, pr=profile):
-                        try:
-                            import urllib.request, json as _json
-                            recent_sessions = db_get_sessions(limit=5)
-                            texts = [s.get("out", "") or s.get("raw", "") for s in recent_sessions if s.get("out")]
-                            texts.append(raw)
-                            combined = " ".join(texts[:6])[:3000]
-                            if not combined.strip():
-                                return
-                            payload = _json.dumps({"text": combined}).encode()
-                            req = urllib.request.Request(
-                                "https://us-central1-bakers-agent.cloudfunctions.net/wim-l1-guess",
-                                data=payload, method="POST",
-                                headers={"Content-Type": "application/json"}
-                            )
-                            resp = urllib.request.urlopen(req, timeout=8)
-                            data = _json.loads(resp.read())
-                            top_l1 = data.get("top_l1", "")
-                            confidence = data.get("confidence", 0)
-                            if top_l1 and confidence >= 0.7:
-                                log(f"L1 auto-detect: {top_l1} ({confidence:.0%} confidence) — click to set", "info")
-                        except Exception as _e:
-                            log(f"L1 auto-detect failed (non-blocking): {_e}", "warn")
-                    threading.Thread(target=_bg_l1_detect, daemon=True).start()
+            _run_l2plus_learning_loops(raw_text, _epoch_at_launch)
 
         # Step 7: Archive audio for future Whisper fine-tuning
         # Runs synchronously — must complete before finally{} deletes tmp
@@ -6749,10 +6815,14 @@ def set_layer(layer):
         profile["preferences"]["layer"] = current_layer
         save_profile(profile)
         log(f"Layer: {current_layer} ({LAYER_NAMES[current_layer]})", "info")
-        # Layer 4 (Stutter) needs prosodic for severity scaling
-        if layer == 4 and not prosodic_enabled:
-            set_prosodic(True)
-            log("Prosodic auto-enabled for Layer 4 (stutter severity)", "info")
+        # Policy: L1 (transcribe) has no reconstruct call, so paralinguistic +
+        # prosodic flags do nothing. Force OFF so state matches behavior.
+        # L2/L3/L4 leave both flags user-controlled.
+        if layer == 1:
+            if paralinguistic_enabled:
+                set_paralinguistic(False)
+            if prosodic_enabled:
+                set_prosodic(False)
 
 def set_paralinguistic(enabled):
     global paralinguistic_enabled
@@ -6953,6 +7023,158 @@ def generate_voice_profile() -> dict:
     }
 
 
+# ── Clinical-profile helpers ──
+# Each helper computes one section of the longitudinal report. All are pure
+# functions of the sessions list (oldest-first variants take sessions_asc).
+# Avg WPM used to convert words → minutes for rate calculations.
+_AVG_WPM = 130
+
+
+def _session_disfluency_events(s):
+    """Sum of all disfluency-counts for a session, excluding the 'total' key."""
+    dc = s.get("disfluency_counts") or {}
+    return sum(v for k, v in dc.items() if k != "total")
+
+
+def _aggregate_disfluency_counts(sessions):
+    """{type: total_count} across sessions, excluding 'total'."""
+    counts = {}
+    for s in sessions:
+        dc = s.get("disfluency_counts", {})
+        if isinstance(dc, dict):
+            for k, v in dc.items():
+                if k != "total":
+                    counts[k] = counts.get(k, 0) + (v or 0)
+    return counts
+
+
+def _cp_period(sessions_asc):
+    return {"start": sessions_asc[0].get("ts", ""), "end": sessions_asc[-1].get("ts", "")}
+
+
+def _cp_total_minutes(sessions):
+    total_words = sum(s.get("words", 0) for s in sessions)
+    return round(total_words / _AVG_WPM, 1) if total_words else 0
+
+
+def _cp_primary_disfluency(sessions):
+    type_counts = _aggregate_disfluency_counts(sessions)
+    if not type_counts:
+        return {"type": "unknown", "percentage": 0}
+    total = sum(type_counts.values())
+    primary = max(type_counts, key=type_counts.get)
+    return {"type": primary, "percentage": round(type_counts[primary] / total * 100)}
+
+
+def _cp_frequency_per_minute(sessions, total_minutes):
+    if not total_minutes:
+        return 0
+    total_events = sum(_session_disfluency_events(s) for s in sessions)
+    return round(total_events / total_minutes, 1)
+
+
+def _cp_disfluency_rate(sess_list):
+    events = sum(_session_disfluency_events(s) for s in sess_list)
+    words = sum(s.get("words", 0) for s in sess_list)
+    return (events / (words / _AVG_WPM)) if words else 0
+
+
+def _cp_frequency_trend(sessions_asc):
+    """% change in disfluency rate, first quartile → last quartile."""
+    q = max(len(sessions_asc) // 4, 1)
+    first_rate = _cp_disfluency_rate(sessions_asc[:q])
+    last_rate = _cp_disfluency_rate(sessions_asc[-q:])
+    return round((last_rate - first_rate) / first_rate * 100) if first_rate else 0
+
+
+def _cp_situational_breakdown(sessions):
+    """Per-situation event rate + percent diff vs 'default' baseline."""
+    sit_rates = {}
+    for s in sessions:
+        sit = s.get("situation", "default")
+        w = s.get("words", 0)
+        rate = (_session_disfluency_events(s) / (w / _AVG_WPM)) if w else 0
+        sit_rates.setdefault(sit, []).append(rate)
+
+    default_rates = sit_rates.get("default", [0])
+    baseline_rate = sum(default_rates) / max(len(default_rates), 1)
+
+    out = {}
+    for sit, rates in sit_rates.items():
+        avg = round(sum(rates) / max(len(rates), 1), 1)
+        entry = {"rate": avg}
+        if sit == "default":
+            entry["label"] = "baseline"
+        elif baseline_rate:
+            pct = round((avg - baseline_rate) / baseline_rate * 100)
+            entry["vs_baseline"] = f"{'+' if pct >= 0 else ''}{pct}%"
+        out[sit] = entry
+    return out
+
+
+def _cp_top_onset_triggers(sessions, onset_weights):
+    """Top 5 onset weights >= 0.3, with imputed event count per onset."""
+    triggers = []
+    total_events = sum(_session_disfluency_events(s) for s in sessions)
+    per_onset = total_events // max(len(onset_weights), 1) if onset_weights else 0
+    for onset, weight in sorted(onset_weights.items(), key=lambda x: -x[1])[:5]:
+        if weight >= 0.3:
+            triggers.append({"onset": f"/{onset}/", "weight": round(weight, 2), "events": per_onset})
+    return triggers
+
+
+def _cp_covert_avoidance(covert_pairs):
+    """Aggregate active avoidance pairs + overall avoidance rate."""
+    active = 0
+    avoided = 0
+    used = 0
+    for sit_words in covert_pairs.values():
+        for _word, data in sit_words.items():
+            active += 1
+            avoided += data.get("avoided_count", 0)
+            used += data.get("used_count", avoided)
+    denom = avoided + used
+    rate = round(avoided / denom * 100) if denom else 0
+    return {"active_pairs": active, "avoidance_rate": rate,
+            "trend": "decreasing" if rate < 40 else "stable"}
+
+
+def _cp_fluency_trend(sessions_asc):
+    edit_dists = [s["editorial_distance"] for s in sessions_asc
+                  if s.get("editorial_distance") is not None]
+    scores = [round(1.0 - min(ed, 1.0), 2) for ed in edit_dists]
+    improvement = 0
+    if len(scores) >= 4:
+        fq = max(len(scores) // 4, 1)
+        first = sum(scores[:fq]) / fq
+        last = sum(scores[-fq:]) / fq
+        improvement = round((last - first) / first * 100) if first else 0
+    return {"scores": scores[-20:], "improvement": improvement}
+
+
+def _cp_editorial_distance(sessions_asc):
+    edit_dists = [s["editorial_distance"] for s in sessions_asc
+                  if s.get("editorial_distance") is not None]
+    avg = round(sum(edit_dists) / len(edit_dists), 2) if edit_dists else None
+    return {"average": avg,
+            "trend": "decreasing" if (avg is not None and avg < 0.35) else "stable"}
+
+
+def _cp_exposure(sessions):
+    scores = []
+    bands = []
+    for s in sessions:
+        exp = s.get("exposure", {})
+        if exp and "score" in exp:
+            scores.append(exp["score"])
+            bands.append(exp.get("band", "low"))
+    avg_score = round(sum(scores) / len(scores), 2) if scores else None
+    avg_band = max(set(bands), key=bands.count) if bands else "unknown"
+    high_pct = round(bands.count("very_high") / len(bands) * 100) if bands else 0
+    return {"average_band": avg_band, "average_score": avg_score,
+            "high_difficulty_sessions_pct": high_pct}
+
+
 def generate_clinical_profile(min_sessions: int = 20) -> dict:
     """Generate a longitudinal disfluency profile from accumulated session data.
 
@@ -6960,153 +7182,28 @@ def generate_clinical_profile(min_sessions: int = 20) -> dict:
     Requires min_sessions before generating (default 20).
     """
     sessions = db_get_sessions(limit=500)
-
     if len(sessions) < min_sessions:
         return {"error": f"Need {min_sessions} sessions, have {len(sessions)}"}
 
-    # Sort oldest-first for trend computation
     sessions_asc = list(reversed(sessions))
-    first_ts = sessions_asc[0].get("ts", "")
-    last_ts = sessions_asc[-1].get("ts", "")
-
-    # Total duration in minutes (words / avg wpm; fallback estimate)
-    total_words = sum(s.get("words", 0) for s in sessions)
-    total_minutes = round(total_words / 130, 1) if total_words else 0
-
-    # --- Primary disfluency type ---
-    type_counts: dict = {}
-    for s in sessions:
-        dc = s.get("disfluency_counts", {})
-        if isinstance(dc, dict):
-            for k, v in dc.items():
-                if k != "total":
-                    type_counts[k] = type_counts.get(k, 0) + (v or 0)
-    total_disf_events = sum(type_counts.values())
-    primary_type = max(type_counts, key=type_counts.get) if type_counts else "unknown"
-    primary_pct = round(type_counts[primary_type] / total_disf_events * 100) if total_disf_events else 0
-
-    # --- Frequency per minute ---
-    freq_per_min = round(total_disf_events / total_minutes, 1) if total_minutes else 0
-
-    # --- Frequency trend (first quartile vs last quartile) ---
-    q = max(len(sessions_asc) // 4, 1)
-    first_q = sessions_asc[:q]
-    last_q = sessions_asc[-q:]
-    def _disf_rate(sess_list):
-        events = sum(sum(v for k, v in (s.get("disfluency_counts") or {}).items() if k != "total") for s in sess_list)
-        words = sum(s.get("words", 0) for s in sess_list)
-        return (events / (words / 130)) if words else 0
-    first_rate = _disf_rate(first_q)
-    last_rate = _disf_rate(last_q)
-    freq_trend = round((last_rate - first_rate) / first_rate * 100) if first_rate else 0
-
-    # --- Situational breakdown ---
-    sit_data: dict = {}
-    for s in sessions:
-        sit = s.get("situation", "default")
-        dc = s.get("disfluency_counts", {}) or {}
-        events = sum(v for k, v in dc.items() if k != "total")
-        w = s.get("words", 0)
-        rate = (events / (w / 130)) if w else 0
-        if sit not in sit_data:
-            sit_data[sit] = {"rates": []}
-        sit_data[sit]["rates"].append(rate)
-    baseline_rate = (sum(sit_data.get("default", {}).get("rates", [0])) /
-                     max(len(sit_data.get("default", {}).get("rates", [1])), 1))
-    situational_breakdown = {}
-    for sit, d in sit_data.items():
-        avg = round(sum(d["rates"]) / max(len(d["rates"]), 1), 1)
-        entry: dict = {"rate": avg}
-        if sit == "default":
-            entry["label"] = "baseline"
-        elif baseline_rate:
-            pct = round((avg - baseline_rate) / baseline_rate * 100)
-            entry["vs_baseline"] = f"{'+' if pct >= 0 else ''}{pct}%"
-        situational_breakdown[sit] = entry
-
-    # --- Onset triggers ---
+    total_minutes = _cp_total_minutes(sessions)
     onset_weights = profile.get("onset_weights", {})
-    top_onset_triggers = []
-    for onset, weight in sorted(onset_weights.items(), key=lambda x: -x[1])[:5]:
-        if weight >= 0.3:
-            # Count trigger words using this onset
-            events = sum(
-                v for s in sessions
-                for k, v in (s.get("disfluency_counts") or {}).items()
-                if k != "total"
-            ) // max(len(onset_weights), 1)
-            top_onset_triggers.append({
-                "onset": f"/{onset}/",
-                "weight": round(weight, 2),
-                "events": events,
-            })
-
-    # --- Covert avoidance ---
-    covert = profile.get("covert_profile", {}).get("avoidance_pairs", {})
-    active_pairs = 0
-    avoided_total = 0
-    used_total = 0
-    for sit_words in covert.values():
-        for word, data in sit_words.items():
-            active_pairs += 1
-            avoided_total += data.get("avoided_count", 0)
-            used_total += data.get("used_count", avoided_total)
-    avoidance_rate = round(avoided_total / (avoided_total + used_total) * 100) if (avoided_total + used_total) else 0
-
-    # --- Fluency trend (editorial distance, lower = better) ---
-    edit_dists = [s["editorial_distance"] for s in sessions_asc if s.get("editorial_distance") is not None]
-    fluency_scores = [round(1.0 - min(ed, 1.0), 2) for ed in edit_dists]
-    improvement = 0
-    if len(fluency_scores) >= 4:
-        fq = max(len(fluency_scores) // 4, 1)
-        first_f = sum(fluency_scores[:fq]) / fq
-        last_f = sum(fluency_scores[-fq:]) / fq
-        improvement = round((last_f - first_f) / first_f * 100) if first_f else 0
-    avg_edit = round(sum(edit_dists) / len(edit_dists), 2) if edit_dists else None
-
-    # --- Exposure ---
-    exposure_scores = []
-    exposure_bands: list = []
-    for s in sessions:
-        exp = s.get("exposure", {})
-        if exp and "score" in exp:
-            exposure_scores.append(exp["score"])
-            exposure_bands.append(exp.get("band", "low"))
-    avg_exposure = round(sum(exposure_scores) / len(exposure_scores), 2) if exposure_scores else None
-    avg_band = max(set(exposure_bands), key=exposure_bands.count) if exposure_bands else "unknown"
-    high_diff_pct = round(exposure_bands.count("very_high") / len(exposure_bands) * 100) if exposure_bands else 0
+    covert_pairs = profile.get("covert_profile", {}).get("avoidance_pairs", {})
 
     return {
         "user": profile.get("name", "Unknown"),
-        "period": {"start": first_ts, "end": last_ts},
+        "period": _cp_period(sessions_asc),
         "total_sessions": len(sessions),
         "total_minutes": total_minutes,
-        "primary_disfluency": {
-            "type": primary_type,
-            "percentage": primary_pct,
-        },
-        "frequency_per_minute": freq_per_min,
-        "frequency_trend": freq_trend,
-        "situational_breakdown": situational_breakdown,
-        "top_onset_triggers": top_onset_triggers,
-        "covert_avoidance": {
-            "active_pairs": active_pairs,
-            "avoidance_rate": avoidance_rate,
-            "trend": "decreasing" if avoidance_rate < 40 else "stable",
-        },
-        "fluency_trend": {
-            "scores": fluency_scores[-20:],
-            "improvement": improvement,
-        },
-        "editorial_distance": {
-            "average": avg_edit,
-            "trend": "decreasing" if (avg_edit is not None and avg_edit < 0.35) else "stable",
-        },
-        "exposure": {
-            "average_band": avg_band,
-            "average_score": avg_exposure,
-            "high_difficulty_sessions_pct": high_diff_pct,
-        },
+        "primary_disfluency": _cp_primary_disfluency(sessions),
+        "frequency_per_minute": _cp_frequency_per_minute(sessions, total_minutes),
+        "frequency_trend": _cp_frequency_trend(sessions_asc),
+        "situational_breakdown": _cp_situational_breakdown(sessions),
+        "top_onset_triggers": _cp_top_onset_triggers(sessions, onset_weights),
+        "covert_avoidance": _cp_covert_avoidance(covert_pairs),
+        "fluency_trend": _cp_fluency_trend(sessions_asc),
+        "editorial_distance": _cp_editorial_distance(sessions_asc),
+        "exposure": _cp_exposure(sessions),
     }
 
 
@@ -7268,7 +7365,7 @@ def cycle_layer():
 def print_stats():
     elapsed = (time.time() - stats["start_time"]) / 60
     wpm = stats["words"] / elapsed if elapsed > 0 else 0
-    print(f"\n--- LAVRENTIY ---")
+    print("\n--- LAVRENTIY ---")
     print(f"Sessions:       {stats['sessions']}")
     print(f"Words:          {stats['words']}")
     print(f"API calls:      {stats['api_calls']}")
@@ -7278,7 +7375,7 @@ def print_stats():
     print(f"Layer:          {current_layer} ({LAYER_NAMES[current_layer]})")
     print(f"Tone:           {current_tone}")
     print(f"Profile:        {PROFILE_PATH}")
-    print(f"-----------------\n")
+    print("-----------------\n")
 
 # Initialized at module level so on_key_event never NameErrors if a key fires
 # before start_engine() has set the real boot timestamp. start_engine() rewrites
@@ -7427,7 +7524,9 @@ def _start_tray_and_open():
 def _prewarm_l1():
     try:
         if _local_transcribe_fn is not None:
-            import tempfile, soundfile as _sf, numpy as _np
+            import tempfile
+            import soundfile as _sf
+            import numpy as _np
             _silence = _np.zeros(16000, dtype=_np.float32)
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as _tmp:
                 _sf.write(_tmp.name, _silence, 16000)
@@ -7494,7 +7593,7 @@ def handle_GET_api_state(body=None) -> dict:
         _net_status = 'ok'
     else:
         _net_status = 'idle'
-    return {'state': 'command' if is_command_mode else state, 'is_command_mode': is_command_mode, 'mode': current_mode, 'network_status': _net_status, 'network_error': _last_api_error_msg if _net_status == 'error' else '', 'tone': current_tone, 'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?'), 'situation': current_situation, 'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0), 'stats': stats, 'model': MODEL_L4 if current_layer >= 4 else MODEL, 'whisper_temp': WHISPER_TEMP, 'whisper_no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD, 'whisper_multi_temp': WHISPER_MULTI_TEMP, 'speech_metrics': _last_speech_metrics, 'avg_logprob': _last_avg_logprob, 'redo_count': _redo_count, 'block_count': _block_count, 'avg_exposure': _compute_avg_exposure(), 'paralinguistic_events': _last_paralinguistic_events, 'speaker_state': _last_speaker_state, 'paralinguistic_enabled': paralinguistic_enabled, 'paralinguistic_transcribe': paralinguistic_transcribe, 'prosodic_enabled': prosodic_enabled, 'quiet_mode_enabled': quiet_mode_enabled, 'l1_cloud_asr': L1_CLOUD_ASR, 'profile_name': _active_profile_name, 'auth': {'signed_in': is_authenticated(), 'user': _auth_user, 'has_local_key': bool(API_KEY)}}
+    return {'state': 'command' if is_command_mode else state, 'is_command_mode': is_command_mode, 'mode': current_mode, 'network_status': _net_status, 'network_error': _last_api_error_msg if _net_status == 'error' else '', 'tone': current_tone, 'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?'), 'situation': current_situation, 'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0), 'stats': stats, 'model': MODEL_L4 if current_layer >= 4 else MODEL, 'whisper_temp': WHISPER_TEMP, 'whisper_no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD, 'whisper_multi_temp': WHISPER_MULTI_TEMP, 'speech_metrics': _last_speech_metrics, 'avg_logprob': _last_avg_logprob, 'redo_count': _redo_count, 'block_count': _block_count, 'avg_exposure': _compute_avg_exposure(), 'paralinguistic_events': _last_paralinguistic_events, 'speaker_state': _last_speaker_state, 'paralinguistic_enabled': paralinguistic_enabled, 'paralinguistic_transcribe': paralinguistic_transcribe, 'prosodic_enabled': prosodic_enabled, 'paralinguistic_available': current_layer != 1, 'prosodic_available': current_layer != 1, 'quiet_mode_enabled': quiet_mode_enabled, 'l1_cloud_asr': L1_CLOUD_ASR, 'profile_name': _active_profile_name, 'auth': {'signed_in': is_authenticated(), 'user': _auth_user, 'has_local_key': bool(API_KEY)}}
 
 def handle_GET_api_profiles(body=None) -> dict:
     return {'profiles': list_profiles(), 'active': _active_profile_name}
@@ -7676,7 +7775,7 @@ def handle_POST_api_auth(body=None) -> dict:
                     log(f'[AUTH] step4: created profile for {email}: {profile_name}', 'info')
                 log(f"[AUTH] step5: about to switch_profile('{profile_name}')", 'info')
                 switch_profile(profile_name)
-                log(f'[AUTH] step6: switch_profile returned successfully', 'info')
+                log('[AUTH] step6: switch_profile returned successfully', 'info')
             except Exception as e:
                 import traceback
                 log(f'[AUTH] Profile switch FAILED: {type(e).__name__}: {e}', 'error')
@@ -7721,6 +7820,9 @@ def handle_POST_api_layer(body=None) -> dict:
     return {'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?')}
 
 def handle_POST_api_paralinguistic(body=None) -> dict:
+    # L1 doesn't run reconstruct → paralinguistic flag is meaningless. Reject.
+    if current_layer == 1:
+        return {'paralinguistic_enabled': paralinguistic_enabled, 'rejected': 'unavailable on L1'}
     if body and 'enabled' in body:
         set_paralinguistic(body['enabled'])
     return {'paralinguistic_enabled': paralinguistic_enabled}
@@ -7731,6 +7833,9 @@ def handle_POST_api_paralinguistic_transcribe(body=None) -> dict:
     return {'paralinguistic_transcribe': paralinguistic_transcribe}
 
 def handle_POST_api_prosodic(body=None) -> dict:
+    # L1 doesn't run reconstruct → prosodic flag is meaningless. Reject.
+    if current_layer == 1:
+        return {'prosodic_enabled': prosodic_enabled, 'rejected': 'unavailable on L1'}
     if body and 'enabled' in body:
         set_prosodic(body['enabled'])
     return {'prosodic_enabled': prosodic_enabled}
@@ -7940,8 +8045,6 @@ def handle_POST_api_hotkeys(body=None) -> dict:
 def handle_POST_api_transcribe(body=None) -> dict:
     if not body or not isinstance(body.get('audio_b64'), str):
         return {'error': 'Send {"audio_b64": "..."}'}
-        return
-    import base64
     tmp = None
     tmp2 = None
     try:
@@ -7969,7 +8072,6 @@ def handle_POST_api_transcribe(body=None) -> dict:
         t_asr = time.time()
         if not raw_text:
             return {'error': 'No speech detected', 'raw': '', 'clean': ''}
-            return
         para_events = detect_paralinguistic_events(audio_data, TARGET_RATE, whisper_result.get('segments', []), whisper_result.get('low_confidence'), whisper_result.get('disagreements'))
         filtered = strip_disfluencies(raw_text)
         clean_text = filtered
@@ -8000,7 +8102,6 @@ def handle_POST_api_transcribe(body=None) -> dict:
 def handle_POST_api_reconstruct_test(body=None) -> dict:
     if not body or not isinstance(body.get('raw'), str):
         return {'error': 'Send {"raw": "text", "tone"?: "...", "layer"?: N, "situation"?: "..."}'}
-        return
     try:
         import time as _t
         _t0 = _t.time()
@@ -8166,6 +8267,70 @@ def handle_POST_api_set_key(body=None) -> dict:
     else:
         return {'ok': False, 'error': 'no key provided'}
 
+# Routing tables built at module-load time. Adding a new endpoint = one entry.
+_GET_ROUTES = {
+    '/api/state':                 handle_GET_api_state,
+    '/api/profiles':              handle_GET_api_profiles,
+    '/api/profile':               handle_GET_api_profile,
+    '/api/sessions':              handle_GET_api_sessions,
+    '/api/log':                   handle_GET_api_log,
+    '/api/learn':                 handle_GET_api_learn,
+    '/api/wer':                   handle_GET_api_wer,
+    '/api/fluency':               handle_GET_api_fluency,
+    '/api/archive':               handle_GET_api_archive,
+    '/api/report':                handle_GET_api_report,
+    '/api/preview':               handle_GET_api_preview,
+    '/api/daf':                   handle_GET_api_daf,
+    '/api/calibration':           handle_GET_api_calibration,
+    '/api/calibration/prompts':   handle_GET_api_calibration_prompts,
+    '/api/augment':               handle_GET_api_augment,
+    '/api/severity':              handle_GET_api_severity,
+    '/api/hotkeys':               handle_GET_api_hotkeys,
+    '/api/patience':              handle_GET_api_patience,
+    '/api/clinical_profile':      handle_GET_api_clinical_profile,
+    '/api/voice_profile':         handle_GET_api_voice_profile,
+}
+
+_POST_ROUTES = {
+    '/api/auth':                          handle_POST_api_auth,
+    '/api/open-signin':                   handle_POST_api_open_signin,
+    '/api/tone':                          handle_POST_api_tone,
+    '/api/layer':                         handle_POST_api_layer,
+    '/api/paralinguistic':                handle_POST_api_paralinguistic,
+    '/api/paralinguistic_transcribe':     handle_POST_api_paralinguistic_transcribe,
+    '/api/prosodic':                      handle_POST_api_prosodic,
+    '/api/quiet_mode':                    handle_POST_api_quiet_mode,
+    '/api/accent_mode':                   handle_POST_api_accent_mode,
+    '/api/mode':                          handle_POST_api_mode,
+    '/api/situation':                     handle_POST_api_situation,
+    '/api/profiles/switch':               handle_POST_api_profiles_switch,
+    '/api/profiles/create':               handle_POST_api_profiles_create,
+    '/api/reset_timer':                   handle_POST_api_reset_timer,
+    '/api/profile':                       handle_POST_api_profile,
+    '/api/daf':                           handle_POST_api_daf,
+    '/api/whisper_temp':                  handle_POST_api_whisper_temp,
+    '/api/whisper_config':                handle_POST_api_whisper_config,
+    '/api/l1_asr':                        handle_POST_api_l1_asr,
+    '/api/prep':                          handle_POST_api_prep,
+    '/api/covert/remove':                 handle_POST_api_covert_remove,
+    '/api/calibration/start':             handle_POST_api_calibration_start,
+    '/api/calibration/stop':              handle_POST_api_calibration_stop,
+    '/api/calibration/record':            handle_POST_api_calibration_record,
+    '/api/calibration/skip':              handle_POST_api_calibration_skip,
+    '/api/hotkeys':                       handle_POST_api_hotkeys,
+    '/api/transcribe':                    handle_POST_api_transcribe,
+    '/api/reconstruct_test':              handle_POST_api_reconstruct_test,
+    '/api/record':                        handle_POST_api_record,
+    '/api/export-my-data':                handle_POST_api_export_my_data,
+    '/api/delete-my-data':                handle_POST_api_delete_my_data,
+    '/api/reset-session-history':         handle_POST_api_reset_session_history,
+    '/api/delete-profile':                handle_POST_api_delete_profile,
+    '/api/augment':                       handle_POST_api_augment,
+    '/api/patience':                      handle_POST_api_patience,
+    '/api/set-key':                       handle_POST_api_set_key,
+}
+
+
 def dispatch_api(path: str, body: dict = None, method: str = None):
     """Route an API request to the right handle_*_api_* function.
 
@@ -8184,125 +8349,9 @@ def dispatch_api(path: str, body: dict = None, method: str = None):
     """
     if method is None:
         method = 'POST' if (isinstance(body, dict) and body) else 'GET'
-    method = method.upper()
-
-    if method == 'GET':
-        if path == '/api/state':
-            return handle_GET_api_state(body)
-        if path == '/api/profiles':
-            return handle_GET_api_profiles(body)
-        if path == '/api/profile':
-            return handle_GET_api_profile(body)
-        if path == '/api/sessions':
-            return handle_GET_api_sessions(body)
-        if path == '/api/log':
-            return handle_GET_api_log(body)
-        if path == '/api/learn':
-            return handle_GET_api_learn(body)
-        if path == '/api/wer':
-            return handle_GET_api_wer(body)
-        if path == '/api/fluency':
-            return handle_GET_api_fluency(body)
-        if path == '/api/archive':
-            return handle_GET_api_archive(body)
-        if path == '/api/report':
-            return handle_GET_api_report(body)
-        if path == '/api/preview':
-            return handle_GET_api_preview(body)
-        if path == '/api/daf':
-            return handle_GET_api_daf(body)
-        if path == '/api/calibration':
-            return handle_GET_api_calibration(body)
-        if path == '/api/calibration/prompts':
-            return handle_GET_api_calibration_prompts(body)
-        if path == '/api/augment':
-            return handle_GET_api_augment(body)
-        if path == '/api/severity':
-            return handle_GET_api_severity(body)
-        if path == '/api/hotkeys':
-            return handle_GET_api_hotkeys(body)
-        if path == '/api/patience':
-            return handle_GET_api_patience(body)
-        if path == '/api/clinical_profile':
-            return handle_GET_api_clinical_profile(body)
-        if path == '/api/voice_profile':
-            return handle_GET_api_voice_profile(body)
-        return None
-
-    if method == 'POST':
-        if path == '/api/auth':
-            return handle_POST_api_auth(body)
-        if path == '/api/open-signin':
-            return handle_POST_api_open_signin(body)
-        if path == '/api/tone':
-            return handle_POST_api_tone(body)
-        if path == '/api/layer':
-            return handle_POST_api_layer(body)
-        if path == '/api/paralinguistic':
-            return handle_POST_api_paralinguistic(body)
-        if path == '/api/paralinguistic_transcribe':
-            return handle_POST_api_paralinguistic_transcribe(body)
-        if path == '/api/prosodic':
-            return handle_POST_api_prosodic(body)
-        if path == '/api/quiet_mode':
-            return handle_POST_api_quiet_mode(body)
-        if path == '/api/accent_mode':
-            return handle_POST_api_accent_mode(body)
-        if path == '/api/mode':
-            return handle_POST_api_mode(body)
-        if path == '/api/situation':
-            return handle_POST_api_situation(body)
-        if path == '/api/profiles/switch':
-            return handle_POST_api_profiles_switch(body)
-        if path == '/api/profiles/create':
-            return handle_POST_api_profiles_create(body)
-        if path == '/api/reset_timer':
-            return handle_POST_api_reset_timer(body)
-        if path == '/api/profile':
-            return handle_POST_api_profile(body)
-        if path == '/api/daf':
-            return handle_POST_api_daf(body)
-        if path == '/api/whisper_temp':
-            return handle_POST_api_whisper_temp(body)
-        if path == '/api/whisper_config':
-            return handle_POST_api_whisper_config(body)
-        if path == '/api/prep':
-            return handle_POST_api_prep(body)
-        if path == '/api/covert/remove':
-            return handle_POST_api_covert_remove(body)
-        if path == '/api/calibration/start':
-            return handle_POST_api_calibration_start(body)
-        if path == '/api/calibration/stop':
-            return handle_POST_api_calibration_stop(body)
-        if path == '/api/calibration/record':
-            return handle_POST_api_calibration_record(body)
-        if path == '/api/calibration/skip':
-            return handle_POST_api_calibration_skip(body)
-        if path == '/api/hotkeys':
-            return handle_POST_api_hotkeys(body)
-        if path == '/api/transcribe':
-            return handle_POST_api_transcribe(body)
-        if path == '/api/reconstruct_test':
-            return handle_POST_api_reconstruct_test(body)
-        if path == '/api/record':
-            return handle_POST_api_record(body)
-        if path == '/api/export-my-data':
-            return handle_POST_api_export_my_data(body)
-        if path == '/api/delete-my-data':
-            return handle_POST_api_delete_my_data(body)
-        if path == '/api/reset-session-history':
-            return handle_POST_api_reset_session_history(body)
-        if path == '/api/delete-profile':
-            return handle_POST_api_delete_profile(body)
-        if path == '/api/augment':
-            return handle_POST_api_augment(body)
-        if path == '/api/patience':
-            return handle_POST_api_patience(body)
-        if path == '/api/set-key':
-            return handle_POST_api_set_key(body)
-        return None
-
-    return None
+    routes = _POST_ROUTES if method.upper() == 'POST' else _GET_ROUTES
+    handler = routes.get(path)
+    return handler(body) if handler else None
 
 
 def start_engine(*, run_http_server=True, block=True):
@@ -8317,12 +8366,16 @@ def start_engine(*, run_http_server=True, block=True):
     if run_http_server:
         print(f"Dashboard: http://localhost:{DASHBOARD_PORT}")
     else:
-        print(f"Dashboard: native window (QWebEngineView)")
-    print(f"\"Lavrentiy does his best. Check your shit before you send it.\"")
+        print("Dashboard: native window (QWebEngineView)")
+    print("\"Lavrentiy does his best. Check your shit before you send it.\"")
     print()
 
+    # Dashboard HTTP server runs in both variants: the native QWebEngineView's
+    # dashboard.html polls /api/state every 250ms, so a missing listener causes
+    # a render-loop flicker. The run_http_server flag now only gates the tray
+    # icon + browser auto-open (HTTP+Chrome variant only).
+    threading.Thread(target=run_dashboard, daemon=True).start()
     if run_http_server:
-        threading.Thread(target=run_dashboard, daemon=True).start()
         threading.Thread(target=_start_tray_and_open, name="tray", daemon=True).start()
 
     threading.Thread(target=_prewarm_l1, name="prewarm-l1", daemon=True).start()

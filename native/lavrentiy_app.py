@@ -1,4 +1,20 @@
-import sys, json, os, datetime, traceback, faulthandler
+import sys
+import json
+import os
+import datetime
+import traceback
+import faulthandler
+
+# === Chromium sandbox workaround for PyInstaller --windowed bundles ===
+# Chromium's helper process (QtWebEngineProcess.exe) crash-loops when its sandbox
+# tries to initialize from inside _MEIPASS (strict ACLs + deep path nesting).
+# Disabling the sandbox stops the loop. Must be set BEFORE QApplication is
+# created — putting it here at the very top of the entry script guarantees that.
+os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
+if getattr(sys, "frozen", False):
+    _helper = os.path.join(sys._MEIPASS, "PySide6", "QtWebEngineProcess.exe")
+    if os.path.exists(_helper):
+        os.environ.setdefault("QTWEBENGINEPROCESS_PATH", _helper)
 
 def _p(msg):
     """Step-by-step instrumentation — prints to console AND log file."""
@@ -60,7 +76,7 @@ except Exception as e:
 
 _p("step 4: importing PySide6 modules...")
 try:
-    from PySide6.QtCore import QObject, Slot, QUrl, QTimer
+    from PySide6.QtCore import QObject, Slot, QUrl
     _p("  - QtCore OK")
     from PySide6.QtWidgets import QApplication, QMainWindow
     _p("  - QtWidgets OK")
@@ -119,6 +135,9 @@ class MainWindow(QMainWindow):
 
 def main():
     _p("step 7: creating QApplication")
+    # Fix for QWebEngineView flicker (crash loop) in PyInstaller bundled mode
+    if hasattr(sys, "_MEIPASS"):
+        os.environ["QTWEBENGINE_DISABLE_SANDBOX"] = "1"
     app = QApplication(sys.argv)
     _p("step 8: QApplication created")
     _p("step 9: calling lavrentiy.start_engine(run_http_server=False, block=False)")

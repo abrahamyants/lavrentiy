@@ -19,7 +19,6 @@ Body: {
 
 import json
 import logging
-import os
 import time
 
 import functions_framework
@@ -131,109 +130,104 @@ def check_rate_limit(uid, tier_config):
     return True, remaining, None
 
 
-@functions_framework.http
-def handle(request):
-    """HTTP Cloud Function entry point."""
-    # CORS preflight
-    if request.method == "OPTIONS":
-        return ("", 204, CORS_HEADERS)
+_JSON_CORS = {**CORS_HEADERS, "Content-Type": "application/json"}
+_ALLOWED_PROFILE_KEYS = {
+    "trigger_words", "onset_weights", "covert_profile",
+    "filler_words", "vocabulary", "corrections",
+}
+_EXPORT_VISIBLE_KEYS = {
+    "trigger_words", "onset_weights", "covert_profile",
+    "filler_words", "vocabulary", "corrections", "sync_ts", "created",
+}
+_RETRIABLE_EXC_NAMES = {"APITimeoutError", "APIConnectionError", "RateLimitError"}
 
-    if request.method != "POST":
-        return (json.dumps({"error": "POST required"}), 405, CORS_HEADERS)
 
-    # Authenticate
-    uid, err = verify_token(request)
-    if err:
-        return err
+def _action_sync_profile(uid, tier_config, body):
+    """Lavrentiy desktop pushes learned profile to Firestore."""
+    raw = body.get("profile", {})
+    profile_data = {k: v for k, v in raw.items() if k in _ALLOWED_PROFILE_KEYS}
+    profile_data["sync_ts"] = time.time()
+    db.collection("wim_users").document(uid).set(profile_data, merge=True)
+    return (json.dumps({"ok": True}), 200, _JSON_CORS)
 
-    # Get tier
-    tier_name = get_user_tier(uid)
-    tier_config = TIERS.get(tier_name, TIERS["invite"])
 
-    # Parse body
+def _action_export_data(uid, tier_config, body):
+    """GDPR: export user's stored data, stripping internal billing/quota state."""
+    doc = db.collection("wim_users").document(uid).get()
+    full = doc.to_dict() if doc.exists else {}
+    user_visible = {k: v for k, v in full.items() if k in _EXPORT_VISIBLE_KEYS}
+    return (json.dumps({"ok": True, "data": user_visible}), 200, _JSON_CORS)
+
+
+def _action_delete_data(uid, tier_config, body):
+    """GDPR: delete user's cloud data."""
+    db.collection("wim_users").document(uid).delete()
+    return (json.dumps({"ok": True, "deleted": True}), 200, _JSON_CORS)
+
+
+def _action_command(uid, tier_config, body):
+    """Command Mode: highlight + voice command → transformed text.
+    Re-uses rate-limit + tier infrastructure but skips the heavy reconstruction
+    prompt — this is a free-form text transform, not disfluency reconstruction.
+    """
+    source = (body.get("source") or "").strip()
+    command = (body.get("command") or "").strip()
+    if not source or not command:
+        return (json.dumps({"error": "Missing 'source' or 'command' field"}), 400, CORS_HEADERS)
+
+    ok, remaining, rate_err = check_rate_limit(uid, tier_config)
+    if not ok:
+        return rate_err
+
+    from reconstruct import client as openai_client
+    if openai_client is None:
+        return (json.dumps({"error": "Backend OpenAI client not configured"}), 500, CORS_HEADERS)
+
     try:
-        body = request.get_json(silent=True) or {}
-    except Exception:
-        return (json.dumps({"error": "Invalid JSON"}), 400, CORS_HEADERS)
+        system_prompt = (
+            "You are a text transformation assistant. The user highlighted some text "
+            "and spoke a command to modify it. Apply the command and return ONLY the "
+            "transformed text, nothing else. Preserve the meaning. Do not add "
+            "explanations, quotes, or prefixes."
+        )
+        user_content = f"TEXT:\n{source}\n\nCOMMAND: {command}"
+        resp = openai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            temperature=0.3,
+            max_tokens=1024,
+        )
+        transformed = resp.choices[0].message.content.strip()
+        return (json.dumps({
+            "transformed": transformed,
+            "tier": tier_config["name"],
+            "remaining": remaining,
+        }), 200, _JSON_CORS)
+    except Exception as e:
+        return (json.dumps({"error": f"Transform failed: {str(e)[:200]}"}), 500, CORS_HEADERS)
 
-    # Profile sync: Lavrentiy desktop pushes learned profile to Firestore
-    if body.get("action") == "sync_profile":
-        _ALLOWED_PROFILE_KEYS = {
-            "trigger_words", "onset_weights", "covert_profile",
-            "filler_words", "vocabulary", "corrections"
-        }
-        raw = body.get("profile", {})
-        profile_data = {k: v for k, v in raw.items() if k in _ALLOWED_PROFILE_KEYS}
-        profile_data["sync_ts"] = time.time()
-        db.collection("wim_users").document(uid).set(profile_data, merge=True)
-        return (json.dumps({"ok": True}), 200, {**CORS_HEADERS, "Content-Type": "application/json"})
 
-    # GDPR: export user's stored data (user-visible fields only — strip internal billing/quota state)
-    if body.get("action") == "export_data":
-        doc = db.collection("wim_users").document(uid).get()
-        full = doc.to_dict() if doc.exists else {}
-        # Expose learned-profile metadata but hide rate-limiting / tier internals
-        user_visible = {
-            k: v for k, v in full.items()
-            if k in {"trigger_words", "onset_weights", "covert_profile",
-                     "filler_words", "vocabulary", "corrections", "sync_ts", "created"}
-        }
-        return (json.dumps({"ok": True, "data": user_visible}), 200, {**CORS_HEADERS, "Content-Type": "application/json"})
+def _classify_exception(e):
+    """Return True if the exception is retriable per OpenAI SDK conventions.
+    Introspects by name + status_code to stay robust to SDK reshuffles instead
+    of importing concrete openai exception classes.
+    """
+    exc_name = type(e).__name__
+    if exc_name in _RETRIABLE_EXC_NAMES:
+        return True
+    status_code = getattr(e, "status_code", None)
+    return status_code is not None and status_code >= 500
 
-    # GDPR: delete user's cloud data
-    if body.get("action") == "delete_data":
-        db.collection("wim_users").document(uid).delete()
-        return (json.dumps({"ok": True, "deleted": True}), 200, {**CORS_HEADERS, "Content-Type": "application/json"})
 
-    # Command Mode: highlight + voice command → transformed text.
-    # Re-uses the rate-limit + tier infrastructure but skips the heavy
-    # reconstruction prompt — this is a free-form text-transform, not a
-    # disfluency reconstruction.
-    if body.get("action") == "command":
-        source = (body.get("source") or "").strip()
-        command = (body.get("command") or "").strip()
-        if not source or not command:
-            return (json.dumps({"error": "Missing 'source' or 'command' field"}), 400, CORS_HEADERS)
-
-        ok, remaining, rate_err = check_rate_limit(uid, tier_config)
-        if not ok:
-            return rate_err
-
-        from reconstruct import client as openai_client
-        if openai_client is None:
-            return (json.dumps({"error": "Backend OpenAI client not configured"}), 500, CORS_HEADERS)
-
-        try:
-            system_prompt = (
-                "You are a text transformation assistant. The user highlighted some text "
-                "and spoke a command to modify it. Apply the command and return ONLY the "
-                "transformed text, nothing else. Preserve the meaning. Do not add "
-                "explanations, quotes, or prefixes."
-            )
-            user_content = f"TEXT:\n{source}\n\nCOMMAND: {command}"
-            resp = openai_client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content},
-                ],
-                temperature=0.3,
-                max_tokens=1024,
-            )
-            transformed = resp.choices[0].message.content.strip()
-            return (json.dumps({
-                "transformed": transformed,
-                "tier": tier_config["name"],
-                "remaining": remaining,
-            }), 200, {**CORS_HEADERS, "Content-Type": "application/json"})
-        except Exception as e:
-            return (json.dumps({"error": f"Transform failed: {str(e)[:200]}"}), 500, CORS_HEADERS)
-
+def _action_reconstruct(uid, tier_config, body):
+    """Default action: disfluency reconstruction (the original endpoint)."""
     raw = body.get("raw", "").strip()
     if not raw:
         return (json.dumps({"error": "Missing 'raw' field"}), 400, CORS_HEADERS)
 
-    # Check layer against tier
     requested_layer = body.get("layer", 2)
     if requested_layer > tier_config["max_layer"]:
         return (json.dumps({
@@ -242,15 +236,10 @@ def handle(request):
             "tier": tier_config["name"],
         }), 403, CORS_HEADERS)
 
-    # Rate limit
     ok, remaining, rate_err = check_rate_limit(uid, tier_config)
     if not ok:
         return rate_err
 
-    # Process — wrap so the client sees a structured retriable/terminal
-    # signal instead of an opaque body-less 500. retriable=True covers
-    # OpenAI timeouts, rate-limit 429s, and transient 5xx. Anything else
-    # is reported as a terminal app-level error.
     t_call = time.time()
     try:
         result = reconstruct_intent(
@@ -269,48 +258,60 @@ def handle(request):
         )
     except Exception as e:
         latency_ms = round((time.time() - t_call) * 1000)
-        # OpenAI SDK exceptions are subclassed by retryability — APITimeoutError
-        # and RateLimitError are retriable; APIStatusError ≥500 is retriable;
-        # 4xx (excluding 429) is terminal. We don't import openai exception
-        # types directly to keep this file robust to SDK reshuffles, so we
-        # introspect by name + status_code attribute when available.
-        retriable = False
-        status_code = getattr(e, "status_code", None)
+        retriable = _classify_exception(e)
         exc_name = type(e).__name__
-        if exc_name in ("APITimeoutError", "APIConnectionError", "RateLimitError"):
-            retriable = True
-        elif status_code is not None and status_code >= 500:
-            retriable = True
         _emit(
             logging.ERROR,
             event="reconstruct_failed",
-            uid=uid,
-            layer=requested_layer,
-            latency_ms=latency_ms,
-            exception=exc_name,
-            error=str(e)[:300],
-            retriable=retriable,
+            uid=uid, layer=requested_layer, latency_ms=latency_ms,
+            exception=exc_name, error=str(e)[:300], retriable=retriable,
         )
-        body_out = {
+        return (json.dumps({
             "error": f"Reconstruction failed: {exc_name}",
             "retriable": retriable,
             "tier": tier_config["name"],
-        }
-        http_code = 503 if retriable else 500
-        return (json.dumps(body_out), http_code, CORS_HEADERS)
+        }), 503 if retriable else 500, CORS_HEADERS)
 
     latency_ms = round((time.time() - t_call) * 1000)
     _emit(
         logging.INFO,
         event="reconstruct_ok",
-        uid=uid,
-        layer=requested_layer,
-        latency_ms=latency_ms,
-        model="gpt-4o-2024-11-20" if requested_layer < 4 else "gpt-4o-2024-11-20",
+        uid=uid, layer=requested_layer, latency_ms=latency_ms,
+        model="gpt-4o-2024-11-20",
         mode=result.get("mode"),
     )
-
     result["tier"] = tier_config["name"]
     result["remaining"] = remaining
+    return (json.dumps(result), 200, _JSON_CORS)
 
-    return (json.dumps(result), 200, {**CORS_HEADERS, "Content-Type": "application/json"})
+
+_ACTION_HANDLERS = {
+    "sync_profile": _action_sync_profile,
+    "export_data":  _action_export_data,
+    "delete_data":  _action_delete_data,
+    "command":      _action_command,
+}
+
+
+@functions_framework.http
+def handle(request):
+    """HTTP Cloud Function entry point — preflight + auth + dispatch."""
+    if request.method == "OPTIONS":
+        return ("", 204, CORS_HEADERS)
+    if request.method != "POST":
+        return (json.dumps({"error": "POST required"}), 405, CORS_HEADERS)
+
+    uid, err = verify_token(request)
+    if err:
+        return err
+
+    tier_name = get_user_tier(uid)
+    tier_config = TIERS.get(tier_name, TIERS["invite"])
+
+    try:
+        body = request.get_json(silent=True) or {}
+    except Exception:
+        return (json.dumps({"error": "Invalid JSON"}), 400, CORS_HEADERS)
+
+    action_handler = _ACTION_HANDLERS.get(body.get("action"), _action_reconstruct)
+    return action_handler(uid, tier_config, body)
