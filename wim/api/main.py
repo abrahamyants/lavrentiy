@@ -192,7 +192,7 @@ def _action_command(uid, tier_config, body):
         )
         user_content = f"TEXT:\n{source}\n\nCOMMAND: {command}"
         resp = openai_client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4o-2024-11-20",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},

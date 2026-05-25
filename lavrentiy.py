@@ -94,6 +94,27 @@ except Exception:
     pass
 
 
+# -- Crash logger ─────────────────────────────────────────────────
+# Catches unhandled exceptions on the main thread. Writes a traceback to
+# engine_err.log next to the lifecycle log so a post-mortem isn't blocked
+# on whatever console the process had detached from. Mirrors the pattern in
+# native/pywebview_app.py which catches GUI-side crashes.
+def _crash_logger_lav(exc_type, exc_value, exc_tb):
+    import sys, traceback
+    try:
+        crash_log = LAVRENTIY_DIR / "engine_err.log" if "LAVRENTIY_DIR" in globals() else Path.home() / ".lavrentiy" / "engine_err.log"
+        crash_log.parent.mkdir(parents=True, exist_ok=True)
+        with open(crash_log, "a", encoding="utf-8") as f:
+            f.write(f"\n=== CRASH {_dt.datetime.now().isoformat()} pid={os.getpid()} ===\n")
+            traceback.print_exception(exc_type, exc_value, exc_tb, file=f)
+    except Exception:
+        pass
+    # Still call default handler so the process exits normally
+    sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+sys.excepthook = _crash_logger_lav
+
+
 # -- Single-instance enforcement ──────────────────────────────────
 def _check_existing_engine():
     """Return True if a healthy engine is already serving on DASHBOARD_PORT.
@@ -202,8 +223,8 @@ LAYER_KEY = "f11"
 STATS_KEY = "f12"
 QUIT_KEY = "f3"
 COMMAND_KEY = "f8"  # Command Mode: highlight text + say command → transforms selection
-MODEL = "gpt-4o"                     # L2/L3 reconstruction — full GPT-4o (most accurate)
-MODEL_L4 = "gpt-4o"                  # L4 stutter reconstruction (same model, different prompt)
+MODEL = "gpt-4o-2024-11-20"          # L2/L3 reconstruction — pinned to avoid silent model drift
+MODEL_L4 = "gpt-4o-2024-11-20"       # L4 stutter reconstruction (same model, different prompt)
 WHISPER_TEMP = 0.0                   # Whisper decoder temperature (0.0=deterministic, 1.0=creative)
 WHISPER_NO_SPEECH_THRESHOLD = 0.15   # Post-hoc filter: segments with no_speech_prob > this are flagged as block suspects
                                      # OpenAI API doesn't expose no_speech_threshold — we filter client-side
@@ -1127,13 +1148,13 @@ CLOUD_TIMEOUT_SEC = 60
 # raw L1 behavior; flip back to True to re-enable.
 L1_POLISH = False
 
-client = openai.OpenAI(api_key=API_KEY, timeout=CLOUD_TIMEOUT_SEC) if API_KEY else None
+client = openai.OpenAI(api_key=API_KEY, timeout=CLOUD_TIMEOUT_SEC, max_retries=2) if API_KEY else None
 
 # Anthropic client for L4 Sonnet extended thinking (clinical reconstruction)
 # and L1 Haiku polish. Falcon validation is a retired no-op stub.
 try:
     import anthropic
-    anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY, timeout=CLOUD_TIMEOUT_SEC) if ANTHROPIC_KEY else None
+    anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY, timeout=CLOUD_TIMEOUT_SEC, max_retries=2) if ANTHROPIC_KEY else None
 except ImportError:
     anthropic_client = None
 
@@ -1279,13 +1300,15 @@ def load_profile():
                 data = json.load(f)
             data.pop("sessions", None)  # sessions live in SQLite now
             return data
-        except (json.JSONDecodeError, IOError):
+        except (json.JSONDecodeError, IOError) as _load_err:
+            print(f"Profile load failed ({type(_load_err).__name__}: {str(_load_err)[:100]}) — using DEFAULT_PROFILE")
             try:
                 import shutil as _shutil
                 _bk = PROFILE_PATH.parent / f"profile_corrupt_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
                 _shutil.copy2(PROFILE_PATH, _bk)
-            except Exception:
-                pass
+                print(f"Corrupt profile backed up to {_bk}")
+            except Exception as _bk_err:
+                print(f"Profile backup also failed ({type(_bk_err).__name__}: {str(_bk_err)[:100]})")
     p = dict(DEFAULT_PROFILE)
     p["created"] = datetime.now().isoformat()
     p["corrections"] = {}
@@ -2169,8 +2192,8 @@ if not _migrated_path.exists():
             with open(PROFILE_PATH, 'r', encoding='utf-8') as _f:
                 _old_data = json.load(_f)
             _old_sessions = _old_data.get("sessions", [])
-        except (json.JSONDecodeError, IOError):
-            pass
+        except (json.JSONDecodeError, IOError) as _migrate_err:
+            print(f"Session migration: profile.json read failed ({type(_migrate_err).__name__}: {str(_migrate_err)[:100]}) — skipping")
     if _old_sessions:
         with _db_lock:
             _db.executemany(
@@ -4102,12 +4125,25 @@ def audio_callback(indata, frames, time_info, status):
 def _open_persistent_stream():
     """Open audio stream once and keep it running for the engine lifetime.
     This ensures the pre-roll buffer is always being fed, so F9 presses
-    catch the user's first word instead of losing ~150-500ms to stream startup."""
+    catch the user's first word instead of losing ~150-500ms to stream startup.
+
+    sd.PortAudioError handling: a revoked mic permission, an unplugged USB mic,
+    or a device-busy error here would silently kill the engine's recording
+    path. We log clearly + leave `stream=None` so start_recording() can show a
+    visible 'mic unavailable' message instead of crashing.
+    """
     global stream, _preroll_max_frames
     _preroll_max_frames = int(NATIVE_RATE * PREROLL_SEC)
-    stream = sd.InputStream(samplerate=NATIVE_RATE, channels=1,
-                            device=DEVICE, callback=audio_callback)
-    stream.start()
+    try:
+        stream = sd.InputStream(samplerate=NATIVE_RATE, channels=1,
+                                device=DEVICE, callback=audio_callback)
+        stream.start()
+    except sd.PortAudioError as e:
+        stream = None
+        log(f"Mic unavailable ({type(e).__name__}: {str(e)[:140]}) — check Windows mic permissions or unplug/replug the device", "error")
+    except Exception as e:
+        stream = None
+        log(f"Audio stream open failed ({type(e).__name__}: {str(e)[:140]})", "error")
 
 def start_recording():
     global is_recording, recording, target_hwnd, state
@@ -7701,7 +7737,7 @@ def handle_GET_api_report(body=None) -> dict:
         report_data = {'total_sessions': len(sessions), 'total_words': total_words, 'avg_edit_dist': round(sum(edit_dists) / len(edit_dists), 3) if edit_dists else None, 'edit_dist_trend': {'first_half': round(sum(edit_dists[len(edit_dists) // 2:]) / max(len(edit_dists) // 2, 1), 3) if edit_dists else None, 'second_half': round(sum(edit_dists[:len(edit_dists) // 2]) / max(len(edit_dists) // 2, 1), 3) if edit_dists else None}, 'situation_breakdown': sit_breakdown, 'language_breakdown': lang_breakdown, 'avg_pause_ratio': round(sum(pause_data) / len(pause_data), 3) if pause_data else None, 'top_onset_triggers': dict(sorted(onset_triggers.items(), key=lambda x: -x[1])[:5]), 'trigger_count': len(triggers), 'corrections_count': len(profile.get('corrections', {})), 'covert_avoidance_events': sum((entry.get('avoided_count', 0) for sit_words in profile.get('covert_profile', {}).get('avoidance_pairs', {}).values() for entry in sit_words.values()))}
         stats_inc('api_calls')
         try:
-            resp = client.chat.completions.create(model='gpt-4o', messages=[{'role': 'system', 'content': 'You are a speech-language pathology assistant generating a clinical weekly progress report for a person who stutters. Be direct, use data. Use emoji sparingly (✅ ❌ 🎯 📞). Format as a concise summary with bullet points. Highlight improvements, flag concerns, suggest focus areas.'}, {'role': 'user', 'content': f'Generate a weekly clinical stutter progress report from this data:\n{json.dumps(report_data, indent=2)}'}], max_tokens=600, temperature=0.3)
+            resp = client.chat.completions.create(model='gpt-4o-2024-11-20', messages=[{'role': 'system', 'content': 'You are a speech-language pathology assistant generating a clinical weekly progress report for a person who stutters. Be direct, use data. Use emoji sparingly (✅ ❌ 🎯 📞). Format as a concise summary with bullet points. Highlight improvements, flag concerns, suggest focus areas.'}, {'role': 'user', 'content': f'Generate a weekly clinical stutter progress report from this data:\n{json.dumps(report_data, indent=2)}'}], max_tokens=600, temperature=0.3)
             return {'report': resp.choices[0].message.content.strip(), 'data': report_data}
         except Exception as e:
             log(f'Report generation failed: {e}', 'error')
@@ -8257,7 +8293,7 @@ def handle_POST_api_set_key(body=None) -> dict:
     key = (body or {}).get('key', '').strip()
     if key:
         API_KEY = key
-        client = openai.OpenAI(api_key=API_KEY, timeout=CLOUD_TIMEOUT_SEC)
+        client = openai.OpenAI(api_key=API_KEY, timeout=CLOUD_TIMEOUT_SEC, max_retries=2)
         try:
             with open(_key_file, 'w') as f:
                 f.write(key)
