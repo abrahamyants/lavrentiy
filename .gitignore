@@ -62,3 +62,4 @@ report_heavy_stutter_*.html
 results_heavy_stutter_*.json
 test_report.html
 test_results.json
+tests/__pycache__/
