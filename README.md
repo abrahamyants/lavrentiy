@@ -3299,3 +3299,74 @@ Full detail in `SESSION_LOG_2026-05-01.md` "Session B" section.
 - **v1.6.1 backlog**: trim `ctranslate2` + `onnxruntime` CUDA/ROCm/DirectML compute-backend variants (CPU-only build) — should drop installer well below 500 MB.
 
 Full detail in `SESSION_LOG_2026-05-05.md`.
+
+
+### 2026-05-25 — Native window pivot + complexity refactor pass
+
+Long session that started as "let me launch the desktop app" and turned into a multi-hour QtWebEngine flicker hunt → pivot to pywebview+WebView2 (bundle drops ~1 GB → ~50 MB), two real dashboard toggle bugs fixed (`/api/l1_asr` was never wired into `dispatch_api`; paralinguistic/prosodic toggles hardcoded L4-only), and decomposition of 6 F-ranked complexity bombs (`generate_clinical_profile`, `dispatch_api`, `handle`, `infer_speaker_state`, `detect_paralinguistic_events`, `build_prompt`) into A/B rank via single-purpose helpers. 35 dashboard silent catches replaced with `console.warn`. Test suite (21 `test_*.py` at repo root) confirmed uncollectable by pytest — script-style, not pytest-style; structural debt for a future session.
+
+Full detail in `SESSION_LOG_2026-05-25.md`.
+
+
+### 2026-05-29 — v1.6.3 ship + 8-agent audit + hosted demo deployed and killed
+
+Three threads: (1) committed pending Lav + WiM work and pushed both clean, (2) deployed a Cloud Run L4 demo for foundation outreach then killed it the same session, (3) shipped v1.6.3 with the long-pending native-window shortcut option plus a full multi-agent code review.
+
+**What shipped — Lav commits this session:**
+
+| Commit | Subject |
+|---|---|
+| `108bf61` | fix(command-mode): plug tmp WAV leak on transcription error path |
+| `eb4074c` | chore(deps): floor urllib3/requests/Pillow for pip-audit cleanup |
+| `189fa2f` | feat(hosted): Cloud Run L4 demo + .gcloudignore for foundation outreach |
+| `515fd4b` | feat(launcher): v1.6.3 — second shortcut for native pywebview window |
+
+Plus `git tag v1.6.3` pushed and a 548 MB installer attached to GitHub Releases at `https://github.com/gugosf114/lavrentiy/releases/tag/v1.6.3` (marked Latest). `git gc --prune=now` cleared the "too many unreachable loose objects" warning that had been showing on every git op — `.git` is now 255 MB.
+
+**WiM commit landed this session:** `49b50a6` feat(bubble): relay injected text to Termux:3133 phone bridge (POST to `localhost:3133/wim` with 500 ms timeout after L1 + L4 paste, silent skip if relay isn't listening).
+
+**v1.6.3 detail.** Two Start Menu shortcuts instead of one. Both produce a chromeless window with the dashboard inside; difference is the underlying rendering engine:
+
+- **Lavrentiy** → `Lavrentiy.vbs` → starts engine hidden, opens dashboard in Chrome/Edge `--app=` chromeless mode (Edge → Chrome → default browser fallback). Existing v1.6.2 behavior, unchanged.
+- **Lavrentiy (Native)** → `Lavrentiy-Native.vbs` → starts engine hidden with `LAV_NATIVE=1`, `lavrentiy_launcher.py` dispatches on the flag and opens the dashboard via pywebview's Edge WebView2 backend. No external browser process.
+
+Implementation:
+- `lavrentiy_launcher.py`: new `_run_native_window()` starts engine in a non-daemon background thread, polls `/api/state` for up to 60 s, surfaces a Windows `MessageBoxW` + exits if the engine never binds (closes the silent-failure window from the 05-25 pivot — previously a failed boot opened a blank pywebview window with no feedback).
+- `Lavrentiy-onedir.spec`: adds `webview`, `pythonnet`, `clr_loader` to the `collect_all` loop. Dist size +310 MB raw (854 MB total), compressed installer 524 MB — LZMA2/max compresses the new DLLs well so the .exe stays close to v1.6.2's 520 MB despite the added option.
+- `Lavrentiy-Native.vbs` (new): hidden-start launcher that sets `LAV_NATIVE=1` and invokes `Lavrentiy.exe --native`.
+- `installer/Lavrentiy.iss`: bumped to 1.6.3, both `.vbs` files in `[Files]`, two Start Menu entries + two desktop shortcut entries.
+
+The two earlier fixes that landed before v1.6.3 was on the table: the tmp-WAV leak in Command Mode (`stop_command_recording` was leaving orphan files in `%TEMP%` on transcription errors — moved `tmp=None` before `try`, `os.unlink` in `finally` with `OSError` swallow) and the `urllib3>=2.7.0` / `requests>=2.33.0` / `Pillow>=12.2.0` floor bumps to clear `pip-audit` warnings.
+
+**Hosted Cloud Run demo — deployed and killed same session.** A previous Claude session earlier in the day had committed a `hosted/` folder ready-to-deploy, with a README saying "for cold-outreach to foundations/SLP clinics where asking them to download a .exe is a non-starter." Deployed via `bash hosted/deploy.sh` to Cloud Run as `lavrentiy-demo` in `bakers-agent` / `us-central1`. Live at `https://lavrentiy-demo-qfv7mm5hva-uc.a.run.app/`. Operator killed it within the same session because the UI looked nothing like the actual Lavrentiy dashboard — shared brand tokens (Limelight font, gunmetal-gold palette) but the layout was a sleek single-page marketing form, not the console-with-EQ-bars-and-status-ring chrome users see on the desktop install. Cloud Run service deleted via `gcloud run services delete lavrentiy-demo`. `hosted/` folder + `.gcloudignore` remain in the repo as a starting point if a real port using `dashboard.html` as the basis gets built later.
+
+**Audit fleet.** Operator pasted a 7-phase audit plan originally written for wim-android, asked for it to run on LAV. Fired 8 specialist agents in parallel + Phase 4 backend audit (gcloud secrets / IAM / Cloud Run config). Phases skipped: Phase 3 (external-model second opinions — Codex / Gemini / CodeRabbit are sequential skill flows in Claude Code, not parallelizable), Phase 5 (live runtime — engine wasn't running and starting it solely for the audit would have been disruptive), Phase 6 (patent claim review — the proposal cited `US20250246187A1` which is the WiM bubble patent, not Lav; no Lav-specific patent number was stated).
+
+Output: 19 deduplicated P0/P1 findings + 10 dead-code deletion candidates. Report saved to `reports/AUDIT_2026-05-29.md` (gitignored, local artifact). Headline findings:
+
+- `hosted/app.py` had no CORS middleware, no per-IP rate limit, no `try/except` around the OpenAI/Anthropic calls — combined with `--allow-unauthenticated` + `--concurrency 8 × --max-instances 5 = 40` concurrent `whisper-1` calls (exceeds OpenAI tier-1 RPM). Moot now because the service was killed, but flagged for any future re-deploy.
+- Background learning threads (`_bg_learn`, `_bg_decay`, `_bg_trigger_detect`, `_bg_contribute`, `sync_profile_to_firestore`) have no `try/except` and no `threading.excepthook`. Under pywebview where stderr is suppressed, one bad `save_profile` or Firestore call silently kills the thread for the rest of the session — user sees `next_in` plateau and never recovers.
+- `save_profile`'s atomic `.replace()` can `PermissionError` under Windows AV / Dropbox / OneDrive scanning the `.tmp` file. Cascades to silent thread death (above).
+- Heavy-stutter corpus runner is uncalibrated against the May 25 prompt-builder decomposition. If any `_pb_*` helper silently dropped a clinical clause, corpus results look fine while L4 reconstructs on a degraded prompt. Before the corpus becomes a foundation-credibility artifact: snapshot one canonical `build_prompt(L4, full_profile, ...)` output, byte-diff against pre-refactor git history.
+- L4 uses Claude Sonnet 4.6 extended thinking on `hosted/` but GPT-4o (no extended thinking) on `wim-reconstruct`. Three distribution paths, two L4 models; README claims parity.
+
+False alarm caught before writing it as P0: `code-explorer` flagged that L4 silently skips `l1_pack` / `domain_pack` injection. Verified in `wim/api/prompt_builder.py:844-853` — true, but intentional per the 04-28 README entry ("L4 intentionally excluded — has its own clinical framing"). Filed as P1 design question (zero comment in the code explaining the choice), not a bug.
+
+Dead code identified for deletion (~700-800 LOC reduction, one PR titled "chore: remove dead pre-pivot paths"):
+- `native/lavrentiy_app.py` (PySide6 dead path, 167 lines)
+- `Lavrentiy.spec` + `installer/Lavrentiy-Eval.iss` (build configs for dead PySide6)
+- `local/llm_local.py` (Ollama retired Apr 24, zero importers)
+- `gemini_client.py` (zero importers)
+- `_phase2_matrix.py`, `_phase3_l4_tones.py`, `_phase3_diff.py` (243 lines, stale)
+- `eval-build/` (pre-pivot snapshot)
+
+**State at end of session:**
+
+- Lavrentiy main: clean, latest commit `515fd4b`, tag `v1.6.3` pushed.
+- GitHub Release v1.6.3 live (548 MB asset, marked Latest). Repo still private — URL returns a login wall for non-collaborators.
+- WiM: clean, latest commit `49b50a6`, pushed.
+- `hosted/` Cloud Run service: deleted. `hosted/` folder remains in repo.
+- Audit report: `reports/AUDIT_2026-05-29.md` (gitignored, local).
+- Outstanding: P0 list at the top of the audit report.
+
+Full detail + failure log additions (#102 – #106) in `SESSION_LOG_2026-05-29.md`.
