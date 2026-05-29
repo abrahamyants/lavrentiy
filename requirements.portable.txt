@@ -12,6 +12,14 @@ numpy==2.4.3
 scipy>=1.10.0
 pywebview==6.1
 pystray==0.19.5
-Pillow==12.0.0
+Pillow>=12.2.0
+
+# Floor pins for transitive deps to clear pip-audit CVEs in the bundle.
+# urllib3 2.6.3 had PYSEC-2026-141/142 (DoS / redirect-handling);
+# requests 2.32.5 had CVE-2026-25645. Bumping the floor forces PyInstaller
+# to pick clean versions regardless of which upstream lib (openai, anthropic,
+# google-cloud-firestore) pulls them in.
+urllib3>=2.7.0
+requests>=2.33.0
 
 google-cloud-firestore>=2.11.1
