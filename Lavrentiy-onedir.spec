@@ -79,6 +79,9 @@ for pkg in (
     'sounddevice', 'soundfile', 'keyboard',
     'openai', 'anthropic', 'metaphone', 'pyperclip',
     'pyautogui',
+    # v1.6.3 — native window option (pywebview + WebView2 via pythonnet).
+    # User picks at install time via the Lavrentiy-Native shortcut.
+    'webview', 'pythonnet', 'clr_loader',
 ):
     try:
         d, b, h = collect_all(pkg)

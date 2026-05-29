@@ -33,8 +33,8 @@
 [Setup]
 AppId={{B7E5F4A2-9C3D-4E1B-8A6F-2D8B5E9C1F3A}}
 AppName=Lavrentiy
-AppVersion=1.6.2
-AppVerName=Lavrentiy 1.6.2
+AppVersion=1.6.3
+AppVerName=Lavrentiy 1.6.3
 AppPublisher=Gurgen Abrahamyants
 AppPublisherURL=https://github.com/gugosf114/lavrentiy
 AppSupportURL=https://github.com/gugosf114/lavrentiy/issues
@@ -46,7 +46,7 @@ UninstallDisplayName=Lavrentiy
 Compression=lzma2/max
 SolidCompression=yes
 OutputDir=C:\Users\georg\Documents\GitHub\lavrentiy\installer\Output
-OutputBaseFilename=Lavrentiy-Setup-v1.6.2
+OutputBaseFilename=Lavrentiy-Setup-v1.6.3
 SetupIconFile=C:\Users\georg\Documents\GitHub\lavrentiy\lavrentiy.ico
 PrivilegesRequired=lowest
 WizardStyle=modern
@@ -65,17 +65,22 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
 
 [Files]
-; PyInstaller --onedir build, plus the Lavrentiy.vbs launcher next to the .exe.
+; PyInstaller --onedir build, plus both launcher .vbs files next to the .exe.
 Source: "C:\Users\georg\Documents\GitHub\lavrentiy\dist-onedir\Lavrentiy\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "C:\Users\georg\Documents\GitHub\lavrentiy\Lavrentiy.vbs";          DestDir: "{app}"; Flags: ignoreversion
+Source: "C:\Users\georg\Documents\GitHub\lavrentiy\Lavrentiy.vbs";         DestDir: "{app}"; Flags: ignoreversion
+Source: "C:\Users\georg\Documents\GitHub\lavrentiy\Lavrentiy-Native.vbs";  DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-; All shortcuts point at Lavrentiy.vbs (which sets LAV_NO_BROWSER, starts the
-; engine hidden, then opens Edge --app). Bypasses the engine's default-browser
-; auto-open path and the cmd-window flash.
-Name: "{group}\Lavrentiy";          Filename: "{app}\Lavrentiy.vbs"; IconFilename: "{app}\_internal\lavrentiy.ico"; Comment: "Voice reconstruction engine"
-Name: "{group}\Uninstall Lavrentiy"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Lavrentiy";    Filename: "{app}\Lavrentiy.vbs"; IconFilename: "{app}\_internal\lavrentiy.ico"; Comment: "Voice reconstruction engine"; Tasks: desktopicon
+; v1.6.3 — two shortcuts, two ways to open the same dashboard:
+;   Lavrentiy           -> Lavrentiy.vbs        (Chrome/Edge --app= borderless)
+;   Lavrentiy (Native)  -> Lavrentiy-Native.vbs (pywebview/WebView2 native window)
+; Both produce a chromeless window with the dashboard inside. Difference is the
+; underlying rendering engine.
+Name: "{group}\Lavrentiy";                Filename: "{app}\Lavrentiy.vbs";        IconFilename: "{app}\_internal\lavrentiy.ico"; Comment: "Voice reconstruction engine (Chrome/Edge window)"
+Name: "{group}\Lavrentiy (Native)";       Filename: "{app}\Lavrentiy-Native.vbs"; IconFilename: "{app}\_internal\lavrentiy.ico"; Comment: "Voice reconstruction engine (native WebView2 window)"
+Name: "{group}\Uninstall Lavrentiy";      Filename: "{uninstallexe}"
+Name: "{autodesktop}\Lavrentiy";          Filename: "{app}\Lavrentiy.vbs";        IconFilename: "{app}\_internal\lavrentiy.ico"; Comment: "Voice reconstruction engine (Chrome/Edge window)"; Tasks: desktopicon
+Name: "{autodesktop}\Lavrentiy (Native)"; Filename: "{app}\Lavrentiy-Native.vbs"; IconFilename: "{app}\_internal\lavrentiy.ico"; Comment: "Voice reconstruction engine (native WebView2 window)"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\Lavrentiy.vbs"; Description: "Launch Lavrentiy now"; Flags: nowait shellexec postinstall skipifsilent
