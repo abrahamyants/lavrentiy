@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Lavrentiy — voice reconstruction demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Limelight&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-deepest: #0a0a0e;
+  --bg-page: #1a1a1e;
+  --bg-surface: #222226;
+  --bg-elevated: #2a2a2e;
+  --bg-raised: #3a3a40;
+  --text-primary: #ffffff;
+  --text-secondary: #e8d8d8;
+  --text-tertiary: #ccccd0;
+  --text-muted: #a08888;
+  --brand-gold: #d4a574;
+  --brand-gold-soft: #c4956a;
+  --brand-gold-dark: #b8855a;
+  --brand-gold-highlight: #ffe0a0;
+  --state-error: #dc2626;
+  --state-recording: #ee5a24;
+  --state-success: #16a34a;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+body {
+  display: flex; flex-direction: column;
+  background:
+    radial-gradient(ellipse at top, rgba(212,165,116,0.07), transparent 60%),
+    radial-gradient(ellipse at bottom, rgba(212,165,116,0.04), transparent 60%),
+    var(--bg-page);
+}
+header {
+  padding: 56px 24px 16px;
+  text-align: center;
+}
+h1 {
+  font-family: 'Limelight', serif;
+  font-size: clamp(40px, 9vw, 84px);
+  letter-spacing: 0.04em;
+  margin: 0 0 6px;
+  color: var(--brand-gold);
+  text-shadow: 0 2px 32px rgba(212,165,116,0.18);
+}
+.tag {
+  color: var(--text-tertiary);
+  font-size: 14px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.sub {
+  color: var(--text-secondary);
+  font-size: 16px;
+  max-width: 560px;
+  margin: 16px auto 0;
+}
+main {
+  flex: 1;
+  padding: 24px 20px 48px;
+  max-width: 880px;
+  margin: 0 auto;
+  width: 100%;
+}
+.row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+}
+@media (min-width: 760px) {
+  .row { grid-template-columns: 1fr 1fr; }
+}
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--bg-raised);
+  border-radius: 14px;
+  padding: 22px 22px 26px;
+}
+.card h2 {
+  font-family: 'Limelight', serif;
+  font-size: 20px;
+  letter-spacing: 0.08em;
+  color: var(--brand-gold);
+  margin: 0 0 14px;
+}
+.scripts { display: flex; flex-direction: column; gap: 10px; }
+.script {
+  background: var(--bg-elevated);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: border-color 120ms, background 120ms;
+  text-align: left;
+  color: var(--text-secondary);
+  font: inherit;
+  line-height: 1.45;
+}
+.script:hover { border-color: var(--brand-gold-dark); background: var(--bg-raised); }
+.script.active { border-color: var(--brand-gold); background: var(--bg-raised); }
+.script .label {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--brand-gold-soft);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.controls {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 18px;
+}
+#recBtn {
+  width: 168px; height: 168px;
+  border-radius: 50%;
+  border: 3px solid var(--brand-gold);
+  background: var(--bg-elevated);
+  color: var(--brand-gold);
+  font: 600 14px/1.2 'Inter', sans-serif;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 160ms ease;
+  box-shadow: 0 0 0 0 rgba(238,90,36,0);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+#recBtn:hover { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(212,165,116,0.2); }
+#recBtn.recording {
+  border-color: var(--state-recording);
+  color: var(--state-recording);
+  animation: pulse 1.2s infinite;
+}
+#recBtn:disabled { opacity: 0.4; cursor: wait; transform: none; box-shadow: none; }
+@keyframes pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(238,90,36,0.6); }
+  70%  { box-shadow: 0 0 0 28px rgba(238,90,36,0); }
+  100% { box-shadow: 0 0 0 0 rgba(238,90,36,0); }
+}
+#status {
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  min-height: 18px;
+}
+#status.error { color: var(--state-error); }
+#status.success { color: var(--state-success); }
+.result { margin-top: 28px; display: none; }
+.result.visible { display: block; }
+.result-block { margin-bottom: 18px; }
+.result-block .label {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--brand-gold-soft);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.result-block .text {
+  background: var(--bg-deepest);
+  border-left: 3px solid var(--brand-gold);
+  padding: 14px 16px;
+  border-radius: 0 8px 8px 0;
+  font-size: 17px;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  min-height: 22px;
+}
+.result-block.raw .text {
+  border-left-color: var(--text-muted);
+  color: var(--text-tertiary);
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+}
+.timing {
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+}
+footer {
+  padding: 24px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--bg-elevated);
+}
+.tones {
+  display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+}
+.tone {
+  background: transparent;
+  border: 1px solid var(--bg-raised);
+  color: var(--text-tertiary);
+  padding: 6px 14px;
+  border-radius: 999px;
+  font: 500 12px 'Inter', sans-serif;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 120ms;
+}
+.tone:hover { border-color: var(--brand-gold-dark); color: var(--text-primary); }
+.tone.active { border-color: var(--brand-gold); color: var(--brand-gold); background: rgba(212,165,116,0.06); }
+.unsupported {
+  background: rgba(220,38,38,0.1);
+  border: 1px solid var(--state-error);
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin: 16px auto;
+  max-width: 520px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  display: none;
+}
+.unsupported.visible { display: block; }
+</style>
+</head>
+<body>
+<header>
+  <div class="tag">Voice Reconstruction Engine</div>
+  <h1>LAVRENTIY</h1>
+  <p class="sub">
+    A clinical-grade reconstruction system for severe speech disfluency.
+    Speak naturally — Lavrentiy returns the sentence you meant.
+  </p>
+</header>
+
+<main>
+  <div id="unsupported" class="unsupported">
+    Your browser doesn't support voice recording. Try Chrome, Safari 14.3+, Firefox, or Edge.
+  </div>
+
+  <div class="row">
+    <section class="card">
+      <h2>Try one of these</h2>
+      <div class="scripts" id="scripts">
+        <button class="script" data-script="P-p-please... I I I just need a a coffee with milk and and one sugar.">
+          <span class="label">Plosive block + repetition</span>
+          P-p-please... I I I just need a a coffee with milk and and one sugar.
+        </button>
+        <button class="script" data-script="Sssssomething is wrong with my caaaaarrrr — I think it's the the the engine.">
+          <span class="label">Severe prolongation</span>
+          Sssssomething is wrong with my caaaaarrrr — I think it's the the the engine.
+        </button>
+        <button class="script" data-script="I called the the the doctor um about the about the appointment yesterday but they they didn't pick up.">
+          <span class="label">Internal repetition + revision</span>
+          I called the the the doctor um about the about the appointment yesterday but they they didn't pick up.
+        </button>
+        <button class="script" data-script="Uh I I I just I just wanted to to ask if you could could you maybe could you check the the the report before Friday.">
+          <span class="label">Mixed block + filler</span>
+          Uh I I I just I just wanted to to ask if you could could you maybe could you check the the the report before Friday.
+        </button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Record</h2>
+      <div class="controls">
+        <button id="recBtn" type="button">START</button>
+        <div id="status">Pick a script, then press start</div>
+        <div class="tones" id="tones">
+          <button class="tone active" data-tone="casual">Casual</button>
+          <button class="tone" data-tone="professional">Professional</button>
+          <button class="tone" data-tone="friend">Friend</button>
+          <button class="tone" data-tone="formal">Formal</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="result" id="result">
+    <div class="result-block raw">
+      <div class="label">What Whisper heard</div>
+      <div class="text" id="rawText"></div>
+    </div>
+    <div class="result-block">
+      <div class="label">What Lavrentiy reconstructs</div>
+      <div class="text" id="cleanText"></div>
+    </div>
+    <div class="timing" id="timing"></div>
+  </section>
+</main>
+
+<footer>
+  Lavrentiy &mdash; built for people with severe speech disfluency.
+  This is a demo of the Layer 4 clinical reconstruction pipeline.
+</footer>
+
+<script>
+(() => {
+  const recBtn = document.getElementById('recBtn');
+  const statusEl = document.getElementById('status');
+  const resultEl = document.getElementById('result');
+  const rawEl = document.getElementById('rawText');
+  const cleanEl = document.getElementById('cleanText');
+  const timingEl = document.getElementById('timing');
+  const unsupported = document.getElementById('unsupported');
+  const tones = document.getElementById('tones');
+  const scripts = document.getElementById('scripts');
+
+  let currentTone = 'casual';
+  let mediaRecorder = null;
+  let chunks = [];
+  let mediaStream = null;
+  let recording = false;
+
+  // Capability check
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    unsupported.classList.add('visible');
+    recBtn.disabled = true;
+    statusEl.textContent = 'Voice recording unavailable';
+    statusEl.classList.add('error');
+    return;
+  }
+
+  tones.addEventListener('click', e => {
+    const b = e.target.closest('.tone'); if (!b) return;
+    tones.querySelectorAll('.tone').forEach(t => t.classList.remove('active'));
+    b.classList.add('active');
+    currentTone = b.dataset.tone;
+  });
+
+  scripts.addEventListener('click', e => {
+    const b = e.target.closest('.script'); if (!b) return;
+    scripts.querySelectorAll('.script').forEach(s => s.classList.remove('active'));
+    b.classList.add('active');
+    statusEl.textContent = 'Press start, then read the script aloud';
+    statusEl.classList.remove('error', 'success');
+  });
+
+  function pickMimeType() {
+    const candidates = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/mp4',
+      'audio/ogg;codecs=opus',
+      'audio/ogg',
+    ];
+    for (const t of candidates) {
+      if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) return t;
+    }
+    return ''; // browser picks default
+  }
+
+  async function startRecording() {
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      statusEl.textContent = 'Mic permission denied';
+      statusEl.classList.add('error');
+      return;
+    }
+    chunks = [];
+    const mimeType = pickMimeType();
+    mediaRecorder = mimeType ? new MediaRecorder(mediaStream, { mimeType }) : new MediaRecorder(mediaStream);
+    mediaRecorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    mediaRecorder.onstop = handleStop;
+    mediaRecorder.start();
+    recording = true;
+    recBtn.textContent = 'STOP';
+    recBtn.classList.add('recording');
+    statusEl.textContent = 'Listening — press stop when done';
+    statusEl.classList.remove('error', 'success');
+  }
+
+  function stopRecording() {
+    if (!mediaRecorder) return;
+    mediaRecorder.stop();
+    recording = false;
+    recBtn.classList.remove('recording');
+    recBtn.disabled = true;
+    statusEl.textContent = 'Reconstructing — this can take 10-15 seconds';
+    if (mediaStream) {
+      mediaStream.getTracks().forEach(t => t.stop());
+      mediaStream = null;
+    }
+  }
+
+  async function handleStop() {
+    const blob = new Blob(chunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+    chunks = [];
+    if (blob.size === 0) {
+      statusEl.textContent = 'No audio captured';
+      statusEl.classList.add('error');
+      recBtn.textContent = 'START';
+      recBtn.disabled = false;
+      return;
+    }
+    const fd = new FormData();
+    fd.append('audio', blob, 'clip');
+    fd.append('tone', currentTone);
+
+    try {
+      const res = await fetch('/transcribe', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(`HTTP ${res.status}: ${detail.slice(0, 200)}`);
+      }
+      const data = await res.json();
+      rawEl.textContent = data.raw || '(no speech detected)';
+      cleanEl.textContent = data.clean || '(reconstruction empty)';
+      timingEl.textContent = `Whisper ${data.asr_ms}ms · Lavrentiy L${data.layer} ${data.recon_ms}ms · tone: ${data.tone}`;
+      resultEl.classList.add('visible');
+      statusEl.textContent = 'Done — record again or try another script';
+      statusEl.classList.remove('error');
+      statusEl.classList.add('success');
+    } catch (err) {
+      statusEl.textContent = `Error: ${err.message}`;
+      statusEl.classList.add('error');
+      console.error(err);
+    } finally {
+      recBtn.textContent = 'START';
+      recBtn.disabled = false;
+    }
+  }
+
+  recBtn.addEventListener('click', () => {
+    if (recording) stopRecording(); else startRecording();
+  });
+})();
+</script>
+</body>
+</html>

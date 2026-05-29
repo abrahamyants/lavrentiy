@@ -1,0 +1,13 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - build
+      - --file=hosted/Dockerfile
+      - --tag=gcr.io/$PROJECT_ID/lavrentiy-demo:$BUILD_ID
+      - --tag=gcr.io/$PROJECT_ID/lavrentiy-demo:latest
+      - .
+images:
+  - 'gcr.io/$PROJECT_ID/lavrentiy-demo:$BUILD_ID'
+  - 'gcr.io/$PROJECT_ID/lavrentiy-demo:latest'
+options:
+  logging: CLOUD_LOGGING_ONLY

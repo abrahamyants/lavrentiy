@@ -1,0 +1,70 @@
+# Cloud Build source-upload filter — what NOT to ship to gs://_cloudbuild/source.
+# Mirrors .dockerignore plus repo-specific artifacts that have no business
+# leaving the local machine.
+
+.git
+.gitignore
+.gitattributes
+.venv
+venv
+__pycache__
+*.pyc
+
+# Build artifacts
+build/
+build-*/
+dist/
+dist-*/
+installer/
+*.log
+
+# Personal / per-machine config files (must stay local).
+api_key*.txt
+anthropic_key.txt
+gemini_api_key*.txt
+replicate_key.txt
+install_log.txt
+
+# Profile + history (per-user data; not part of the deployable surface).
+profile.json
+.lavrentiy/
+
+# Test corpus / benchmark output / session logs / experimental notebooks.
+tests/
+bench/
+docs/
+local/
+SESSION_LOG_*.md
+HEAVY_STUTTER_*.md
+DESKTOP_WRAPPER_SPEC.md
+APPLE_STANFORD_BUILD_SPEC.md
+RESEARCH_INTEGRATION.md
+DEFERRED_RECONSTRUCTION_PROMPTS_*.md
+_phase*
+results_heavy_stutter_*
+test_report*
+test_results*
+report_heavy_stutter_*
+heavy_stutter_test_scripts.json
+_test_*.wav
+
+# Desktop-only Lavrentiy artifacts (not part of the hosted demo).
+desktop.py
+native/
+build_*.py
+Lavrentiy.spec
+Lavrentiy-onedir.spec
+Lavrentiy.vbs
+NUKE.bat
+auth_google.html
+manifest.json
+lavrentiy_preview.png
+style_examples.json
+
+# WiM submodule paths not needed by the hosted demo.
+wim/api/contribute/
+wim/api/__pycache__/
+
+# Backup / scratch dirs.
+_backup_pre_fw_swap/
+portable/
