@@ -6771,6 +6771,7 @@ def stop_command_recording():
     # Trigger the normal stop (closes audio capture, sets state to processing)
     stop_recording()
     # Run Whisper on the captured audio
+    tmp = None
     try:
         audio_data = numpy.concatenate(frames, axis=0).flatten()
         if NEEDS_RESAMPLE:
@@ -6781,12 +6782,17 @@ def stop_command_recording():
         tmp.close()
         sf.write(tmp.name, audio_data, TARGET_RATE)
         whisper_result = whisper_transcribe(tmp.name)
-        os.unlink(tmp.name)
         command_text = whisper_result.get("text", "").strip() if whisper_result else ""
     except Exception as e:
         log(f"Command Mode: transcription failed: {e}", "error")
         set_state('idle')
         return
+    finally:
+        if tmp is not None:
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
     if not command_text:
         log("Command Mode: no command heard", "warn")
         set_state('idle')
