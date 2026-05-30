@@ -1353,7 +1353,20 @@ def save_profile(prof, _epoch=None):
             json.dump(prof, f, indent=2, ensure_ascii=False)
             f.flush()
             os.fsync(f.fileno())
-        tmp_path.replace(PROFILE_PATH)
+        # Retry on Windows transient locks. Antivirus / Dropbox / OneDrive
+        # can grab the .tmp mid-rename → PermissionError → caller blows up
+        # and (if it's a bg thread) the thread dies silently. Backoff at
+        # 200/400/800/1600 ms. Re-raise on final failure so the new
+        # threading.excepthook (registered in start_engine) logs it.
+        for attempt in range(4):
+            try:
+                tmp_path.replace(PROFILE_PATH)
+                break
+            except OSError as e:
+                if attempt == 3:
+                    log(f"save_profile: rename failed after 4 attempts: {e}", "error")
+                    raise
+                time.sleep(0.2 * (2 ** attempt))
     # FIRESTORE DIRECT PUBLISH HOOK — REMOVED 2026-04-24
     # The original code did `from lavrentiy.firestore_publisher import ...`. When
     # this script runs as `lavrentiy.py` (the entry-point script, sys.modules
@@ -6809,11 +6822,18 @@ def start_command_recording():
     if not command_selected_text or command_selected_text == _command_prev_clipboard:
         log("Command Mode: no text selected", "warn")
         command_selected_text = ""
-        # Restore clipboard even on abort — we may have already copied over it
-        try:
-            pyperclip.copy(_command_prev_clipboard)
-        except Exception:
-            pass
+        # Restore clipboard even on abort. Retry once on failure — if it
+        # still fails, surface the previous clipboard text in the log so the
+        # user can recover it manually (otherwise it's lost without trace).
+        for attempt in range(2):
+            try:
+                pyperclip.copy(_command_prev_clipboard)
+                break
+            except Exception as e:
+                if attempt == 1:
+                    preview = _command_prev_clipboard[:40] + ('...' if len(_command_prev_clipboard) > 40 else '')
+                    log(f"Command Mode: clipboard restore FAILED — your prior clipboard was: '{preview}' ({e})", "error")
+                time.sleep(0.1)
         return
     log(f"Command on: \"{command_selected_text[:60]}...\" — speak command", "info")
     is_command_mode = True
@@ -6877,10 +6897,17 @@ def stop_command_recording():
         log("Command Mode: transform failed, selection unchanged", "error")
     # Restore user's original clipboard after paste completes
     def _restore_clipboard():
-        try:
-            pyperclip.copy(_command_prev_clipboard)
-        except Exception:
-            pass
+        # Retry once. On final failure, log the prior clipboard contents
+        # (truncated) so the user can recover manually.
+        for attempt in range(2):
+            try:
+                pyperclip.copy(_command_prev_clipboard)
+                return
+            except Exception as e:
+                if attempt == 1:
+                    preview = _command_prev_clipboard[:40] + ('...' if len(_command_prev_clipboard) > 40 else '')
+                    log(f"Command Mode: clipboard restore FAILED — your prior clipboard was: '{preview}' ({e})", "error")
+                time.sleep(0.1)
     threading.Timer(1.5, _restore_clipboard).start()
     set_state('idle')
 
@@ -8472,11 +8499,42 @@ def dispatch_api(path: str, body: dict = None, method: str = None):
         method = 'POST' if (isinstance(body, dict) and body) else 'GET'
     routes = _POST_ROUTES if method.upper() == 'POST' else _GET_ROUTES
     handler = routes.get(path)
-    return handler(body) if handler else None
+    if not handler:
+        return None
+    # Top-level guard. Without this, an uncaught handler exception bubbles
+    # to BaseHTTPRequestHandler which sends a generic HTML 500. The dashboard
+    # then shows "Server error" with no useful detail. Returning a structured
+    # JSON error gives the dashboard something it can render and log.
+    try:
+        return handler(body)
+    except Exception as e:
+        import traceback
+        log(f"dispatch_api: handler for {method} {path} raised: {type(e).__name__}: {e}", "error")
+        log(f"dispatch_api traceback: {traceback.format_exc()[:600]}", "error")
+        return {"error": str(e)[:200], "type": type(e).__name__, "path": path}
 
 
 def start_engine(*, run_http_server=True, block=True):
     global _hook_start_time
+    # Install thread-level excepthook so any uncaught exception in a daemon
+    # thread (bg_learn, bg_decay, sync_to_firestore, pull_from_firestore,
+    # bg_trigger_detect, bg_contribute, pipeline, etc.) gets LOGGED instead
+    # of dying silently. Before this hook, under pywebview where stderr is
+    # suppressed, one bad Firestore response or fsync race could kill a
+    # learning thread for the rest of the session with zero user-visible
+    # signal. With this hook, every uncaught thread exception writes a full
+    # entry to engine_err.log plus the dashboard's console log.
+    def _thread_excepthook(args):
+        try:
+            tname = args.thread.name if args.thread else 'unknown'
+            log(f"Uncaught exception in thread '{tname}': "
+                f"{args.exc_type.__name__}: {args.exc_value}", "error")
+            import traceback
+            tb = "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback))
+            log(f"Thread '{tname}' traceback: {tb[:800]}", "error")
+        except Exception:
+            pass  # excepthook itself must never raise
+    threading.excepthook = _thread_excepthook
     _toggles = []
     if paralinguistic_enabled: _toggles.append("para")
     if prosodic_enabled: _toggles.append("prosodic")
