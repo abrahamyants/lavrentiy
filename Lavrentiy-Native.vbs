@@ -20,7 +20,11 @@ Dim exePath : exePath = scriptDir & "\Lavrentiy.exe"
 ' Tell the launcher: take the native pywebview path.
 sh.Environment("Process")("LAV_NATIVE") = "1"
 
-' Hidden start (the pywebview window will surface on its own).
+' Launch with windowstyle=1 (SW_SHOWNORMAL). The .exe itself is windowless
+' (PyInstaller --windowed, no console), but using SW_HIDE here propagated a
+' "don't activate" hint to the pywebview WebView2 window — it would render
+' correctly but never surface to the foreground, so the user saw nothing.
+' SW_SHOWNORMAL lets the pywebview window come to the front like any normal app.
 If fso.FileExists(exePath) Then
-    sh.Run """" & exePath & """ --native", 0, False
+    sh.Run """" & exePath & """ --native", 1, False
 End If
