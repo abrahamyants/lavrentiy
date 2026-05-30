@@ -3370,3 +3370,96 @@ Dead code identified for deletion (~700-800 LOC reduction, one PR titled "chore:
 - Outstanding: P0 list at the top of the audit report.
 
 Full detail + failure log additions (#102 – #106) in `SESSION_LOG_2026-05-29.md`.
+
+
+## 2026-05-30 — v1.6.4 cross-device profile sync → v1.6.5 reliability hardening → v1.6.7 native-window fix + diagnostic
+
+Continuation of the long arc that started 05-29 evening and ran past midnight. Shipped three releases on top of v1.6.3, each addressing real user-visible issues surfaced by the 05-29 audit + operator testing of v1.6.3.
+
+**Lav commits this session:**
+
+| Commit | Subject |
+|---|---|
+| `ad4061d` | feat(profile): pull from Firestore on sign-in — closes cross-device sync gap |
+| `724900c` | chore(installer): v1.6.4 — profile pull-on-sign-in fix bundled |
+| `c8d24cd` | docs(users): add INSTRUCTIONS.md — end-user download/install/troubleshooting/contact |
+| `da23284` | docs: correct repo-visibility framing — repo is public, not private |
+| `88a4cf3` | docs(readme): correct second repo-visibility framing — public, not private |
+| `4d66079` | fix(reliability): close 5 silent-failure gaps from the 2026-05-29 audit |
+| `86e1874` | chore: retire portable .zip build path |
+| `a2fd604` | chore: delete mobile.html path — WiM Android covers the phone use case |
+| `dcebd82` | fix(launcher): Lavrentiy-Native.vbs windowstyle 0->1 so pywebview window surfaces |
+| `e5b7310` | feat(launcher): diagnostic logging + pywebview fallback chain — v1.6.7 prep |
+
+**v1.6.4 — cross-device profile sync (commits `ad4061d` + `724900c`)**
+
+The 05-29 audit + operator pressure surfaced that the desktop only PUSHED profile to Firestore — never PULLED. So a user signing in on a new device saw an empty dashboard even though their learned data was in their Firestore record. New `pull_profile_from_firestore()` in `lavrentiy.py` spawned as a daemon thread from `handle_POST_api_auth` after `switch_profile()` succeeds. Hits the wim-reconstruct CF with `action=export_data`, merges cloud data into local under `_profile_lock` (lists union+dedupe cloud-first capped at 50; dicts cloud-wins update on top of local). Fire-and-forget on failure. v1.6.4 installer pushed to GitHub Releases as Latest, 548 MB.
+
+**v1.6.5 — five reliability fixes (commit `4d66079`)**
+
+Five surgical edits closing P0/P1 items from `reports/AUDIT_2026-05-29.md`:
+
+1. `threading.excepthook` in `start_engine` — any uncaught exception in a daemon thread now writes traceback to engine_err.log + dashboard console instead of dying silently under pywebview's suppressed stderr.
+2. `save_profile` `.replace()` retries 4× with exponential backoff (200/400/800/1600 ms) on Windows AV/Dropbox/OneDrive transient locks.
+3. `dispatch_api` wraps `handler(body)` in try/except returning structured JSON `{error, type, path}` instead of letting BaseHTTPRequestHandler send generic HTML 500.
+4. Command Mode clipboard restore (abort path + success path Timer callback) retries once on pyperclip failure, then logs prior clipboard contents (truncated 40 chars) so user can recover the text manually.
+5. Heavy-stutter corpus calibration check — diffed `build_prompt` output between pre-decomposition (before commit `81e843c`) and current across 9 input variants spanning L2/L3/L4 / paralinguistic / prosodic / covert / fillers+vocab+corrections / high_stress. **8 of 9 byte-identical, 1 errored identically in both versions.** Conclusion: May 25 prompt-builder decomposition did not silently drop any clinical clause. Corpus runs against v1.6.5+ are valid.
+
+v1.6.5 installer (524 MB) pushed to GitHub Releases as Latest.
+
+**Distribution path cleanup**
+
+- Portable `.zip` auto-build (`.github/workflows/build-portable.yml` + `build_portable.py`) deleted (commit `86e1874`). Single distribution channel from v1.6.3 onward — the Inno Setup `.exe`. Existing v1.6.3 portable zip asset deleted from GitHub Releases. The portable build had no offline ASR model bundle and an older launcher, so it was actively misleading users.
+- `mobile.html` + `/api/transcribe` endpoint deleted (commit `a2fd604`). Three drift behaviors vs main desktop path (no Firestore sync, no prosodic context at L4, lighter cleanup). WiM Android covers the "use from a phone" case. 679 LOC deleted across 4 files.
+
+**INSTRUCTIONS.md (commit `c8d24cd`)**
+
+Standalone user-facing guide separate from this README (which is a developer changelog). Covers download → install → first launch → sign-in → BYOK → 9 troubleshooting scenarios → uninstall → support contact (gugosf@gmail.com). Linked from v1.6.4+ release notes. ~190 lines.
+
+**v1.6.7 — native-window pywebview window-surface fix (commits `dcebd82` + `e5b7310`)**
+
+v1.6.5 install on the operator's machine showed the "Lavrentiy" (Edge `--app=`) shortcut working fine, but the "Lavrentiy (Native)" shortcut produced no visible window. Engine started, port 7878 bound, pywebview window WAS created (verified via Win32 EnumWindows + PrintWindow capture — full Lavrentiy dashboard rendered inside a `WindowsForms10.Window` at position (76,76)-(1356,896)) — but the window never came to the foreground.
+
+Root cause: `Lavrentiy-Native.vbs` launched `Lavrentiy.exe` with `windowstyle=0` (SW_HIDE). The .exe itself is windowless (PyInstaller --windowed) so SW_HIDE was intended to suppress a non-existent console — but Windows propagated a "don't activate" hint to the first top-level windows the child process created, including pywebview's WebView2 WinForms wrapper. Window opened, rendered, was visible, but never surfaced. Companion `Lavrentiy.vbs` already used `windowstyle=1` for its Chrome `--app=` launch step which is why that shortcut always surfaced correctly.
+
+Fix in `dcebd82`: one-character `0`→`1` in the .vbs. Operator's install patched in place; new behavior verified.
+
+`e5b7310` is defense-in-depth for future failures: launcher now writes `native_boot.log` at every step (PyInstaller --windowed swallows stdout/stderr otherwise), wraps each stage in try/except + surfaces user-facing Win32 MessageBox on hard failures, and falls through a backend chain (edgechromium → mshtml → auto-pick → default browser) before giving up. The next pywebview failure mode is diagnosable from the log file and degrades to the user's default browser instead of silently doing nothing. Bumped `.iss` AppVersion to 1.6.7 (skipping 1.6.6 which was built locally for diagnostics only, never released).
+
+**Voice E2E test run**
+
+Started Lav engine from current source, posted three reconstruction tests via `/api/reconstruct_test`:
+
+| Layer | Input | Model fired | Reconstruction? |
+|---|---|---|---|
+| L2 | clean 52-word paragraph with fillers + grammar quirks | gpt-4o-2024-11-20 (2.2 s) | ✅ stripped fillers + tone-applied |
+| L3 | same paragraph + Default profile loaded | gpt-4o-2024-11-20 (0.65 s) | ✅ different from L2 — casual contractions, restructured |
+| L4 | heavy-stutter paragraph (62 words: I-I-I, w-w-want, prolongations, blocks, stacked fillers — patterns from Expressable's clinical examples) | claude-sonnet-4-6 with extended thinking (7.1 s) | ✅ reconstructed clean intent from heavy disfluency |
+
+Confirmed L4 actually fired Sonnet ET (not silent fallback to GPT-4o) by checking the api_calls counter — incremented twice (L2 + L3 OpenAI calls), L4 Anthropic call doesn't bump that counter. All three reconstructions are real, non-echo, and applied appropriate per-layer rewriting.
+
+**Hosted/ Cloud Run demo — fully gone**
+
+The 05-29 deploy-and-kill arc closed. Cloud Run service `lavrentiy-demo` was deleted same day. The `hosted/` repo folder remained as scaffolding for a future "real port" of dashboard.html. Operator deferred that work; nothing currently consuming the folder.
+
+**Open items NOT shipped this session** (carried forward to whenever):
+
+- **L4 CF model parity** — `wim-reconstruct` Cloud Function still uses GPT-4o for L4 instead of Sonnet ET. Signed-in users silently get a weaker brain than direct-key users. ~5 line CF edit + redeploy. Closes audit P0 #9.
+- **L4 packs design comment** — code-explorer flagged that L4 skips `l1_pack` + `domain_pack` injection at `wim/api/prompt_builder.py:844-853`. Verified intentional per the 04-28 entry, but code has no comment. Add 1 line.
+- **WiM Android parity** — threading.excepthook + cross-device profile pull equivalents added to Lav this session, no Kotlin equivalent on WiM-android. Per the saved `feedback_lav_wim_parity.md` rule both apps should track.
+- **Code signing** — LICENSE landed in v1.6.2, SignPath Foundation process never started. Every fresh install hits SmartScreen.
+- **Heavy-stutter corpus RUN** — calibration verified this session (no prompt drift), actual run for foundation-credibility artifact not executed.
+- **Patent decision** — pinned for 2026-05-01, today is 2026-05-30. Open.
+- **10 dead-code deletion candidates** — `native/lavrentiy_app.py`, `Lavrentiy.spec`, `installer/Lavrentiy-Eval.iss`, `local/llm_local.py`, `gemini_client.py`, `_phase2_matrix.py`, `_phase3_l4_tones.py`, `_phase3_diff.py`, partial `_build_portable_zip.py` (related workflow gone), `eval-build/`. Should ship as one cleanup PR.
+
+**State at session end:**
+
+- Lavrentiy main: clean, latest commit `e5b7310`, tags v1.6.3/v1.6.4/v1.6.5 pushed (v1.6.7 not yet tagged or built).
+- GitHub Releases: v1.6.5 is Latest (548 MB). v1.6.6 was built locally for diagnostic purposes only, never released. v1.6.7 .iss is bumped but installer not yet compiled.
+- WiM main: a parallel session has `BubbleService.kt` modified (Termux relay work continuing); operator-driven, not touched by this session.
+- INSTRUCTIONS.md live in the repo root, linked from v1.6.4+ release notes.
+- Hosted/ folder remains in repo (unused), Cloud Run service stays deleted.
+- Operator's local install: v1.6.5 with v1.6.7 .vbs windowstyle hotfix applied in place. Native + Edge `--app=` shortcuts both verified working.
+- Audit report `reports/AUDIT_2026-05-29.md` is local-only (gitignored) — 5 of 19 P0/P1 findings closed this session, mobile-path item (P1 #11) closed via deletion, corpus calibration (P0 #6) closed via verification. Remaining items in the report.
+
+Full detail + failure log additions (#107 – #112) in `SESSION_LOG_2026-05-30.md`.
