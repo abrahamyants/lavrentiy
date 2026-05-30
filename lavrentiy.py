@@ -1417,6 +1417,76 @@ def sync_profile_to_firestore(prof):
         log(f"Profile sync failed (non-fatal): {str(e)[:80]}", "warn")
 
 
+def pull_profile_from_firestore():
+    """Fetch user's Firestore-stored profile after sign-in and merge into local.
+
+    Closes the one-way-sync gap: sync_profile_to_firestore pushes UP on
+    every save, but until this function landed nothing pulled DOWN — meaning
+    a user signing in on a fresh install / new device saw an empty dashboard
+    even though their learned data was sitting in their Firestore record.
+
+    Spawned on a daemon thread from handle_POST_api_auth after switch_profile
+    succeeds. Errors logged but never block sign-in.
+
+    Merge strategy:
+      - list fields (trigger_words, filler_words, vocabulary): union+dedupe,
+        cloud entries first to preserve canonical server ordering, capped at 50
+      - dict fields (onset_weights, covert_profile, corrections): cloud-wins
+        update on top of local — cloud is the canonical store, but any
+        local-only keys are preserved
+    """
+    global profile
+    if not is_authenticated() or _firebase_id_token is None:
+        return
+    try:
+        import urllib.request
+        body = json.dumps({"action": "export_data"}).encode("utf-8")
+        req = urllib.request.Request(
+            BACKEND_URL,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {_firebase_id_token}",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            response = json.loads(resp.read())
+        cloud = response.get("data", {}) if response.get("ok") else {}
+        if not cloud:
+            log("Profile pull: no cloud data yet (first sign-in, nothing to merge)", "info")
+            return
+        merged_counts = {}
+        with _profile_lock:
+            for k in ("trigger_words", "filler_words", "vocabulary"):
+                cloud_list = cloud.get(k, []) or []
+                local_list = profile.get(k, []) or []
+                seen = set()
+                merged = []
+                for item in list(cloud_list) + list(local_list):
+                    key = item.lower() if isinstance(item, str) else json.dumps(item, sort_keys=True, default=str)
+                    if key not in seen:
+                        seen.add(key)
+                        merged.append(item)
+                profile[k] = merged[:50]
+                merged_counts[k] = len(profile[k])
+            for k in ("onset_weights", "covert_profile", "corrections"):
+                cloud_dict = cloud.get(k) or {}
+                if isinstance(cloud_dict, dict) and cloud_dict:
+                    local_dict = profile.get(k) or {}
+                    if isinstance(local_dict, dict):
+                        combined = dict(local_dict)
+                        combined.update(cloud_dict)
+                        profile[k] = combined
+                    else:
+                        profile[k] = dict(cloud_dict)
+                    merged_counts[k] = len(profile[k])
+        save_profile(profile)
+        log(f"Profile pulled from cloud and merged: {merged_counts}", "info")
+    except Exception as e:
+        log(f"Profile pull from cloud failed (non-fatal): {str(e)[:80]}", "warn")
+
+
 def _snapshot_profile(prof):
     """Save timestamped backup. Keep last 5."""
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
@@ -7818,6 +7888,15 @@ def handle_POST_api_auth(body=None) -> dict:
                 log(f"[AUTH] step5: about to switch_profile('{profile_name}')", 'info')
                 switch_profile(profile_name)
                 log('[AUTH] step6: switch_profile returned successfully', 'info')
+                # step7: pull the user's Firestore-stored profile and merge into
+                # local. Daemon thread — never blocks the sign-in response, never
+                # crashes the engine if Firestore is unreachable.
+                log('[AUTH] step7: spawning pull_profile_from_firestore daemon', 'info')
+                threading.Thread(
+                    target=pull_profile_from_firestore,
+                    name='profile-pull-on-signin',
+                    daemon=True,
+                ).start()
             except Exception as e:
                 import traceback
                 log(f'[AUTH] Profile switch FAILED: {type(e).__name__}: {e}', 'error')
