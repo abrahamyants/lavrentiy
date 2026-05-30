@@ -33,8 +33,8 @@
 [Setup]
 AppId={{B7E5F4A2-9C3D-4E1B-8A6F-2D8B5E9C1F3A}}
 AppName=Lavrentiy
-AppVersion=1.6.5
-AppVerName=Lavrentiy 1.6.5
+AppVersion=1.6.7
+AppVerName=Lavrentiy 1.6.7
 AppPublisher=Gurgen Abrahamyants
 AppPublisherURL=https://github.com/gugosf114/lavrentiy
 AppSupportURL=https://github.com/gugosf114/lavrentiy/issues
@@ -46,7 +46,7 @@ UninstallDisplayName=Lavrentiy
 Compression=lzma2/max
 SolidCompression=yes
 OutputDir=C:\Users\georg\Documents\GitHub\lavrentiy\installer\Output
-OutputBaseFilename=Lavrentiy-Setup-v1.6.5
+OutputBaseFilename=Lavrentiy-Setup-v1.6.7
 SetupIconFile=C:\Users\georg\Documents\GitHub\lavrentiy\lavrentiy.ico
 PrivilegesRequired=lowest
 WizardStyle=modern
