@@ -7388,9 +7388,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if self.path == '/':
             dash = Path(__file__).parent / 'dashboard.html'
             self._serve_file(dash, 'text/html')
-        elif self.path == '/mobile':
-            mobile_path = Path(__file__).parent / 'mobile.html'
-            self._serve_file(mobile_path, 'text/html')
         elif self.path == '/manifest.json':
             manifest_path = Path(__file__).parent / 'manifest.json'
             self._serve_file(manifest_path, 'application/json')
@@ -8190,63 +8187,6 @@ def handle_POST_api_hotkeys(body=None) -> dict:
         log(f'Hotkeys updated: record={RECORD_KEY} tone={TONE_KEY} layer={LAYER_KEY} stats={STATS_KEY} quit={QUIT_KEY}', 'info')
     return {'record': RECORD_KEY.upper(), 'tone': TONE_KEY.upper(), 'layer': LAYER_KEY.upper(), 'stats': STATS_KEY.upper(), 'quit': QUIT_KEY.upper()}
 
-def handle_POST_api_transcribe(body=None) -> dict:
-    if not body or not isinstance(body.get('audio_b64'), str):
-        return {'error': 'Send {"audio_b64": "..."}'}
-    tmp = None
-    tmp2 = None
-    try:
-        audio_bytes = base64.b64decode(body['audio_b64'])
-        tmp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-        tmp.write(audio_bytes)
-        tmp.close()
-        audio_data, sr = sf.read(tmp.name)
-        if sr != TARGET_RATE:
-            from scipy.signal import resample_poly
-            import math
-            gcd = math.gcd(TARGET_RATE, sr)
-            audio_data = resample_poly(audio_data, TARGET_RATE // gcd, sr // gcd)
-        if len(audio_data.shape) > 1:
-            audio_data = audio_data.mean(axis=1)
-        # Shared DSP chain — now honors Quiet Mode on the native handler path.
-        audio_data = preprocess_audio(audio_data, quiet=quiet_mode_enabled)
-        speech_metrics = analyze_speech_rate(audio_data, TARGET_RATE)
-        tmp2 = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-        sf.write(tmp2.name, audio_data, TARGET_RATE)
-        tmp2.close()
-        t0 = time.time()
-        whisper_result = whisper_transcribe(tmp2.name)
-        raw_text = whisper_result['text'].strip()
-        t_asr = time.time()
-        if not raw_text:
-            return {'error': 'No speech detected', 'raw': '', 'clean': ''}
-        para_events = detect_paralinguistic_events(audio_data, TARGET_RATE, whisper_result.get('segments', []), whisper_result.get('low_confidence'), whisper_result.get('disagreements'))
-        filtered = strip_disfluencies(raw_text)
-        clean_text = filtered
-        t_recon = t_asr
-        if current_layer >= 2:
-            try:
-                clean_text = reconstruct(filtered, current_tone, current_layer, profile, whisper_low_conf=whisper_result.get('low_confidence'), whisper_disagreements=whisper_result.get('disagreements'), speech_severity_mod=speech_metrics['severity_modifier'], paralinguistic_events=para_events if paralinguistic_enabled else None)
-            except Exception as e:
-                log(f'Mobile reconstruct failed: {e}', 'error')
-                clean_text = filtered
-            t_recon = time.time()
-        total_ms = round((t_recon - t0) * 1000)
-        stats_inc('sessions')
-        stats_inc('words', len(clean_text.split()))
-        log(f'Mobile transcribe: {len(raw_text)}c -> {len(clean_text)}c ({total_ms}ms)', 'info')
-        return {'raw': raw_text, 'filtered': filtered, 'clean': clean_text, 'layer': current_layer, 'tone': current_tone, 'total_ms': total_ms}
-    except Exception as e:
-        log(f'Mobile transcribe failed: {e}', 'error')
-        return {'error': str(e)}
-    finally:
-        for f in (tmp, tmp2):
-            if f:
-                try:
-                    os.unlink(f.name)
-                except OSError:
-                    pass
-
 def handle_POST_api_reconstruct_test(body=None) -> dict:
     if not body or not isinstance(body.get('raw'), str):
         return {'error': 'Send {"raw": "text", "tone"?: "...", "layer"?: N, "situation"?: "..."}'}
@@ -8466,7 +8406,6 @@ _POST_ROUTES = {
     '/api/calibration/record':            handle_POST_api_calibration_record,
     '/api/calibration/skip':              handle_POST_api_calibration_skip,
     '/api/hotkeys':                       handle_POST_api_hotkeys,
-    '/api/transcribe':                    handle_POST_api_transcribe,
     '/api/reconstruct_test':              handle_POST_api_reconstruct_test,
     '/api/record':                        handle_POST_api_record,
     '/api/export-my-data':                handle_POST_api_export_my_data,

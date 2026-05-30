@@ -662,16 +662,6 @@ except Exception as e:
     check(f'POST /api/prep failed: {e}', False)
 
 print()
-print('=== POST /api/transcribe (missing audio) ===')
-try:
-    r = post('/api/transcribe', {})
-    check('missing audio -> error', 'error' in r)
-    r = post('/api/transcribe', {'audio_b64': ''})
-    check('empty audio -> error', 'error' in r)
-except Exception as e:
-    check(f'POST /api/transcribe failed: {e}', False)
-
-print()
 print('=== CORS headers ===')
 try:
     req = urllib.request.Request(f'{BASE}/api/state')

@@ -18,7 +18,7 @@
 #     _internal/             <-- Python runtime + all libs + all data files
 #       lavrentiy.py
 #       l1_pack.py, domain_pack.py, rejection_store.py, style_examples.py
-#       dashboard.html, onboard.html, auth_google.html, mobile.html
+#       dashboard.html, onboard.html, auth_google.html
 #       silero_vad.onnx, lavrentiy.ico, api_key.txt, anthropic_key.txt
 #       l1_packs/, domain_packs/, lang_packs/, local/
 #       models/faster-whisper/small.en/   (offline L1)
@@ -48,7 +48,6 @@ datas = [
     (str(REPO / 'dashboard.html'),     '.'),
     (str(REPO / 'onboard.html'),       '.'),
     (str(REPO / 'auth_google.html'),   '.'),
-    (str(REPO / 'mobile.html'),        '.'),
     (str(REPO / 'manifest.json'),      '.'),
     (str(REPO / 'sw.js'),              '.'),
     (str(REPO / 'silero_vad.onnx'),    '.'),
