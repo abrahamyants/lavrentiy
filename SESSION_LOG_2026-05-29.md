@@ -102,7 +102,7 @@ gh release create v1.6.3 \
 
 Release URL: `https://github.com/gugosf114/lavrentiy/releases/tag/v1.6.3`. Stable download URL: `https://github.com/gugosf114/lavrentiy/releases/latest/download/Lavrentiy-Setup-v1.6.3.exe`. Asset state: `uploaded`, size 548 MB (GitHub's accounting; on-disk Inno output is 524 MB — the difference is GitHub's storage encoding).
 
-Marked Latest (not draft, not prerelease). Repo is still private, so both URLs return a GitHub login wall for non-collaborators — the link is operator-only until the repo is flipped public or the `.exe` is mirrored to a public location.
+Marked Latest (not draft, not prerelease). Repo is public — both URLs reachable unauthenticated. Verified via `gh repo view` (`"visibility":"PUBLIC"`) and unauthenticated `curl` returning HTTP 200 on the release page + the raw INSTRUCTIONS.md.
 
 ---
 
@@ -175,7 +175,7 @@ Operator pasted a 7-phase audit plan that opened with "Here's the maximum-levera
 ## State at session end
 
 - **Lavrentiy main**: clean, latest commit `515fd4b`, tag `v1.6.3` pushed.
-- **GitHub Release v1.6.3**: live at `https://github.com/gugosf114/lavrentiy/releases/tag/v1.6.3`, 548 MB asset attached, marked Latest. Private repo gates external access.
+- **GitHub Release v1.6.3**: live at `https://github.com/gugosf114/lavrentiy/releases/tag/v1.6.3`, 548 MB asset attached, marked Latest. Repo is public; URL is shareable as-is.
 - **WiM main**: clean, latest commit `49b50a6`, pushed.
 - **Cloud Run lavrentiy-demo**: deleted. `hosted/` folder still in repo.
 - **Audit report**: `reports/AUDIT_2026-05-29.md` (gitignored, local artifact).
