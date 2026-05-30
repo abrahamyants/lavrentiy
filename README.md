@@ -3363,7 +3363,7 @@ Dead code identified for deletion (~700-800 LOC reduction, one PR titled "chore:
 **State at end of session:**
 
 - Lavrentiy main: clean, latest commit `515fd4b`, tag `v1.6.3` pushed.
-- GitHub Release v1.6.3 live (548 MB asset, marked Latest). Repo still private — URL returns a login wall for non-collaborators.
+- GitHub Release v1.6.3 live (548 MB asset, marked Latest). Repo is public — URL is reachable unauthenticated.
 - WiM: clean, latest commit `49b50a6`, pushed.
 - `hosted/` Cloud Run service: deleted. `hosted/` folder remains in repo.
 - Audit report: `reports/AUDIT_2026-05-29.md` (gitignored, local).
