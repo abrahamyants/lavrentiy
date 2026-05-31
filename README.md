@@ -3463,3 +3463,40 @@ The 05-29 deploy-and-kill arc closed. Cloud Run service `lavrentiy-demo` was del
 - Audit report `reports/AUDIT_2026-05-29.md` is local-only (gitignored) — 5 of 19 P0/P1 findings closed this session, mobile-path item (P1 #11) closed via deletion, corpus calibration (P0 #6) closed via verification. Remaining items in the report.
 
 Full detail + failure log additions (#107 – #112) in `SESSION_LOG_2026-05-30.md`.
+
+
+## TO DO — CARRIED FORWARD
+
+Explicit punch list of items that are open as of 2026-05-30. Some are tiny code edits, some are multi-hour arcs, some are blocked on operator action (signing application, patent decision, domain choice). Each is self-contained so you can take them one at a time without losing context. Cross items off as they ship.
+
+### CODE / PRODUCT FIXES
+
+- [ ] **L4 CF MODEL PARITY** — `wim-reconstruct` Cloud Function currently uses `gpt-4o-2024-11-20` for L4. Direct-key users (everyone not signed in, plus anyone who pasted their own Anthropic key) get Claude Sonnet 4.6 with extended thinking at L4. So signed-in users SILENTLY get a weaker brain than direct-key users on the most demanding layer. Fix: change the model constant in `wim/api/reconstruct.py` (or wherever the CF picks the L4 model) to `claude-sonnet-4-6` with the same `thinking={"type":"enabled","budget_tokens":8000}` block used in `lavrentiy.py` and `hosted/app.py`. ~5 lines + redeploy via `gcloud functions deploy wim-reconstruct --source=lavrentiy/wim/api --gen2 --region=us-central1`. Closes audit P0 #9.
+
+- [ ] **L4 PACKS DESIGN COMMENT** — `wim/api/prompt_builder.py:844-853` deliberately skips `l1_pack` + `domain_pack` injection at L4 (only L2/L3 get them). Per the 04-28 README entry this was intentional — L4 has its own clinical framing — but the code has zero comment explaining why. Future readers (including future Claude sessions) will keep "discovering" this and flagging it as a bug. Fix: 1-line comment above the L4 branch. Trivial.
+
+- [ ] **HEAVY-STUTTER CORPUS — ACTUAL RUN** — Calibration verified 05-30 (the `build_prompt` byte-diff against pre-refactor was identical across 8 of 9 input variants). The actual corpus run for foundation-credibility was never executed. If foundation outreach happens, run `tests/test_heavy_stutter.py` against v1.6.5+, capture results as a JSON artifact + HTML report.
+
+- [ ] **v1.6.7 INSTALLER BUILD + RELEASE** — Source is committed (`e5b7310` + `dcebd82`), `installer/Lavrentiy.iss` is bumped to 1.6.7, no .exe compiled or git tag pushed. Operator's local install has the v1.6.7 .vbs hotfix applied in place so they're not blocked. If anyone else needs v1.6.7 — build via `py -3 -m PyInstaller Lavrentiy-onedir.spec --noconfirm --distpath dist-onedir --workpath build-onedir` then Inno Setup compile + `gh release create v1.6.7`.
+
+- [ ] **CODE SIGNING — SIGNPATH APPLICATION** — Application material drafted in `SIGNING.md`. Operator submission required at https://about.signpath.io/foundation (maintainer identity verification — can't be proxied). On approval: set `SIGNPATH_API_TOKEN` + `SIGNPATH_ORG_ID` GitHub repo secrets, paste the workflow scaffold from SIGNING.md into `.github/workflows/build-and-sign.yml`. Closes the "Windows protected your PC" SmartScreen warning on every fresh install. Until then, recipients click "More info → Run anyway" once per install.
+
+### STRATEGIC / OPERATOR DECISIONS
+
+- [ ] **PATENT DECISION** — Pinned for 2026-05-01 in the 04-26 session log. Today is 2026-05-30. Decision still open: file US provisional pro se (~$130 USPTO micro-entity fee) or skip. Operator has the JD and the patent-claim-vs-code review needs to happen before filing. Per audit Phase 6: the prior-art reference `US20250246187A1` was WiM bubble patent, not Lav-specific — Lav-specific claim mapping never started.
+
+- [ ] **DEDICATED MARKETING WEBSITE** — Operator request 2026-05-30. Static landing page for Lavrentiy (hero, what-it-is, four-layers explanation, download button → GitHub Releases latest, screenshots, BYOK/sign-in/privacy section, FAQ from `INSTRUCTIONS.md`, email contact). ~2-4 hours to build. Hosting via GitHub Pages free. **Blocker: domain choice not yet made.** Operator has multiple relevant domains available — pick one and the build can start.
+
+### POSITIONING / DOCUMENTATION
+
+- [ ] **STOP LEADING WITH STUTTERING** — Operator directive 2026-05-30 (recorded in memory rule [[feedback_dont_lead_with_stuttering]]). Stuttering is one use case, not the headline. Revise README intro + any user-facing copy + future website + future release notes to lead with "voice cleanup" / "voice-to-intent" framing. Stuttering features stay in code; just stop pitching the product as a stuttering tool. INSTRUCTIONS.md needs an intro rewrite to match.
+
+### CROSS-PROJECT
+
+- [ ] **WIM ANDROID — REMAINING PARITY ITEMS** — Threading exception handler done 05-30 (`a8aee37`). Profile pull-on-sign-in already existed (audit was stale). Other Lav→WiM parity items to consider: cross-vendor Falcon was never on WiM either (parity if/when Falcon comes back); the `_profile_switch_epoch` plumbing (not present in WiM but probably not needed in single-user app model).
+
+### PARKED — DO NOT REVISIT UNLESS OPERATOR RAISES
+
+- [ ] **PHONE WIRELESS DEBUGGING TILE** — Samsung One UI hard-blocks unknown tile specs from the render layer. Multiple ADB approaches confirmed: setting writes persist but renderer ignores them. The operator's `sysui_qs_tiles` and `grid_quick_panel_specs` have residual harmless mutations (sysui_qs_tiles has an extra `custom(com.android.settings/.development.qstile.DevelopmentTiles$WirelessDebugging)` entry at position 14; grid_quick_panel_specs has `WirelessDebugging` at L2:7 where `LifestyleMode` used to be). Don't render — neither does the original LifestyleMode. Reversible if requested.
+
+---
