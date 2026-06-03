@@ -235,6 +235,24 @@ WHISPER_MULTI_TEMPS = [0.0, 0.2, 0.4]  # Temperature schedule for voting passes
 # Default endpointer cuts off PWS 23.8% of the time. Extending to 4.5s reduces to <3%.
 PATIENCE_DEFAULT = 2.0   # seconds — normal silence threshold
 PATIENCE_STUTTER = 4.5   # seconds — Layer 4 / High Stress
+
+# Silent-block detector — bridges users with speech disfluency whose
+# mid-utterance silent blocks produce no audio for ASR to transcribe.
+# Fires the `on_silent_block_mid_speech` callback ONCE per recording when
+# amplitude has stayed below SILENT_BLOCK_RMS_THRESHOLD for at least
+# SILENT_BLOCK_MIN_SILENCE_MS continuous milliseconds AFTER ≥1 chunk of
+# speech-level amplitude AND total recording elapsed ≥
+# SILENT_BLOCK_MIN_RECORDING_MS. Consumer wires the callback; detector is
+# opt-in / no-op when callback is None. Tuned to NOT fire on normal
+# breath/think pauses (1.5s) or short utterances (<3s ignored entirely).
+# Note: sounddevice gives us float32 in [-1.0, 1.0], so threshold is on
+# that scale (≈ -34 dBFS) — different scale from WiM's int16 PCM detector,
+# but identical detection logic. Distinct from PATIENCE_* above which
+# governs end-of-utterance silence (when to STOP recording); this governs
+# mid-utterance silence (when to OFFER A COMPLETION while still recording).
+SILENT_BLOCK_RMS_THRESHOLD = 0.02
+SILENT_BLOCK_MIN_RECORDING_MS = 3000
+SILENT_BLOCK_MIN_SILENCE_MS = 1500
 LOCAL_WHISPER = True                 # L1 ASR runs locally (no cloud fallback at L1 — local layers stay local).
 # LOCAL_WHISPER_MODEL_SIZE constant removed 2026-05-16. Was passed positionally
 # to _local_transcribe_fn at 4 call sites but ignored by fw_local.py — the
@@ -2358,6 +2376,14 @@ _preroll_max_frames = None  # computed on startup from NATIVE_RATE
 lock = threading.Lock()
 state = 'idle'
 
+# Silent-block detector state. See SILENT_BLOCK_* constants near
+# PATIENCE_DEFAULT for tuning rationale. Reset in start_recording().
+on_silent_block_mid_speech = None  # Optional[Callable[[], None]] — set by consumer
+_silent_block_recording_start_ms = 0
+_silent_block_last_speech_ms = 0
+_silent_block_has_seen_speech = False
+_silent_block_fired_this_recording = False
+
 current_tone = profile["preferences"].get("tone", "casual")
 current_layer = profile["preferences"].get("layer", 2)
 current_mode = profile["preferences"].get("mode", MODE)
@@ -4205,6 +4231,29 @@ def audio_callback(indata, frames, time_info, status):
         if is_recording:
             recording.append(chunk)
 
+            # Silent-block detector. No-op when on_silent_block_mid_speech
+            # callback is None. See SILENT_BLOCK_* constants for tuning.
+            global _silent_block_last_speech_ms, _silent_block_has_seen_speech
+            global _silent_block_fired_this_recording
+            if not _silent_block_fired_this_recording:
+                rms = float(numpy.sqrt(numpy.mean(chunk.astype(numpy.float32) ** 2)))
+                now_ms = int(time.time() * 1000)
+                if rms > SILENT_BLOCK_RMS_THRESHOLD:
+                    _silent_block_has_seen_speech = True
+                    _silent_block_last_speech_ms = now_ms
+                elif _silent_block_has_seen_speech:
+                    silence_ms = now_ms - _silent_block_last_speech_ms
+                    recording_ms = now_ms - _silent_block_recording_start_ms
+                    if (silence_ms >= SILENT_BLOCK_MIN_SILENCE_MS and
+                            recording_ms >= SILENT_BLOCK_MIN_RECORDING_MS):
+                        _silent_block_fired_this_recording = True
+                        if on_silent_block_mid_speech is not None:
+                            log(f"silent-block detected: silence={silence_ms}ms recording={recording_ms}ms — firing callback", "info")
+                            try:
+                                on_silent_block_mid_speech()
+                            except Exception as e:
+                                log(f"silent-block callback threw: {e}", "warn")
+
 def _open_persistent_stream():
     """Open audio stream once and keep it running for the engine lifetime.
     This ensures the pre-roll buffer is always being fed, so F9 presses
@@ -4230,6 +4279,8 @@ def _open_persistent_stream():
 
 def start_recording():
     global is_recording, recording, target_hwnd, state
+    global _silent_block_recording_start_ms, _silent_block_last_speech_ms
+    global _silent_block_has_seen_speech, _silent_block_fired_this_recording
     with lock:
         if is_recording:
             return
@@ -4237,6 +4288,11 @@ def start_recording():
         recording = [c for c in _preroll_buffer]
         is_recording = True
         state = 'recording'
+        # Reset silent-block detector state for the new recording.
+        _silent_block_recording_start_ms = int(time.time() * 1000)
+        _silent_block_last_speech_ms = _silent_block_recording_start_ms
+        _silent_block_has_seen_speech = False
+        _silent_block_fired_this_recording = False
     target_hwnd = user32.GetForegroundWindow()
 
     # Brown Peak Risk: if Script Prep text is loaded, predict block difficulty
