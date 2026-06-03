@@ -3465,6 +3465,17 @@ The 05-29 deploy-and-kill arc closed. Cloud Run service `lavrentiy-demo` was del
 Full detail + failure log additions (#107 – #112) in `SESSION_LOG_2026-05-30.md`.
 
 
+## 2026-05-31 → 2026-06-03 — SignPath Foundation application submitted
+
+Short bookkeeping arc covering a single deliverable: the SignPath Foundation application was filled, attempted via Claude-driven automation (failed three different ways), then submitted by the operator manually on phone Chrome using a paste-ready column of field values provided by Claude.
+
+**Outcome:** Application is in front of the SignPath reviewer at https://signpath.org/apply as of 2026-05-31. Response SLA is 3–10 business days. On approval the existing TO DO items for `SIGNPATH_API_TOKEN` + `SIGNPATH_ORG_ID` repo secrets + `.github/workflows/build-and-sign.yml` get activated. On no-response by 2026-06-14, fall back to Azure Trusted Signing (~$9.99/month, same-day, no LICENSE requirement) per `SIGNING.md` Path B.
+
+**Tagline + description had to be rewritten** after the v1 draft framed Lavrentiy as "open-source voice cleanup engine" and omitted the L1-transfer accent detection feature entirely. Final v2 wording (now in front of the SignPath reviewer) leads with "voice reconstruction for Windows — built for speech disfluencies and non-native English speakers whose accents we detect from text, not audio." Stored in `SIGNPATH_APPLICATION.md` for future re-use.
+
+Full detail + failure log additions (#113 – #116) in `SESSION_LOG_2026-05-31.md`. Failures cover: drove form on wrong device (desktop Chrome instead of phone Chrome); three dead ends in phone-Chrome ADB automation (CDP not exposed on phone, WebView opaque to UI Automator, pixel-tap landed in wrong tab); tagline factual errors; missed three URL fields.
+
+
 ## TO DO — CARRIED FORWARD
 
 Explicit punch list of items that are open as of 2026-05-30. Some are tiny code edits, some are multi-hour arcs, some are blocked on operator action (signing application, patent decision, domain choice). Each is self-contained so you can take them one at a time without losing context. Cross items off as they ship.
@@ -3479,7 +3490,7 @@ Explicit punch list of items that are open as of 2026-05-30. Some are tiny code 
 
 - [ ] **v1.6.7 INSTALLER BUILD + RELEASE** — Source is committed (`e5b7310` + `dcebd82`), `installer/Lavrentiy.iss` is bumped to 1.6.7, no .exe compiled or git tag pushed. Operator's local install has the v1.6.7 .vbs hotfix applied in place so they're not blocked. If anyone else needs v1.6.7 — build via `py -3 -m PyInstaller Lavrentiy-onedir.spec --noconfirm --distpath dist-onedir --workpath build-onedir` then Inno Setup compile + `gh release create v1.6.7`.
 
-- [ ] **CODE SIGNING — SIGNPATH APPLICATION** — Application material drafted in `SIGNING.md`. Operator submission required at https://about.signpath.io/foundation (maintainer identity verification — can't be proxied). On approval: set `SIGNPATH_API_TOKEN` + `SIGNPATH_ORG_ID` GitHub repo secrets, paste the workflow scaffold from SIGNING.md into `.github/workflows/build-and-sign.yml`. Closes the "Windows protected your PC" SmartScreen warning on every fresh install. Until then, recipients click "More info → Run anyway" once per install.
+- [x] ~~**CODE SIGNING — SIGNPATH APPLICATION SUBMITTED 2026-05-31**~~ — Form filled at https://signpath.org/apply, operator submitted manually on phone Chrome. Awaiting reviewer response (3–10 business day SLA, so first signal expected by ~2026-06-14). Form snapshot + tagline + description in `SIGNPATH_APPLICATION.md`. **Next action on approval:** set `SIGNPATH_API_TOKEN` + `SIGNPATH_ORG_ID` GitHub repo secrets, paste the workflow scaffold from `SIGNING.md` Path A into `.github/workflows/build-and-sign.yml`, tag a release, workflow signs + publishes. **Next action on rejection / silence past 2026-06-14:** fall back to Azure Trusted Signing per `SIGNING.md` Path B.
 
 ### STRATEGIC / OPERATOR DECISIONS
 

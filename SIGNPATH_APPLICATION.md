@@ -96,7 +96,7 @@ Fall back to **Azure Trusted Signing** — ~$9.99/month, same-day setup, no LICE
 
 - [x] Apache 2.0 LICENSE in place (v1.6.2)
 - [x] Application material drafted (this file)
-- [ ] Application submitted at https://about.signpath.io/foundation
+- [x] Application submitted at https://signpath.org/apply (2026-05-31)
 - [ ] Approval received from SignPath team
 - [ ] `SIGNPATH_API_TOKEN` + `SIGNPATH_ORG_ID` secrets added to GitHub repo
 - [ ] `.github/workflows/build-and-sign.yml` created from SIGNING.md scaffold
