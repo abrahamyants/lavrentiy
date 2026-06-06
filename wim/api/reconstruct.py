@@ -207,7 +207,7 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
         max_tokens=max_out,
         temperature=temp
     )
-    clean_text = resp.choices[0].message.content.strip()
+    clean_text = (resp.choices[0].message.content or "").strip()
 
     falcon_ok = True
     if mode == "SAFE":

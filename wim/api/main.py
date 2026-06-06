@@ -200,7 +200,7 @@ def _action_command(uid, tier_config, body):
             temperature=0.3,
             max_tokens=1024,
         )
-        transformed = resp.choices[0].message.content.strip()
+        transformed = (resp.choices[0].message.content or "").strip()
         return (json.dumps({
             "transformed": transformed,
             "tier": tier_config["name"],

@@ -1144,7 +1144,7 @@ class ClipboardPredictor:
                 temperature=0.2,
                 messages=[{"role": "user", "content": prompt}],
             )
-            synonyms = response.choices[0].message.content.strip()
+            synonyms = (response.choices[0].message.content or "").strip()
             self._consecutive_fails = 0
             self._backoff_until = 0.0
             return (
@@ -2761,7 +2761,7 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
         temperature=temp
     )
     _last_recon_model = use_model
-    return resp.choices[0].message.content.strip()
+    return (resp.choices[0].message.content or "").strip()
 
 
 def complete_partial_candidates(partial_text, n=3):
@@ -3454,7 +3454,7 @@ def prep_text(text, prof):
             max_tokens=500,
             temperature=0.4
         )
-        result_text = resp.choices[0].message.content.strip()
+        result_text = (resp.choices[0].message.content or "").strip()
         if result_text.startswith("```"):
             result_text = result_text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
         suggestions = json.loads(result_text).get("suggestions", {})
@@ -3767,7 +3767,7 @@ def learn_from_sessions(prof, _epoch=None):
             max_tokens=300,
             temperature=0
         )
-        text = resp.choices[0].message.content.strip()
+        text = (resp.choices[0].message.content or "").strip()
         # Strip markdown fences if present
         if text.startswith("```"):
             text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
@@ -4074,7 +4074,7 @@ def detect_triggers_llm(raw_text, output, prof):
             max_tokens=200,
             temperature=0
         )
-        text = resp.choices[0].message.content.strip()
+        text = (resp.choices[0].message.content or "").strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
         result = json.loads(text)
@@ -4952,7 +4952,7 @@ def generate_shadow_utterance(raw_text, prof):
                 max_tokens=200,
                 temperature=0
             )
-            shadow = resp.choices[0].message.content.strip()
+            shadow = (resp.choices[0].message.content or "").strip()
             source = "inferred"
         except Exception as e:
             log(f"Shadow utterance failed: {e}", "error")
@@ -6958,7 +6958,7 @@ def transform_via_command(selected_text, command, tone="casual"):
             max_tokens=1500,
             temperature=0.2,
         )
-        return resp.choices[0].message.content.strip()
+        return (resp.choices[0].message.content or "").strip()
     except Exception as e:
         log(f"Command transform failed: {e}", "error")
         return None
@@ -8052,7 +8052,7 @@ def handle_GET_api_report(body=None) -> dict:
         stats_inc('api_calls')
         try:
             resp = client.chat.completions.create(model='gpt-4o-2024-11-20', messages=[{'role': 'system', 'content': 'You are a speech-language pathology assistant generating a clinical weekly progress report for a person who stutters. Be direct, use data. Use emoji sparingly (✅ ❌ 🎯 📞). Format as a concise summary with bullet points. Highlight improvements, flag concerns, suggest focus areas.'}, {'role': 'user', 'content': f'Generate a weekly clinical stutter progress report from this data:\n{json.dumps(report_data, indent=2)}'}], max_tokens=600, temperature=0.3)
-            return {'report': resp.choices[0].message.content.strip(), 'data': report_data}
+            return {'report': (resp.choices[0].message.content or "").strip(), 'data': report_data}
         except Exception as e:
             log(f'Report generation failed: {e}', 'error')
             return {'report': f'Report generation failed: {e}', 'data': report_data}
