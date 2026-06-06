@@ -813,6 +813,10 @@ body::before {
 }
 .toggle-switch input:checked + .toggle-slider { background: var(--red-bright); border-color: var(--red-bright); }
 .toggle-switch input:checked + .toggle-slider:before { transform: translateX(14px); }
+/* Auto Quiet Mode engaged this take — amber glow distinguishes it from a manual
+   (red) toggle. id specificity beats the :checked rule so amber wins. */
+#quiet-row.quiet-auto-active .toggle-slider { background: var(--amber, #c8a04e); border-color: var(--amber, #c8a04e); box-shadow: 0 0 8px rgba(200,160,78,0.75); }
+#quiet-row.quiet-auto-active .toggle-hint { color: var(--amber, #c8a04e); }
 
 /* Sub-toggle: compact child control with L-connector */
 .toggle-sub {
@@ -2865,7 +2869,7 @@ body::before {
     <div class="sidebar-section">
       <div class="sidebar-section-title">Enhancements</div>
       <div class="engine-section-card">
-        <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="toggle-quiet-mode"><span class="toggle-slider"></span></label><span class="toggle-label">Quiet Mode</span><span class="toggle-hint">whispered/soft speech</span></div>
+        <div class="toggle-row" id="quiet-row"><label class="toggle-switch"><input type="checkbox" id="toggle-quiet-mode"><span class="toggle-slider"></span></label><span class="toggle-label">Quiet Mode</span><span class="toggle-hint" id="quiet-hint">auto · whispered/soft speech</span></div>
         <div class="toggle-row" id="paralinguistic-row" title=""><label class="toggle-switch"><input type="checkbox" id="toggle-paralinguistic"><span class="toggle-slider"></span></label><span class="toggle-label">Paralinguistic</span><span class="toggle-hint">cough/laugh</span></div>
         <div class="toggle-row toggle-sub" id="para-transcribe-row" style="display:none"><label class="toggle-switch"><input type="checkbox" id="toggle-para-transcribe"><span class="toggle-slider"></span></label><span class="toggle-label">Transcribe</span><span class="toggle-hint">inject [tags] in text</span></div>
         <div class="toggle-row" id="prosodic-row" title=""><label class="toggle-switch"><input type="checkbox" id="toggle-prosodic"><span class="toggle-slider"></span></label><span class="toggle-label">Prosodic</span><span class="toggle-hint">pitch/energy/rate</span></div>
@@ -4033,7 +4037,11 @@ function updateUI(){
   document.getElementById('para-transcribe-row').style.display=state.paralinguistic_enabled?'flex':'none';
   if(prosToggle&&!(_toggleCooldown.pros>now)&&document.activeElement!==prosToggle)prosToggle.checked=!!state.prosodic_enabled;
   const quietToggle=document.getElementById('toggle-quiet-mode');
-  if(quietToggle&&!(_toggleCooldown.quiet>now)&&document.activeElement!==quietToggle)quietToggle.checked=!!state.quiet_mode_enabled;
+  const _autoQuiet=!!state.quiet_auto_active;
+  if(quietToggle&&!(_toggleCooldown.quiet>now)&&document.activeElement!==quietToggle)quietToggle.checked=!!state.quiet_mode_enabled||_autoQuiet;
+  const _qRow=document.getElementById('quiet-row');const _qHint=document.getElementById('quiet-hint');
+  if(_qRow)_qRow.classList.toggle('quiet-auto-active',_autoQuiet&&!state.quiet_mode_enabled);
+  if(_qHint)_qHint.textContent=(_autoQuiet&&!state.quiet_mode_enabled)?'AUTO — whisper detected':'auto · whispered/soft speech';
   // Speech metrics sidebar (#11)
   const sm=state.speech_metrics||{};
   const pauseEl=document.getElementById('speech-pause');

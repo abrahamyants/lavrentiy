@@ -253,6 +253,14 @@ PATIENCE_STUTTER = 4.5   # seconds — Layer 4 / High Stress
 SILENT_BLOCK_RMS_THRESHOLD = 0.02
 SILENT_BLOCK_MIN_RECORDING_MS = 3000
 SILENT_BLOCK_MIN_SILENCE_MS = 1500
+
+# Auto Quiet Mode. AGC already auto-levels loudness on every take; this layers
+# the EXTRA whisper boost (+6 dB target) + tighter 100 Hz high-pass on top, but
+# only when the raw input is actually whisper-soft — so normal-volume speech
+# keeps the lighter chain (no over-amplified room noise, no thinned voice).
+# Engaged per-recording in pipeline() when the user hasn't forced Quiet Mode on.
+QUIET_AUTO_ENABLED = True
+QUIET_AUTO_DBFS = -34.0  # raw input below this (dBFS) = whisper-soft → auto-quiet
 LOCAL_WHISPER = True                 # L1 ASR runs locally (no cloud fallback at L1 — local layers stay local).
 # LOCAL_WHISPER_MODEL_SIZE constant removed 2026-05-16. Was passed positionally
 # to _local_transcribe_fn at 4 call sites but ignored by fw_local.py — the
@@ -2392,6 +2400,10 @@ _silent_block_fired_this_recording = False
 _block_candidates = []           # list[str] — completions awaiting a tap
 _block_bridge_accepted = False
 _block_bridge_accepted_ts = 0.0
+
+# Whether the LAST take auto-engaged Quiet Mode (whisper-soft input). Surfaced
+# on /api/state so the dashboard's Quiet toggle lights up as live confirmation.
+_quiet_auto_active = False
 
 current_tone = profile["preferences"].get("tone", "casual")
 current_layer = profile["preferences"].get("layer", 2)
@@ -6523,7 +6535,7 @@ def _run_l4_stutter_analytics(raw_text, output, current_situation):
 
 # -- Pipeline ─────────────────────────────────────────────────────
 def pipeline():
-    global state, _block_bridge_accepted
+    global state, _block_bridge_accepted, _quiet_auto_active
     with lock:
         if not recording:
             state = 'idle'
@@ -6535,10 +6547,21 @@ def pipeline():
     if NEEDS_RESAMPLE:
         audio_data = resample_poly(audio_data, RESAMPLE_UP, RESAMPLE_DOWN)
 
+    # Auto Quiet Mode — if the user hasn't forced Quiet Mode on, measure the raw
+    # input level and auto-engage the whisper chain for soft takes only. AGC
+    # already auto-levels loudness; this just adds the extra boost + tighter
+    # high-pass when you're actually whispering, so normal speech stays clean.
+    _raw_rms = float(numpy.sqrt(numpy.mean(audio_data ** 2))) if len(audio_data) else 0.0
+    _raw_dbfs = 20.0 * float(numpy.log10(_raw_rms)) if _raw_rms > 1e-9 else -120.0
+    _quiet_auto_active = (not quiet_mode_enabled) and QUIET_AUTO_ENABLED and (_raw_dbfs < QUIET_AUTO_DBFS)
+    _effective_quiet = quiet_mode_enabled or _quiet_auto_active
+    if _quiet_auto_active:
+        log(f"Quiet Mode auto-engaged ({_raw_dbfs:.0f} dBFS < {QUIET_AUTO_DBFS:.0f}) — whisper-soft take", "info")
+
     # Audio preprocessing — DC removal → high-pass → AGC → soft clip.
     # Quiet Mode tightens high-pass + doubles AGC gain. Shared with Command
     # Mode and the two /api/transcribe paths via preprocess_audio() above.
-    audio_data = preprocess_audio(audio_data, quiet=quiet_mode_enabled)
+    audio_data = preprocess_audio(audio_data, quiet=_effective_quiet)
 
     # Step 0: Speech rate & pause analysis — pure numpy, ~2ms, feeds reconstruction severity at L2+
     speech_metrics = {"pause_ratio": 0, "speaking_rate_sps": 0, "severity_modifier": 0}
@@ -7906,7 +7929,7 @@ def handle_GET_api_state(body=None) -> dict:
         _net_status = 'ok'
     else:
         _net_status = 'idle'
-    return {'state': 'command' if is_command_mode else state, 'is_command_mode': is_command_mode, 'mode': current_mode, 'network_status': _net_status, 'network_error': _last_api_error_msg if _net_status == 'error' else '', 'tone': current_tone, 'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?'), 'situation': current_situation, 'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0), 'stats': stats, 'model': MODEL_L4 if current_layer >= 4 else MODEL, 'whisper_temp': WHISPER_TEMP, 'whisper_no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD, 'whisper_multi_temp': WHISPER_MULTI_TEMP, 'speech_metrics': _last_speech_metrics, 'avg_logprob': _last_avg_logprob, 'redo_count': _redo_count, 'block_count': _block_count, 'avg_exposure': _compute_avg_exposure(), 'paralinguistic_events': _last_paralinguistic_events, 'speaker_state': _last_speaker_state, 'paralinguistic_enabled': paralinguistic_enabled, 'paralinguistic_transcribe': paralinguistic_transcribe, 'prosodic_enabled': prosodic_enabled, 'paralinguistic_available': current_layer != 1, 'prosodic_available': current_layer != 1, 'quiet_mode_enabled': quiet_mode_enabled, 'l1_cloud_asr': L1_CLOUD_ASR, 'profile_name': _active_profile_name, 'block_candidates': _block_candidates, 'auth': {'signed_in': is_authenticated(), 'user': _auth_user, 'has_local_key': bool(API_KEY)}}
+    return {'state': 'command' if is_command_mode else state, 'is_command_mode': is_command_mode, 'mode': current_mode, 'network_status': _net_status, 'network_error': _last_api_error_msg if _net_status == 'error' else '', 'tone': current_tone, 'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?'), 'situation': current_situation, 'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0), 'stats': stats, 'model': MODEL_L4 if current_layer >= 4 else MODEL, 'whisper_temp': WHISPER_TEMP, 'whisper_no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD, 'whisper_multi_temp': WHISPER_MULTI_TEMP, 'speech_metrics': _last_speech_metrics, 'avg_logprob': _last_avg_logprob, 'redo_count': _redo_count, 'block_count': _block_count, 'avg_exposure': _compute_avg_exposure(), 'paralinguistic_events': _last_paralinguistic_events, 'speaker_state': _last_speaker_state, 'paralinguistic_enabled': paralinguistic_enabled, 'paralinguistic_transcribe': paralinguistic_transcribe, 'prosodic_enabled': prosodic_enabled, 'paralinguistic_available': current_layer != 1, 'prosodic_available': current_layer != 1, 'quiet_mode_enabled': quiet_mode_enabled, 'quiet_auto_active': _quiet_auto_active, 'l1_cloud_asr': L1_CLOUD_ASR, 'profile_name': _active_profile_name, 'block_candidates': _block_candidates, 'auth': {'signed_in': is_authenticated(), 'user': _auth_user, 'has_local_key': bool(API_KEY)}}
 
 def handle_GET_api_profiles(body=None) -> dict:
     return {'profiles': list_profiles(), 'active': _active_profile_name}
