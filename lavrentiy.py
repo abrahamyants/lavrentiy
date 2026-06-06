@@ -2384,6 +2384,15 @@ _silent_block_last_speech_ms = 0
 _silent_block_has_seen_speech = False
 _silent_block_fired_this_recording = False
 
+# Silent-block BRIDGING state (the L4 feature the detector feeds). When a block
+# fires mid-recording, a worker transcribes the partial utterance and asks the
+# fast model for completion candidates; the dashboard shows them as a tap row.
+# Tapping one pastes it and sets _block_bridge_accepted so pipeline() suppresses
+# the duplicate auto-paste of the same (blocked) recording on F9 release.
+_block_candidates = []           # list[str] — completions awaiting a tap
+_block_bridge_accepted = False
+_block_bridge_accepted_ts = 0.0
+
 current_tone = profile["preferences"].get("tone", "casual")
 current_layer = profile["preferences"].get("layer", 2)
 current_mode = profile["preferences"].get("mode", MODE)
@@ -2734,6 +2743,65 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
     )
     _last_recon_model = use_model
     return resp.choices[0].message.content.strip()
+
+
+def complete_partial_candidates(partial_text, n=3):
+    """Mid-block bridging (desktop side): partial utterance -> up to `n` short
+    completion candidates the user can tap to finish the sentence.
+
+    Routes the same way reconstruct() does — signed-in users hit the Cloud
+    Function's complete_partial action (server-side key); local-key users call
+    OpenAI directly. Uses the FAST model on both paths: the speaker is frozen
+    mid-block and waiting, so latency beats the depth Sonnet ext-think would add.
+    Returns [] on any failure (caller treats empty as a silent no-op)."""
+    partial_text = (partial_text or "").strip()
+    if not partial_text:
+        return []
+
+    # Signed-in: server-side key via the shared CF action (parity with WiM).
+    if is_authenticated() and _firebase_id_token:
+        try:
+            import urllib.request
+            payload = json.dumps({
+                "action": "complete_partial",
+                "partial_text": partial_text,
+                "tone": current_tone,
+                "language_code": "en",
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                BACKEND_URL, data=payload,
+                headers={"Content-Type": "application/json",
+                         "Authorization": f"Bearer {_firebase_id_token}"},
+                method="POST")
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+            cands = [c.strip() for c in result.get("candidates", []) if c and c.strip()]
+            return cands[:n]
+        except Exception as e:
+            log(f"block bridge (backend) failed: {str(e)[:120]}", "warn")
+            return []
+
+    # Local-key path: call OpenAI directly with the shared completion prompt.
+    if client is None:
+        return []
+    try:
+        system_prompt = prompt_builder.build_completion_prompt(
+            partial_text, tone=current_tone, language_code="en", n=n)
+        resp = client.chat.completions.create(
+            model=MODEL,
+            messages=[{"role": "system", "content": system_prompt},
+                      {"role": "user", "content": partial_text}],
+            max_tokens=200, temperature=0.5)
+        raw = (resp.choices[0].message.content or "").strip()
+        cands = []
+        for line in raw.splitlines():
+            c = re.sub(r'^[\s\-\d.)]+', '', line).strip().strip('"').strip()
+            if c:
+                cands.append(c)
+        return cands[:n]
+    except Exception as e:
+        log(f"block bridge (local) failed: {str(e)[:120]}", "warn")
+        return []
 
 
 def falcon_validate(raw_text, clean_text, layer, tone="casual", onset_weights=None, language_code="en"):
@@ -4281,6 +4349,7 @@ def start_recording():
     global is_recording, recording, target_hwnd, state
     global _silent_block_recording_start_ms, _silent_block_last_speech_ms
     global _silent_block_has_seen_speech, _silent_block_fired_this_recording
+    global _block_candidates
     with lock:
         if is_recording:
             return
@@ -4293,6 +4362,7 @@ def start_recording():
         _silent_block_last_speech_ms = _silent_block_recording_start_ms
         _silent_block_has_seen_speech = False
         _silent_block_fired_this_recording = False
+        _block_candidates = []  # drop stale bridge candidates from the prior take
     target_hwnd = user32.GetForegroundWindow()
 
     # Brown Peak Risk: if Script Prep text is loaded, predict block difficulty
@@ -6453,7 +6523,7 @@ def _run_l4_stutter_analytics(raw_text, output, current_situation):
 
 # -- Pipeline ─────────────────────────────────────────────────────
 def pipeline():
-    global state
+    global state, _block_bridge_accepted
     with lock:
         if not recording:
             state = 'idle'
@@ -6757,6 +6827,11 @@ def pipeline():
         # Paste or hold
         if decision["decision"] == "hold":
             log("HELD — high-risk output not pasted", "error")
+        elif _block_bridge_accepted and (time.time() - _block_bridge_accepted_ts) < 20:
+            # User already tapped a block-bridge completion for this take —
+            # suppress the duplicate auto-paste of the same blocked recording.
+            _block_bridge_accepted = False
+            log("block bridge already pasted — suppressing duplicate output", "info")
         else:
             stats_inc("words", wc)
             stats_inc("chars", len(output))
@@ -6993,6 +7068,52 @@ def paste(text):
         time.sleep(0.2)
     finally:
         is_pasting = False
+
+# -- Silent-block bridging consumer ───────────────────────────────
+def _on_silent_block():
+    """Registered as on_silent_block_mid_speech. Fires INSIDE audio_callback
+    while `lock` is held, so it must do nothing heavy and must not touch `lock`
+    — just hand off to a daemon thread."""
+    threading.Thread(target=_handle_silent_block, name="silent-block", daemon=True).start()
+
+
+def _handle_silent_block():
+    """L4-only. Snapshot the audio captured so far (recording keeps going),
+    transcribe it, ask the fast model for completion candidates, and stash them
+    for the dashboard tap row. Best-effort: any failure is a silent no-op."""
+    global _block_candidates
+    if current_layer < 4:
+        return
+    with lock:
+        if not is_recording or not recording:
+            return
+        frames = list(recording)
+    tmp = None
+    try:
+        audio_data = numpy.concatenate(frames, axis=0).flatten()
+        if NEEDS_RESAMPLE:
+            audio_data = resample_poly(audio_data, RESAMPLE_UP, RESAMPLE_DOWN)
+        audio_data = preprocess_audio(audio_data, quiet=quiet_mode_enabled)
+        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        tmp.close()
+        sf.write(tmp.name, audio_data, TARGET_RATE)
+        partial = (whisper_transcribe(tmp.name) or {}).get("text", "").strip()
+    except Exception as e:
+        log(f"block bridge: partial transcribe failed: {str(e)[:120]}", "warn")
+        return
+    finally:
+        if tmp is not None:
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
+    if not partial:
+        return
+    cands = complete_partial_candidates(partial)
+    if cands:
+        _block_candidates = cands
+        log(f"block bridge: {len(cands)} completion(s) ready — tap one to finish the sentence", "info")
+
 
 # -- Tone/Layer/Mode setters (for dashboard) ──────────────────────
 def set_tone(tone):
@@ -7785,7 +7906,7 @@ def handle_GET_api_state(body=None) -> dict:
         _net_status = 'ok'
     else:
         _net_status = 'idle'
-    return {'state': 'command' if is_command_mode else state, 'is_command_mode': is_command_mode, 'mode': current_mode, 'network_status': _net_status, 'network_error': _last_api_error_msg if _net_status == 'error' else '', 'tone': current_tone, 'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?'), 'situation': current_situation, 'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0), 'stats': stats, 'model': MODEL_L4 if current_layer >= 4 else MODEL, 'whisper_temp': WHISPER_TEMP, 'whisper_no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD, 'whisper_multi_temp': WHISPER_MULTI_TEMP, 'speech_metrics': _last_speech_metrics, 'avg_logprob': _last_avg_logprob, 'redo_count': _redo_count, 'block_count': _block_count, 'avg_exposure': _compute_avg_exposure(), 'paralinguistic_events': _last_paralinguistic_events, 'speaker_state': _last_speaker_state, 'paralinguistic_enabled': paralinguistic_enabled, 'paralinguistic_transcribe': paralinguistic_transcribe, 'prosodic_enabled': prosodic_enabled, 'paralinguistic_available': current_layer != 1, 'prosodic_available': current_layer != 1, 'quiet_mode_enabled': quiet_mode_enabled, 'l1_cloud_asr': L1_CLOUD_ASR, 'profile_name': _active_profile_name, 'auth': {'signed_in': is_authenticated(), 'user': _auth_user, 'has_local_key': bool(API_KEY)}}
+    return {'state': 'command' if is_command_mode else state, 'is_command_mode': is_command_mode, 'mode': current_mode, 'network_status': _net_status, 'network_error': _last_api_error_msg if _net_status == 'error' else '', 'tone': current_tone, 'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?'), 'situation': current_situation, 'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0), 'stats': stats, 'model': MODEL_L4 if current_layer >= 4 else MODEL, 'whisper_temp': WHISPER_TEMP, 'whisper_no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD, 'whisper_multi_temp': WHISPER_MULTI_TEMP, 'speech_metrics': _last_speech_metrics, 'avg_logprob': _last_avg_logprob, 'redo_count': _redo_count, 'block_count': _block_count, 'avg_exposure': _compute_avg_exposure(), 'paralinguistic_events': _last_paralinguistic_events, 'speaker_state': _last_speaker_state, 'paralinguistic_enabled': paralinguistic_enabled, 'paralinguistic_transcribe': paralinguistic_transcribe, 'prosodic_enabled': prosodic_enabled, 'paralinguistic_available': current_layer != 1, 'prosodic_available': current_layer != 1, 'quiet_mode_enabled': quiet_mode_enabled, 'l1_cloud_asr': L1_CLOUD_ASR, 'profile_name': _active_profile_name, 'block_candidates': _block_candidates, 'auth': {'signed_in': is_authenticated(), 'user': _auth_user, 'has_local_key': bool(API_KEY)}}
 
 def handle_GET_api_profiles(body=None) -> dict:
     return {'profiles': list_profiles(), 'active': _active_profile_name}
@@ -8412,6 +8533,35 @@ def handle_POST_api_set_key(body=None) -> dict:
         return {'ok': False, 'error': 'no key provided'}
 
 # Routing tables built at module-load time. Adding a new endpoint = one entry.
+def handle_POST_api_block_inject(body=None) -> dict:
+    """User tapped a silent-block completion candidate. Paste it, mark the take
+    as bridged (so pipeline() suppresses the duplicate paste), clear the row."""
+    global _block_candidates, _block_bridge_accepted, _block_bridge_accepted_ts
+    body = body or {}
+    chosen = None
+    text = body.get('text')
+    idx = body.get('index')
+    if isinstance(text, str) and text.strip():
+        chosen = text.strip()
+    elif isinstance(idx, int) and 0 <= idx < len(_block_candidates):
+        chosen = _block_candidates[idx]
+    if not chosen:
+        return {'ok': False, 'error': 'no candidate selected'}
+    _block_bridge_accepted = True
+    _block_bridge_accepted_ts = time.time()
+    _block_candidates = []
+    paste(chosen)
+    log(f"block bridge: pasted \"{chosen[:60]}\"", "out")
+    return {'ok': True, 'pasted': chosen}
+
+
+def handle_POST_api_block_dismiss(body=None) -> dict:
+    """User dismissed the silent-block completion row without picking one."""
+    global _block_candidates
+    _block_candidates = []
+    return {'ok': True}
+
+
 _GET_ROUTES = {
     '/api/state':                 handle_GET_api_state,
     '/api/profiles':              handle_GET_api_profiles,
@@ -8471,6 +8621,8 @@ _POST_ROUTES = {
     '/api/augment':                       handle_POST_api_augment,
     '/api/patience':                      handle_POST_api_patience,
     '/api/set-key':                       handle_POST_api_set_key,
+    '/api/block_inject':                  handle_POST_api_block_inject,
+    '/api/block_dismiss':                 handle_POST_api_block_dismiss,
 }
 
 
@@ -8510,7 +8662,11 @@ def dispatch_api(path: str, body: dict = None, method: str = None):
 
 
 def start_engine(*, run_http_server=True, block=True):
-    global _hook_start_time
+    global _hook_start_time, on_silent_block_mid_speech
+    # Wire the silent-block bridging consumer into the detector scaffold. The
+    # detector is a no-op until this callback is set; the L4-only guard lives in
+    # _handle_silent_block so the wiring itself is layer-agnostic.
+    on_silent_block_mid_speech = _on_silent_block
     # Install thread-level excepthook so any uncaught exception in a daemon
     # thread (bg_learn, bg_decay, sync_to_firestore, pull_from_firestore,
     # bg_trigger_detect, bg_contribute, pipeline, etc.) gets LOGGED instead

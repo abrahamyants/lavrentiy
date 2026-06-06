@@ -210,6 +210,44 @@ def _action_command(uid, tier_config, body):
         return (json.dumps({"error": f"Transform failed: {str(e)[:200]}"}), 500, CORS_HEADERS)
 
 
+def _action_complete_partial(uid, tier_config, body):
+    """Mid-block bridging: a partial utterance (speaker froze mid-sentence) ->
+    up to 3 completion candidates the bubble shows as a tap row. Shared by
+    Lavrentiy desktop and WiM Android signed-in users."""
+    partial = (body.get("partial_text") or body.get("raw") or "").strip()
+    if not partial:
+        return (json.dumps({"error": "Missing 'partial_text' field"}), 400, CORS_HEADERS)
+
+    ok, remaining, rate_err = check_rate_limit(uid, tier_config)
+    if not ok:
+        return rate_err
+
+    from reconstruct import complete_partial
+    t_call = time.time()
+    try:
+        candidates = complete_partial(
+            partial,
+            tone=body.get("tone", "casual"),
+            language_code=body.get("language_code", "en"),
+        )
+    except Exception as e:
+        latency_ms = round((time.time() - t_call) * 1000)
+        _emit(logging.ERROR, event="complete_partial_failed", uid=uid,
+              latency_ms=latency_ms, exception=type(e).__name__, error=str(e)[:300])
+        return (json.dumps({
+            "error": f"Completion failed: {type(e).__name__}",
+            "tier": tier_config["name"],
+        }), 500, CORS_HEADERS)
+
+    _emit(logging.INFO, event="complete_partial_ok", uid=uid,
+          latency_ms=round((time.time() - t_call) * 1000), n=len(candidates))
+    return (json.dumps({
+        "candidates": candidates,
+        "tier": tier_config["name"],
+        "remaining": remaining,
+    }), 200, _JSON_CORS)
+
+
 def _classify_exception(e):
     """Return True if the exception is retriable per OpenAI SDK conventions.
     Introspects by name + status_code to stay robust to SDK reshuffles instead
@@ -286,10 +324,11 @@ def _action_reconstruct(uid, tier_config, body):
 
 
 _ACTION_HANDLERS = {
-    "sync_profile": _action_sync_profile,
-    "export_data":  _action_export_data,
-    "delete_data":  _action_delete_data,
-    "command":      _action_command,
+    "sync_profile":     _action_sync_profile,
+    "export_data":      _action_export_data,
+    "delete_data":      _action_delete_data,
+    "command":          _action_command,
+    "complete_partial": _action_complete_partial,
 }
 
 

@@ -52,6 +52,38 @@ TONE_TEMP = {"formal": 0.1, "professional": 0.15, "casual": 0.35, "friend": 0.4}
 SITUATION_SEVERITY = {"default": 1.0, "high_stress": 1.5, "reading": 0.5}
 
 
+def build_completion_prompt(partial_text, tone="casual", language_code="en", n=3):
+    """Mid-block bridging prompt — single source for desktop + Cloud Function.
+
+    The speaker froze mid-sentence on a speech block. Given the partial utterance
+    they got out before freezing (passed as the user message), produce `n` natural
+    ways to FINISH the sentence so they can tap one to bridge the block. Returns a
+    system-prompt string. Kept deliberately tight: the speaker is frozen and
+    waiting, so the consumer calls the FAST model, not extended thinking.
+    """
+    tone_rule = TONE_RULES.get(tone, TONE_RULES["casual"])
+    lang_line = ""
+    if language_code and language_code != "en":
+        lang_line = (f"\nThe speaker is talking in language code '{language_code}'. "
+                     "Write the completions in that language.\n")
+    return (
+        "You help someone who just froze mid-sentence (a speech block) finish what "
+        "they were trying to say. You are given the partial utterance they managed "
+        f"to get out before freezing. Propose exactly {n} natural, distinct ways the "
+        "sentence could end.\n\n"
+        f"Tone: {tone_rule}\n"
+        f"{lang_line}"
+        "Hard rules:\n"
+        f"- Output exactly {n} lines, one option per line.\n"
+        "- Each line is the COMPLETE sentence from the start — include the speaker's "
+        "own words (cleaned of fillers and stutter repetitions) followed by a natural "
+        "ending. Do NOT output only the continuation.\n"
+        "- No numbering, no bullets, no quotes, no preamble, no commentary.\n"
+        "- Each line is a sentence the speaker could say verbatim, under ~22 words.\n"
+        "- Stay faithful to the partial intent; do not invent unrelated content."
+    )
+
+
 # ─── Multilingual lang-pack helpers (docs/l4_prompt_engineering_memo.md) ───
 _LANG_PACK_CACHE = {}
 

@@ -21,7 +21,7 @@ import time
 
 import openai
 
-from prompt_builder import build_prompt, TONE_TEMP
+from prompt_builder import build_prompt, build_completion_prompt, TONE_TEMP
 
 # ─── Config ───
 # Model pinned to a specific snapshot so silent OpenAI version drift can't
@@ -70,6 +70,36 @@ def strip_disfluencies(text):
     result = " ".join(filtered).strip()
     result = re.sub(r'\s{2,}', ' ', result)
     return result if result else text
+
+
+def complete_partial(partial_text, tone="casual", language_code="en", n=3):
+    """Mid-block bridging: given a partial utterance captured when the speaker
+    froze mid-sentence, return up to `n` short completion candidates to tap.
+
+    Uses the fast GPT-4o path — the speaker is frozen waiting, so latency beats
+    the depth that Sonnet extended thinking would add. Returns a list[str]; empty
+    list on no input / no client / parse failure (caller treats empty as no-op)."""
+    partial_text = (partial_text or "").strip()
+    if not partial_text or client is None:
+        return []
+    system_prompt = build_completion_prompt(
+        partial_text, tone=tone, language_code=language_code, n=n)
+    resp = client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": partial_text},
+        ],
+        max_tokens=200,
+        temperature=0.5,
+    )
+    raw = (resp.choices[0].message.content or "").strip()
+    candidates = []
+    for line in raw.splitlines():
+        c = re.sub(r'^[\s\-\d.)]+', '', line).strip().strip('"').strip()
+        if c:
+            candidates.append(c)
+    return candidates[:n]
 
 
 def falcon_validate(raw_text, clean_text, layer, tone="casual", onset_weights=None, language_code="en"):

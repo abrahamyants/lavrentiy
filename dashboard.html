@@ -3041,6 +3041,13 @@ body::before {
           <span style="font-family:var(--mono);font-size:8px;letter-spacing:3px;color:var(--red-bright);text-transform:uppercase;margin-right:10px">PREVIEW</span>
           <span id="preview-text" style="font-family:var(--mono);font-size:12px;color:var(--text-dim)"></span>
         </div>
+        <div id="block-bridge-bar" style="display:none;padding:12px 24px;border-bottom:1px solid var(--border);background:rgba(200,164,92,0.06)">
+          <div style="font-family:var(--mono);font-size:8px;letter-spacing:3px;color:#c8a45c;text-transform:uppercase;margin-bottom:8px">
+            BRIDGE THE BLOCK &mdash; tap to finish your sentence
+            <span onclick="_dismissBlock()" title="Dismiss" style="float:right;cursor:pointer;color:var(--text-dim);font-size:14px;letter-spacing:0">&times;</span>
+          </div>
+          <div id="block-bridge-options" style="display:flex;flex-direction:column;gap:6px"></div>
+        </div>
         <div class="console-wrap" id="console"><div class="console-empty">Waiting for input...</div></div>
       </div>
 
@@ -3823,6 +3830,7 @@ async function pollState(){
       }
     }
     updateUI();
+    _renderBlockBridge(d.block_candidates);
     // Detect sign-in from engine state (auth page in system browser posts to /api/auth)
     if(d.auth&&d.auth.signed_in&&document.getElementById('auth-signed-out').style.display!=='none'){
       updateAuthUI({email:d.auth.user&&d.auth.user.email||'Signed in',displayName:d.auth.user&&d.auth.user.displayName||''});
@@ -3866,6 +3874,33 @@ async function pollState(){
   setTimeout(pollState,250);
 }
 async function fetchPreview(){try{const r=await fetch(API+'/api/preview');const d=await r.json();const bar=document.getElementById('preview-bar');if(d.enabled&&d.active&&d.text){bar.style.display='block';const sw=d.scored_words||[];if(sw.length){document.getElementById('preview-text').innerHTML=sw.map(w=>{if(w.risk>=0.8)return`<span class="trigger-risk-high">${esc(w.word)}</span>`;if(w.risk>=0.6)return`<span class="trigger-risk">${esc(w.word)}</span>`;return esc(w.word);}).join(' ');}else{document.getElementById('preview-text').textContent=d.text;}}else{bar.style.display='none';}}catch(e){console.warn("silent catch:", e)}}
+function _renderBlockBridge(cands){
+  const bar=document.getElementById('block-bridge-bar');if(!bar)return;
+  cands=cands||[];
+  if(!cands.length){if(bar.style.display!=='none'){bar.style.display='none';bar.dataset.sig='';}return;}
+  const sig=JSON.stringify(cands);
+  if(bar.dataset.sig===sig){bar.style.display='block';return;}
+  bar.dataset.sig=sig;
+  const opts=document.getElementById('block-bridge-options');opts.innerHTML='';
+  cands.forEach((c,i)=>{
+    const b=document.createElement('button');
+    b.textContent=c;
+    b.style.cssText='text-align:left;font-family:var(--mono);font-size:12px;line-height:1.4;color:var(--text);background:rgba(200,164,92,0.08);border:1px solid rgba(200,164,92,0.4);border-radius:6px;padding:8px 12px;cursor:pointer';
+    b.addEventListener('mouseenter',()=>{b.style.background='rgba(200,164,92,0.18)';});
+    b.addEventListener('mouseleave',()=>{b.style.background='rgba(200,164,92,0.08)';});
+    b.addEventListener('click',()=>_injectBlock(i,c));
+    opts.appendChild(b);
+  });
+  bar.style.display='block';
+}
+async function _injectBlock(i,text){
+  const bar=document.getElementById('block-bridge-bar');if(bar){bar.style.display='none';bar.dataset.sig='';}
+  try{await fetch(API+'/api/block_inject',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({index:i,text:text})});}catch(e){console.warn("silent catch:", e)}
+}
+async function _dismissBlock(){
+  const bar=document.getElementById('block-bridge-bar');if(bar){bar.style.display='none';bar.dataset.sig='';}
+  try{await fetch(API+'/api/block_dismiss',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});}catch(e){console.warn("silent catch:", e)}
+}
 async function fetchSessions(){try{const r=await fetch(API+'/api/sessions');sessions=await r.json();renderSessions();}catch(e){console.warn("silent catch:", e)}}
 async function fetchLog(){try{const r=await fetch(API+'/api/log');const entries=await r.json();const n=entries.filter(e=>e.id>lastLogId);if(n.length>0){lastLogId=entries[entries.length-1].id;logLines=entries;renderConsole();}}catch(e){console.warn("silent catch:", e)}}
 async function fetchProfile(){try{const r=await fetch(API+'/api/profile');profile=await r.json();renderProfile();}catch(e){console.warn("silent catch:", e)}}
