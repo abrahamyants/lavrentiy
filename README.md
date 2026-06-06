@@ -3476,6 +3476,65 @@ Short bookkeeping arc covering a single deliverable: the SignPath Foundation app
 Full detail + failure log additions (#113 – #116) in `SESSION_LOG_2026-05-31.md`. Failures cover: drove form on wrong device (desktop Chrome instead of phone Chrome); three dead ends in phone-Chrome ADB automation (CDP not exposed on phone, WebView opaque to UI Automator, pixel-tap landed in wrong tab); tagline factual errors; missed three URL fields.
 
 
+## 2026-06-06 — Silent-block bridging + Auto Quiet Mode + accent/dictation language pickers + audit fixes
+
+Long multi-feature session across the desktop engine + the shared `wim/api` Cloud Function. **WiM-side work this session is logged separately in `wim-android/SESSION_LOG_2026-06-06.md`** (keep LAV and WiM logs apart) — this entry is LAV + the shared CF only.
+
+### LAV commits this session
+```
+8929582  fix(reliability): guard None LLM output + ship domain_packs to the server
+7ae7b01  feat(lang): dictation-language picker (EN/RU/ES/PT/FR) + Russian lang_pack
+1200cef  feat(profile): first-language / accent-pack picker in the dashboard profile
+8279a9a  fix(quiet): loosen auto-quiet cutoff to -22 dBFS + log every take + live tuner
+1b825d6  feat(quiet): auto-engage Quiet Mode for whisper-soft takes + live toggle confirm
+b0af3b1  feat(bridge): silent-block completion — brain + desktop tap row
+```
+
+### Cloud Function `wim-reconstruct` (source = `wim/api/`) — deployed twice today
+- rev `wim-reconstruct-00013-bot`: added the `complete_partial` action (silent-block brain).
+- redeploy ~12:37Z: + `domain_packs/` (were missing on the server), + `ru.json`, + the None-output guards. Config preserved both times (secret `openai-api-key`, `WIM_MODEL`/`WIM_MODEL_L4`=gpt-4o, python311, entry `handle`). Serves BOTH apps' signed-in users.
+
+### 1. Silent-block bridging (the disfluency differentiator)
+Builds on the prior detector scaffold (`e0f6563`). At L4, when a mid-utterance block fires, transcribe the partial utterance and offer completion(s) to finish the sentence.
+- **Brain:** `prompt_builder.build_completion_prompt()` (shared) → 3 FULL-sentence completions (cleaned partial + natural ending; first draft returned bare continuations, fixed). Fast GPT-4o, **NOT** Sonnet ET — the speaker is frozen, latency beats depth. Verified live (3/3 partials → clean completions).
+- **CF:** `complete_partial` action in `wim/api/main.py` + `reconstruct.py`.
+- **Desktop:** `_on_silent_block` consumer (snapshot the in-flight recording → `whisper_transcribe` → candidates), `complete_partial_candidates()` (CF when signed-in, else direct GPT-4o), `/api/block_inject` + `/api/block_dismiss`, `block_candidates` in `/api/state`, and a `pipeline()` guard that suppresses the duplicate paste of the bridged take.
+- **Dashboard:** tap-row panel under the console preview bar.
+- **NOT verified:** the live F9→block→tap→paste flow (needs a real on-mic block).
+
+### 2. Auto Quiet Mode — answers "why not always-on Quiet?"
+Always-on quiet degrades normal speech (thins it, over-amplifies room noise), so it auto-detects instead. `pipeline()` measures raw input dBFS and auto-engages the whisper chain when input < `QUIET_AUTO_DBFS` and the user hasn't forced Quiet Mode on. The dashboard Quiet toggle lights **amber** + "AUTO — whisper detected" when engaged (manual toggle stays red / forces always-on).
+- **VALIDATED live** against George's real levels: whisper −24..−37 dBFS, normal/loud −19; cutoff **−22** sits in the gap (whisper ON, normal off). Confirmed working on desktop.
+- Logs `input level X dBFS` on EVERY take. Live-tune without rebuild: `POST /api/quiet_threshold {dbfs}`.
+
+### 3. Accent / first-language picker (dashboard profile, after Work Hours)
+"Native English? Y/N → 10 languages"; picking sets `profile_l1` = the L1-transfer pack AND the accent it watches for. The **Accent toggle** (polish vs keep) decides normalize-vs-preserve. Replaces the edit-the-JSON-only path. **Distinct from dictation language (#4)** — this is about your L1 showing through your English, not the language you speak.
+
+### 4. Dictation-language picker + Russian lang_pack
+The OTHER language axis — the language you actually SPEAK. New `dictation_language` pref (EN/RU/ES/PT/FR, WiM parity). Non-"en" → passed to Whisper (`language=`, stops auto-guessing) AND to reconstruct (`language_code` → activates the matching lang_pack). "en" keeps auto-detect (old behavior). `POST /api/dictation_language` + in `/api/state`. Authored **`ru.json`** (the one language the WiM stack had but LAV lacked) into `wim/api/lang_packs/` + `lang_packs/`. lang_packs now cover ar/de/es/fr/hi/it/ja/ko/pt/zh/**ru**. (Two language systems explained in memory `project_lavrentiy_languages.md`.)
+
+### 5. Audit triage + reliability fixes
+Reviewed the Claude-Code-desktop clean-room audit. Verified the two cheapest claims against source and FIXED them:
+- **None-content crash:** 10 `resp.choices[0].message.content.strip()` sites had no None guard — a content-filter/refusal/length response (`content=None`) crashed the hotkey/pipeline. Wrapped each in `(... or "")` (8 in `lavrentiy.py` + `reconstruct.py:210` + `main.py:203`).
+- **Domain packs dead on server:** `wim/api/` had no `domain_packs/` dir → the CF injected nothing for finance/legal/medical/hipaa/sf_pro. Copied the 5 in; verified all load via `load_pack()`.
+- **Deliberately NOT acted on:** launcher silent-death (a ship-to-others fix, George's install works); concurrency / cross-profile writes (require profile-switch-mid-recording, which a single user never does); `falcon_validate` = `return True` is the operator's Apr-30 decision, left as-is.
+
+### State at session end
+- LAV `main` clean, latest `8929582`, pushed. Desktop engine running the rebuilt `Lavrentiy.exe` with all of the above live (guards, auto-quiet, both pickers).
+- CF `wim-reconstruct` ACTIVE with `complete_partial` + `domain_packs` + `ru.json` + None guards — signed-in users covered.
+- To SEE new dashboard UI: close+reopen the dashboard window (an open one keeps the old page after an engine restart).
+
+### FAILURE LOG additions
+#### 117. Auto-quiet visual didn't show on first test — two stacked causes (2026-06-06)
+First whisper test, no amber. Two reasons at once: (a) the −34 cutoff was too strict — George's whisper measures ~−24, above it, so auto-quiet never engaged; and I had only logged the dBFS *when it engaged*, so I was blind to his actual level; (b) his open dashboard window still ran the pre-rebuild page. Fix: log EVERY take's level, loosen to −22, add a live-tune endpoint, and reopen the window. **Lesson:** when adding a tunable threshold, log the measured value on EVERY path from day one — not only the positive branch — or you can't tune it.
+#### 118. Called the phone "dropped" when WiFi was fine (2026-06-06)
+`adb install` failed "no devices"; I told George the Fold dropped. He corrected — WiFi was active. The adb-over-TCP link had timed out and the wireless-debug port had rotated (33871 → 36699); `adb connect` to the old port failed but adb auto-rediscovered the new one. **Lesson:** "adb: no devices" ≠ "phone offline" — it's the adb link; reconnect/rediscover before declaring the device down.
+#### 119. Projected "the hour" and offered to wrap up (2026-06-06)
+Ended a message with "given the hour, want me to do LAV now or next session?" George: "do u need to sleep or have someplace to go?" I don't tire and his stamina is his call. Saved `feedback_no_time_of_day_hedging.md` — just execute the agreed next step, never hedge on lateness.
+#### 120. Desktop is a compiled exe — each change cost a ~5-min rebuild (2026-06-06)
+Multiple desktop features each required a full PyInstaller rebuild (`Lavrentiy-onedir.spec`) + copy-over-install + restart (~5 min each), done ~5 times — the real source of "why so long." **Lesson:** batch desktop code changes before rebuilding; the running engine is the compiled `Lavrentiy.exe`, not a loose script, so file-copies don't update it.
+
+
 ## TO DO — CARRIED FORWARD
 
 Explicit punch list of items that are open as of 2026-05-30. Some are tiny code edits, some are multi-hour arcs, some are blocked on operator action (signing application, patent decision, domain choice). Each is self-contained so you can take them one at a time without losing context. Cross items off as they ship.
