@@ -5731,6 +5731,33 @@ function _seedProfileTabExtras(){
     </div>
 
     <div class="profile-section" style="margin-top:14px">
+      <div class="profile-header" style="cursor:default"><span><span class="ph-title">First language</span></span></div>
+      <div class="profile-body" style="display:block">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);margin-bottom:6px">Native English speaker?</div>
+        <div class="tone-stack" style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+          <div class="layer-opt l1nat-opt" data-l1nat="yes"><div class="l-info"><div class="l-name">Yes</div></div></div>
+          <div class="layer-opt l1nat-opt" data-l1nat="no"><div class="l-info"><div class="l-name">No</div></div></div>
+        </div>
+        <div id="l1-lang-grid" style="display:none;margin-top:8px">
+          <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);margin-bottom:4px">Your first language &mdash; this is also the accent we watch for:</div>
+          <div class="tone-stack" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
+            <div class="layer-opt l1-opt" data-l1="russian" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Russian</div></div></div>
+            <div class="layer-opt l1-opt" data-l1="spanish" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Spanish</div></div></div>
+            <div class="layer-opt l1-opt" data-l1="mandarin" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Mandarin</div></div></div>
+            <div class="layer-opt l1-opt" data-l1="hindi" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Hindi</div></div></div>
+            <div class="layer-opt l1-opt" data-l1="arabic" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Arabic</div></div></div>
+            <div class="layer-opt l1-opt" data-l1="farsi" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Farsi</div></div></div>
+            <div class="layer-opt l1-opt" data-l1="french" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">French</div></div></div>
+            <div class="layer-opt l1-opt" data-l1="german" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">German</div></div></div>
+            <div class="layer-opt l1-opt" data-l1="korean" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Korean</div></div></div>
+            <div class="layer-opt l1-opt" data-l1="japanese" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Japanese</div></div></div>
+            <div class="layer-opt l1-opt" data-l1="other" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Other</div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="profile-section" style="margin-top:14px">
       <div class="profile-header" style="cursor:default"><span><span class="ph-title">Stats</span></span></div>
       <div class="profile-body" style="display:block">
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-family:var(--mono);font-size:11px">
@@ -5787,6 +5814,18 @@ function _refreshProfileStats(){
       // Hide section entirely when no L1 is set (nothing to contribute yet)
       const sec = document.getElementById('l1-contribute-section');
       if(sec) sec.style.display = l1 ? '' : 'none';
+      // Reflect the saved first-language pick. Only force the UI for a real
+      // language ('russian'..) or explicit 'en'; leave '' alone so an
+      // in-progress "No" click (which sets '') keeps the grid open.
+      const _grid = document.getElementById('l1-lang-grid');
+      if (l1 && l1 !== 'en') {
+        document.querySelectorAll('.l1nat-opt').forEach(b => b.classList.toggle('active', b.dataset.l1nat === 'no'));
+        if (_grid) _grid.style.display = 'block';
+        document.querySelectorAll('.l1-opt').forEach(b => b.classList.toggle('active', b.dataset.l1 === l1));
+      } else if (l1 === 'en') {
+        document.querySelectorAll('.l1nat-opt').forEach(b => b.classList.toggle('active', b.dataset.l1nat === 'yes'));
+        if (_grid) _grid.style.display = 'none';
+      }
     }).catch(()=>{});
   }).catch(()=>{});
 }
@@ -5806,6 +5845,36 @@ document.addEventListener('click', e => {
   const val = opt.dataset.use || opt.dataset.ind || opt.dataset.hr;
   fetch('/api/profile', {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({preferences: {[key]: val}})}).catch(()=>{});
+});
+// First-language / accent-pack picker: Native English? -> 10 languages -> profile_l1.
+// Picking a language sets the L1-transfer pack AND the accent it watches for.
+document.addEventListener('click', e => {
+  const nat = e.target.closest('.l1nat-opt');
+  if (nat) {
+    document.querySelectorAll('.l1nat-opt').forEach(b => b.classList.remove('active'));
+    nat.classList.add('active');
+    const grid = document.getElementById('l1-lang-grid');
+    if (nat.dataset.l1nat === 'no') {
+      if (grid) grid.style.display = 'block';
+      // Clear to unset (not 'en') so the live refresh won't revert the grid
+      // before the user has picked a language.
+      fetch('/api/profile', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({profile_l1: ''})}).catch(()=>{});
+    } else {
+      if (grid) grid.style.display = 'none';
+      document.querySelectorAll('.l1-opt').forEach(b => b.classList.remove('active'));
+      fetch('/api/profile', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({profile_l1: 'en'})}).catch(()=>{});
+    }
+    return;
+  }
+  const lang = e.target.closest('.l1-opt');
+  if (lang) {
+    document.querySelectorAll('.l1-opt').forEach(b => b.classList.remove('active'));
+    lang.classList.add('active');
+    fetch('/api/profile', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({profile_l1: lang.dataset.l1})}).catch(()=>{});
+  }
 });
 // Wire the W↔L slider
 document.addEventListener('input', e => {
