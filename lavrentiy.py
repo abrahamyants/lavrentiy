@@ -2418,6 +2418,12 @@ quiet_mode_enabled = profile["preferences"].get("quiet_mode", False)
 # injection framing at L2/L3. Surfaced on the dashboard ACCENT block.
 accent_mode = profile["preferences"].get("accent_mode", "polish")
 
+# Dictation language — the language the speaker DICTATES in (distinct from
+# accent_mode, which is about L1 influence on English). Default "en". When
+# non-"en" it's passed to Whisper (so it stops auto-guessing) AND to the
+# reconstruction prompt (language_code) so the matching lang_pack activates.
+dictation_language = profile["preferences"].get("dictation_language", "en")
+
 # Migration: Layer 5 -> Layer 4 + toggles
 if current_layer >= 5:
     current_layer = 4
@@ -4612,6 +4618,10 @@ def _whisper_single_call(filepath, temperature, prompt_text, max_retries=3):
                         response_format="verbose_json",
                         temperature=float(temperature) if temperature is not None else 0.0,
                         prompt=prompt_text or "",
+                        # Force the chosen dictation language so Whisper stops
+                        # auto-guessing; "en" stays unset = keep auto-detect.
+                        **({"language": dictation_language}
+                           if dictation_language and dictation_language != "en" else {}),
                     )
                 d = resp.model_dump() if hasattr(resp, "model_dump") else dict(resp)
                 stats_inc("api_calls")
@@ -6740,6 +6750,7 @@ def pipeline():
                     clean_text, _backend_falcon, _backend_result = reconstruct_via_backend(
                         filtered_text, current_tone, current_layer, profile,
                         current_situation, current_mode,
+                        language_code=dictation_language,
                         whisper_low_conf=whisper_low_conf,
                         whisper_disagreements=whisper_disagreements,
                         speech_severity_mod=speech_metrics["severity_modifier"],
@@ -6759,6 +6770,7 @@ def pipeline():
                     # Local API key path: either not signed in, or backend failed.
                     clean_text = reconstruct(
                         filtered_text, current_tone, current_layer, profile, current_situation,
+                        language_code=dictation_language,
                         whisper_low_conf=whisper_low_conf,
                         whisper_disagreements=whisper_disagreements,
                         speech_severity_mod=speech_metrics["severity_modifier"],
@@ -7931,7 +7943,7 @@ def handle_GET_api_state(body=None) -> dict:
         _net_status = 'ok'
     else:
         _net_status = 'idle'
-    return {'state': 'command' if is_command_mode else state, 'is_command_mode': is_command_mode, 'mode': current_mode, 'network_status': _net_status, 'network_error': _last_api_error_msg if _net_status == 'error' else '', 'tone': current_tone, 'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?'), 'situation': current_situation, 'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0), 'stats': stats, 'model': MODEL_L4 if current_layer >= 4 else MODEL, 'whisper_temp': WHISPER_TEMP, 'whisper_no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD, 'whisper_multi_temp': WHISPER_MULTI_TEMP, 'speech_metrics': _last_speech_metrics, 'avg_logprob': _last_avg_logprob, 'redo_count': _redo_count, 'block_count': _block_count, 'avg_exposure': _compute_avg_exposure(), 'paralinguistic_events': _last_paralinguistic_events, 'speaker_state': _last_speaker_state, 'paralinguistic_enabled': paralinguistic_enabled, 'paralinguistic_transcribe': paralinguistic_transcribe, 'prosodic_enabled': prosodic_enabled, 'paralinguistic_available': current_layer != 1, 'prosodic_available': current_layer != 1, 'quiet_mode_enabled': quiet_mode_enabled, 'quiet_auto_active': _quiet_auto_active, 'l1_cloud_asr': L1_CLOUD_ASR, 'profile_name': _active_profile_name, 'block_candidates': _block_candidates, 'auth': {'signed_in': is_authenticated(), 'user': _auth_user, 'has_local_key': bool(API_KEY)}}
+    return {'state': 'command' if is_command_mode else state, 'is_command_mode': is_command_mode, 'mode': current_mode, 'network_status': _net_status, 'network_error': _last_api_error_msg if _net_status == 'error' else '', 'tone': current_tone, 'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?'), 'situation': current_situation, 'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0), 'stats': stats, 'model': MODEL_L4 if current_layer >= 4 else MODEL, 'whisper_temp': WHISPER_TEMP, 'whisper_no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD, 'whisper_multi_temp': WHISPER_MULTI_TEMP, 'speech_metrics': _last_speech_metrics, 'avg_logprob': _last_avg_logprob, 'redo_count': _redo_count, 'block_count': _block_count, 'avg_exposure': _compute_avg_exposure(), 'paralinguistic_events': _last_paralinguistic_events, 'speaker_state': _last_speaker_state, 'paralinguistic_enabled': paralinguistic_enabled, 'paralinguistic_transcribe': paralinguistic_transcribe, 'prosodic_enabled': prosodic_enabled, 'paralinguistic_available': current_layer != 1, 'prosodic_available': current_layer != 1, 'quiet_mode_enabled': quiet_mode_enabled, 'quiet_auto_active': _quiet_auto_active, 'dictation_language': dictation_language, 'l1_cloud_asr': L1_CLOUD_ASR, 'profile_name': _active_profile_name, 'block_candidates': _block_candidates, 'auth': {'signed_in': is_authenticated(), 'user': _auth_user, 'has_local_key': bool(API_KEY)}}
 
 def handle_GET_api_profiles(body=None) -> dict:
     return {'profiles': list_profiles(), 'active': _active_profile_name}
@@ -8186,6 +8198,20 @@ def handle_POST_api_prosodic(body=None) -> dict:
     if body and 'enabled' in body:
         set_prosodic(body['enabled'])
     return {'prosodic_enabled': prosodic_enabled}
+
+def set_dictation_language(code):
+    global dictation_language
+    dictation_language = (code or "en").strip().lower() or "en"
+    profile["preferences"]["dictation_language"] = dictation_language
+    save_profile(profile)
+    log(f"Dictation language: {dictation_language}", "info")
+
+
+def handle_POST_api_dictation_language(body=None) -> dict:
+    if body and 'language' in body:
+        set_dictation_language(body['language'])
+    return {'dictation_language': dictation_language}
+
 
 def handle_POST_api_accent_mode(body=None) -> dict:
     if body and 'mode' in body:
@@ -8632,6 +8658,7 @@ _POST_ROUTES = {
     '/api/prosodic':                      handle_POST_api_prosodic,
     '/api/quiet_mode':                    handle_POST_api_quiet_mode,
     '/api/accent_mode':                   handle_POST_api_accent_mode,
+    '/api/dictation_language':            handle_POST_api_dictation_language,
     '/api/mode':                          handle_POST_api_mode,
     '/api/situation':                     handle_POST_api_situation,
     '/api/profiles/switch':               handle_POST_api_profiles_switch,

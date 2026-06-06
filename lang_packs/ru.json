@@ -1,0 +1,76 @@
+{
+  "language_code": "ru",
+  "language_name_en": "Russian",
+  "language_name_native": "Русский",
+  "fillers": [
+    "э",
+    "ээ",
+    "эм",
+    "ну",
+    "нуу",
+    "вот",
+    "типа",
+    "как бы",
+    "значит",
+    "короче",
+    "это",
+    "это самое",
+    "в общем",
+    "так сказать",
+    "блин"
+  ],
+  "natural_repeats": [
+    "да да",
+    "нет нет",
+    "так так",
+    "ну ну",
+    "да да да"
+  ],
+  "productive_prefixes": [
+    "по-",
+    "на-",
+    "за-",
+    "пере-",
+    "до-",
+    "при-",
+    "под-",
+    "раз-",
+    "про-",
+    "вы-"
+  ],
+  "hard_onsets": {
+    "data": [
+      {
+        "onset": "/p/",
+        "difficulty_weight": 0.85,
+        "source": "Howell et al. 2004, Cross-linguistic comparison of stuttering"
+      },
+      {
+        "onset": "/k/",
+        "difficulty_weight": 0.80,
+        "source": "Howell et al. 2004, Cross-linguistic comparison of stuttering"
+      },
+      {
+        "onset": "/t/",
+        "difficulty_weight": 0.78,
+        "source": "Howell et al. 2004, Cross-linguistic comparison of stuttering"
+      }
+    ],
+    "quality_note": "cross_linguistic"
+  },
+  "script_unicode_ranges": [
+    [
+      1040,
+      1103
+    ],
+    [
+      1025,
+      1025
+    ],
+    [
+      1105,
+      1105
+    ]
+  ],
+  "script_detection_regex": "[\\u0400-\\u04FF]"
+}

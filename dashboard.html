@@ -5731,6 +5731,20 @@ function _seedProfileTabExtras(){
     </div>
 
     <div class="profile-section" style="margin-top:14px">
+      <div class="profile-header" style="cursor:default"><span><span class="ph-title">Dictation language</span></span></div>
+      <div class="profile-body" style="display:block">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);margin-bottom:6px">The language you actually speak in &mdash; not your accent. (English = auto.)</div>
+        <div class="tone-stack" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
+          <div class="layer-opt dict-lang-opt active" data-dict="en"><div class="l-info"><div class="l-name" style="font-size:11px">English</div></div></div>
+          <div class="layer-opt dict-lang-opt" data-dict="ru"><div class="l-info"><div class="l-name" style="font-size:11px">Russian</div></div></div>
+          <div class="layer-opt dict-lang-opt" data-dict="es"><div class="l-info"><div class="l-name" style="font-size:11px">Spanish</div></div></div>
+          <div class="layer-opt dict-lang-opt" data-dict="pt"><div class="l-info"><div class="l-name" style="font-size:11px">Portuguese</div></div></div>
+          <div class="layer-opt dict-lang-opt" data-dict="fr"><div class="l-info"><div class="l-name" style="font-size:11px">French</div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="profile-section" style="margin-top:14px">
       <div class="profile-header" style="cursor:default"><span><span class="ph-title">First language</span></span></div>
       <div class="profile-body" style="display:block">
         <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);margin-bottom:6px">Native English speaker?</div>
@@ -5790,6 +5804,9 @@ function _seedProfileTabExtras(){
 function _refreshProfileStats(){
   fetch('/api/state').then(r=>r.json()).then(d=>{
     const s = d.stats || {};
+    // Reflect the saved dictation language on the picker.
+    const _dl = d.dictation_language || 'en';
+    document.querySelectorAll('.dict-lang-opt').forEach(b => b.classList.toggle('active', b.dataset.dict === _dl));
     const setStat = (id,v) => { const el=document.getElementById(id); if(el) el.textContent = v; };
     setStat('ps-words', s.words || 0);
     setStat('ps-sessions', s.sessions || 0);
@@ -5875,6 +5892,16 @@ document.addEventListener('click', e => {
     fetch('/api/profile', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({profile_l1: lang.dataset.l1})}).catch(()=>{});
   }
+});
+// Dictation-language picker — the language you speak. Tells Whisper which
+// language to transcribe + the cleanup which lang_pack to use.
+document.addEventListener('click', e => {
+  const dl = e.target.closest('.dict-lang-opt');
+  if (!dl) return;
+  document.querySelectorAll('.dict-lang-opt').forEach(b => b.classList.remove('active'));
+  dl.classList.add('active');
+  fetch('/api/dictation_language', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({language: dl.dataset.dict})}).catch(()=>{});
 });
 // Wire the W↔L slider
 document.addEventListener('input', e => {
