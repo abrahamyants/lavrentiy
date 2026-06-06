@@ -260,7 +260,8 @@ SILENT_BLOCK_MIN_SILENCE_MS = 1500
 # keeps the lighter chain (no over-amplified room noise, no thinned voice).
 # Engaged per-recording in pipeline() when the user hasn't forced Quiet Mode on.
 QUIET_AUTO_ENABLED = True
-QUIET_AUTO_DBFS = -34.0  # raw input below this (dBFS) = whisper-soft → auto-quiet
+QUIET_AUTO_DBFS = -22.0  # raw input below this (dBFS) = whisper-soft → auto-quiet.
+                         # Loosened from -34; tune live via POST /api/quiet_threshold.
 LOCAL_WHISPER = True                 # L1 ASR runs locally (no cloud fallback at L1 — local layers stay local).
 # LOCAL_WHISPER_MODEL_SIZE constant removed 2026-05-16. Was passed positionally
 # to _local_transcribe_fn at 4 call sites but ignored by fw_local.py — the
@@ -6555,8 +6556,9 @@ def pipeline():
     _raw_dbfs = 20.0 * float(numpy.log10(_raw_rms)) if _raw_rms > 1e-9 else -120.0
     _quiet_auto_active = (not quiet_mode_enabled) and QUIET_AUTO_ENABLED and (_raw_dbfs < QUIET_AUTO_DBFS)
     _effective_quiet = quiet_mode_enabled or _quiet_auto_active
-    if _quiet_auto_active:
-        log(f"Quiet Mode auto-engaged ({_raw_dbfs:.0f} dBFS < {QUIET_AUTO_DBFS:.0f}) — whisper-soft take", "info")
+    # Log EVERY take's level (not just when engaged) so the cutoff can be tuned
+    # against real whisper-vs-normal numbers. Tune live via POST /api/quiet_threshold.
+    log(f"input level {_raw_dbfs:.0f} dBFS — quiet auto {'ON' if _quiet_auto_active else 'off'} (cutoff {QUIET_AUTO_DBFS:.0f})", "info")
 
     # Audio preprocessing — DC removal → high-pass → AGC → soft clip.
     # Quiet Mode tightens high-pass + doubles AGC gain. Shared with Command
@@ -8585,6 +8587,18 @@ def handle_POST_api_block_dismiss(body=None) -> dict:
     return {'ok': True}
 
 
+def handle_POST_api_quiet_threshold(body=None) -> dict:
+    """Live-tune the Auto Quiet Mode cutoff (dBFS) without a rebuild. Lower
+    (more negative) = stricter (only very soft takes); higher = looser."""
+    global QUIET_AUTO_DBFS
+    try:
+        QUIET_AUTO_DBFS = float((body or {}).get('dbfs', QUIET_AUTO_DBFS))
+    except (TypeError, ValueError):
+        pass
+    log(f"Auto Quiet cutoff set to {QUIET_AUTO_DBFS:.0f} dBFS", "info")
+    return {'quiet_auto_dbfs': QUIET_AUTO_DBFS}
+
+
 _GET_ROUTES = {
     '/api/state':                 handle_GET_api_state,
     '/api/profiles':              handle_GET_api_profiles,
@@ -8646,6 +8660,7 @@ _POST_ROUTES = {
     '/api/set-key':                       handle_POST_api_set_key,
     '/api/block_inject':                  handle_POST_api_block_inject,
     '/api/block_dismiss':                 handle_POST_api_block_dismiss,
+    '/api/quiet_threshold':               handle_POST_api_quiet_threshold,
 }
 
 
