@@ -3534,6 +3534,29 @@ Ended a message with "given the hour, want me to do LAV now or next session?" Ge
 #### 120. Desktop is a compiled exe — each change cost a ~5-min rebuild (2026-06-06)
 Multiple desktop features each required a full PyInstaller rebuild (`Lavrentiy-onedir.spec`) + copy-over-install + restart (~5 min each), done ~5 times — the real source of "why so long." **Lesson:** batch desktop code changes before rebuilding; the running engine is the compiled `Lavrentiy.exe`, not a loose script, so file-copies don't update it.
 
+## 2026-06-09 — L1 ASR default flipped to LOCAL (faster-whisper) for WiM parity
+
+Single-flag change driven by the Lav↔WiM L1–L4 parity audit. WiM-android defaults
+L1 to on-device whisper; Lavrentiy defaulted to cloud whisper-1. `L1_CLOUD_ASR`
+flipped `True → False` (`lavrentiy.py:282`) so both apps hear the same engine out
+of the box. Rationale: parity + privacy / offline-first (the clinical posture —
+audio never leaves the machine by default). Tradeoff documented at the flag:
+local FW Turbo is 2–5s on a typical CPU (~30s on the very first call while the
+model loads) vs cloud's 1–2s every time, so the first-run evaluator UX is slower;
+flip back to `True` for the snappier path, and L1 auto-falls-back to cloud anyway
+if faster-whisper isn't installed. Commit `63114a3`.
+
+The WiM-side work from the same audit (trigger-word write-race fix, DisfluencyFilter
+regex hardening, adversarial/fuzz/perf suite) is logged in `wim-android/README.md` —
+LAV and WiM logs kept apart per convention.
+
+Reconfirmed with no code change: the `_profile_switch_epoch` guard
+(`lavrentiy.py:1362`) stays Lav-only. Reading WiM's `ProfileManager` showed its
+writers already serialise on a companion-scoped `PROFILE_WRITE_LOCK`, and WiM has
+no whole-profile switch, so porting the epoch primitive would guard a scenario WiM
+doesn't have. (WiM's real gap was a trigger-word RMW with its read outside the
+lock — fixed there, logged there.)
+
 
 ## TO DO — CARRIED FORWARD
 
