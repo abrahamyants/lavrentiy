@@ -1420,14 +1420,14 @@ _last_sync_ts = 0
 def sync_profile_to_firestore(prof):
     """Push learned profile fields to Firestore via Cloud Function (fire-and-forget)."""
     global _last_sync_ts
-    if not is_authenticated() or _auth_user is None:
-        return
-    # Debounce: skip if last sync was less than 60s ago
-    now = time.time()
-    if now - _last_sync_ts < 60:
-        return
-    _last_sync_ts = now
     try:
+        if not is_authenticated() or _auth_user is None:
+            return
+        # Debounce: skip if last sync was less than 60s ago
+        now = time.time()
+        if now - _last_sync_ts < 60:
+            return
+        _last_sync_ts = now
         import urllib.request
         payload = {
             "action": "sync_profile",
@@ -2615,6 +2615,30 @@ def log(text, kind="info"):
     except Exception:
         pass
 
+
+def _log_bg_error(label, exc):
+    """Record a daemon-thread crash to BOTH the dashboard console and
+    engine_err.log. sys.excepthook (_crash_logger_lav) only catches the main
+    thread; a threading.Thread target that raises goes to threading.excepthook,
+    whose default prints to stderr — which pywebview swallows. Without this an
+    unhandled exception in a learning thread vanishes and the user just sees
+    learning silently stop (next_in plateaus). The on-disk write outlives the
+    80-entry console ring buffer and the process itself, so it survives for the
+    post-mortem CLAUDE.md tells you to check first."""
+    import traceback, datetime as _d
+    tb = traceback.format_exc()
+    try:
+        log(f"[bg:{label}] crashed: {exc}", "error")
+    except Exception:
+        pass
+    try:
+        crash_log = LAVRENTIY_DIR / "engine_err.log"
+        crash_log.parent.mkdir(parents=True, exist_ok=True)
+        with open(crash_log, "a", encoding="utf-8") as f:
+            f.write(f"\n=== BG-THREAD CRASH [{label}] {_d.datetime.now().isoformat()} pid={os.getpid()} ===\n{tb}")
+    except Exception:
+        pass
+
 # Local-LLM post-processing helpers (markdown / emoji / preamble strippers)
 # were removed 2026-05-16 along with the local-LLM imports — see note at
 # the import section above. L2/L3 reconstruction now runs exclusively on
@@ -2666,7 +2690,9 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
                     )
                     urllib.request.urlopen(req, timeout=5)
                 except Exception as _e:
-                    pass  # contribution is best-effort, never block the pipeline
+                    # Best-effort contribution — never block the pipeline, but
+                    # surface the failure instead of dying mute.
+                    log(f"_bg_contribute failed (non-fatal): {_e}", "warn")
             threading.Thread(target=_bg_contribute, daemon=True).start()
 
     # >>> H-4: prompt building delegated to prompt_builder.build_prompt <<<
@@ -6477,9 +6503,12 @@ def _run_l2plus_learning_loops(raw_text, epoch_at_launch):
         learn_status["next_in"] = LEARN_EVERY
 
         def _bg_learn(prof, epoch=epoch_at_launch):
-            if epoch != _profile_switch_epoch:
-                return
-            learn_from_sessions(prof, _epoch=epoch)
+            try:
+                if epoch != _profile_switch_epoch:
+                    return
+                learn_from_sessions(prof, _epoch=epoch)
+            except Exception as e:
+                _log_bg_error("learn", e)
 
         threading.Thread(target=_bg_learn, args=(profile,), daemon=True).start()
         # Onset anomaly detection (covert avoidance signal, zero API cost)
@@ -6489,9 +6518,12 @@ def _run_l2plus_learning_loops(raw_text, epoch_at_launch):
         _decay_counter = 0
 
         def _bg_decay(prof, epoch=epoch_at_launch):
-            if epoch != _profile_switch_epoch:
-                return
-            decay_stale_profile_entries(prof, _epoch=epoch)
+            try:
+                if epoch != _profile_switch_epoch:
+                    return
+                decay_stale_profile_entries(prof, _epoch=epoch)
+            except Exception as e:
+                _log_bg_error("decay", e)
 
         threading.Thread(target=_bg_decay, args=(profile,), daemon=True).start()
 
@@ -6908,11 +6940,14 @@ def pipeline():
             if regex_triggers:
                 add_trigger_words(regex_triggers, profile)
             def _bg_trigger_detect(rt, out, prof, epoch=_epoch_at_launch):
-                if epoch != _profile_switch_epoch:
-                    return  # profile switched — discard
-                # M-1: pass epoch through so the inner save_profile rejects stale
-                # writes if a profile switch races in during detect_triggers_llm.
-                add_trigger_words(detect_triggers_llm(rt, out, prof), prof, _epoch=epoch)
+                try:
+                    if epoch != _profile_switch_epoch:
+                        return  # profile switched — discard
+                    # M-1: pass epoch through so the inner save_profile rejects stale
+                    # writes if a profile switch races in during detect_triggers_llm.
+                    add_trigger_words(detect_triggers_llm(rt, out, prof), prof, _epoch=epoch)
+                except Exception as e:
+                    _log_bg_error("trigger_detect", e)
             threading.Thread(target=_bg_trigger_detect, args=(raw_text, output, profile), daemon=True).start()
 
         # Step 6: Auto-learn (async, Layer 2+).
