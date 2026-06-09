@@ -274,12 +274,14 @@ LOCAL_WHISPER = True                 # L1 ASR runs locally (no cloud fallback at
 # (~1-2s on whisper-1) at the cost of needing internet. Toggleable at runtime
 # via POST /api/l1_asr {cloud: bool} from the dashboard.
 #
-# Default = True. First-impression UX matters: an evaluator opening Lavrentiy
-# for the first time hits F9, expects to see text fast. Local FW Turbo on a
-# typical CPU is 2-5s for short clips and ~30s on the very first call (model
-# load). Cloud whisper-1 is 1-2s every time. Default to cloud, let users who
-# want offline-only flip it off.
-L1_CLOUD_ASR = True
+# Default = False (LOCAL). Parity with WiM, which defaults to on-device
+# whisper-tiny — both apps now hear the same ASR out of the box, and local
+# keeps audio off the network (privacy / offline-first, the clinical posture).
+# Tradeoff: local FW Turbo is 2-5s on a typical CPU (~30s on the very first
+# call while the model loads) vs cloud whisper-1's 1-2s every time, so the
+# first-run evaluator UX is slower. Flip to True for the snappier cloud path
+# (and L1 auto-falls-back to cloud anyway if faster-whisper isn't installed).
+L1_CLOUD_ASR = False
 LOCAL_FW_MODEL_SIZE = os.environ.get("LAV_FW_MODEL_SIZE", "large-v3-turbo")  # faster-whisper primary (real Whisper, full verbose JSON)
 LOCAL_FW_COMPUTE_TYPE = os.environ.get("LAV_FW_COMPUTE_TYPE", "int8")         # CPU-friendly quantization
 LOCAL_FW_DEVICE = os.environ.get("LAV_FW_DEVICE", "cpu")                       # target eval hardware
