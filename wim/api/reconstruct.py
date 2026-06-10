@@ -15,11 +15,19 @@ As Cloud Function:
     Deploy main.py which imports this module and exposes the HTTP handler.
 """
 
+import logging
 import os
 import re
 import time
 
 import openai
+
+try:
+    import anthropic
+except ImportError:
+    # Local runs before `pip install anthropic` keep working on the GPT-4o
+    # path; the deployed CF always has it via requirements.txt.
+    anthropic = None
 
 from prompt_builder import build_prompt, build_completion_prompt, TONE_TEMP
 
@@ -45,6 +53,33 @@ if not API_KEY:
 # that so a slow OpenAI call doesn't burn the full CF window. max_retries=2:
 # transient 5xx/429s self-recover without surfacing to the client.
 client = openai.OpenAI(api_key=API_KEY, timeout=20.0, max_retries=2) if API_KEY else None
+
+# ─── L4: Anthropic Sonnet 4.6 extended thinking ───
+# Parity with the desktop direct-key path (lavrentiy.py) and WiM device-direct:
+# same model, same thinking budget, same max_tokens, same GPT-4o fallback.
+# The thinking trace is the validator — Falcon stays retired at L4.
+SONNET_THINK_MODEL = os.environ.get("WIM_MODEL_L4_SONNET", "claude-sonnet-4-6")
+SONNET_THINK_BUDGET = 8000
+SONNET_THINK_MAX_TOKENS = 16000  # must exceed thinking budget
+
+ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+if not ANTHROPIC_KEY:
+    for p in [
+        os.path.join(os.path.dirname(__file__), "anthropic_key.txt"),
+        os.path.join(os.path.dirname(__file__), "..", "..", "anthropic_key.txt"),
+    ]:
+        if os.path.exists(p):
+            ANTHROPIC_KEY = open(p).read().strip()
+            break
+
+# timeout=45s: a legitimate Sonnet ET call worst-cases ~30s (see CLOUD_TIMEOUT_SEC
+# rationale in lavrentiy.py); 45s plus the 20s GPT-4o fallback still fits the
+# CF's 120s window. max_retries=0: a retried ET call can't fit that window —
+# the GPT-4o fallback below IS the retry.
+anthropic_client = (
+    anthropic.Anthropic(api_key=ANTHROPIC_KEY, timeout=45.0, max_retries=0)
+    if (anthropic is not None and ANTHROPIC_KEY) else None
+)
 
 # ─── Bilingual filler set ───
 _STRIP_FILLERS = {
@@ -179,7 +214,8 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
         ms = round((time.time() - t0) * 1000)
         return {
             "clean": cleaned, "raw": raw_text, "confidence": 0.95,
-            "falcon_ok": True, "ms": ms, "mode": mode, "tone": tone, "layer": layer
+            "falcon_ok": True, "ms": ms, "mode": mode, "tone": tone, "layer": layer,
+            "model": "local-strip",
         }
 
     system_prompt = build_prompt(
@@ -198,16 +234,42 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
     # to avoid the model padding output.
     max_out = 4000 if layer >= 4 else 1000
 
-    resp = client.chat.completions.create(
-        model=use_model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": raw_text}
-        ],
-        max_tokens=max_out,
-        temperature=temp
-    )
-    clean_text = (resp.choices[0].message.content or "").strip()
+    clean_text = ""
+    served_model = use_model
+
+    # L4 clinical → Sonnet 4.6 extended thinking, mirroring lavrentiy.py
+    # reconstruct(). Any failure or empty output falls through to GPT-4o below.
+    if layer >= 4 and anthropic_client is not None:
+        try:
+            msg = anthropic_client.messages.create(
+                model=SONNET_THINK_MODEL,
+                max_tokens=SONNET_THINK_MAX_TOKENS,
+                thinking={"type": "enabled", "budget_tokens": SONNET_THINK_BUDGET},
+                system=system_prompt,
+                messages=[{"role": "user", "content": raw_text}],
+            )
+            text_blocks = [b.text for b in msg.content if getattr(b, "type", None) == "text"]
+            clean_text = "\n".join(text_blocks).strip()
+            if clean_text:
+                served_model = f"{SONNET_THINK_MODEL} (ext-think)"
+        except Exception as e:
+            logging.warning(
+                "Sonnet ext-think failed (%s), falling back to %s",
+                str(e)[:120], use_model)
+            clean_text = ""
+
+    if not clean_text:
+        resp = client.chat.completions.create(
+            model=use_model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": raw_text}
+            ],
+            max_tokens=max_out,
+            temperature=temp
+        )
+        clean_text = (resp.choices[0].message.content or "").strip()
+        served_model = use_model
 
     falcon_ok = True
     if mode == "SAFE":
@@ -232,4 +294,5 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
         "mode": mode,
         "tone": tone,
         "layer": layer,
+        "model": served_model,
     }

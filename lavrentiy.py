@@ -1250,7 +1250,10 @@ def reconstruct_via_backend(raw_text, tone, layer, prof, situation="default", mo
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        # L4 on the server runs Sonnet extended thinking (CF window 120s) —
+        # give it room. L2/L3 stay on the original snappy cap.
+        _cf_timeout = 90 if layer >= 4 else 30
+        with urllib.request.urlopen(req, timeout=_cf_timeout) as resp:
             result = json.loads(resp.read().decode("utf-8"))
         return result.get("clean", raw_text), result.get("falcon_ok", True), result
     except Exception as e:

@@ -315,7 +315,7 @@ def _action_reconstruct(uid, tier_config, body):
         logging.INFO,
         event="reconstruct_ok",
         uid=uid, layer=requested_layer, latency_ms=latency_ms,
-        model="gpt-4o-2024-11-20",
+        model=result.get("model", "n/a"),
         mode=result.get("mode"),
     )
     result["tier"] = tier_config["name"]
