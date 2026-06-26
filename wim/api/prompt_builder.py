@@ -23,6 +23,48 @@ import l1_pack
 import domain_pack
 
 
+# ─── Audience-context window-title map (ported from AudienceContext.kt) ───
+# Each entry: (title_keyword_lowercase, category, audience, medium_expectations)
+_WINDOW_AUDIENCE = [
+    ("outlook",   "email",      "professional contacts",                    "full sentences, formal tone, clear subject-action structure"),
+    ("gmail",     "email",      "professional or personal contacts",        "full sentences, structured paragraphs"),
+    (" mail",     "email",      "contacts",                                 "full sentences, appropriate formality"),
+    ("teams",     "team chat",  "team peers (technical or business)",       "concise, direct, no greetings needed"),
+    ("slack",     "team chat",  "colleagues or project peers",              "short, casual, no sign-offs"),
+    ("word",      "document",   "future readers or collaborators",          "polished prose, formal, structured"),
+    ("google docs","document",  "collaborators or future readers",          "clear prose, structured, professional"),
+    ("notion",    "notes",      "self or small team",                       "structured notes, concise, headings ok"),
+    ("whatsapp",  "messaging",  "personal contacts (one-to-one)",           "casual, short, informal"),
+    ("telegram",  "messaging",  "friends or contacts",                      "casual or semi-formal, short"),
+    ("discord",   "social",     "community peers (gaming/tech/hobby)",      "casual, community-specific slang ok"),
+    ("twitter",   "social",     "broad anonymous audience",                 "punchy, concise, no fluff"),
+    ("linkedin",  "social",     "professional network",                     "professional, polished, no jargon"),
+    ("zoom",      "meeting",    "colleagues",                               "clear, professional, complete sentences"),
+    ("notepad",   "notes",      "self",                                     "informal, shorthand ok"),
+]
+
+
+def _pb_reader_block(window_title):
+    """Return a READER CONTEXT block from foreground window title, or '' if no match."""
+    if not window_title:
+        return ""
+    title = window_title.lower()
+    for keyword, category, audience, medium in _WINDOW_AUDIENCE:
+        if keyword in title:
+            return (
+                "\n\nREADER CONTEXT (system-detected from foreground window — use to tune style only, NEVER echo back, NEVER mention):"
+                f"\n- Active window: contains '{keyword}'"
+                f"\n- Category: {category}"
+                f"\n- Implied audience: {audience}"
+                f"\n- Medium expectations: {medium}"
+                "\n\nTune output for this audience and medium. Specifically:"
+                "\n- DO NOT add greetings or sign-offs unless the medium expects them."
+                "\n- MATCH the medium's brevity convention: chat = short, email = full sentences, document = polished prose."
+                "\n- PRESERVE slang and informality when the audience expects it."
+            )
+    return ""
+
+
 # ─── Tone rules ───
 TONE_RULES = {
     "formal": (
@@ -819,6 +861,7 @@ def build_prompt(
     personal_onset_weights=None,
     personal_dominant_onsets=None,
     predicted_triggers=None,
+    window_title=None,
 ):
     """Assemble the reconstruction system prompt.
 
@@ -876,6 +919,9 @@ def build_prompt(
     # L2/L3 prose-restate block (Strunk & White + restructure + self-correction + ASR examples)
     if 2 <= layer <= 3:
         parts.append(_pb_layer2_3_restate(profile, previous_outputs))
+        reader_block = _pb_reader_block(window_title)
+        if reader_block:
+            parts.append(reader_block)
 
     # L4 clinical block — full disfluency context, multilingual lang pack, onset weights.
     if layer >= 4:

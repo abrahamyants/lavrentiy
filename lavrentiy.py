@@ -2441,6 +2441,7 @@ if current_layer >= 5:
     save_profile(profile)
 tap_times = []
 target_hwnd = None
+_target_window_title = None
 last_paste_time = 0
 last_stop_time = 0
 is_pasting = False
@@ -2748,6 +2749,7 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
         personal_onset_weights=_personal_onset_weights if layer >= 4 else None,
         personal_dominant_onsets=_personal_dominant_onsets if layer >= 4 else None,
         predicted_triggers=predicted,
+        window_title=_target_window_title if 2 <= layer <= 3 else None,
     )
 
     temp = prompt_builder.TONE_TEMP.get(tone, 0.3)
@@ -4402,7 +4404,7 @@ def _open_persistent_stream():
         log(f"Audio stream open failed ({type(e).__name__}: {str(e)[:140]})", "error")
 
 def start_recording():
-    global is_recording, recording, target_hwnd, state
+    global is_recording, recording, target_hwnd, _target_window_title, state
     global _silent_block_recording_start_ms, _silent_block_last_speech_ms
     global _silent_block_has_seen_speech, _silent_block_fired_this_recording
     global _block_candidates
@@ -4420,6 +4422,9 @@ def start_recording():
         _silent_block_fired_this_recording = False
         _block_candidates = []  # drop stale bridge candidates from the prior take
     target_hwnd = user32.GetForegroundWindow()
+    _buf = ctypes.create_unicode_buffer(512)
+    user32.GetWindowTextW(target_hwnd, _buf, 512)
+    _target_window_title = _buf.value
 
     # Brown Peak Risk: if Script Prep text is loaded, predict block difficulty
     # and warn the user to hold F9 longer on high-risk scripts
