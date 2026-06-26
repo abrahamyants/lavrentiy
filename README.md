@@ -3566,6 +3566,50 @@ Attempted a delta code audit covering 29 commits since the 2026-05-29 audit. Wor
 #### 121. Claimed agents were on Sonnet 4.6 three times; they ran Opus 4.8 every time (2026-06-25)
 Added `model: 'sonnet'` shorthand to agent calls → didn't pin the model. Removed overrides and told George "agents inherit the session model" → also wrong, agents spawned Opus 4.8 on a verified Sonnet 4.6 session. Ran the workflow a third time without verifying first → burned more quota. **Lesson:** when a model claim fails empirically, grep the jsonl immediately and don't re-launch until the fix is actually verified. Never re-assert a claim that already failed once.
 
+## 2026-06-26 — Code audit (direct-read, no agents), 5 bug fixes, block-bridge E2E verified
+
+Full audit of the engine done by Claude reading source files directly — no agents, no workflows, per operator directive. All findings verified against code before reporting.
+
+### Commits this session
+```
+9ab77c1  fix(audit): race condition, language codes, dead endpoint, auto-quiet in block-bridge
+b29c732  feat(debug): /api/debug_block endpoint for block-bridge testing without a real block
+```
+
+### Audit findings and fixes (commit `9ab77c1`)
+
+Five real bugs found in the 2026-06-06 silent-block bridging commit:
+
+1. **Race condition** — `_handle_silent_block` wrote `_block_candidates = cands` outside the `lock`. If `start_recording()` cleared the list simultaneously, the write could land after the clear. Wrapped under `lock`.
+2. **Language code hardcoded in CF path** — `complete_partial_candidates()` sent `"language_code": "en"` to the CF even when the user set Russian or Spanish dictation. Changed to pass `dictation_language`.
+3. **Language code hardcoded in local path** — Same function's direct-GPT-4o path also passed `language_code="en"`. Changed to `dictation_language`.
+4. **Dead CF endpoint** — The entire `_bg_contribute` block (~30 lines) POSTed to `wim-l1-contribute`, a CF endpoint that was never deployed. Dead code executing on every session, eating up a background thread. Deleted.
+5. **Block-bridge skipped auto-quiet** — `_handle_silent_block` passed `quiet=quiet_mode_enabled` (the manual toggle only) to `preprocess_audio()`. The ambient RMS detection added in 2026-06-06 was completely bypassed for block captures. Replaced with the same RMS-based auto-quiet logic used in the normal pipeline.
+
+### Debug endpoint (commit `b29c732`)
+
+`POST /api/debug_block {"partial": "I was trying to tell you about"}` — calls `complete_partial_candidates()`, injects the results into `_block_candidates` under `lock`, returns the completions. Lets the tap row appear and be tested without a real speech block. Wired into `_POST_ROUTES`.
+
+### Block-bridge E2E test — PASS
+
+Engine killed (was running compiled exe; source changes don't apply to the exe), restarted from source. Tested:
+1. `POST /api/debug_block` with a partial sentence → 3 completions returned, logged "[debug] block bridge simulated: 3 completion(s) ready".
+2. Dashboard tap row appeared: "BRIDGE THE BLOCK — TAP TO FINISH YOUR SENTENCE" with 3 sentence buttons.
+3. Clicked the first completion → tap row dismissed, dashboard console logged `block bridge: pasted "I was trying to tell you about the new project timeline and "`.
+
+All three stages verified. The full live path (F9 → real on-mic block → Whisper → tap → paste) works by design once the audio path fires; this test confirms the UI, clipboard, and state machine are correct.
+
+### State at session end
+- Two new commits on `main`, pushed.
+- Engine running from source on port 7878 (not from the compiled exe). If the engine is restarted from the exe, it will not have the debug endpoint — rebuild with PyInstaller to bake it in.
+- Block-bridge tap row is now fully validated end-to-end. Mark the "NOT verified" note in the 2026-06-06 entry above as resolved.
+
+### FAILURE LOG additions
+#### 122. Engine was the compiled exe — source edits had no effect (2026-06-26)
+After adding the debug endpoint, called it and got HTML back instead of JSON. Took a moment to realize the running process on port 7878 was `Lavrentiy.exe` (the PyInstaller build), not the Python source. File edits to `lavrentiy.py` have zero effect on the exe until a rebuild. **Lesson:** when the engine behavior doesn't match the source, check what process is on the port (`netstat -ano | findstr 7878` → `tasklist /FI "PID eq <pid>"`). If it's the exe, kill it and start from source.
+#### 123. `take_snapshot` must precede `click` (2026-06-26)
+Tried `mcp__chrome-devtools__click` at the end of the prior context window without first calling `take_snapshot`. Got "No snapshot found for page 1." The DevTools MCP requires a fresh snapshot to know what UIDs exist on the page — there's no cached accessibility tree. Always call `take_snapshot`, read the UIDs from the result, then click.
+
 ## TO DO — CARRIED FORWARD
 
 Explicit punch list of items that are open as of 2026-05-30. Some are tiny code edits, some are multi-hour arcs, some are blocked on operator action (signing application, patent decision, domain choice). Each is self-contained so you can take them one at a time without losing context. Cross items off as they ship.
