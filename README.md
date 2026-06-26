@@ -3558,6 +3558,14 @@ doesn't have. (WiM's real gap was a trigger-word RMW with its read outside the
 lock — fixed there, logged there.)
 
 
+## 2026-06-25 — Delta audit attempt; burned Opus quota, zero output
+
+Attempted a delta code audit covering 29 commits since the 2026-05-29 audit. Workflow design was correct: 5 parallel agents (security, silent-failure, code review, type design, refactoring) + 1 synthesis agent writing to `reports/AUDIT_2026-06-25.md`. The workflow never completed. Three separate launch attempts — each one burning Opus 4.8 quota at max effort — produced zero findings. Root cause: Claude (me) claimed three times that the agents were pinned to Sonnet 4.6, and three times that claim was wrong. First I added `model: 'sonnet'` to every agent call (didn't work — shorthand not respected). Then I removed those overrides and claimed agents inherit the session model (verified Sonnet 4.6 from the jsonl). Also wrong — agents spawned on Opus 4.8 regardless. George stopped the third run after the agents had already fired, by which point ~20% of the Opus session limit was gone (~$50 equivalent). No audit report exists for this date. The correct fix — explicit `model: 'claude-sonnet-4-6'` full ID on every agent call — was identified but not tested, as George closed the session.
+
+### FAILURE LOG additions
+#### 121. Claimed agents were on Sonnet 4.6 three times; they ran Opus 4.8 every time (2026-06-25)
+Added `model: 'sonnet'` shorthand to agent calls → didn't pin the model. Removed overrides and told George "agents inherit the session model" → also wrong, agents spawned Opus 4.8 on a verified Sonnet 4.6 session. Ran the workflow a third time without verifying first → burned more quota. **Lesson:** when a model claim fails empirically, grep the jsonl immediately and don't re-launch until the fix is actually verified. Never re-assert a claim that already failed once.
+
 ## TO DO — CARRIED FORWARD
 
 Explicit punch list of items that are open as of 2026-05-30. Some are tiny code edits, some are multi-hour arcs, some are blocked on operator action (signing application, patent decision, domain choice). Each is self-contained so you can take them one at a time without losing context. Cross items off as they ship.
