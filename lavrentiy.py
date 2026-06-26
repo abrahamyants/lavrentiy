@@ -2672,35 +2672,7 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
             rejection_store.record(list(previous_outputs)[-1])
         except Exception as _e:
             log(f"rejection_store.record failed: {_e}", "warn")
-        # L1 contribution: regenerate = rejection signal = training data
-        if prof.get("contribute_l1_data") and prof.get("profile_l1"):
-            _last_rejected = list(previous_outputs)[-1]
-            if not prof.get("_anonymous_id"):
-                import uuid as _uuid
-                prof["_anonymous_id"] = str(_uuid.uuid4())
-                save_profile(prof)
-            def _bg_contribute(raw=raw_text, rejected=_last_rejected, l1=prof.get("profile_l1"), anon_id=prof.get("_anonymous_id", "")):
-                try:
-                    import urllib.request
-                    import json as _json
-                    payload = _json.dumps({
-                        "raw": raw[:2000],
-                        "model_output": rejected[:2000],
-                        "user_correction": "",  # unknown at rejection time — empty string signals implicit rejection
-                        "profile_l1": l1,
-                        "anonymous_id": anon_id,
-                    }).encode()
-                    req = urllib.request.Request(
-                        "https://us-central1-bakers-agent.cloudfunctions.net/wim-l1-contribute",
-                        data=payload, method="POST",
-                        headers={"Content-Type": "application/json"}
-                    )
-                    urllib.request.urlopen(req, timeout=5)
-                except Exception as _e:
-                    # Best-effort contribution — never block the pipeline, but
-                    # surface the failure instead of dying mute.
-                    log(f"_bg_contribute failed (non-fatal): {_e}", "warn")
-            threading.Thread(target=_bg_contribute, daemon=True).start()
+        # wim-l1-contribute CF removed — endpoint was never deployed.
 
     # >>> H-4: prompt building delegated to prompt_builder.build_prompt <<<
     # Cross-session memory (L3+) and personal phonetic state (L4) are
@@ -2824,7 +2796,7 @@ def complete_partial_candidates(partial_text, n=3):
                 "action": "complete_partial",
                 "partial_text": partial_text,
                 "tone": current_tone,
-                "language_code": "en",
+                "language_code": dictation_language,
             }).encode("utf-8")
             req = urllib.request.Request(
                 BACKEND_URL, data=payload,
@@ -2844,7 +2816,7 @@ def complete_partial_candidates(partial_text, n=3):
         return []
     try:
         system_prompt = prompt_builder.build_completion_prompt(
-            partial_text, tone=current_tone, language_code="en", n=n)
+            partial_text, tone=current_tone, language_code=dictation_language, n=n)
         resp = client.chat.completions.create(
             model=MODEL,
             messages=[{"role": "system", "content": system_prompt},
@@ -7181,7 +7153,10 @@ def _handle_silent_block():
         audio_data = numpy.concatenate(frames, axis=0).flatten()
         if NEEDS_RESAMPLE:
             audio_data = resample_poly(audio_data, RESAMPLE_UP, RESAMPLE_DOWN)
-        audio_data = preprocess_audio(audio_data, quiet=quiet_mode_enabled)
+        _snap_rms = float(numpy.sqrt(numpy.mean(audio_data ** 2))) if len(audio_data) else 0.0
+        _snap_dbfs = 20.0 * float(numpy.log10(_snap_rms)) if _snap_rms > 1e-9 else -120.0
+        _snap_quiet = quiet_mode_enabled or (QUIET_AUTO_ENABLED and _snap_dbfs < QUIET_AUTO_DBFS)
+        audio_data = preprocess_audio(audio_data, quiet=_snap_quiet)
         tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         tmp.close()
         sf.write(tmp.name, audio_data, TARGET_RATE)
@@ -7199,7 +7174,8 @@ def _handle_silent_block():
         return
     cands = complete_partial_candidates(partial)
     if cands:
-        _block_candidates = cands
+        with lock:
+            _block_candidates = cands
         log(f"block bridge: {len(cands)} completion(s) ready — tap one to finish the sentence", "info")
 
 
