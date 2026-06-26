@@ -214,6 +214,7 @@ SONNET_THINK_BUDGET = 8000
 SONNET_THINK_MAX_TOKENS = 16000
 
 _last_recon_model = ""  # updated by reconstruct() — shows in log status line
+_sonnet_downgraded = False  # True when L4 fell back from Sonnet ext-think to GPT-4o
 
 LANGUAGE = "en"
 PREFERRED_MIC = "C930"
@@ -2751,7 +2752,7 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
 
     temp = prompt_builder.TONE_TEMP.get(tone, 0.3)
 
-    global _last_recon_model
+    global _last_recon_model, _sonnet_downgraded
     use_model = MODEL_L4 if layer >= 4 else MODEL
 
     # L4 clinical reconstruction → Anthropic Sonnet 4.6 with extended thinking.
@@ -2775,12 +2776,17 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
             if clean_text:
                 stats_inc("anthropic_calls")
                 _last_recon_model = f"{SONNET_THINK_MODEL} (ext-think)"
+                _sonnet_downgraded = False
                 return clean_text
             # Empty Sonnet output — fall through to GPT-4o
+            _sonnet_downgraded = True
         except Exception as e:
             log(f"Sonnet 4.6 ext-think failed ({str(e)[:120]}), falling back to GPT-4o", "warn")
+            _sonnet_downgraded = True
 
     # L2/L3 cloud reconstruction (and L4 fallback): GPT-4o single-pass.
+    if layer < 4:
+        _sonnet_downgraded = False
     stats_inc("api_calls")
     resp = client.chat.completions.create(
         model=use_model,
@@ -7983,7 +7989,7 @@ def handle_GET_api_state(body=None) -> dict:
         _net_status = 'ok'
     else:
         _net_status = 'idle'
-    return {'state': 'command' if is_command_mode else state, 'is_command_mode': is_command_mode, 'mode': current_mode, 'network_status': _net_status, 'network_error': _last_api_error_msg if _net_status == 'error' else '', 'tone': current_tone, 'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?'), 'situation': current_situation, 'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0), 'stats': stats, 'model': MODEL_L4 if current_layer >= 4 else MODEL, 'whisper_temp': WHISPER_TEMP, 'whisper_no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD, 'whisper_multi_temp': WHISPER_MULTI_TEMP, 'speech_metrics': _last_speech_metrics, 'avg_logprob': _last_avg_logprob, 'redo_count': _redo_count, 'block_count': _block_count, 'avg_exposure': _compute_avg_exposure(), 'paralinguistic_events': _last_paralinguistic_events, 'speaker_state': _last_speaker_state, 'paralinguistic_enabled': paralinguistic_enabled, 'paralinguistic_transcribe': paralinguistic_transcribe, 'prosodic_enabled': prosodic_enabled, 'paralinguistic_available': current_layer != 1, 'prosodic_available': current_layer != 1, 'quiet_mode_enabled': quiet_mode_enabled, 'quiet_auto_active': _quiet_auto_active, 'dictation_language': dictation_language, 'l1_cloud_asr': L1_CLOUD_ASR, 'profile_name': _active_profile_name, 'block_candidates': _block_candidates, 'auth': {'signed_in': is_authenticated(), 'user': _auth_user, 'has_local_key': bool(API_KEY)}}
+    return {'state': 'command' if is_command_mode else state, 'is_command_mode': is_command_mode, 'mode': current_mode, 'network_status': _net_status, 'network_error': _last_api_error_msg if _net_status == 'error' else '', 'tone': current_tone, 'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?'), 'situation': current_situation, 'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0), 'stats': stats, 'model': MODEL_L4 if current_layer >= 4 else MODEL, 'whisper_temp': WHISPER_TEMP, 'whisper_no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD, 'whisper_multi_temp': WHISPER_MULTI_TEMP, 'speech_metrics': _last_speech_metrics, 'avg_logprob': _last_avg_logprob, 'redo_count': _redo_count, 'block_count': _block_count, 'avg_exposure': _compute_avg_exposure(), 'paralinguistic_events': _last_paralinguistic_events, 'speaker_state': _last_speaker_state, 'paralinguistic_enabled': paralinguistic_enabled, 'paralinguistic_transcribe': paralinguistic_transcribe, 'prosodic_enabled': prosodic_enabled, 'paralinguistic_available': current_layer != 1, 'prosodic_available': current_layer != 1, 'quiet_mode_enabled': quiet_mode_enabled, 'quiet_auto_active': _quiet_auto_active, 'dictation_language': dictation_language, 'l1_cloud_asr': L1_CLOUD_ASR, 'profile_name': _active_profile_name, 'block_candidates': _block_candidates, 'sonnet_downgraded': _sonnet_downgraded, 'last_recon_model': _last_recon_model, 'auth': {'signed_in': is_authenticated(), 'user': _auth_user, 'has_local_key': bool(API_KEY)}}
 
 def handle_GET_api_profiles(body=None) -> dict:
     return {'profiles': list_profiles(), 'active': _active_profile_name}
@@ -8313,6 +8319,16 @@ def handle_POST_api_profile(body=None) -> dict:
                 profile[key] = _dedupe_list([str(v) for v in body[key] if isinstance(v, str)])
         if 'corrections' in body and isinstance(body['corrections'], dict):
             profile['corrections'] = _norm_corrections({str(k): str(v) for k, v in body['corrections'].items() if isinstance(k, str) and isinstance(v, str)})
+        if 'profile_l1' in body:
+            profile['profile_l1'] = str(body['profile_l1']) if body['profile_l1'] else ''
+            log(f"L1-transfer pack set to: '{profile['profile_l1'] or 'none'}'", "info")
+        if '_l1_detect_prompted' in body:
+            profile['_l1_detect_prompted'] = bool(body['_l1_detect_prompted'])
+        if 'preferences' in body and isinstance(body['preferences'], dict):
+            prefs = profile.setdefault('preferences', {})
+            for k, v in body['preferences'].items():
+                if isinstance(k, str):
+                    prefs[k] = v
         save_profile(profile)
     return {'ok': True}
 

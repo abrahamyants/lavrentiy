@@ -818,6 +818,24 @@ body::before {
 #quiet-row.quiet-auto-active .toggle-slider { background: var(--amber, #c8a04e); border-color: var(--amber, #c8a04e); box-shadow: 0 0 8px rgba(200,160,78,0.75); }
 #quiet-row.quiet-auto-active .toggle-hint { color: var(--amber, #c8a04e); }
 
+/* Quiet-auto flash: brief amber pulse on the toggle row when auto-mode fires */
+@keyframes quietFlash { 0%{background:rgba(200,160,78,0.35)} 60%{background:rgba(200,160,78,0.12)} 100%{background:transparent} }
+.quiet-flash-anim { animation: quietFlash 1.6s ease-out; }
+
+/* Sonnet-downgraded notice */
+#sonnet-downgraded-bar { display:none; padding:6px 24px; border-bottom:1px solid var(--border); background:rgba(200,160,78,0.06); font-family:var(--mono); font-size:10px; color:var(--amber,#c8a04e); letter-spacing:1px; }
+
+/* Clarifier bar */
+#clarifier-bar { display:none; padding:10px 24px 12px; border-bottom:1px solid var(--border); background:rgba(255,255,255,0.01); }
+#clarifier-bar .clr-label { font-family:var(--mono); font-size:8px; letter-spacing:3px; color:var(--text-muted); text-transform:uppercase; margin-bottom:8px; }
+#clarifier-bar .clr-chips { display:flex; flex-wrap:wrap; gap:4px; align-items:center; }
+.clr-chip { font-family:var(--mono); font-size:12px; padding:3px 7px; border-radius:4px; background:rgba(255,255,255,0.06); border:1px solid var(--border); color:var(--text); cursor:pointer; transition:background 0.15s,border-color 0.15s; }
+.clr-chip:hover { background:rgba(255,255,255,0.12); border-color:var(--text-muted); }
+.clr-chip-input { font-family:var(--mono); font-size:12px; padding:2px 6px; border-radius:4px; background:rgba(255,255,255,0.1); border:1px solid var(--amber,#c8a04e); color:var(--text); outline:none; width:90px; }
+#clarifier-bar .clr-apply { font-family:var(--mono); font-size:9px; letter-spacing:2px; padding:4px 10px; border-radius:4px; background:rgba(200,160,78,0.15); border:1px solid var(--amber,#c8a04e); color:var(--amber,#c8a04e); cursor:pointer; margin-left:6px; }
+#clarifier-bar .clr-apply:hover { background:rgba(200,160,78,0.25); }
+#clarifier-bar .clr-dismiss { font-size:14px; color:var(--text-dim); cursor:pointer; margin-left:auto; padding:0 4px; }
+
 /* Sub-toggle: compact child control with L-connector */
 .toggle-sub {
   position: relative;
@@ -3052,6 +3070,11 @@ body::before {
           </div>
           <div id="block-bridge-options" style="display:flex;flex-direction:column;gap:6px"></div>
         </div>
+        <div id="sonnet-downgraded-bar">⚠ L4 FALLBACK — Sonnet ext-think unavailable, used GPT-4o this take</div>
+        <div id="clarifier-bar">
+          <div class="clr-label">CORRECT RECONSTRUCTION <span class="clr-dismiss" onclick="_clrDismiss()" title="Dismiss">&times;</span></div>
+          <div class="clr-chips" id="clr-chips"></div>
+        </div>
         <div class="console-wrap" id="console"><div class="console-empty">Waiting for input...</div></div>
       </div>
 
@@ -3353,6 +3376,8 @@ function toggleTheme(){
 // ─── end Dark mode ────────────────────────────────────────
 let _toggleCooldown={};
 let lastLogId=0;let logLines=[];
+let _prevAutoQuiet=false;
+let _clrText=''; // current clarifier reconstruction text
 let learnData={status:{},events:[],totals:{corrections:0,fillers:0,vocabulary:0}};
 let lastLearnEventCount=0;let lastLogFetch=0;let lastLearnFetch=0;let lastPreviewFetch=0;
 const FIELD_MAP={trigger:'trigger_words',filler:'filler_words',vocab:'vocabulary'};
@@ -4042,6 +4067,12 @@ function updateUI(){
   const _qRow=document.getElementById('quiet-row');const _qHint=document.getElementById('quiet-hint');
   if(_qRow)_qRow.classList.toggle('quiet-auto-active',_autoQuiet&&!state.quiet_mode_enabled);
   if(_qHint)_qHint.textContent=(_autoQuiet&&!state.quiet_mode_enabled)?'AUTO — whisper detected':'auto · whispered/soft speech';
+  // Quiet-auto flash: fire on rising edge (off → on)
+  if(_autoQuiet && !_prevAutoQuiet && _qRow){_qRow.classList.remove('quiet-flash-anim');void _qRow.offsetWidth;_qRow.classList.add('quiet-flash-anim');}
+  _prevAutoQuiet=_autoQuiet;
+  // Sonnet-downgraded notice
+  const _sdBar=document.getElementById('sonnet-downgraded-bar');
+  if(_sdBar)_sdBar.style.display=(!!state.sonnet_downgraded&&state.layer>=4)?'block':'none';
   // Speech metrics sidebar (#11)
   const sm=state.speech_metrics||{};
   const pauseEl=document.getElementById('speech-pause');
@@ -4186,7 +4217,58 @@ function renderConsole(){
   el.appendChild(frag);
   if(banner)el.insertBefore(banner, el.firstChild);
   if(atTop)el.scrollTop=0;
+  // Update clarifier with the most recent reconstruction output
+  const lastOut = [...logLines].reverse().find(e=>e.kind==='out');
+  if(lastOut){
+    const rawText = lastOut.text.replace(/^-> "/,'').replace(/"  \[\d+w\].*$/,'').trim();
+    if(rawText && rawText !== _clrText){ _clrText=rawText; _clrRender(); }
+  }
 }
+function _clrRender(){
+  const bar=document.getElementById('clarifier-bar');
+  const chips=document.getElementById('clr-chips');
+  if(!bar||!chips||!_clrText){if(bar)bar.style.display='none';return;}
+  bar.style.display='block';
+  chips.innerHTML='';
+  const words=_clrText.split(/(\s+)/);
+  words.forEach(function(tok,i){
+    if(/^\s+$/.test(tok)){chips.appendChild(document.createTextNode(' '));return;}
+    const chip=document.createElement('span');
+    chip.className='clr-chip';
+    chip.textContent=tok;
+    chip.title='Click to correct this word';
+    chip.addEventListener('click',function(){_clrEditChip(chip,tok,i);});
+    chips.appendChild(chip);
+  });
+  const applyBtn=document.createElement('button');
+  applyBtn.className='clr-apply';
+  applyBtn.textContent='COPY';
+  applyBtn.title='Copy corrected text to clipboard';
+  applyBtn.addEventListener('click',_clrApply);
+  chips.appendChild(applyBtn);
+}
+function _clrEditChip(chip,original,idx){
+  const inp=document.createElement('input');
+  inp.className='clr-chip-input';
+  inp.value=original;
+  inp.style.width=Math.max(60,original.length*9)+'px';
+  chip.replaceWith(inp);
+  inp.focus();inp.select();
+  function commit(){
+    const newWord=inp.value.trim()||original;
+    _clrText=_clrText.replace(new RegExp('(?<![\\w])'+ original.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?![\\w])'),newWord);
+    _clrRender();
+  }
+  inp.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();commit();}else if(e.key==='Escape'){_clrRender();}});
+  inp.addEventListener('blur',commit);
+}
+function _clrApply(){
+  if(!_clrText)return;
+  navigator.clipboard.writeText(_clrText).catch(function(){
+    const ta=document.createElement('textarea');ta.value=_clrText;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);
+  });
+}
+function _clrDismiss(){ _clrText=''; const bar=document.getElementById('clarifier-bar');if(bar)bar.style.display='none'; }
 function _setL1FromDetect(lang){
   if(!lang || !/^\w+$/.test(lang)) return;
   fetch('/api/profile', {method:'POST', headers:{'Content-Type':'application/json'},
