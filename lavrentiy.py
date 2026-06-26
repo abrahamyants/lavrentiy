@@ -8650,6 +8650,24 @@ def handle_POST_api_block_dismiss(body=None) -> dict:
     return {'ok': True}
 
 
+def handle_POST_api_debug_block(body=None) -> dict:
+    """Testing only: simulate a silent-block mid-recording without a real mic.
+    POST {"partial": "I was trying to say"} → generates completions, populates
+    the tap row exactly as a real block would. Tap one on the dashboard to verify
+    the full inject→paste chain."""
+    global _block_candidates
+    partial = ((body or {}).get('partial') or '').strip()
+    if not partial:
+        return {'ok': False, 'error': 'missing partial text'}
+    cands = complete_partial_candidates(partial)
+    if not cands:
+        return {'ok': False, 'error': 'no completions returned'}
+    with lock:
+        _block_candidates = cands
+    log(f"[debug] block bridge simulated: {len(cands)} completion(s) ready", "info")
+    return {'ok': True, 'candidates': cands}
+
+
 def handle_POST_api_quiet_threshold(body=None) -> dict:
     """Live-tune the Auto Quiet Mode cutoff (dBFS) without a rebuild. Lower
     (more negative) = stricter (only very soft takes); higher = looser."""
@@ -8724,6 +8742,7 @@ _POST_ROUTES = {
     '/api/set-key':                       handle_POST_api_set_key,
     '/api/block_inject':                  handle_POST_api_block_inject,
     '/api/block_dismiss':                 handle_POST_api_block_dismiss,
+    '/api/debug_block':                   handle_POST_api_debug_block,
     '/api/quiet_threshold':               handle_POST_api_quiet_threshold,
 }
 
