@@ -412,13 +412,16 @@ def _test_save_profile(prof):
             json.dump(prof, f, indent=2, ensure_ascii=False)
             f.flush()
             os.fsync(f.fileno())
-        # Windows can raise PermissionError if a reader holds the target file;
-        # retry once after a brief pause (matches real-world behavior)
-        try:
-            tmp_path.replace(_test_profile_path)
-        except PermissionError:
-            time.sleep(0.01)
-            tmp_path.replace(_test_profile_path)
+        # Windows can raise PermissionError if AV/indexing briefly touches
+        # the file. Mirror production save_profile: 4 attempts with backoff.
+        for attempt in range(4):
+            try:
+                tmp_path.replace(_test_profile_path)
+                break
+            except OSError:
+                if attempt == 3:
+                    raise
+                time.sleep(0.2 * (2 ** attempt))
 
 errors7 = []
 N_PROFILE_THREADS = 10
@@ -469,13 +472,18 @@ check('no .tmp file left behind', not tmp_leftover.exists())
 
 # Stress test: rapid sequential reads during writes
 read_errors = []
+write_errors = []
 read_results = []
 write_done = threading.Event()
 
 def profile_writer_stress():
-    for i in range(100):
-        _test_save_profile({"version": 4, "stress_write": i, "trigger_words": []})
-    write_done.set()
+    try:
+        for i in range(100):
+            _test_save_profile({"version": 4, "stress_write": i, "trigger_words": []})
+    except Exception as e:
+        write_errors.append(f"{type(e).__name__}: {e}")
+    finally:
+        write_done.set()
 
 def profile_reader_stress():
     while not write_done.is_set():
@@ -488,6 +496,9 @@ def profile_reader_stress():
             read_errors.append(str(e))
         except IOError:
             pass  # file mid-rename, OK
+        # Simulate dashboard polling instead of a pathological tight loop that
+        # can starve Windows rename attempts by holding the target continuously.
+        time.sleep(0.005)
 
 writer_t = threading.Thread(target=profile_writer_stress)
 readers = [threading.Thread(target=profile_reader_stress) for _ in range(3)]
@@ -502,6 +513,8 @@ for r in readers:
 
 check('no JSON decode errors during concurrent read/write', len(read_errors) == 0,
       str(read_errors[:3]) if read_errors else '')
+check('no writer errors during concurrent read/write', len(write_errors) == 0,
+      str(write_errors[:3]) if write_errors else '')
 check(f'readers got valid profiles ({len(read_results)} reads)',
       len(read_results) > 0 and all(isinstance(r, dict) for r in read_results))
 

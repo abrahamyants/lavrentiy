@@ -228,6 +228,7 @@ class FakeClient:
 
 # Monkey-patch the module's client
 original_client = R.client
+original_anthropic_client = R.anthropic_client
 R.client = FakeClient()
 
 try:
@@ -278,9 +279,10 @@ try:
 
     # L4 model selection
     R.client = FakeClient()
+    R.anthropic_client = None
     r6 = R.reconstruct_intent('hello', layer=4, mode='FAST', profile={'trigger_words': ['hello']})
     api_call = R.client.chat.completions.calls[0]
-    check('L4: uses MODEL_L4', api_call['model'] == R.MODEL_L4)
+    check('L4 fallback: uses MODEL_L4', api_call['model'] == R.MODEL_L4)
     check('L4: prompt has disfluency context', 'disfluency' in api_call['messages'][0]['content'].lower())
 
     # Whisper signals forwarded
@@ -301,6 +303,7 @@ try:
 
 finally:
     R.client = original_client
+    R.anthropic_client = original_anthropic_client
 
 # ---- Response shape contract ----
 print()
