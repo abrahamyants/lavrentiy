@@ -300,6 +300,25 @@ for node in ast.walk(tree):
                 except Exception as e:
                     print(f'SKIP {node.name}: {e}')
 
+# Module-level state globals the stateful handlers read (current_mode,
+# current_layer, stats, _net_status, the many *_enabled flags, etc.). The
+# handlers have grown far more of these than the harness used to inject by
+# hand, so /api/state and /api/report failed with KeyErrors on the missing
+# keys. Auto-load every module-level assignment whose value is a plain
+# literal (or a name already in ns) — the simple state initializers — while
+# skipping anything computed (calls, comprehensions) that could do real I/O.
+_SAFE_VALUE = (ast.Constant, ast.Dict, ast.List, ast.Tuple, ast.Set,
+               ast.Name, ast.Attribute, ast.UnaryOp)
+for node in ast.walk(tree):
+    if isinstance(node, ast.Assign) and isinstance(node.value, _SAFE_VALUE):
+        names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+        if not names or all(n in ns for n in names):
+            continue
+        try:
+            exec(ast.get_source_segment(source, node), ns)
+        except Exception:
+            pass  # skip any that reference not-yet-loaded symbols
+
 # Route tables added in the H-1 dispatch refactor. dispatch_api() reads
 # _GET_ROUTES / _POST_ROUTES at call time; they map paths to the handler
 # functions loaded above, so they must be exec'd into ns AFTER the handlers
