@@ -117,7 +117,9 @@ loaded = []
 # NameErrors at call time. Defining a function never runs its body, so this is
 # side-effect-free; the target list is kept only for the coverage report.
 for node in tree.body:
-    if isinstance(node, ast.FunctionDef):
+    # skip names already seeded above (intentional stubs like a no-op log()) —
+    # loading the real one would drag in unseeded module state (e.g. _log_lock).
+    if isinstance(node, ast.FunctionDef) and node.name not in ns:
         func_source = ast.get_source_segment(source, node)
         if func_source:
             try:
