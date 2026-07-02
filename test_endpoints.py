@@ -1,132 +1,123 @@
 """
 HTTP endpoint tests for the Lavrentiy dashboard server.
-Starts a real ThreadingHTTPServer on a test port, hits every endpoint,
-verifies JSON response shape and state mutations.
-No API keys, no audio, no Win32.
-"""
-import re, json, sys, ast, time, io, threading
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
+Imports the REAL lavrentiy module (no more AST slicing), seeds the runtime
+state globals to deterministic test values, then starts the real
+DashboardHandler on an ephemeral port and exercises every endpoint over HTTP.
+Verifies JSON response shape and state mutations. No API keys, no audio,
+no Win32, no network.
+
+Why this used to AST-slice, and why it no longer needs to
+---------------------------------------------------------
+lavrentiy.py imports hardware/OS modules at module scope (sounddevice,
+soundfile, keyboard, pyperclip, pyautogui) and touches ctypes.windll for its
+single-instance mutex + DPI setup. None of that exists on the CI box
+(ubuntu-latest installs only numpy/scipy/openai) or on any non-Windows box, so
+a naive `import lavrentiy` would ImportError/AttributeError. The original test
+worked around this by ast-slicing individual functions into a hand-built
+namespace — but the handlers read 30+ live module globals that the hand-built
+namespace kept missing, so /api/state, /api/tone, /api/layer and
+/api/clinical_profile failed with KeyErrors.
+
+The fix: install lightweight fakes in sys.modules and a MagicMock ctypes.windll
+BEFORE importing lavrentiy, so the module-level mic detection and the Windows
+mutex become no-ops. The MagicMock makes `kernel32.GetLastError() == 183`
+false, so the "already running -> os._exit(0)" branch never fires — which also
+means running this test while the real engine is live will NOT kill it. After
+import, `ns` is the live module dict, so every global the handlers read is
+present, and seeding writes through to the real module.
+
+No network / LLM / model calls: the module-level ClipboardPredictor thread is
+stopped immediately after import, and the I/O functions the handlers reach
+(save_profile, db_get_sessions, daf_*, augment_calibration_data, log) are
+replaced with stubs. The tested endpoints never trigger audio capture or
+reconstruction, so faster_whisper/torch are never loaded.
+
+lavrentiy.py itself is NOT modified.
+"""
+import re, json, sys, time, io, threading
+from unittest.mock import MagicMock
 from pathlib import Path
 from datetime import datetime, timedelta
 from http.server import ThreadingHTTPServer
 import urllib.request
 import urllib.error
 
-with open('lavrentiy.py', 'r', encoding='utf-8') as f:
-    source = f.read()
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
-tree = ast.parse(source)
-lines = source.split('\n')
+# Import lavrentiy from this file's directory regardless of the caller's CWD.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-# Build namespace
-ns = {
-    're': re, 'json': json, 'time': time, 'os': __import__('os'),
-    'datetime': datetime, 'timedelta': timedelta,
-    'Path': Path, 'difflib': __import__('difflib'),
-    'threading': threading, 'tempfile': __import__('tempfile'),
-    'ThreadingHTTPServer': ThreadingHTTPServer,
-    'BaseHTTPRequestHandler': __import__('http.server', fromlist=['BaseHTTPRequestHandler']).BaseHTTPRequestHandler,
-}
+# ---------------------------------------------------------------------------
+# Stub hardware / OS modules that are missing on CI, BEFORE importing lavrentiy.
+# ---------------------------------------------------------------------------
+# sounddevice needs real-ish return shapes: lavrentiy does module-level mic
+# detection — it iterates query_devices() and reads default_samplerate.
+_fake_sd = MagicMock(name='sounddevice')
+_FAKE_DEVICE = {'name': 'Fake Test Mic', 'max_input_channels': 2,
+                'max_output_channels': 2, 'default_samplerate': 16000.0}
+def _fake_query_devices(index=None, kind=None):
+    return _FAKE_DEVICE if index is not None else [_FAKE_DEVICE]
+_fake_sd.query_devices = _fake_query_devices
+_fake_sd.default = MagicMock()
+_fake_sd.default.device = [0, 0]
+sys.modules['sounddevice'] = _fake_sd
 
-# Load constants block
-start_idx = next(i for i, l in enumerate(lines) if l.startswith('LANGUAGE = '))
-end_idx = next(i for i, l in enumerate(lines) if '_personal_onset_weights_by_lang' in l and '=' in l)
-exec('\n'.join(lines[start_idx:end_idx + 1]), ns)
+# pyperclip.paste() must return a stable empty string so the ClipboardPredictor
+# tick (if it ever ran) finds nothing to act on. Belt-and-suspenders: we also
+# stop the predictor thread outright after import.
+_fake_pyperclip = MagicMock(name='pyperclip')
+_fake_pyperclip.paste = lambda: ""
+sys.modules['pyperclip'] = _fake_pyperclip
 
-# Load FUNCTION_WORDS
-fw_start = next(i for i, l in enumerate(lines) if l.startswith('FUNCTION_WORDS = '))
-fw_end = fw_start + 1
-while fw_end < len(lines) and '}' not in lines[fw_end]:
-    fw_end += 1
-exec('\n'.join(lines[fw_start:fw_end + 1]), ns)
+# NOTE: do NOT fake torch / faster_whisper here. They are imported only lazily
+# (inside functions the endpoint tests never call), and scipy.stats' array-API
+# dispatch probes sys.modules for "torch" — a MagicMock there makes it attempt
+# issubclass(cls, torch.Tensor) on a non-class and crash the whole import.
+# Leaving them absent lets scipy correctly detect "torch not installed".
+for _name in ('soundfile', 'keyboard', 'pyautogui'):
+    sys.modules[_name] = MagicMock(name=_name)
 
-# Load KNOWN_FILLERS
-kf_start = next(i for i, l in enumerate(lines) if 'KNOWN_FILLERS' in l and '=' in l and 'if' not in l)
-kf_end = kf_start + 1
-while kf_end < len(lines) and '}' not in lines[kf_end]:
-    kf_end += 1
-exec('\n'.join(lines[kf_start:kf_end + 1]), ns)
+# Pre-import the real heavy deps BEFORE we mock ctypes.windll. On Windows,
+# openai -> httpx -> click.  click._winconsole binds the REAL windll.kernel32 at
+# import time (WINFUNCTYPE), which needs a real integer handle — a mocked windll
+# would raise "the _handle attribute ... must be an integer". Importing them
+# here caches those modules against the real windll; the later mock then only
+# affects lavrentiy's own mutex/DPI calls. On Linux (CI) click's Windows shim is
+# never imported, so this is just a harmless warm-up.
+for _name in ('openai', 'numpy', 'scipy.signal'):
+    try:
+        __import__(_name)
+    except Exception:
+        pass
 
-# Load _ENGLISH_ONSET_BASELINE
-eb_start = next(i for i, l in enumerate(lines) if l.startswith('_ENGLISH_ONSET_BASELINE = '))
-eb_end = eb_start + 1
-while eb_end < len(lines) and '}' not in lines[eb_end]:
-    eb_end += 1
-exec('\n'.join(lines[eb_start:eb_end + 1]), ns)
+# ctypes.windll only exists on Windows. Make it a harmless mock everywhere so
+# lavrentiy's module-level mutex + DPI code is a no-op and never calls
+# os._exit(). MagicMock() == 183 is False, so the "already running" branch is
+# skipped — which also means this test will NOT kill a live engine instance.
+import ctypes
+ctypes.windll = MagicMock(name='windll')
 
-# Load _HIGH_FREQ_WORDS
-hf_start = next(i for i, l in enumerate(lines) if l.startswith('_HIGH_FREQ_WORDS = '))
-hf_end = hf_start + 1
-brace_depth = 1
-while hf_end < len(lines) and brace_depth > 0:
-    brace_depth += lines[hf_end].count('{') - lines[hf_end].count('}')
-    hf_end += 1
-exec('\n'.join(lines[hf_start:hf_end]), ns)
+# ---------------------------------------------------------------------------
+# Import the real engine.
+# ---------------------------------------------------------------------------
+import lavrentiy
 
-# Load STUTTER_TIPS + MAX_INSIGHTS
-st_start = next(i for i, l in enumerate(lines) if l.startswith('STUTTER_TIPS = '))
-st_end = st_start + 1
-brace_depth = 1
-while st_end < len(lines) and brace_depth > 0:
-    brace_depth += lines[st_end].count('{') - lines[st_end].count('}')
-    st_end += 1
-exec('\n'.join(lines[st_start:st_end]), ns)
+# Kill the module-level clipboard-predictor daemon thread so it can never poll
+# the clipboard or call an LLM during the situation tests (which flip
+# current_situation into the predictor's high-pressure set).
+try:
+    lavrentiy._clipboard_predictor.stop()
+except Exception:
+    pass
 
-# Load DEFAULT_PROFILE
-dp_start = next(i for i, l in enumerate(lines) if l.startswith('DEFAULT_PROFILE = '))
-dp_end = dp_start + 1
-brace_depth = 1
-while dp_end < len(lines) and brace_depth > 0:
-    brace_depth += lines[dp_end].count('{') - lines[dp_end].count('}')
-    dp_end += 1
-exec('\n'.join(lines[dp_start:dp_end]), ns)
+ns = lavrentiy.__dict__  # live module namespace; handlers read/write through it
 
-# Load scalar constants
-for l in lines:
-    for prefix in ('MAX_INSIGHTS', 'LEARN_EVERY', 'LEARN_PROMOTION_THRESHOLD',
-                   'MAX_PROFILE_ITEMS', 'DECAY_STALE_SESSIONS', 'DECAY_DEAD_SESSIONS',
-                   'DECAY_EVERY', 'DAF_MIN_DELAY_MS', 'DAF_MAX_DELAY_MS',
-                   'AUGMENT_VARIANTS'):
-        if l.startswith(prefix):
-            exec(l, ns)
-
-# Load LAYER_NAMES, SITUATIONS, TONES, LAYERS, MODES, SITUATION_PRESETS
-for target in ('LAYER_NAMES', 'TONES', 'LAYERS', 'MODES'):
-    ln = next((l for l in lines if l.startswith(target + ' = ')), None)
-    if ln:
-        # Some may be multi-line dicts/lists
-        idx = lines.index(ln)
-        end = idx
-        if '{' in ln or '[' in ln:
-            depth = ln.count('{') + ln.count('[') - ln.count('}') - ln.count(']')
-            end = idx
-            while depth > 0 and end + 1 < len(lines):
-                end += 1
-                depth += lines[end].count('{') + lines[end].count('[') - lines[end].count('}') - lines[end].count(']')
-        exec('\n'.join(lines[idx:end + 1]), ns)
-
-# Load CALIBRATION_PROMPTS
-cp_start = next(i for i, l in enumerate(lines) if l.startswith('CALIBRATION_PROMPTS = '))
-cp_end = cp_start + 1
-brace_depth = 1
-while cp_end < len(lines) and brace_depth > 0:
-    brace_depth += lines[cp_end].count('[') - lines[cp_end].count(']')
-    cp_end += 1
-exec('\n'.join(lines[cp_start:cp_end]), ns)
-
-ln = next(l for l in lines if l.startswith('SITUATIONS = '))
-exec(ln, ns)
-
-sp_start = next(i for i, l in enumerate(lines) if l.startswith('SITUATION_PRESETS = '))
-sp_end = sp_start + 1
-brace_depth = 1
-while sp_end < len(lines) and brace_depth > 0:
-    brace_depth += lines[sp_end].count('{') - lines[sp_end].count('}')
-    sp_end += 1
-exec('\n'.join(lines[sp_start:sp_end]), ns)
-
-# Thread locks
+# ---------------------------------------------------------------------------
+# Seed runtime state to deterministic test values. These write through to the
+# real module globals the handlers close over.
+# ---------------------------------------------------------------------------
+# Thread locks (fresh, uncontended for the test).
 ns['_prep_lock'] = threading.Lock()
 ns['_shadow_lock'] = threading.Lock()
 ns['_learn_lock'] = threading.Lock()
@@ -223,14 +214,18 @@ ns['_augment_state'] = {
     "errors": 0, "last_run": None,
 }
 ns['DAF_DEFAULT_DELAY_MS'] = 100
-# Temp dirs for calibration/augment (no real audio files)
+# Temp dirs for calibration/augment (no real audio files, never touches the
+# user's real calibration directory).
 import tempfile as _tmpmod
 _test_cal_dir = Path(_tmpmod.mkdtemp())
 ns['CALIBRATION_DIR'] = _test_cal_dir
 ns['AUGMENT_DIR'] = _test_cal_dir / "augmented"
 ns['PROFILE_DIR'] = _test_cal_dir.parent
 
-# Stubs
+# ---------------------------------------------------------------------------
+# Stub the I/O the handlers reach, so the test stays offline and never writes
+# the real profile.json / touches the real session DB.
+# ---------------------------------------------------------------------------
 ns['log'] = lambda msg, level='info': None
 ns['stats_inc'] = lambda key, n=1: None
 ns['save_profile'] = lambda prof, _epoch=None: None
@@ -246,106 +241,16 @@ ns['daf_stop'] = _stub_daf_stop
 ns['daf_set_delay'] = lambda ms: None
 ns['augment_calibration_data'] = lambda: None
 
-# Extract functions the handler calls
-target_funcs = [
-    '_extract_onset', 'learn_onset_weights', 'predict_phonetic_risk',
-    '_learn_event', '_learn_events_snapshot', '_sample', '_norm_str',
-    'detect_word_language', 'set_last_prep',
-    'compute_risk_flags', 'make_decision',
-    'compute_exposure_difficulty', 'compute_editorial_distance',
-    'compute_substitution_fingerprint', 'compute_avoidance_trend',
-    'build_stutter_insights', 'compute_brown_scores',
-    'predict_triggers_in_text', 'compute_wer',
-    'check_redo', 'prep_text',
-    'set_tone', 'set_layer', 'set_mode', 'set_situation',
-    'set_paralinguistic', 'set_paralinguistic_transcribe', 'set_prosodic',
-    '_dedupe_list', '_norm_corrections',
-    'calibration_status', 'calibration_next_prompt',
-    'augment_status', 'compute_severity_score',
-    'get_patience_timeout', 'generate_clinical_profile',
-]
-
-for node in ast.walk(tree):
-    if isinstance(node, ast.FunctionDef) and node.name in target_funcs:
-        func_source = ast.get_source_segment(source, node)
-        if func_source:
-            try:
-                exec(func_source, ns)
-            except Exception as e:
-                print(f'SKIP {node.name}: {e}')
-
-# Auto-inject dispatch_api + every handle_(GET|POST)_api_* + a few helpers
-# the refactored DashboardHandler delegates through. After the H-1 refactor
-# do_GET / do_POST no longer hold inline route bodies — they delegate to
-# dispatch_api(path, body), which calls handle_*_api_* functions defined at
-# module scope. The class-only extraction previously missed these; without
-# this fix every endpoint test failed with "Remote end closed connection
-# without response" (NameError inside the request thread).
-_auto_prefixes = ('handle_GET_api_', 'handle_POST_api_')
-_auto_exact = {'dispatch_api', 'set_accent_mode', 'set_quiet_mode',
-               'list_profiles', 'create_profile', 'switch_profile',
-               'cycle_layer', 'set_l1_cloud_asr', 'generate_voice_profile',
-               'generate_shadow_utterance', 'compute_avg_exposure',
-               '_compute_avg_exposure', '_compute_avg_edit_dist'}
-for node in ast.walk(tree):
-    if isinstance(node, ast.FunctionDef):
-        if (any(node.name.startswith(p) for p in _auto_prefixes)
-                or node.name in _auto_exact):
-            if node.name in ns:
-                continue  # already loaded via target_funcs
-            func_source = ast.get_source_segment(source, node)
-            if func_source:
-                try:
-                    exec(func_source, ns)
-                except Exception as e:
-                    print(f'SKIP {node.name}: {e}')
-
-# Module-level state globals the stateful handlers read (current_mode,
-# current_layer, stats, _net_status, the many *_enabled flags, etc.). The
-# handlers have grown far more of these than the harness used to inject by
-# hand, so /api/state and /api/report failed with KeyErrors on the missing
-# keys. Auto-load every module-level assignment whose value is a plain
-# literal (or a name already in ns) — the simple state initializers — while
-# skipping anything computed (calls, comprehensions) that could do real I/O.
-_SAFE_VALUE = (ast.Constant, ast.Dict, ast.List, ast.Tuple, ast.Set,
-               ast.Name, ast.Attribute, ast.UnaryOp)
-for node in ast.walk(tree):
-    if isinstance(node, ast.Assign) and isinstance(node.value, _SAFE_VALUE):
-        names = [t.id for t in node.targets if isinstance(t, ast.Name)]
-        if not names or all(n in ns for n in names):
-            continue
-        try:
-            exec(ast.get_source_segment(source, node), ns)
-        except Exception:
-            pass  # skip any that reference not-yet-loaded symbols
-
-# Route tables added in the H-1 dispatch refactor. dispatch_api() reads
-# _GET_ROUTES / _POST_ROUTES at call time; they map paths to the handler
-# functions loaded above, so they must be exec'd into ns AFTER the handlers
-# exist — otherwise dispatch_api NameErrors on _GET_ROUTES under the server.
-for node in ast.walk(tree):
-    if isinstance(node, ast.Assign):
-        for tgt in node.targets:
-            if isinstance(tgt, ast.Name) and tgt.id in ('_GET_ROUTES', '_POST_ROUTES'):
-                exec(ast.get_source_segment(source, node), ns)
-
-# Extract the DashboardHandler class
-for node in ast.walk(tree):
-    if isinstance(node, ast.ClassDef) and node.name == 'DashboardHandler':
-        cls_source = ast.get_source_segment(source, node)
-        if cls_source:
-            exec(cls_source, ns)
-
-loaded = [k for k in target_funcs if k in ns]
-handler_loaded = 'DashboardHandler' in ns
-print(f'Loaded {len(loaded)}/{len(target_funcs)} functions + handler={handler_loaded}')
-print()
-
-if not handler_loaded:
-    print('FATAL: DashboardHandler not loaded')
+# ---------------------------------------------------------------------------
+# Start the real DashboardHandler on a high test port.
+# ---------------------------------------------------------------------------
+if 'DashboardHandler' not in ns:
+    print('FATAL: DashboardHandler missing from lavrentiy module')
     sys.exit(1)
 
-# Start test server on a high port
+print(f'lavrentiy imported OK; serving real DashboardHandler for tests')
+print()
+
 TEST_PORT = 18787
 server = ThreadingHTTPServer(('127.0.0.1', TEST_PORT), ns['DashboardHandler'])
 server_thread = threading.Thread(target=server.serve_forever, daemon=True)
