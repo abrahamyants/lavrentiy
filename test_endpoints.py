@@ -98,6 +98,14 @@ for _name in ('openai', 'numpy', 'scipy.signal'):
 import ctypes
 ctypes.windll = MagicMock(name='windll')
 
+# lavrentiy does a module-level profile migration (migrate_fillers -> save_profile)
+# at import. save_profile() mkdirs PROFILE_DIR (~/.lavrentiy/profiles/<name>) with
+# exist_ok=True but WITHOUT parents=True, so on a fresh box where ~/.lavrentiy
+# doesn't exist yet (any CI runner) the import dies with FileNotFoundError. A
+# machine that has ever run the app already has the dir, which is why this only
+# shows up on CI. Pre-create the tree so the import's mkdir is a no-op.
+(Path.home() / ".lavrentiy" / "profiles" / "Default").mkdir(parents=True, exist_ok=True)
+
 # ---------------------------------------------------------------------------
 # Import the real engine.
 # ---------------------------------------------------------------------------
