@@ -300,6 +300,16 @@ for node in ast.walk(tree):
                 except Exception as e:
                     print(f'SKIP {node.name}: {e}')
 
+# Route tables added in the H-1 dispatch refactor. dispatch_api() reads
+# _GET_ROUTES / _POST_ROUTES at call time; they map paths to the handler
+# functions loaded above, so they must be exec'd into ns AFTER the handlers
+# exist — otherwise dispatch_api NameErrors on _GET_ROUTES under the server.
+for node in ast.walk(tree):
+    if isinstance(node, ast.Assign):
+        for tgt in node.targets:
+            if isinstance(tgt, ast.Name) and tgt.id in ('_GET_ROUTES', '_POST_ROUTES'):
+                exec(ast.get_source_segment(source, node), ns)
+
 # Extract the DashboardHandler class
 for node in ast.walk(tree):
     if isinstance(node, ast.ClassDef) and node.name == 'DashboardHandler':
