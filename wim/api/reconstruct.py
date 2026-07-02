@@ -29,7 +29,7 @@ except ImportError:
     # path; the deployed CF always has it via requirements.txt.
     anthropic = None
 
-from prompt_builder import build_prompt, build_completion_prompt, TONE_TEMP
+from prompt_builder import build_prompt, build_completion_prompt, TONE_TEMP, SITUATION_SEVERITY
 
 # ─── Config ───
 # Model pinned to a specific snapshot so silent OpenAI version drift can't

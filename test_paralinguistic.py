@@ -92,8 +92,14 @@ testable_funcs = [
     'format_paralinguistic_tags', 'inject_paralinguistic_tags_tsa',
     'predict_phonetic_risk', '_extract_onset',
 ]
-for node in ast.walk(tree):
-    if isinstance(node, ast.FunctionDef) and node.name in testable_funcs:
+# Load every module-level function, not just the enumerated targets: the
+# tested functions call private helpers (e.g. detect_paralinguistic_events ->
+# _localize_candidate_window) that the old name-filtered load left out, so
+# they NameError'd at call time. Defining a function never runs its body, so
+# loading all of them is side-effect-free; testable_funcs is kept only for the
+# coverage report below.
+for node in tree.body:
+    if isinstance(node, ast.FunctionDef):
         func_source = ast.get_source_segment(source, node)
         if func_source:
             try:

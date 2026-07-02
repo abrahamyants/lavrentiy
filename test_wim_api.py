@@ -14,6 +14,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='repla
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'wim', 'api'))
 
 import reconstruct as R
+import prompt_builder as PB  # SITUATION_SEVERITY/TONE_TEMP live here; reconstruct re-exports only TONE_TEMP
 
 passed = 0
 failed = 0
@@ -431,9 +432,9 @@ print()
 print('=== TEST 12: Canonical values for WiM parity ===')
 
 # Situation severity — authoritative values
-check('reading severity = 0.5', R.SITUATION_SEVERITY.get('reading') == 0.5)
-check('default severity = 1.0', R.SITUATION_SEVERITY.get('default') == 1.0)
-check('high_stress severity = 1.5', R.SITUATION_SEVERITY.get('high_stress') == 1.5)
+check('reading severity = 0.5', PB.SITUATION_SEVERITY.get('reading') == 0.5)
+check('default severity = 1.0', PB.SITUATION_SEVERITY.get('default') == 1.0)
+check('high_stress severity = 1.5', PB.SITUATION_SEVERITY.get('high_stress') == 1.5)
 
 # Tone temperatures — authoritative values
 check('formal temp = 0.1', R.TONE_TEMP.get('formal') == 0.1)

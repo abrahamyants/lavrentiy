@@ -27,8 +27,14 @@ ns['log'] = lambda msg, level='info': None
 ns['state'] = 'idle'
 
 target_funcs = ['start_preview_stream', 'stop_preview_stream', 'update_preview_text', 'set_state']
-for node in ast.walk(tree):
-    if isinstance(node, ast.FunctionDef) and node.name in target_funcs:
+# Load every module-level function, not just the enumerated targets — the
+# tested functions call private helpers the old name filter omitted, causing
+# NameErrors at call time. Defining a function never runs its body, so this is
+# side-effect-free; the target list is kept only for the coverage report.
+for node in tree.body:
+    # skip names already seeded above (intentional stubs like a no-op log()) —
+    # loading the real one would drag in unseeded module state (e.g. _log_lock).
+    if isinstance(node, ast.FunctionDef) and node.name not in ns:
         func_source = ast.get_source_segment(source, node)
         if func_source:
             exec(func_source, ns)
