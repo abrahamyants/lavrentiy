@@ -51,10 +51,16 @@ ns['_MIN_PAUSE_FRAMES'] = MIN_PAUSE_FRAMES
 ns['_last_speech_metrics'] = {}
 
 # Load the function
-for node in ast.walk(tree):
-    if isinstance(node, ast.FunctionDef) and node.name == 'analyze_speech_rate':
+# Load every module-level function, not just analyze_speech_rate — it calls
+# private helpers the single-name load omitted, which would NameError at call
+# time. Defining a function never runs its body, so this is side-effect-free.
+for node in tree.body:
+    if isinstance(node, ast.FunctionDef):
         func_source = ast.get_source_segment(source, node)
-        exec(func_source, ns)
+        try:
+            exec(func_source, ns)
+        except Exception as e:
+            print(f'SKIP {node.name}: {e}')
         break
 
 analyze = ns['analyze_speech_rate']

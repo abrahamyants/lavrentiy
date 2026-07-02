@@ -112,8 +112,12 @@ target_funcs = [
 ]
 
 loaded = []
-for node in ast.walk(tree):
-    if isinstance(node, ast.FunctionDef) and node.name in target_funcs:
+# Load every module-level function, not just the enumerated targets — the
+# tested functions call private helpers the old name filter omitted, causing
+# NameErrors at call time. Defining a function never runs its body, so this is
+# side-effect-free; the target list is kept only for the coverage report.
+for node in tree.body:
+    if isinstance(node, ast.FunctionDef):
         func_source = ast.get_source_segment(source, node)
         if func_source:
             try:

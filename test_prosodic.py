@@ -63,8 +63,13 @@ testable = [
     'infer_speaker_state', 'build_prosodic_context', 'compute_prosodic_summary',
     'compute_hnr', 'predict_phonetic_risk', '_extract_onset',
 ]
-for node in ast.walk(tree):
-    if isinstance(node, ast.FunctionDef) and node.name in testable:
+# Load every module-level function, not just the enumerated targets — the
+# tested functions call private helpers (e.g. _compute_session_prosodic_
+# aggregates) the old name filter omitted, causing NameErrors at call time.
+# Defining a function never runs its body, so this is side-effect-free;
+# `testable` is kept only for the coverage report.
+for node in tree.body:
+    if isinstance(node, ast.FunctionDef):
         func_source = ast.get_source_segment(source, node)
         if func_source:
             try:
