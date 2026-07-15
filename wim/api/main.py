@@ -40,6 +40,7 @@ from billing_backend import (
 )
 from billing_events import BillingEventError, decode_pubsub_cloud_event
 from quota_backend import plan_audio_usage, plan_cloud_usage
+from user_data_backend import delete_cloud_account
 
 # Structured logging — Cloud Run / Functions parses JSON lines on stdout into
 # Cloud Logging fields. INFO level for normal flow, ERROR for failures.
@@ -211,13 +212,10 @@ def _action_export_data(uid, tier_config, body):
 
 
 def _action_delete_data(uid, tier_config, body):
-    """GDPR: delete user's cloud data."""
-    for collection_name in ("wim_subscription_tokens", "wim_purchase_tokens"):
-        purchase_docs = db.collection(collection_name).where("uid", "==", uid).stream()
-        for purchase_doc in purchase_docs:
-            purchase_doc.reference.delete()
-    db.collection("wim_users").document(uid).delete()
-    return (json.dumps({"ok": True, "deleted": True}), 200, _JSON_CORS)
+    """GDPR/Play policy: delete all cloud data and the Firebase account."""
+    deleted = delete_cloud_account(db, auth, uid)
+    return (json.dumps({"ok": True, "deleted": True, **deleted}),
+            200, _JSON_CORS)
 
 
 def _action_billing_status(uid, tier_config, body):
