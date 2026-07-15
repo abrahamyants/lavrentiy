@@ -235,8 +235,14 @@ def _action_verify_purchase(uid, tier_config, body):
     try:
         purchase, google_session = verify_with_google(purchase_token, product_id)
         external_id = purchase.get("obfuscatedExternalAccountId")
-        if external_id and external_id != account_hash(uid):
+        if external_id != account_hash(uid):
             raise BillingVerificationError("Purchase belongs to a different account", 403)
+
+        # A grant must never outlive an unacknowledged purchase: Play refunds
+        # unacknowledged purchases after its acknowledgement window. Ack first;
+        # a retry can safely finish the idempotent Firestore grant afterward.
+        if purchase.get("acknowledgementState", 0) == 0:
+            acknowledge_with_google(google_session, purchase_token, product_id)
 
         purchase_ref = db.collection("wim_purchase_tokens").document(token_hash(purchase_token))
         user_ref = db.collection("wim_users").document(uid)
@@ -264,8 +270,6 @@ def _action_verify_purchase(uid, tier_config, body):
         if not _grant(db.transaction()):
             raise BillingVerificationError("Purchase token was already claimed", 409)
 
-        if purchase.get("acknowledgementState", 0) == 0:
-            acknowledge_with_google(google_session, purchase_token, product_id)
     except BillingVerificationError as e:
         _emit(logging.WARNING, event="billing_verify_rejected", uid=uid,
               status=e.status, error=str(e)[:200])
