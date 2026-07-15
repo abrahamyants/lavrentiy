@@ -26,6 +26,14 @@ import domain_pack
 # ─── Audience-context window-title map (ported from AudienceContext.kt) ───
 # Each entry: (title_keyword_lowercase, category, audience, medium_expectations)
 _WINDOW_AUDIENCE = [
+    ("com.microsoft.office.outlook", "email", "professional contacts",       "full sentences, formal tone, clear subject-action structure"),
+    ("com.google.android.gm", "email", "professional or personal contacts", "full sentences, structured paragraphs"),
+    ("com.slack",  "team chat",  "colleagues or project peers",             "short, casual, no sign-offs"),
+    ("com.whatsapp", "messaging", "personal contacts (one-to-one)",          "casual, short, informal"),
+    ("org.telegram", "messaging", "friends or contacts",                    "casual or semi-formal, short"),
+    ("com.discord", "social",     "community peers",                        "casual, community-specific slang ok"),
+    ("com.linkedin", "social",    "professional network",                   "professional, polished, no jargon"),
+    ("us.zoom",    "meeting",     "colleagues",                             "clear, professional, complete sentences"),
     ("outlook",   "email",      "professional contacts",                    "full sentences, formal tone, clear subject-action structure"),
     ("gmail",     "email",      "professional or personal contacts",        "full sentences, structured paragraphs"),
     (" mail",     "email",      "contacts",                                 "full sentences, appropriate formality"),
@@ -862,6 +870,9 @@ def build_prompt(
     personal_dominant_onsets=None,
     predicted_triggers=None,
     window_title=None,
+    preceding_context=None,
+    script_prep_context=None,
+    compression_ratio_note=None,
 ):
     """Assemble the reconstruction system prompt.
 
@@ -906,6 +917,24 @@ def build_prompt(
 
     if profile.get("filler_words"):
         parts.append(f"\nStrip these fillers: {', '.join(profile['filler_words'][:25])}")
+
+    if script_prep_context:
+        parts.append(
+            "\nSCRIPT PREP CONTEXT (provided by the speaker before dictation):\n"
+            + str(script_prep_context)[:6000]
+            + "\nUse this only to resolve intended names, terminology, topic, and phrasing. "
+              "Never quote, repeat, acknowledge, or invent content from it unless the speaker "
+              "actually dictated that content."
+        )
+
+    if preceding_context:
+        parts.append(
+            "\nTEXT ALREADY IN THE TARGET FIELD (context only — never repeat or acknowledge):\n"
+            + str(preceding_context)[-500:]
+        )
+
+    if compression_ratio_note:
+        parts.append("\nSPEECH-RATE SIGNAL:\n" + str(compression_ratio_note)[:500])
 
     if layer >= 3:
         l3_block = _pb_layer3_user_context(profile, prior_rejections, style_examples)

@@ -26,6 +26,15 @@ from google.cloud import firestore
 from firebase_admin import auth, initialize_app
 
 from reconstruct import reconstruct_intent
+from audio_backend import AudioRequestError, prepare_audio_request
+from billing_backend import (
+    BillingVerificationError,
+    PRODUCT_ID as BILLING_PRODUCT_ID,
+    account_hash,
+    acknowledge_with_google,
+    token_hash,
+    verify_with_google,
+)
 
 # Structured logging — Cloud Run / Functions parses JSON lines on stdout into
 # Cloud Logging fields. INFO level for normal flow, ERROR for failures.
@@ -50,8 +59,8 @@ db = firestore.Client()
 
 # Tier definitions
 TIERS = {
-    "invite": {"max_layer": 4, "daily_limit": 30, "name": "Invite"},
-    "basic": {"max_layer": 4, "daily_limit": 200, "name": "Basic ($5.99)"},
+    "invite": {"max_layer": 1, "daily_limit": 0, "name": "Local / Free"},
+    "basic": {"max_layer": 4, "daily_limit": 200, "name": "Cloud Unlock"},
     "pro": {"max_layer": 4, "daily_limit": 999999, "name": "Pro ($14.99)"},
 }
 
@@ -130,6 +139,44 @@ def check_rate_limit(uid, tier_config):
     return True, remaining, None
 
 
+def check_audio_rate_limit(uid, tier_config):
+    """Separate audio quota so one dictation does not consume two user credits.
+
+    Transcription and reconstruction are two HTTP calls for one user action.
+    Charging both against `daily_count` would silently cut every advertised
+    allowance in half; this parallel counter bounds audio cost without doing so.
+    """
+    ref = db.collection("wim_users").document(uid)
+    daily_limit = tier_config["daily_limit"]
+
+    @firestore.transactional
+    def _txn(transaction):
+        snapshot = ref.get(transaction=transaction)
+        data = snapshot.to_dict() if snapshot.exists else {}
+        count = data.get("audio_daily_count", 0)
+        reset_ts = data.get("audio_daily_reset", 0)
+        now = time.time()
+        is_reset = now - reset_ts > 86400
+        if is_reset:
+            count = 0
+        if count >= daily_limit:
+            return False, 0
+        update_data = {"audio_daily_count": count + 1}
+        if is_reset:
+            update_data["audio_daily_reset"] = now
+        transaction.update(ref, update_data)
+        return True, daily_limit - count - 1
+
+    ok, remaining = _txn(db.transaction())
+    if not ok:
+        return False, 0, (json.dumps({
+            "error": "Daily audio limit reached",
+            "limit": daily_limit,
+            "tier": tier_config["name"],
+        }), 429, CORS_HEADERS)
+    return True, remaining, None
+
+
 _JSON_CORS = {**CORS_HEADERS, "Content-Type": "application/json"}
 _ALLOWED_PROFILE_KEYS = {
     "trigger_words", "onset_weights", "covert_profile",
@@ -138,6 +185,7 @@ _ALLOWED_PROFILE_KEYS = {
 _EXPORT_VISIBLE_KEYS = {
     "trigger_words", "onset_weights", "covert_profile",
     "filler_words", "vocabulary", "corrections", "sync_ts", "created",
+    "tier", "billing_product_id", "billing_order_id", "billing_verified_at",
 }
 _RETRIABLE_EXC_NAMES = {"APITimeoutError", "APIConnectionError", "RateLimitError"}
 
@@ -161,8 +209,85 @@ def _action_export_data(uid, tier_config, body):
 
 def _action_delete_data(uid, tier_config, body):
     """GDPR: delete user's cloud data."""
+    purchase_docs = db.collection("wim_purchase_tokens").where("uid", "==", uid).stream()
+    for purchase_doc in purchase_docs:
+        purchase_doc.reference.delete()
     db.collection("wim_users").document(uid).delete()
     return (json.dumps({"ok": True, "deleted": True}), 200, _JSON_CORS)
+
+
+def _action_billing_status(uid, tier_config, body):
+    doc = db.collection("wim_users").document(uid).get()
+    data = doc.to_dict() if doc.exists else {}
+    tier = data.get("tier", "invite")
+    return (json.dumps({
+        "ok": True,
+        "unlocked": tier in ("basic", "pro"),
+        "tier": tier,
+        "product_id": data.get("billing_product_id"),
+    }), 200, _JSON_CORS)
+
+
+def _action_verify_purchase(uid, tier_config, body):
+    """Verify, bind, grant, and acknowledge the permanent cloud entitlement."""
+    purchase_token = (body.get("purchase_token") or "").strip()
+    product_id = (body.get("product_id") or "").strip()
+    try:
+        purchase, google_session = verify_with_google(purchase_token, product_id)
+        external_id = purchase.get("obfuscatedExternalAccountId")
+        if external_id != account_hash(uid):
+            raise BillingVerificationError("Purchase belongs to a different account", 403)
+
+        # A grant must never outlive an unacknowledged purchase: Play refunds
+        # unacknowledged purchases after its acknowledgement window. Ack first;
+        # a retry can safely finish the idempotent Firestore grant afterward.
+        if purchase.get("acknowledgementState", 0) == 0:
+            acknowledge_with_google(google_session, purchase_token, product_id)
+
+        purchase_ref = db.collection("wim_purchase_tokens").document(token_hash(purchase_token))
+        user_ref = db.collection("wim_users").document(uid)
+
+        @firestore.transactional
+        def _grant(transaction):
+            existing = purchase_ref.get(transaction=transaction)
+            if existing.exists and existing.to_dict().get("uid") != uid:
+                return False
+            transaction.set(purchase_ref, {
+                "uid": uid,
+                "product_id": BILLING_PRODUCT_ID,
+                "order_id": purchase.get("orderId"),
+                "purchase_time_ms": purchase.get("purchaseTimeMillis"),
+                "verified_at": firestore.SERVER_TIMESTAMP,
+            }, merge=True)
+            transaction.set(user_ref, {
+                "tier": "basic",
+                "billing_product_id": BILLING_PRODUCT_ID,
+                "billing_order_id": purchase.get("orderId"),
+                "billing_verified_at": firestore.SERVER_TIMESTAMP,
+            }, merge=True)
+            return True
+
+        if not _grant(db.transaction()):
+            raise BillingVerificationError("Purchase token was already claimed", 409)
+
+    except BillingVerificationError as e:
+        _emit(logging.WARNING, event="billing_verify_rejected", uid=uid,
+              status=e.status, error=str(e)[:200])
+        return (json.dumps({"error": str(e)}), e.status, CORS_HEADERS)
+    except Exception as e:
+        _emit(logging.ERROR, event="billing_verify_failed", uid=uid,
+              exception=type(e).__name__, error=str(e)[:300])
+        return (json.dumps({"error": "Purchase verification temporarily unavailable"}),
+                503, CORS_HEADERS)
+
+    _emit(logging.INFO, event="billing_entitlement_granted", uid=uid,
+          product_id=product_id)
+    return (json.dumps({
+        "ok": True,
+        "unlocked": True,
+        "tier": "basic",
+        "product_id": BILLING_PRODUCT_ID,
+    }), 200, _JSON_CORS)
 
 
 def _action_command(uid, tier_config, body):
@@ -248,6 +373,54 @@ def _action_complete_partial(uid, tier_config, body):
     }), 200, _JSON_CORS)
 
 
+def _action_transcribe_audio(uid, tier_config, body):
+    """Authenticated mobile audio transcription.
+
+    WiM sends a base64-encoded WAV here so release builds never need an
+    OpenAI secret on the phone.  `whisper-1` keeps verbose segment confidence
+    for L4; `gpt-4o-transcribe` is the faster normal cloud path.
+    """
+    try:
+        kwargs, audio_bytes_len, model = prepare_audio_request(body)
+    except AudioRequestError as e:
+        return (json.dumps({"error": str(e)}), e.status, CORS_HEADERS)
+
+    ok, remaining, rate_err = check_audio_rate_limit(uid, tier_config)
+    if not ok:
+        return rate_err
+
+    from reconstruct import client as openai_client
+    if openai_client is None:
+        return (json.dumps({"error": "Backend OpenAI client not configured"}), 500, CORS_HEADERS)
+
+    t_call = time.time()
+    try:
+        response = openai_client.audio.transcriptions.create(**kwargs)
+        payload = response.model_dump() if hasattr(response, "model_dump") else dict(response)
+    except Exception as e:
+        latency_ms = round((time.time() - t_call) * 1000)
+        retriable = _classify_exception(e)
+        _emit(logging.ERROR, event="transcribe_audio_failed", uid=uid,
+              latency_ms=latency_ms, exception=type(e).__name__,
+              error=str(e)[:300], retriable=retriable)
+        return (json.dumps({
+            "error": f"Transcription failed: {type(e).__name__}",
+            "retriable": retriable,
+        }), 503 if retriable else 500, CORS_HEADERS)
+
+    text = (payload.get("text") or "").strip()
+    segments = payload.get("segments") or []
+    _emit(logging.INFO, event="transcribe_audio_ok", uid=uid, model=model,
+          latency_ms=round((time.time() - t_call) * 1000),
+          audio_bytes=audio_bytes_len, segments=len(segments))
+    return (json.dumps({
+        "text": text,
+        "segments": segments,
+        "model": model,
+        "remaining": remaining,
+    }), 200, _JSON_CORS)
+
+
 def _classify_exception(e):
     """Return True if the exception is retriable per OpenAI SDK conventions.
     Introspects by name + status_code to stay robust to SDK reshuffles instead
@@ -293,6 +466,13 @@ def _action_reconstruct(uid, tier_config, body):
             paralinguistic_events=body.get("paralinguistic_events"),
             prosodic_context=body.get("prosodic_context"),
             language_code=body.get("language_code", "en"),
+            preceding_context=body.get("preceding_context"),
+            script_prep_context=body.get("script_prep"),
+            compression_ratio_note=body.get("compression_ratio_note"),
+            previous_outputs=body.get("previous_outputs"),
+            prior_rejections=body.get("rejection_history"),
+            style_examples=body.get("style_examples"),
+            window_title=body.get("audience_package"),
         )
     except Exception as e:
         latency_ms = round((time.time() - t_call) * 1000)
@@ -329,6 +509,13 @@ _ACTION_HANDLERS = {
     "delete_data":      _action_delete_data,
     "command":          _action_command,
     "complete_partial": _action_complete_partial,
+    "transcribe_audio": _action_transcribe_audio,
+    "billing_status":   _action_billing_status,
+    "verify_purchase":  _action_verify_purchase,
+}
+
+_ENTITLEMENT_FREE_ACTIONS = {
+    "billing_status", "verify_purchase", "export_data", "delete_data", "sync_profile",
 }
 
 
@@ -352,5 +539,13 @@ def handle(request):
     except Exception:
         return (json.dumps({"error": "Invalid JSON"}), 400, CORS_HEADERS)
 
-    action_handler = _ACTION_HANDLERS.get(body.get("action"), _action_reconstruct)
+    action = body.get("action")
+    if tier_name not in ("basic", "pro") and action not in _ENTITLEMENT_FREE_ACTIONS:
+        return (json.dumps({
+            "error": "WiM Cloud Unlock is required",
+            "error_code": "billing_required",
+            "product_id": BILLING_PRODUCT_ID,
+        }), 403, _JSON_CORS)
+
+    action_handler = _ACTION_HANDLERS.get(action, _action_reconstruct)
     return action_handler(uid, tier_config, body)

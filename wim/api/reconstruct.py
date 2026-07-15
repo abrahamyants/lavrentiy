@@ -185,7 +185,10 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
                        whisper_low_conf=None, whisper_disagreements=None,
                        speech_severity_mod=0.0,
                        paralinguistic_events=None, prosodic_context=None,
-                       language_code="en"):
+                       language_code="en", preceding_context=None,
+                       script_prep_context=None, compression_ratio_note=None,
+                       previous_outputs=None, prior_rejections=None,
+                       style_examples=None, window_title=None):
     """Main entry point. Takes raw messy text, returns clean text + confidence.
 
     Args:
@@ -224,6 +227,13 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
         speech_severity_mod=speech_severity_mod,
         paralinguistic_events=paralinguistic_events, prosodic_context=prosodic_context,
         language_code=language_code,
+        preceding_context=preceding_context,
+        script_prep_context=script_prep_context,
+        compression_ratio_note=compression_ratio_note,
+        previous_outputs=previous_outputs,
+        prior_rejections=prior_rejections,
+        style_examples=style_examples,
+        window_title=window_title,
     )
 
     temp = TONE_TEMP.get(tone, 0.3)
