@@ -4,7 +4,7 @@ import hashlib
 from datetime import datetime, timezone
 from urllib.parse import quote
 
-PACKAGE_NAME = "com.wim.app"
+PACKAGE_NAME = "com.wimlabs.wim"
 PRODUCT_ID = "wim_cloud_monthly"
 BASE_PLAN_ID = "monthly"
 ANDROID_PUBLISHER_SCOPE = "https://www.googleapis.com/auth/androidpublisher"
