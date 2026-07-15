@@ -72,5 +72,8 @@ jobs:
       - name: Run WiM API tests
         run: python test_wim_api.py -v
 
+      - name: Run WiM authenticated audio contract tests
+        run: python test_wim_audio_backend.py
+
       - name: Run speech rate tests
         run: python test_speech_rate.py -v

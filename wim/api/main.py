@@ -26,6 +26,7 @@ from google.cloud import firestore
 from firebase_admin import auth, initialize_app
 
 from reconstruct import reconstruct_intent
+from audio_backend import AudioRequestError, prepare_audio_request
 
 # Structured logging — Cloud Run / Functions parses JSON lines on stdout into
 # Cloud Logging fields. INFO level for normal flow, ERROR for failures.
@@ -124,6 +125,44 @@ def check_rate_limit(uid, tier_config):
     if not ok:
         return False, 0, (json.dumps({
             "error": "Daily limit reached",
+            "limit": daily_limit,
+            "tier": tier_config["name"],
+        }), 429, CORS_HEADERS)
+    return True, remaining, None
+
+
+def check_audio_rate_limit(uid, tier_config):
+    """Separate audio quota so one dictation does not consume two user credits.
+
+    Transcription and reconstruction are two HTTP calls for one user action.
+    Charging both against `daily_count` would silently cut every advertised
+    allowance in half; this parallel counter bounds audio cost without doing so.
+    """
+    ref = db.collection("wim_users").document(uid)
+    daily_limit = tier_config["daily_limit"]
+
+    @firestore.transactional
+    def _txn(transaction):
+        snapshot = ref.get(transaction=transaction)
+        data = snapshot.to_dict() if snapshot.exists else {}
+        count = data.get("audio_daily_count", 0)
+        reset_ts = data.get("audio_daily_reset", 0)
+        now = time.time()
+        is_reset = now - reset_ts > 86400
+        if is_reset:
+            count = 0
+        if count >= daily_limit:
+            return False, 0
+        update_data = {"audio_daily_count": count + 1}
+        if is_reset:
+            update_data["audio_daily_reset"] = now
+        transaction.update(ref, update_data)
+        return True, daily_limit - count - 1
+
+    ok, remaining = _txn(db.transaction())
+    if not ok:
+        return False, 0, (json.dumps({
+            "error": "Daily audio limit reached",
             "limit": daily_limit,
             "tier": tier_config["name"],
         }), 429, CORS_HEADERS)
@@ -248,6 +287,54 @@ def _action_complete_partial(uid, tier_config, body):
     }), 200, _JSON_CORS)
 
 
+def _action_transcribe_audio(uid, tier_config, body):
+    """Authenticated mobile audio transcription.
+
+    WiM sends a base64-encoded WAV here so release builds never need an
+    OpenAI secret on the phone.  `whisper-1` keeps verbose segment confidence
+    for L4; `gpt-4o-transcribe` is the faster normal cloud path.
+    """
+    try:
+        kwargs, audio_bytes_len, model = prepare_audio_request(body)
+    except AudioRequestError as e:
+        return (json.dumps({"error": str(e)}), e.status, CORS_HEADERS)
+
+    ok, remaining, rate_err = check_audio_rate_limit(uid, tier_config)
+    if not ok:
+        return rate_err
+
+    from reconstruct import client as openai_client
+    if openai_client is None:
+        return (json.dumps({"error": "Backend OpenAI client not configured"}), 500, CORS_HEADERS)
+
+    t_call = time.time()
+    try:
+        response = openai_client.audio.transcriptions.create(**kwargs)
+        payload = response.model_dump() if hasattr(response, "model_dump") else dict(response)
+    except Exception as e:
+        latency_ms = round((time.time() - t_call) * 1000)
+        retriable = _classify_exception(e)
+        _emit(logging.ERROR, event="transcribe_audio_failed", uid=uid,
+              latency_ms=latency_ms, exception=type(e).__name__,
+              error=str(e)[:300], retriable=retriable)
+        return (json.dumps({
+            "error": f"Transcription failed: {type(e).__name__}",
+            "retriable": retriable,
+        }), 503 if retriable else 500, CORS_HEADERS)
+
+    text = (payload.get("text") or "").strip()
+    segments = payload.get("segments") or []
+    _emit(logging.INFO, event="transcribe_audio_ok", uid=uid, model=model,
+          latency_ms=round((time.time() - t_call) * 1000),
+          audio_bytes=audio_bytes_len, segments=len(segments))
+    return (json.dumps({
+        "text": text,
+        "segments": segments,
+        "model": model,
+        "remaining": remaining,
+    }), 200, _JSON_CORS)
+
+
 def _classify_exception(e):
     """Return True if the exception is retriable per OpenAI SDK conventions.
     Introspects by name + status_code to stay robust to SDK reshuffles instead
@@ -293,6 +380,13 @@ def _action_reconstruct(uid, tier_config, body):
             paralinguistic_events=body.get("paralinguistic_events"),
             prosodic_context=body.get("prosodic_context"),
             language_code=body.get("language_code", "en"),
+            preceding_context=body.get("preceding_context"),
+            script_prep_context=body.get("script_prep"),
+            compression_ratio_note=body.get("compression_ratio_note"),
+            previous_outputs=body.get("previous_outputs"),
+            prior_rejections=body.get("rejection_history"),
+            style_examples=body.get("style_examples"),
+            window_title=body.get("audience_package"),
         )
     except Exception as e:
         latency_ms = round((time.time() - t_call) * 1000)
@@ -329,6 +423,7 @@ _ACTION_HANDLERS = {
     "delete_data":      _action_delete_data,
     "command":          _action_command,
     "complete_partial": _action_complete_partial,
+    "transcribe_audio": _action_transcribe_audio,
 }
 
 

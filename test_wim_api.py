@@ -554,6 +554,23 @@ check('L3 bare (CF path) omits prior_rejections section',
 check('L3 bare (CF path) omits style_examples section',
       'USER STYLE EXAMPLES' not in p_l3_bare)
 
+# WiM Android context contract: context may guide recognition/reconstruction,
+# but the prompt must explicitly forbid echoing prepared or existing text.
+p_context = PB.build_prompt(
+    'send it tomorrow', layer=3,
+    script_prep_context='Project Heirloom; recipient Dr. Nwosu',
+    preceding_context='Following up on our meeting:',
+    compression_ratio_note='Rate is 45% below personal baseline.',
+)
+check('Script Prep reaches shared prompt', 'Project Heirloom' in p_context)
+check('Script Prep is framed as non-output context', 'Never quote, repeat, acknowledge' in p_context)
+check('preceding field context reaches shared prompt', 'Following up on our meeting' in p_context)
+check('speech-rate baseline signal reaches shared prompt', '45% below personal baseline' in p_context)
+p_android_audience = PB.build_prompt(
+    'send it tomorrow', layer=2, window_title='com.google.android.gm')
+check('Android package reaches reader-context mapping',
+      'professional or personal contacts' in p_android_audience)
+
 
 # ============================================================
 # SUMMARY
