@@ -11,7 +11,7 @@ from billing_events import BillingEventError, decode_pubsub_cloud_event
 
 payload = {
     "version": "1.0",
-    "packageName": "com.wim.app",
+    "packageName": "com.wimlabs.wim",
     "subscriptionNotification": {
         "version": "1.0",
         "notificationType": 2,

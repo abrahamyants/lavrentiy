@@ -63,6 +63,7 @@ assert purchase["subscriptionState"] == "SUBSCRIPTION_STATE_ACTIVE"
 assert purchase["_wim_line_item"]["productId"] == PRODUCT_ID
 assert returned_session is session
 assert PACKAGE_NAME in session.url and "token%2Fwith%2Fslash" in session.url
+assert PACKAGE_NAME == "com.wimlabs.wim"
 assert "/purchases/subscriptionsv2/tokens/" in session.url
 print("PASS: active subscription verifies and URL-encodes token")
 
