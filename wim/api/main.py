@@ -19,6 +19,7 @@ Body: {
 
 import json
 import logging
+import os
 import time
 
 import functions_framework
@@ -40,6 +41,7 @@ from billing_backend import (
 )
 from billing_events import BillingEventError, decode_pubsub_cloud_event
 from quota_backend import plan_audio_usage, plan_cloud_usage
+from reviewer_access import reviewer_email_is_allowed
 from user_data_backend import delete_cloud_account
 
 # Structured logging — Cloud Run / Functions parses JSON lines on stdout into
@@ -85,7 +87,7 @@ CORS_HEADERS = {
 
 def verify_token(request):
     """Extract and verify Firebase ID token from Authorization header.
-    Returns (uid, error_response). If uid is None, return error_response."""
+    Returns (decoded_claims, error_response)."""
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         return None, (json.dumps({"error": "Missing Authorization header"}), 401, CORS_HEADERS)
@@ -93,16 +95,34 @@ def verify_token(request):
     token = auth_header.split("Bearer ")[1].strip()
     try:
         decoded = auth.verify_id_token(token)
-        return decoded["uid"], None
+        return decoded, None
     except Exception as e:
         return None, (json.dumps({"error": f"Invalid token: {str(e)[:100]}"}), 401, CORS_HEADERS)
 
 
-def get_user_tier(uid):
+def get_user_tier(uid, reviewer=False):
     """Get user's subscription tier from Firestore. Default to 'invite'."""
-    doc = db.collection("wim_users").document(uid).get()
+    ref = db.collection("wim_users").document(uid)
+    doc = ref.get()
+    data = doc.to_dict() if doc.exists else {}
+    if reviewer:
+        # Play reviewers cannot create a purchase or trial during app review.
+        # A verified, explicitly allowlisted Google account receives durable
+        # full access on its first authenticated request instead.
+        if data.get("tier") != "pro" or not data.get("reviewer_access"):
+            grant = {
+                "tier": "pro",
+                "reviewer_access": True,
+                "reviewer_granted_at": firestore.SERVER_TIMESTAMP,
+            }
+            if not doc.exists:
+                grant.update({
+                    "created": firestore.SERVER_TIMESTAMP,
+                    "usage_period": time.strftime("%Y-%m", time.gmtime()),
+                })
+            ref.set(grant, merge=True)
+        return "pro"
     if doc.exists:
-        data = doc.to_dict()
         tier = data.get("tier", "invite")
         # New subscription entitlements expire server-side even if an old app
         # keeps a stale local boolean. Preserve any pre-launch legacy/manual
@@ -113,7 +133,7 @@ def get_user_tier(uid):
             return "invite"
         return tier
     # First-time user: create doc with invite tier
-    db.collection("wim_users").document(uid).set({
+    ref.set({
         "tier": "invite",
         "created": firestore.SERVER_TIMESTAMP,
         "usage_period": time.strftime("%Y-%m", time.gmtime()),
@@ -544,11 +564,17 @@ def handle(request):
     if request.method != "POST":
         return (json.dumps({"error": "POST required"}), 405, CORS_HEADERS)
 
-    uid, err = verify_token(request)
+    identity, err = verify_token(request)
     if err:
         return err
 
-    tier_name = get_user_tier(uid)
+    uid = identity["uid"]
+    reviewer = reviewer_email_is_allowed(
+        identity.get("email"),
+        identity.get("email_verified"),
+        os.environ.get("WIM_REVIEWER_EMAILS", ""),
+    )
+    tier_name = get_user_tier(uid, reviewer=reviewer)
     tier_config = TIERS.get(tier_name, TIERS["invite"])
 
     try:
