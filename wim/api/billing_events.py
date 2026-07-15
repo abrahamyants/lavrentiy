@@ -13,7 +13,10 @@ def decode_pubsub_cloud_event(cloud_event):
     envelope = getattr(cloud_event, "data", cloud_event)
     if not isinstance(envelope, dict):
         raise BillingEventError("Pub/Sub event data is missing")
-    message = envelope.get("message") or {}
+    # Eventarc CloudEvents wrap the Pub/Sub message under ``message``. A
+    # function deployed with ``--trigger-topic`` uses the legacy background
+    # signature and passes the Pub/Sub message itself as the first argument.
+    message = envelope.get("message") or envelope
     encoded = message.get("data")
     if not encoded:
         raise BillingEventError("Pub/Sub message data is missing")

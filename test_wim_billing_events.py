@@ -26,6 +26,13 @@ message_id, decoded = decode_pubsub_cloud_event(event)
 assert message_id == "message-1"
 assert decoded == payload
 
+# ``gcloud functions deploy --trigger-topic`` uses this unwrapped legacy
+# background-event shape and calls the entry point as ``function(data, context)``.
+legacy_event = event["message"]
+message_id, decoded = decode_pubsub_cloud_event(legacy_event)
+assert message_id == "message-1"
+assert decoded == payload
+
 for bad in ({}, {"message": {}}, {"message": {"data": "not base64"}}):
     try:
         decode_pubsub_cloud_event(bad)
