@@ -29,12 +29,16 @@ from reconstruct import reconstruct_intent
 from audio_backend import AudioRequestError, prepare_audio_request
 from billing_backend import (
     BillingVerificationError,
+    PACKAGE_NAME as BILLING_PACKAGE_NAME,
     PRODUCT_ID as BILLING_PRODUCT_ID,
     account_hash,
     acknowledge_with_google,
+    fetch_subscription_with_google,
+    subscription_is_entitled,
     token_hash,
     verify_with_google,
 )
+from billing_events import BillingEventError, decode_pubsub_cloud_event
 from quota_backend import plan_audio_usage, plan_cloud_usage
 
 # Structured logging — Cloud Run / Functions parses JSON lines on stdout into
@@ -274,6 +278,7 @@ def _action_verify_purchase(uid, tier_config, body):
                 "billing_order_id": order_id,
                 "billing_state": purchase.get("subscriptionState"),
                 "billing_expiry_ts": expiry_ts,
+                "billing_token_hash": token_hash(purchase_token),
                 "billing_verified_at": firestore.SERVER_TIMESTAMP,
             }, merge=True)
             return True
@@ -563,3 +568,105 @@ def handle(request):
 
     action_handler = _ACTION_HANDLERS.get(action, _action_reconstruct)
     return action_handler(uid, tier_config, body)
+
+
+def billing_event(cloud_event):
+    """Apply Google Play RTDN subscription changes to Firestore.
+
+    Pub/Sub authenticates the Google Play publisher; the purchase token in the
+    event is then checked against Google Play's subscriptionsv2 source of truth.
+    Only a token already bound to a WiM user can change that user's entitlement.
+    """
+    try:
+        message_id, payload = decode_pubsub_cloud_event(cloud_event)
+    except BillingEventError as exc:
+        _emit(logging.WARNING, event="billing_rtdn_invalid", error=str(exc))
+        return
+
+    if payload.get("packageName") != BILLING_PACKAGE_NAME:
+        _emit(logging.WARNING, event="billing_rtdn_wrong_package",
+              message_id=message_id)
+        return
+    notification = payload.get("subscriptionNotification")
+    if not isinstance(notification, dict):
+        # Play Console sends a testNotification before the subscription exists.
+        _emit(logging.INFO, event="billing_rtdn_ignored", message_id=message_id)
+        return
+    purchase_token = (notification.get("purchaseToken") or "").strip()
+    if not purchase_token:
+        _emit(logging.WARNING, event="billing_rtdn_missing_token",
+              message_id=message_id)
+        return
+
+    hashed_token = token_hash(purchase_token)
+    token_ref = db.collection("wim_subscription_tokens").document(hashed_token)
+    token_snapshot = token_ref.get()
+    if not token_snapshot.exists:
+        # A purchase callback can race the RTDN. The app will bind and verify it
+        # on the next foreground; never guess a user from an unbound token.
+        _emit(logging.INFO, event="billing_rtdn_unbound", message_id=message_id)
+        return
+    uid = token_snapshot.to_dict().get("uid")
+    if not uid:
+        _emit(logging.WARNING, event="billing_rtdn_missing_uid",
+              message_id=message_id)
+        return
+
+    try:
+        purchase, _ = fetch_subscription_with_google(
+            purchase_token, BILLING_PRODUCT_ID)
+    except BillingVerificationError as exc:
+        # Transient Publisher API errors must raise so Pub/Sub retries. A token
+        # that is permanently gone (410) is safe to revoke if it is still the
+        # user's current bound token.
+        if exc.status != 410:
+            _emit(logging.ERROR, event="billing_rtdn_lookup_failed",
+                  message_id=message_id, status=exc.status)
+            raise
+        purchase = {
+            "subscriptionState": "SUBSCRIPTION_STATE_EXPIRED",
+            "_wim_expiry_ts": 0,
+            "_wim_line_item": {},
+        }
+
+    entitled = subscription_is_entitled(purchase)
+    state = purchase.get("subscriptionState")
+    expiry_ts = float(purchase.get("_wim_expiry_ts", 0) or 0)
+    line_item = purchase.get("_wim_line_item") or {}
+    order_id = line_item.get("latestSuccessfulOrderId") or purchase.get("latestOrderId")
+    user_ref = db.collection("wim_users").document(uid)
+
+    @firestore.transactional
+    def _apply(transaction):
+        current_token = token_ref.get(transaction=transaction)
+        user = user_ref.get(transaction=transaction)
+        if not current_token.exists or current_token.to_dict().get("uid") != uid:
+            return False
+        user_data = user.to_dict() if user.exists else {}
+        transaction.set(token_ref, {
+            "subscription_state": state,
+            "expiry_ts": expiry_ts,
+            "order_id": order_id,
+            "rtdn_message_id": message_id,
+            "rtdn_updated_at": firestore.SERVER_TIMESTAMP,
+        }, merge=True)
+        # An old token must never revoke a newer resubscription.
+        if user_data.get("billing_token_hash") != hashed_token:
+            return False
+        update = {
+            "billing_state": state,
+            "billing_expiry_ts": expiry_ts,
+            "billing_order_id": order_id,
+            "billing_verified_at": firestore.SERVER_TIMESTAMP,
+        }
+        if entitled:
+            update["tier"] = "basic"
+        elif (user_data.get("tier") == "basic" and
+              user_data.get("billing_product_id") == BILLING_PRODUCT_ID):
+            update["tier"] = "invite"
+        transaction.set(user_ref, update, merge=True)
+        return True
+
+    applied = _apply(db.transaction())
+    _emit(logging.INFO, event="billing_rtdn_applied", message_id=message_id,
+          uid=uid, state=state, entitled=entitled, applied=applied)

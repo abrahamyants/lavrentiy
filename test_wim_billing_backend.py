@@ -7,7 +7,8 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "wim", "api"))
 from billing_backend import (
     BASE_PLAN_ID, BillingVerificationError, PACKAGE_NAME, PRODUCT_ID,
-    account_hash, token_hash, verify_with_google,
+    account_hash, fetch_subscription_with_google, subscription_is_entitled,
+    token_hash, verify_with_google,
 )
 
 
@@ -73,6 +74,13 @@ must_fail("pending subscription rejected",
           lambda: verify_with_google("token", PRODUCT_ID, FakeSession(FakeResponse(200, {
               "subscriptionState": "SUBSCRIPTION_STATE_PENDING",
           }))), 409)
+
+inactive, _ = fetch_subscription_with_google("token", PRODUCT_ID, FakeSession(FakeResponse(200, {
+    "subscriptionState": "SUBSCRIPTION_STATE_ON_HOLD",
+    "lineItems": [{"productId": PRODUCT_ID, "expiryTime": future}],
+})))
+assert not subscription_is_entitled(inactive, now=0)
+print("PASS: inactive lifecycle state remains readable for RTDN revocation")
 must_fail("wrong product rejected",
           lambda: verify_with_google("token", PRODUCT_ID, FakeSession(FakeResponse(200, {
               "subscriptionState": "SUBSCRIPTION_STATE_ACTIVE",
