@@ -570,7 +570,7 @@ def handle(request):
     return action_handler(uid, tier_config, body)
 
 
-def billing_event(cloud_event):
+def billing_event(event, context=None):
     """Apply Google Play RTDN subscription changes to Firestore.
 
     Pub/Sub authenticates the Google Play publisher; the purchase token in the
@@ -578,7 +578,7 @@ def billing_event(cloud_event):
     Only a token already bound to a WiM user can change that user's entitlement.
     """
     try:
-        message_id, payload = decode_pubsub_cloud_event(cloud_event)
+        message_id, payload = decode_pubsub_cloud_event(event)
     except BillingEventError as exc:
         _emit(logging.WARNING, event="billing_rtdn_invalid", error=str(exc))
         return
