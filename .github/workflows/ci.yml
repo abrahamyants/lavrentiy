@@ -87,5 +87,8 @@ jobs:
       - name: Run WiM cloud-account deletion contract tests
         run: python test_wim_user_data_backend.py
 
+      - name: Run WiM Play reviewer-access contract tests
+        run: python test_wim_reviewer_access.py
+
       - name: Run speech rate tests
         run: python test_speech_rate.py -v
