@@ -35,6 +35,7 @@ from billing_backend import (
     token_hash,
     verify_with_google,
 )
+from quota_backend import plan_audio_usage, plan_cloud_usage
 
 # Structured logging — Cloud Run / Functions parses JSON lines on stdout into
 # Cloud Logging fields. INFO level for normal flow, ERROR for failures.
@@ -57,11 +58,16 @@ except ValueError:
 
 db = firestore.Client()
 
-# Tier definitions
+# Tier definitions. One cloud dictation consumes one audio slot and one general
+# slot; keeping those counters parallel prevents double-charging while bounding
+# both provider paths. L4 also consumes its smaller high-cost monthly allowance.
 TIERS = {
-    "invite": {"max_layer": 1, "daily_limit": 0, "name": "Local / Free"},
-    "basic": {"max_layer": 4, "daily_limit": 200, "name": "Cloud Unlock"},
-    "pro": {"max_layer": 4, "daily_limit": 999999, "name": "Pro ($14.99)"},
+    "invite": {"max_layer": 1, "monthly_limit": 0, "l4_monthly_limit": 0,
+               "name": "Local / Free"},
+    "basic": {"max_layer": 4, "monthly_limit": 300, "l4_monthly_limit": 20,
+              "name": "WiM Cloud"},
+    "pro": {"max_layer": 4, "monthly_limit": 999999,
+            "l4_monthly_limit": 999999, "name": "Pro"},
 }
 
 CORS_HEADERS = {
@@ -91,49 +97,48 @@ def get_user_tier(uid):
     """Get user's subscription tier from Firestore. Default to 'invite'."""
     doc = db.collection("wim_users").document(uid).get()
     if doc.exists:
-        return doc.to_dict().get("tier", "invite")
+        data = doc.to_dict()
+        tier = data.get("tier", "invite")
+        # New subscription entitlements expire server-side even if an old app
+        # keeps a stale local boolean. Preserve any pre-launch legacy/manual
+        # tier that has a different product ID so existing test access is not
+        # accidentally destroyed during migration.
+        if (tier == "basic" and data.get("billing_product_id") == BILLING_PRODUCT_ID
+                and float(data.get("billing_expiry_ts", 0) or 0) <= time.time()):
+            return "invite"
+        return tier
     # First-time user: create doc with invite tier
     db.collection("wim_users").document(uid).set({
         "tier": "invite",
         "created": firestore.SERVER_TIMESTAMP,
-        "daily_count": 0,
-        "daily_reset": time.time(),
+        "usage_period": time.strftime("%Y-%m", time.gmtime()),
     })
     return "invite"
 
 
-def check_rate_limit(uid, tier_config):
-    """Check and increment daily usage atomically. Returns (ok, remaining, error_response)."""
+def check_rate_limit(uid, tier_config, layer=None):
+    """Atomically consume one general cloud slot and, for L4, one L4 slot."""
     ref = db.collection("wim_users").document(uid)
-    daily_limit = tier_config["daily_limit"]
-
+    monthly_limit = tier_config["monthly_limit"]
+    l4_limit = tier_config["l4_monthly_limit"]
     @firestore.transactional
     def _txn(transaction):
         snapshot = ref.get(transaction=transaction)
         data = snapshot.to_dict() if snapshot.exists else {}
-        count = data.get("daily_count", 0)
-        reset_ts = data.get("daily_reset", 0)
-        now = time.time()
-        is_reset = now - reset_ts > 86400
-        if is_reset:
-            count = 0
-        if count >= daily_limit:
-            return False, 0
-        # Single update() per ref — two update() calls in one transaction
-        # merge such that the later call's field mutations replace the
-        # earlier's (Firestore Python SDK semantics), which silently
-        # clobbers a daily_count reset followed by an Increment(1).
-        update_data = {"daily_count": count + 1}
-        if is_reset:
-            update_data["daily_reset"] = now
-        transaction.update(ref, update_data)
-        return True, daily_limit - count - 1
+        ok, remaining, error_code, update_data = plan_cloud_usage(
+            data, monthly_limit, l4_limit, layer=layer)
+        if not ok:
+            return False, 0, error_code
+        transaction.set(ref, update_data, merge=True)
+        return True, remaining, None
 
-    ok, remaining = _txn(db.transaction())
+    ok, remaining, error_code = _txn(db.transaction())
     if not ok:
+        is_l4_error = error_code == "l4_monthly_quota_reached"
         return False, 0, (json.dumps({
-            "error": "Daily limit reached",
-            "limit": daily_limit,
+            "error": "Monthly L4 limit reached" if is_l4_error else "Monthly cloud limit reached",
+            "error_code": error_code,
+            "limit": l4_limit if is_l4_error else monthly_limit,
             "tier": tier_config["name"],
         }), 429, CORS_HEADERS)
     return True, remaining, None
@@ -143,35 +148,28 @@ def check_audio_rate_limit(uid, tier_config):
     """Separate audio quota so one dictation does not consume two user credits.
 
     Transcription and reconstruction are two HTTP calls for one user action.
-    Charging both against `daily_count` would silently cut every advertised
+    Charging both against the general counter would silently cut every advertised
     allowance in half; this parallel counter bounds audio cost without doing so.
     """
     ref = db.collection("wim_users").document(uid)
-    daily_limit = tier_config["daily_limit"]
-
+    monthly_limit = tier_config["monthly_limit"]
     @firestore.transactional
     def _txn(transaction):
         snapshot = ref.get(transaction=transaction)
         data = snapshot.to_dict() if snapshot.exists else {}
-        count = data.get("audio_daily_count", 0)
-        reset_ts = data.get("audio_daily_reset", 0)
-        now = time.time()
-        is_reset = now - reset_ts > 86400
-        if is_reset:
-            count = 0
-        if count >= daily_limit:
+        ok, remaining, update_data = plan_audio_usage(
+            data, monthly_limit)
+        if not ok:
             return False, 0
-        update_data = {"audio_daily_count": count + 1}
-        if is_reset:
-            update_data["audio_daily_reset"] = now
-        transaction.update(ref, update_data)
-        return True, daily_limit - count - 1
+        transaction.set(ref, update_data, merge=True)
+        return True, remaining
 
     ok, remaining = _txn(db.transaction())
     if not ok:
         return False, 0, (json.dumps({
-            "error": "Daily audio limit reached",
-            "limit": daily_limit,
+            "error": "Monthly cloud-audio limit reached",
+            "error_code": "monthly_audio_quota_reached",
+            "limit": monthly_limit,
             "tier": tier_config["name"],
         }), 429, CORS_HEADERS)
     return True, remaining, None
@@ -186,6 +184,7 @@ _EXPORT_VISIBLE_KEYS = {
     "trigger_words", "onset_weights", "covert_profile",
     "filler_words", "vocabulary", "corrections", "sync_ts", "created",
     "tier", "billing_product_id", "billing_order_id", "billing_verified_at",
+    "billing_expiry_ts", "billing_state",
 }
 _RETRIABLE_EXC_NAMES = {"APITimeoutError", "APIConnectionError", "RateLimitError"}
 
@@ -209,9 +208,10 @@ def _action_export_data(uid, tier_config, body):
 
 def _action_delete_data(uid, tier_config, body):
     """GDPR: delete user's cloud data."""
-    purchase_docs = db.collection("wim_purchase_tokens").where("uid", "==", uid).stream()
-    for purchase_doc in purchase_docs:
-        purchase_doc.reference.delete()
+    for collection_name in ("wim_subscription_tokens", "wim_purchase_tokens"):
+        purchase_docs = db.collection(collection_name).where("uid", "==", uid).stream()
+        for purchase_doc in purchase_docs:
+            purchase_doc.reference.delete()
     db.collection("wim_users").document(uid).delete()
     return (json.dumps({"ok": True, "deleted": True}), 200, _JSON_CORS)
 
@@ -219,32 +219,40 @@ def _action_delete_data(uid, tier_config, body):
 def _action_billing_status(uid, tier_config, body):
     doc = db.collection("wim_users").document(uid).get()
     data = doc.to_dict() if doc.exists else {}
-    tier = data.get("tier", "invite")
+    tier = get_user_tier(uid)
     return (json.dumps({
         "ok": True,
         "unlocked": tier in ("basic", "pro"),
         "tier": tier,
         "product_id": data.get("billing_product_id"),
+        "expires_at": data.get("billing_expiry_ts"),
+        "monthly_limit": TIERS.get(tier, TIERS["invite"])["monthly_limit"],
+        "l4_monthly_limit": TIERS.get(tier, TIERS["invite"])["l4_monthly_limit"],
     }), 200, _JSON_CORS)
 
 
 def _action_verify_purchase(uid, tier_config, body):
-    """Verify, bind, grant, and acknowledge the permanent cloud entitlement."""
+    """Verify, bind, grant, and acknowledge the current cloud subscription."""
     purchase_token = (body.get("purchase_token") or "").strip()
     product_id = (body.get("product_id") or "").strip()
     try:
         purchase, google_session = verify_with_google(purchase_token, product_id)
-        external_id = purchase.get("obfuscatedExternalAccountId")
+        external_id = (purchase.get("externalAccountIdentifiers") or {}).get(
+            "obfuscatedExternalAccountId")
         if external_id != account_hash(uid):
             raise BillingVerificationError("Purchase belongs to a different account", 403)
 
         # A grant must never outlive an unacknowledged purchase: Play refunds
         # unacknowledged purchases after its acknowledgement window. Ack first;
         # a retry can safely finish the idempotent Firestore grant afterward.
-        if purchase.get("acknowledgementState", 0) == 0:
+        if purchase.get("acknowledgementState") == "ACKNOWLEDGEMENT_STATE_PENDING":
             acknowledge_with_google(google_session, purchase_token, product_id)
 
-        purchase_ref = db.collection("wim_purchase_tokens").document(token_hash(purchase_token))
+        line_item = purchase["_wim_line_item"]
+        expiry_ts = purchase["_wim_expiry_ts"]
+        order_id = line_item.get("latestSuccessfulOrderId") or purchase.get("latestOrderId")
+        purchase_ref = db.collection("wim_subscription_tokens").document(
+            token_hash(purchase_token))
         user_ref = db.collection("wim_users").document(uid)
 
         @firestore.transactional
@@ -255,14 +263,17 @@ def _action_verify_purchase(uid, tier_config, body):
             transaction.set(purchase_ref, {
                 "uid": uid,
                 "product_id": BILLING_PRODUCT_ID,
-                "order_id": purchase.get("orderId"),
-                "purchase_time_ms": purchase.get("purchaseTimeMillis"),
+                "order_id": order_id,
+                "subscription_state": purchase.get("subscriptionState"),
+                "expiry_ts": expiry_ts,
                 "verified_at": firestore.SERVER_TIMESTAMP,
             }, merge=True)
             transaction.set(user_ref, {
                 "tier": "basic",
                 "billing_product_id": BILLING_PRODUCT_ID,
-                "billing_order_id": purchase.get("orderId"),
+                "billing_order_id": order_id,
+                "billing_state": purchase.get("subscriptionState"),
+                "billing_expiry_ts": expiry_ts,
                 "billing_verified_at": firestore.SERVER_TIMESTAMP,
             }, merge=True)
             return True
@@ -281,12 +292,15 @@ def _action_verify_purchase(uid, tier_config, body):
                 503, CORS_HEADERS)
 
     _emit(logging.INFO, event="billing_entitlement_granted", uid=uid,
-          product_id=product_id)
+          product_id=product_id, expiry_ts=purchase["_wim_expiry_ts"])
     return (json.dumps({
         "ok": True,
         "unlocked": True,
         "tier": "basic",
         "product_id": BILLING_PRODUCT_ID,
+        "expires_at": purchase["_wim_expiry_ts"],
+        "monthly_limit": TIERS["basic"]["monthly_limit"],
+        "l4_monthly_limit": TIERS["basic"]["l4_monthly_limit"],
     }), 200, _JSON_CORS)
 
 
@@ -447,7 +461,7 @@ def _action_reconstruct(uid, tier_config, body):
             "tier": tier_config["name"],
         }), 403, CORS_HEADERS)
 
-    ok, remaining, rate_err = check_rate_limit(uid, tier_config)
+    ok, remaining, rate_err = check_rate_limit(uid, tier_config, requested_layer)
     if not ok:
         return rate_err
 
@@ -542,7 +556,7 @@ def handle(request):
     action = body.get("action")
     if tier_name not in ("basic", "pro") and action not in _ENTITLEMENT_FREE_ACTIONS:
         return (json.dumps({
-            "error": "WiM Cloud Unlock is required",
+            "error": "An active WiM Cloud subscription is required",
             "error_code": "billing_required",
             "product_id": BILLING_PRODUCT_ID,
         }), 403, _JSON_CORS)
