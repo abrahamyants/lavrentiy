@@ -252,11 +252,15 @@ class TestVisualBaseline:
         _post("/api/layer", {"layer": 2})
         page.goto(DASHBOARD_URL)
         page.wait_for_timeout(2000)
-        # Engine panel contains the toggles we resized in D36
+        # Basic is the default and intentionally hides engine controls.
+        # Switch through the real UI before capturing the Advanced panel.
+        if "advanced-ui" not in (page.locator("body").get_attribute("class") or ""):
+            page.locator("#view-toggle").click()
+        assert "advanced-ui" in (page.locator("body").get_attribute("class") or "")
         engine = page.locator("#whisper-card").or_(page.locator(".engine-row").first)
-        if engine.count() > 0:
-            engine.first.screenshot(path="tests/_screenshots/baseline_engine_panel.png")
-            print("Saved baseline: tests/_screenshots/baseline_engine_panel.png")
+        expect(engine.first).to_be_visible()
+        engine.first.screenshot(path="tests/_screenshots/baseline_engine_panel.png")
+        print("Saved baseline: tests/_screenshots/baseline_engine_panel.png")
 
 
 # ── Script-style entry point (matches existing test_*.py convention) ──
