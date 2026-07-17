@@ -9,7 +9,7 @@
 ' WebView2 runtime instead of through the user's installed Chrome/Edge.
 '
 ' Lavrentiy.vbs remains available as a browser-window troubleshooting fallback.
-' The v1.7.0 installer exposes this native route as the single app shortcut.
+' The v1.7.1 installer exposes this native route as the single app shortcut.
 Option Explicit
 
 Dim sh : Set sh = CreateObject("WScript.Shell")

@@ -8,8 +8,8 @@ Windows voice-to-intent and communication-assistance tool. Researcher outreach i
 ### Engine
 - **Entry point (PyInstaller --onedir build)**: `lavrentiy_launcher.py` — starts the engine and opens either the native pywebview/WebView2 window or the browser fallback at `http://localhost:7878/`.
 - **Engine**: `lavrentiy.py` — single-file Python, ~10,056 lines as of 2026-05-05. Module-level top-to-bottom execution (no `__main__` guard). Hotkey listener (F9 record / F10 tone / F11 layer / F12 stats / F3 triple-tap quit), audio capture, LLM pipeline, embedded `ThreadingHTTPServer` on :7878, dispatch table at `dispatch_api()` (line ~9443) so the same handlers serve HTTP and (formerly) QWebChannel paths.
-- **Dashboard**: `dashboard.html` — single file, opened in user's default browser. Polls `/api/state` every 750ms (2s toggle cooldown to prevent poll snap-back).
-- **Native pywebview path** (`desktop.py`, 348 lines): legacy. Watchdog + tray-removed + stdout None-guard. Replaced as the primary launcher in v1.6.0 by `lavrentiy_launcher.py`.
+- **Dashboard**: `dashboard.html` — single file, rendered in the native WebView2 window by default and also available at `http://localhost:7878/` as a browser fallback. Polls `/api/state` every 750ms (2s toggle cooldown to prevent poll snap-back).
+- **Legacy native entry** (`desktop.py`, 348 lines): retained for history only. The current native route is `lavrentiy_launcher.py --native`, launched by `Lavrentiy-Native.vbs`.
 - **Python**: 3.10+. George's machines run 3.13 (bundled) and 3.14 (system). Python 3.14 has known `httpx` / `huggingface_hub` breakage — stdlib urllib workarounds live in `eval-build/_fetch_fw_model.py`.
 
 ### Layer pipeline
@@ -26,7 +26,12 @@ Windows voice-to-intent and communication-assistance tool. Researcher outreach i
 - SAFE mode uses deterministic retention checks for names, numbers, dates, amounts, and negation. This is a limited guard, not semantic-equivalence proof.
 
 ### Auth flow
-Firebase Auth supplies a Google ID token to `/api/auth`; signed-in backend reconstruction routes through `wim-reconstruct`. Local `api_key.txt` / `anthropic_key.txt` are user/dev fallbacks only. **Never bundle either key in a public installer.** Free local Layer 1 requires no key.
+Firebase Auth supplies a Google ID token to `/api/auth`; signed-in backend transcription and reconstruction route through `wim-reconstruct`. User-provided fallbacks live only under `%USERPROFILE%\.lavrentiy\api_key.txt` and `%USERPROFILE%\.lavrentiy\anthropic_key.txt`. **Never bundle either key in a public installer.** Free local English Layer 1 requires no key.
+
+### Language axes
+- **Interface:** EN/RU. Russian copy loads from `lang_packs/dashboard_i18n_multilang.json` only when its recorded English source still matches current dashboard copy; current overrides cover deliberately rewritten text. This prevents stale clinical claims returning through translation drift.
+- **Spoken dictation:** local `small.en` is English-only. Non-English uses authenticated backend audio transcription or a user-owned OpenAI key. Supported codes match current reconstruction packs: `ar,de,es,fr,hi,it,ja,ko,pt,ru,zh` plus `en`.
+- **First-language English transfer:** the 10 `l1_packs` include Farsi. They apply to English reconstruction on L2/L3 and are not UI or spoken-dictation language packs.
 
 ### Profile + DB
 - Multi-user: `~/.lavrentiy/profiles/<name>/{profile.json, history.db, backups/}`. Active profile name in `~/.lavrentiy/active_profile`.
@@ -164,7 +169,7 @@ pyinstaller --noconfirm Lavrentiy-onedir.spec
 
 # 2. Compile Inno Setup installer
 "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" installer/Lavrentiy.iss
-# Produces installer/Output/Lavrentiy-Setup-v1.6.0.exe (per-user install, no admin)
+# Produces installer/Output/Lavrentiy-Setup-v1.7.1.exe (per-user install, no admin)
 ```
 
 ### Smoke test before declaring v1.x ready

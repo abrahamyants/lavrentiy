@@ -2505,7 +2505,16 @@ accent_mode = profile["preferences"].get("accent_mode", "polish")
 # accent_mode, which is about L1 influence on English). Default "en". When
 # non-"en" it's passed to Whisper (so it stops auto-guessing) AND to the
 # reconstruction prompt (language_code) so the matching lang_pack activates.
+DICTATION_LANGUAGES = {
+    "en", "ar", "de", "es", "fr", "hi", "it", "ja", "ko", "pt", "ru", "zh",
+}
 dictation_language = profile["preferences"].get("dictation_language", "en")
+if dictation_language not in DICTATION_LANGUAGES:
+    dictation_language = "en"
+if dictation_language != "en":
+    # The bundled model is small.en. Keep the dashboard source indicator and
+    # actual dispatch policy consistent after an app restart.
+    L1_CLOUD_ASR = True
 
 # Migration: Layer 5 -> Layer 4 + toggles
 if current_layer >= 5:
@@ -4708,24 +4717,82 @@ def _build_whisper_prompt():
     return "Clear, fluent speech. Transcribe intended words only, not repetitions or filler sounds."
 
 
+def _backend_audio_transcribe(filepath, temperature, prompt_text):
+    """Transcribe WAV audio through the authenticated WiM/Lavrentiy backend."""
+    import base64
+    import urllib.request
+
+    with open(filepath, "rb") as audio_file:
+        audio_bytes = audio_file.read()
+    if not audio_bytes or len(audio_bytes) > 12 * 1024 * 1024:
+        raise RuntimeError("Audio is empty or exceeds the 12 MB cloud limit")
+
+    payload = json.dumps({
+        "action": "transcribe_audio",
+        "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
+        "model": "whisper-1",
+        "verbose_segments": True,
+        "language": dictation_language or "en",
+        "temperature": float(temperature) if temperature is not None else 0.0,
+        "prompt": prompt_text or "",
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        BACKEND_URL,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {_firebase_id_token}",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=90) as response:
+        result = json.loads(response.read().decode("utf-8"))
+    if result.get("error"):
+        raise RuntimeError(result["error"])
+    stats_inc("api_calls")
+    stats_inc("cloud_transcriptions")
+    return {
+        "text": (result.get("text") or "").strip(),
+        "segments": result.get("segments", []) or [],
+        "engine": "backend-whisper-1",
+    }
+
+
 def _whisper_single_call(filepath, temperature, prompt_text, max_retries=3):
     """Single ASR call returning verbose JSON with segment data.
 
     Layer-conditional dispatch:
-      - L4 (clinical): cloud whisper-1 with verbose_json — gives the full
+      - L4 (advanced): cloud whisper-1 with verbose_json — gives the full
         per-segment metadata (avg_logprob, no_speech_prob, timestamps) that the
-        Sonnet-4.6-extended-thinking reconstructor needs to reason about block
-        suspects, multi-temp disagreements, prosodic stress windows, etc.
-        faster-whisper's flat output is useless for this — verified empirically
-        that gpt-4o-transcribe also doesn't return verbose_json (HTTP 400).
+        advanced reconstructor can use to reason about pause suspects,
+        multi-temp disagreements, prosodic stress windows, etc.
+        gpt-4o-transcribe does not return verbose_json (HTTP 400).
       - L1/L2/L3: local ASR (faster-whisper via asr_local). Fast paste path.
 
     Returns dict with: text, segments, engine.
     Retries up to max_retries on transient errors.
     """
-    # Cloud whisper-1: always at L4 (rich segment metadata for clinical
-    # reconstruction), or at L1 when the L1_CLOUD_ASR toggle is on.
-    if (current_layer >= 4 or (current_layer == 1 and L1_CLOUD_ASR)) and client is not None:
+    # Cloud whisper-1: always for non-English because the bundled small.en
+    # model is English-only; also at L4 (rich segment metadata), or at L1 when
+    # the cloud source toggle is on. Signed-in users use the authenticated
+    # backend so no developer key is ever shipped in the desktop installer.
+    cloud_required = dictation_language != "en"
+    cloud_requested = cloud_required or current_layer >= 4 or (
+        current_layer == 1 and L1_CLOUD_ASR
+    )
+
+    if cloud_requested and is_authenticated() and _firebase_id_token:
+        try:
+            return _backend_audio_transcribe(filepath, temperature, prompt_text)
+        except Exception as e:
+            log(f"Backend whisper-1 failed: {str(e)[:120]}", "warn")
+            if client is None and cloud_required:
+                raise RuntimeError(
+                    "Non-English dictation needs Cloud transcription. "
+                    "Sign in again or add your own OpenAI API key."
+                ) from e
+
+    if cloud_requested and client is not None:
         last_err = None
         for attempt in range(max_retries):
             try:
@@ -4756,9 +4823,19 @@ def _whisper_single_call(filepath, temperature, prompt_text, max_retries=3):
                     log(f"Cloud whisper-1 error ({str(e)[:80]}), retry {attempt+1}/{max_retries} in {wait}s", "warn")
                     time.sleep(wait)
                     continue
-                log(f"Cloud whisper-1 exhausted retries: {str(e)[:120]} — falling back to local", "warn")
+                log(f"Cloud whisper-1 exhausted retries: {str(e)[:120]}", "warn")
                 break  # fall through to local path below
-        # If we got here after exhausting cloud retries, drop into local fallback.
+        if cloud_required:
+            raise RuntimeError(
+                "Non-English Cloud transcription failed. Check the network, "
+                "sign-in, or OpenAI API key."
+            ) from last_err
+
+    if cloud_required:
+        raise RuntimeError(
+            "Non-English dictation needs Cloud transcription. "
+            "Sign in or add your own OpenAI API key."
+        )
 
     # L1/L2/L3 (and L4 fallback): local faster-whisper
     if _local_transcribe_fn is None:
@@ -4771,7 +4848,7 @@ def _whisper_single_call(filepath, temperature, prompt_text, max_retries=3):
     last_err = None
     for attempt in range(max_retries):
         try:
-            result = _local_transcribe_fn(filepath, temperature, prompt_text, LANGUAGE)
+            result = _local_transcribe_fn(filepath, temperature, prompt_text, "en")
             stats_inc("local_transcriptions")
             return result
         except Exception as e:
@@ -7737,6 +7814,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._serve_file(Path(__file__).parent / 'onboard.html', 'text/html')
         elif self.path == '/auth/google':
             self._serve_file(Path(__file__).parent / 'auth_google.html', 'text/html')
+        elif self.path == '/lang_packs/dashboard_i18n_multilang.json':
+            self._serve_file(
+                Path(__file__).parent / 'lang_packs' / 'dashboard_i18n_multilang.json',
+                'application/json',
+            )
         elif self.path.startswith('/api/'):
             # All /api/* GET routes delegate to dispatch_api — single source
             # of truth shared with the native bridge in native/lavrentiy_app.py.
@@ -8327,17 +8409,33 @@ def handle_POST_api_prosodic(body=None) -> dict:
     return {'prosodic_enabled': prosodic_enabled}
 
 def set_dictation_language(code):
-    global dictation_language
-    dictation_language = (code or "en").strip().lower() or "en"
+    global dictation_language, L1_CLOUD_ASR
+    requested = (code or "en").strip().lower() or "en"
+    if requested not in DICTATION_LANGUAGES:
+        raise ValueError(f"Unsupported dictation language: {requested}")
+    dictation_language = requested
+    if dictation_language != "en":
+        L1_CLOUD_ASR = True
     profile["preferences"]["dictation_language"] = dictation_language
     save_profile(profile)
-    log(f"Dictation language: {dictation_language}", "info")
+    log(
+        f"Dictation language: {dictation_language}"
+        + (" (Cloud transcription required)" if dictation_language != "en" else ""),
+        "info",
+    )
 
 
 def handle_POST_api_dictation_language(body=None) -> dict:
     if body and 'language' in body:
-        set_dictation_language(body['language'])
-    return {'dictation_language': dictation_language}
+        try:
+            set_dictation_language(body['language'])
+        except ValueError as e:
+            return {'dictation_language': dictation_language, 'error': str(e)}
+    return {
+        'dictation_language': dictation_language,
+        'l1_cloud_asr': L1_CLOUD_ASR,
+        'cloud_required': dictation_language != 'en',
+    }
 
 
 def handle_POST_api_accent_mode(body=None) -> dict:
@@ -8353,6 +8451,11 @@ def handle_POST_api_quiet_mode(body=None) -> dict:
 def handle_POST_api_l1_asr(body=None) -> dict:
     global L1_CLOUD_ASR
     if body and 'cloud' in body:
+        if not bool(body['cloud']) and dictation_language != 'en':
+            return {
+                'l1_cloud_asr': True,
+                'rejected': 'The bundled local model is English-only. Non-English dictation requires Cloud.',
+            }
         L1_CLOUD_ASR = bool(body['cloud'])
         log(f"L1 ASR source: {('cloud whisper-1' if L1_CLOUD_ASR else 'local')}", 'info')
     return {'l1_cloud_asr': L1_CLOUD_ASR}

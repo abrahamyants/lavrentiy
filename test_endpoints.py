@@ -204,6 +204,8 @@ ns['WHISPER_TEMP'] = 0.0
 ns['WHISPER_NO_SPEECH_THRESHOLD'] = 0.15
 ns['WHISPER_MULTI_TEMP'] = False
 ns['WHISPER_MULTI_TEMPS'] = [0.0, 0.2, 0.4]
+ns['dictation_language'] = 'en'
+ns['L1_CLOUD_ASR'] = False
 ns['PATIENCE_DEFAULT'] = 2.0
 ns['PATIENCE_STUTTER'] = 4.5
 ns['DASHBOARD_PORT'] = 7878
@@ -407,6 +409,15 @@ try:
 except Exception as e:
     check(f'GET /api/hotkeys failed: {e}', False)
 
+print()
+print('=== GET /lang_packs/dashboard_i18n_multilang.json ===')
+try:
+    r = get('/lang_packs/dashboard_i18n_multilang.json')
+    check('translation pack returns dict', isinstance(r, dict))
+    check('translation pack includes Russian', r.get('layer1', {}).get('ru') is not None)
+except Exception as e:
+    check(f'GET translation pack failed: {e}', False)
+
 
 # ============================================================
 # POST ENDPOINT TESTS
@@ -421,6 +432,10 @@ try:
     check('saved key content matches', saved_key_path.read_text(encoding='utf-8') == 'sk-test-not-a-real-key')
 except Exception as e:
     check(f'POST /api/set-key failed: {e}', False)
+# The real handler correctly rebuilds an OpenAI client after saving a key.
+# This suite is deliberately offline, so prevent later Script Prep tests from
+# attempting a live request with the fake test key.
+ns['client'] = None
 
 print()
 print('=== POST /api/tone ===')
@@ -452,6 +467,26 @@ try:
     post('/api/layer', {'layer': 2})
 except Exception as e:
     check(f'POST /api/layer failed: {e}', False)
+
+print()
+print('=== POST /api/dictation_language + /api/l1_asr ===')
+try:
+    r = post('/api/dictation_language', {'language': 'ru'})
+    check('Russian dictation selected', r['dictation_language'] == 'ru')
+    check('non-English marks cloud required', r['cloud_required'] is True)
+    check('non-English forces cloud source', r['l1_cloud_asr'] is True)
+    r2 = post('/api/l1_asr', {'cloud': False})
+    check('local source rejected for non-English', 'rejected' in r2)
+    check('cloud remains on after rejection', r2['l1_cloud_asr'] is True)
+    r3 = post('/api/dictation_language', {'language': 'farsi'})
+    check('unsupported spoken Farsi rejected', 'error' in r3)
+    check('rejection keeps prior language', r3['dictation_language'] == 'ru')
+    r4 = post('/api/dictation_language', {'language': 'en'})
+    check('English dictation restored', r4['dictation_language'] == 'en')
+    r5 = post('/api/l1_asr', {'cloud': False})
+    check('English can restore local source', r5['l1_cloud_asr'] is False)
+except Exception as e:
+    check(f'POST language/source policy failed: {e}', False)
 
 print()
 print('=== POST /api/mode ===')
@@ -925,6 +960,44 @@ try:
     ns['db_get_sessions'] = lambda limit=50: []
 except Exception as e:
     check(f'GET /api/clinical_profile failed: {e}', False)
+
+# ============================================================
+# Cloud-language ASR routing (no network)
+# ============================================================
+print()
+print('=== Non-English ASR routing ===')
+_orig_backend_audio = ns['_backend_audio_transcribe']
+_orig_local_transcribe = ns['_local_transcribe_fn']
+_orig_client = ns['client']
+_orig_token = ns['_firebase_id_token']
+try:
+    ns['dictation_language'] = 'ru'
+    ns['current_layer'] = 2
+    ns['client'] = None
+    ns['_firebase_id_token'] = 'test-firebase-token'
+    ns['_backend_audio_transcribe'] = lambda path, temp, prompt: {
+        'text': 'привет', 'segments': [], 'engine': 'backend-whisper-1'
+    }
+    r = ns['_whisper_single_call']('unused.wav', 0.0, '')
+    check('signed-in Russian uses authenticated backend', r['engine'] == 'backend-whisper-1')
+
+    local_calls = []
+    ns['_firebase_id_token'] = None
+    ns['_local_transcribe_fn'] = lambda *args: local_calls.append(args) or {'text': 'wrong'}
+    try:
+        ns['_whisper_single_call']('unused.wav', 0.0, '')
+        raised = False
+    except RuntimeError as e:
+        raised = 'Non-English' in str(e)
+    check('signed-out Russian fails clearly without cloud', raised)
+    check('Russian never falls into English-only local ASR', local_calls == [])
+finally:
+    ns['_backend_audio_transcribe'] = _orig_backend_audio
+    ns['_local_transcribe_fn'] = _orig_local_transcribe
+    ns['client'] = _orig_client
+    ns['_firebase_id_token'] = _orig_token
+    ns['dictation_language'] = 'en'
+    ns['current_layer'] = 2
 
 # ============================================================
 # Shutdown

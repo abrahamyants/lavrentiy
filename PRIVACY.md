@@ -25,13 +25,13 @@ Local profile data is normally under `%USERPROFILE%\.lavrentiy\profiles\`. It re
 
 ## Local and cloud processing
 
-Local faster-whisper transcription is the default. In that path, transcription audio remains on the computer.
+Local English faster-whisper transcription is the default. In that path, transcription audio remains on the computer. The bundled local model is English-only; selecting another supported dictation language requires configured cloud transcription.
 
 Cloud processing occurs only when the user selects or invokes a configured cloud feature:
 
 - With a user-provided OpenAI key, audio may be sent directly to OpenAI for cloud transcription and text may be sent for reconstruction.
 - With a configured Anthropic key, reconstruction text may be sent directly to Anthropic.
-- When signed in with Google, reconstruction text and the context required for that request may be sent through the authenticated Google Cloud backend. The backend may then call an AI provider.
+- When signed in with Google, cloud-transcription audio or reconstruction text and the context required for that request may be sent through the authenticated Google Cloud backend. The backend may then call an AI provider.
 
 Lavrentiy cannot reconstruct words that were never captured in audio. Pause Bridge may generate optional completion suggestions from the text already captured; the user decides whether to use one.
 
@@ -39,7 +39,7 @@ Lavrentiy cannot reconstruct words that were never captured in audio. Pause Brid
 
 If the user signs in with Google, Firebase Authentication provides the account email address, display name, and unique account identifier. Lavrentiy does not request access to Google contacts, calendar, Drive, or Gmail.
 
-Selected learned profile metadata may be synchronized to Firestore, including vocabulary, corrections, filler words, trigger words, phonetic weights, and avoidance-pair data. This supports use across devices and personalized backend reconstruction. Local session audio is not uploaded as part of profile sync.
+Selected learned profile metadata may be synchronized to Firestore, including vocabulary, corrections, filler words, trigger words, phonetic weights, and avoidance-pair data. This supports use across devices and personalized backend reconstruction. Local session audio is not uploaded as part of profile sync; an individual recording is uploaded only when the user invokes configured cloud transcription.
 
 ## Third-party services
 

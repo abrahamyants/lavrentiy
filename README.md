@@ -6,6 +6,12 @@ Lavrentiy records when the user deliberately starts recording, transcribes local
 
 It is designed to remain usable when speech contains repetitions, substitutions, long pauses, or blocks. It does not diagnose a speech condition, measure clinical severity, or recover a word that was never captured. Pause Bridge generates optional completions from existing transcript context; the user decides whether to paste one.
 
+## Current language support
+
+- **Interface:** English and Russian (`EN / RU` above the status ring).
+- **Spoken dictation:** the bundled local `small.en` model is English-only. Cloud transcription supports Russian, Spanish, Portuguese, French, Arabic, German, Hindi, Italian, Japanese, Korean, and Mandarin when the user signs in or supplies an OpenAI key.
+- **English first-language transfer packs:** Layer 2/3 can optionally account for common transfer patterns associated with Russian, Spanish, Mandarin, Hindi, Arabic, Farsi, French, German, Korean, or Japanese. These packs are reconstruction context—not spoken-language packs, accent diagnosis, or evidence that an accent needs correction.
+
 ## Architecture
 
 Single Python process, no frameworks, no Electron, no build step.
@@ -43,7 +49,7 @@ Mic → Whisper (Script Prep seed | verbose JSON | multi-temp voting)
 
 ## Historical engineering notebook — not current release documentation
 
-Everything from this heading through the changelog is retained as project history. It includes superseded experiments, names, layers, clinical framing, Falcon claims, and an old WiM PWA. Do not treat it as a description of v1.7.0. The current Android product lives at <https://github.com/gugosf114/wim-android>.
+Everything from this heading through the changelog is retained as project history. It includes superseded experiments, names, layers, clinical framing, Falcon claims, and an old WiM PWA. Do not treat it as a description of v1.7.1. The current Android product lives at <https://github.com/gugosf114/wim-android>.
 
 ## What I Meant (WIM) — historical PWA
 

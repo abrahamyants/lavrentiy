@@ -105,6 +105,23 @@ class TestDashboardLoad:
         ]:
             assert page.locator(selector).count() >= 1, f"Missing selector: {selector}"
 
+    def test_russian_interface_switch_is_live(self, page: Page):
+        page.goto(DASHBOARD_URL)
+        page.wait_for_timeout(1200)
+        assert page.locator('.lang-btn[data-lang="ru"]').count() == 1
+        page.locator('.lang-btn[data-lang="ru"]').click()
+        expect(page.locator('.tab-btn[data-tab="profile"]')).to_have_text('Профиль')
+        page.locator('.lang-btn[data-lang="en"]').click()
+        expect(page.locator('.tab-btn[data-tab="profile"]')).to_have_text('Profile')
+
+    def test_spoken_language_picker_matches_backend_policy(self, page: Page):
+        page.goto(DASHBOARD_URL)
+        page.wait_for_timeout(1200)
+        codes = page.locator('.dict-lang-opt').evaluate_all(
+            "els => els.map(e => e.dataset.dict).sort()"
+        )
+        assert codes == sorted(['en', 'ar', 'de', 'es', 'fr', 'hi', 'it', 'ja', 'ko', 'pt', 'ru', 'zh'])
+
 
 class TestL1AsrToggle:
     """The L1-ASR toggle's /api/l1_asr endpoint was 404 (handler existed but

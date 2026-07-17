@@ -8,7 +8,7 @@ It is designed to remain usable when speech includes repetitions, substitutions,
 
 ## Install
 
-1. Download `Lavrentiy-Setup-v1.7.0.exe` from <https://github.com/gugosf114/lavrentiy/releases/latest>.
+1. Download `Lavrentiy-Setup-v1.7.1.exe` from <https://github.com/gugosf114/lavrentiy/releases/latest>.
 2. If Windows shows **Windows protected your PC**, select **More info → Run anyway**. V1 is not code-signed.
 3. Complete the installer and open the single **Lavrentiy** shortcut.
 
@@ -27,6 +27,8 @@ On an organization-managed computer, local policy may block unsigned application
 ## Important behavior
 
 - Local Layer 1 needs no account or API key.
+- The bundled local model is English-only. Other listed dictation languages use Cloud transcription and need Google sign-in or the evaluator's own OpenAI API key.
+- **EN / RU** changes the interface language. The separate first-language packs apply only to English reconstruction on Layer 2 or 3; they are not transcription languages or a clinical accent assessment.
 - Cloud layers require an invited Google account or the evaluator's own OpenAI API key.
 - SAFE mode protects a limited set of meaning anchors: names, numbers, dates, amounts, and negation. It is not a guarantee of semantic equivalence.
 - Pause Bridge offers optional sentence completions based on captured context. It does not detect the content of a silent block.

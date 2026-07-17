@@ -77,7 +77,7 @@ for pkg in (
     'openai', 'anthropic', 'metaphone', 'pyperclip',
     'pyautogui',
     # Native app window (pywebview + WebView2 via pythonnet). This is the
-    # v1.7.0 shortcut path; browser mode remains a troubleshooting fallback.
+    # v1.7.1 shortcut path; browser mode remains a troubleshooting fallback.
     'webview', 'pythonnet', 'clr_loader',
 ):
     try:

@@ -2855,6 +2855,7 @@ body:not(.advanced-ui) .layer-opt .l-desc { font-size: 11px; }
 <div class="status-ring-wrap">
       <button class="compact-toggle" onclick="toggleCompact()" title="Compact mode" aria-label="Minimize to compact mode">&#8863;</button>
       <div class="theme-toggle"><button class="theme-tog-btn" data-theme-set="dark" onclick="setTheme('dark')" aria-label="Dark theme">D</button><button class="theme-tog-btn" data-theme-set="light" onclick="setTheme('light')" aria-label="Light theme">L</button></div>
+      <div class="lang-toggle"><button class="lang-btn active" data-lang="en" onclick="setLang('en')" aria-label="English interface">EN</button><button class="lang-btn" data-lang="ru" onclick="setLang('ru')" aria-label="Русский интерфейс">RU</button></div>
       <button class="help-btn" onclick="toggleHelp()" title="Manual" aria-label="Help">?</button>
       <button class="view-toggle" id="view-toggle" onclick="toggleAdvancedUi()" aria-pressed="false">ADVANCED</button>
       <script>
@@ -3576,6 +3577,52 @@ const I18N={
   ha_tips:{en:'Tips'},ha_tips_sub:{en:'Power user tricks'},
   ha_tips_body:{en:'\u2022 Click the <strong>timer</strong> in the status ring to reset it.<br>\u2022 <strong>Compact toggle</strong> (top-left) collapses to a minimal bar with clickable chips.<br>\u2022 Tone and Mode <strong>auto-collapse</strong> on L1 (they have no effect).<br>\u2022 <strong>High Stress</strong> situation is a one-click panic button: L4 + DAF + all toggles.<br>\u2022 Click any <strong>stat/learn bar cell</strong> to jump to its detail tab.'},
 };
+
+// The historical translation pack remains useful, but English copy changes
+// often. Load a Russian value only when the English source still matches the
+// current dashboard; this prevents old clinical or capability claims from
+// reappearing through a stale translation. These overrides cover copy that was
+// deliberately rewritten for the current release.
+const RU_CURRENT={
+  layer1d:'локальная расшифровка + базовая очистка',
+  layer4:'IV. Расширенный',layer4d:'+ речевой контекст',
+  mode_raw:'вставить оригинал',mode_fast:'реконструировать',mode_safe:'+ защита смысла',
+  lbl_sensitive:'◄ чувствительно',lbl_tolerant:'терпимо ►',lbl_sevmod:'Уровень помощи',
+  tab_profile:'Профиль',learn_report:'📊 НЕДЕЛЬНЫЙ ОТЧЁТ',
+  insights_empty:'Переключитесь на уровень 4, чтобы увидеть анализ речевых моделей.',
+  lowconf_sub:'(последняя сессия — неопределённость Whisper рядом с отмеченными участками)',
+  fluency_title:'ТЕНДЕНЦИЯ ПАУЗ И ТЕМПА',fl_sev:'СР. ПОМОЩЬ',
+  prep_seed:'⚡ WHISPER ПОЛУЧИЛ КОНТЕКСТ — этот текст поможет распознаванию',
+  cal_sub:'Прочитайте 60 фраз, затем естественно ответьте на пять вопросов. Подтвердите каждую расшифровку.',
+  cal_instruction:'Прочитайте эту фразу вслух естественно.',
+  aug_title:'ЭКСПЕРИМЕНТАЛЬНЫЕ СИНТЕТИЧЕСКИЕ ДАННЫЕ',
+  aug_sub:'Создаёт обычные TTS-примеры с добавленными повторами и словами-паразитами для инженерных тестов. Не воспроизводит молчаливые блоки или реальное заикание.',
+  wer_sub:'Доля ошибок в словах за последние сессии — меньше лучше. Показывает качество распознавания Whisper.',
+  disclaimer:'Ваши слова. Ваше намерение. Проверьте важные детали перед отправкой.',
+  ha_layers_sub:'От L1 Расшифровка до L4 Расширенный',
+  ha_layers_body:'<strong>L1 Расшифровка</strong> — локальная речь-в-текст с базовой очисткой повторов и слов-паразитов.<br><strong>L2 Реконструкция</strong> — переписывает текст в выбранном тоне.<br><strong>L3 Профиль</strong> — добавляет ваш словарь и подтверждённые исправления.<br><strong>L4 Расширенный</strong> — добавляет речевой контекст, сигналы неопределённости и одобренные пользователем подсказки Pause Bridge. Не ставит диагноз и не восстанавливает невысказанные слова.',
+  ha_tone_body:'<strong>Обычный</strong> — разговорный стиль.<br><strong>Деловой</strong> — чистый и точный текст для работы.<br><strong>Дружеский</strong> — расслабленный стиль.<br><strong>Формальный</strong> — точный академический или юридический стиль.<br><br>Не влияет на L1.',
+  ha_mode_body:'<strong>RAW</strong> — вставляет расшифровку после базовой очистки.<br><strong>FAST</strong> — сразу вставляет реконструкцию.<br><strong>SAFE</strong> — сохраняет оригинал, если реконструкция потеряла имя, число, дату, сумму или отрицание. Это ограниченная проверка правилами, а не второй ИИ и не гарантия полного совпадения смысла.',
+  ha_enhance_body:'<strong>Паралингвистика</strong> — экспериментально оценивает кашель, смех, вздохи, дыхание и паузы по аудиосигналу. Это не диагноз.<br><strong>Просодика</strong> — измеряет высоту голоса, энергию и темп речи. Не измеряет тяжесть заикания.',
+  ha_situation_body:'<strong>Обычная</strong> — повседневная диктовка.<br><strong>Высокий стресс</strong> — даёт больше времени и включает полный набор помощи для звонков, интервью или презентаций.<br><strong>Чтение</strong> — использует более лёгкую реконструкцию подготовленного текста.',
+  ha_daf_sub:'Необязательное воспроизведение голоса с задержкой',
+  ha_daf_body:'Воспроизводит ваш голос в наушниках с небольшой задержкой. Для некоторых людей это меняет темп речи. Функция необязательна и не представляется как лечение или гарантированное улучшение плавности.',
+  ha_whisper_body:'<strong>Мульти-температура</strong> — запускает распознавание с несколькими настройками; медленнее, но расхождения отмечаются.<br><strong>Подозрительные паузы</strong> — отмечает участки слабого аудио, где ASR мог придумать текст. Это не обнаруживает внутренний речевой блок и не восстанавливает невысказанное слово.',
+  ha_stats_sub:'Нажмите для перехода к подробной вкладке',
+  ha_pipeline_body:'<strong>1. Запись</strong><br>Удерживайте F9 или нажмите один раз для старта и ещё раз для остановки.<br><br><strong>2. Расшифровка</strong><br>Локальный faster-whisper по умолчанию работает на английском. Другие языки используют настроенную облачную расшифровку.<br><br><strong>3. Очистка</strong><br>Правила убирают распознаваемые повторы, слова-паразиты и артефакты ASR.<br><br><strong>4. Реконструкция</strong><br>L2 применяет тон, L3 — подтверждённый личный словарь, L4 — неопределённость и речевой контекст.<br><br><strong>5. Защита</strong><br>SAFE сохраняет оригинал при потере имени, числа, даты, суммы или отрицания.<br><br><strong>6. Вставка</strong><br>Выбранный текст вставляется в активное приложение Windows.'
+};
+
+async function loadUiTranslations(){
+  try{
+    const response=await fetch('/lang_packs/dashboard_i18n_multilang.json');
+    if(!response.ok)return;
+    const pack=await response.json();
+    Object.entries(pack).forEach(([key,entry])=>{
+      if(I18N[key]&&entry&&entry.en===I18N[key].en&&typeof entry.ru==='string')I18N[key].ru=entry.ru;
+    });
+    Object.entries(RU_CURRENT).forEach(([key,value])=>{if(I18N[key])I18N[key].ru=value;});
+  }catch(e){console.warn('Russian interface pack unavailable',e);}
+}
 function t(key){return I18N[key]?.[currentLang]||I18N[key]?.en||key;}
 function _setFirstText(el,text){for(const n of el.childNodes){if(n.nodeType===3&&n.textContent.trim()){n.textContent=text;return;}}el.prepend(document.createTextNode(text));}
 function setLang(lang){
@@ -5710,6 +5757,7 @@ function toggleAdvancedUi(){
 }
 
 async function init(){
+  await loadUiTranslations();
   applyUiMode();
   await runBootSequence();
   applyCompact();
@@ -5742,7 +5790,7 @@ async function runBootSequence(){
     if(response.ok)bootState=await response.json();
   }catch(e){}
   const lines=[
-    {t:'BIOS',m:'Lavrentiy v1.7.0',d:100},
+    {t:'BIOS',m:'Lavrentiy v1.7.1',d:100},
     bootState
       ? {t:'OK',m:'Engine connected on :7878',d:120}
       : {t:'ERR',m:'Engine connection unavailable',d:120},
@@ -5865,14 +5913,22 @@ function _seedProfileTabExtras(){
     <div class="profile-section" style="margin-top:14px">
       <div class="profile-header" style="cursor:default"><span><span class="ph-title">Dictation language</span></span></div>
       <div class="profile-body" style="display:block">
-        <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);margin-bottom:6px">The language you actually speak in &mdash; not your accent. (English = auto.)</div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);margin-bottom:6px">The language you speak. Local is English-only; every other language uses Cloud (sign-in or your OpenAI key).</div>
         <div class="tone-stack" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
           <div class="layer-opt dict-lang-opt active" data-dict="en"><div class="l-info"><div class="l-name" style="font-size:11px">English</div></div></div>
+          <div class="layer-opt dict-lang-opt" data-dict="ar"><div class="l-info"><div class="l-name" style="font-size:11px">Arabic</div></div></div>
+          <div class="layer-opt dict-lang-opt" data-dict="de"><div class="l-info"><div class="l-name" style="font-size:11px">German</div></div></div>
           <div class="layer-opt dict-lang-opt" data-dict="ru"><div class="l-info"><div class="l-name" style="font-size:11px">Russian</div></div></div>
           <div class="layer-opt dict-lang-opt" data-dict="es"><div class="l-info"><div class="l-name" style="font-size:11px">Spanish</div></div></div>
           <div class="layer-opt dict-lang-opt" data-dict="pt"><div class="l-info"><div class="l-name" style="font-size:11px">Portuguese</div></div></div>
           <div class="layer-opt dict-lang-opt" data-dict="fr"><div class="l-info"><div class="l-name" style="font-size:11px">French</div></div></div>
+          <div class="layer-opt dict-lang-opt" data-dict="hi"><div class="l-info"><div class="l-name" style="font-size:11px">Hindi</div></div></div>
+          <div class="layer-opt dict-lang-opt" data-dict="it"><div class="l-info"><div class="l-name" style="font-size:11px">Italian</div></div></div>
+          <div class="layer-opt dict-lang-opt" data-dict="ja"><div class="l-info"><div class="l-name" style="font-size:11px">Japanese</div></div></div>
+          <div class="layer-opt dict-lang-opt" data-dict="ko"><div class="l-info"><div class="l-name" style="font-size:11px">Korean</div></div></div>
+          <div class="layer-opt dict-lang-opt" data-dict="zh"><div class="l-info"><div class="l-name" style="font-size:11px">Mandarin</div></div></div>
         </div>
+        <div id="dict-lang-status" style="font-family:var(--mono);font-size:9px;color:var(--orange);margin-top:6px"></div>
       </div>
     </div>
 
@@ -5885,7 +5941,7 @@ function _seedProfileTabExtras(){
           <div class="layer-opt l1nat-opt" data-l1nat="no"><div class="l-info"><div class="l-name">No</div></div></div>
         </div>
         <div id="l1-lang-grid" style="display:none;margin-top:8px">
-          <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);margin-bottom:4px">Your first language &mdash; this is also the accent we watch for:</div>
+          <div style="font-family:var(--mono);font-size:9px;color:var(--text-dim);margin-bottom:4px">When you speak English, choose your first language so L2/L3 can account for common transfer patterns. This does not change transcription language:</div>
           <div class="tone-stack" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
             <div class="layer-opt l1-opt" data-l1="russian" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Russian</div></div></div>
             <div class="layer-opt l1-opt" data-l1="spanish" style="padding:5px 8px"><div class="l-info"><div class="l-name" style="font-size:10px">Spanish</div></div></div>
@@ -6033,7 +6089,13 @@ document.addEventListener('click', e => {
   document.querySelectorAll('.dict-lang-opt').forEach(b => b.classList.remove('active'));
   dl.classList.add('active');
   fetch('/api/dictation_language', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({language: dl.dataset.dict})}).catch(()=>{});
+    body: JSON.stringify({language: dl.dataset.dict})})
+    .then(r=>r.json()).then(d=>{
+      const note=document.getElementById('dict-lang-status');
+      if(note)note.textContent=d.error||(
+        d.cloud_required?'Cloud transcription enabled for this language.':'English can use the bundled local model.'
+      );
+    }).catch(()=>{});
 });
 // Wire the W↔L slider
 document.addEventListener('input', e => {
