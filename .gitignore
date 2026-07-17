@@ -1,4 +1,5 @@
-local/
+# Local ASR Python sources are part of the product and must remain public so a
+# release can be rebuilt from this repository. Model binaries live elsewhere.
 docs/*
 !docs/spanish_stuttering_memo.md
 !docs/multilingual_research_notes.md

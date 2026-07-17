@@ -514,10 +514,10 @@ print()
 print('=== TEST 15: _snapshot_profile ===')
 ns['BACKUP_DIR'].mkdir(parents=True, exist_ok=True)
 test_prof = {"version": 4, "test": True}
-_snapshot_profile(test_prof)
+created_backup = _snapshot_profile(test_prof)
 backups = list(ns['BACKUP_DIR'].glob("profile_*.json"))
 check('backup created', len(backups) >= 1)
-with open(backups[-1]) as f:
+with open(created_backup) as f:
     bk = json.load(f)
 check('backup content matches', bk.get('test') is True)
 

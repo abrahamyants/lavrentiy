@@ -146,7 +146,7 @@
 <body>
   <div class="card">
     <div class="logo">LAVRENTIY</div>
-    <div class="tagline">Voice Reconstruction Engine — First Run</div>
+    <div class="tagline">Voice-to-intent for Windows — Cloud Setup</div>
 
     <div class="option">
       <div class="option-title">Use your own OpenAI key</div>
@@ -169,6 +169,14 @@
         </svg>
         Sign in with Google
       </button>
+    </div>
+
+    <div class="divider">or</div>
+
+    <div class="option">
+      <div class="option-title">Continue with free local transcription</div>
+      <div class="option-desc">No account or API key. Audio stays on this computer in Layer 1.</div>
+      <button class="btn-key" onclick="goToDashboard()">Open Lavrentiy</button>
     </div>
 
     <div class="status" id="status"></div>
@@ -275,11 +283,6 @@
           }
         } catch (e) {}
       }, 1000);
-      setTimeout(() => clearInterval(poll), 120000);
-    }
-        } catch (e) {}
-      }, 1000);
-      // Stop polling after 2 minutes
       setTimeout(() => clearInterval(poll), 120000);
     }
   </script>

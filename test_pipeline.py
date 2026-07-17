@@ -85,16 +85,25 @@ while dp_end < len(lines) and brace_depth > 0:
 exec('\n'.join(lines[dp_start:dp_end]), ns)
 
 # Load trigger regex patterns (paren-delimited, not brace-delimited)
-for pat_name in ('_HYPHEN_STUTTER', '_WORD_REPEAT', '_CRITICAL_TOKEN_RE'):
+for pat_name in (
+    '_HYPHEN_STUTTER', '_WORD_REPEAT', '_CRITICAL_TOKEN_RE',
+    '_NEGATION_RE', '_DATE_WORD_RE', '_PROPER_NOUN_RE',
+):
     pat_start = next(i for i, l in enumerate(lines) if l.startswith(pat_name + ' = '))
     pat_end = pat_start
     paren_depth = 0
     while pat_end < len(lines):
         paren_depth += lines[pat_end].count('(') - lines[pat_end].count(')')
-        if paren_depth <= 0 and pat_end > pat_start:
+        if paren_depth <= 0:
             break
         pat_end += 1
     exec('\n'.join(lines[pat_start:pat_end + 1]), ns)
+
+pn_start = next(i for i, l in enumerate(lines) if l.startswith('_PROPER_NOUN_EXCLUDE = '))
+pn_end = pn_start + 1
+while pn_end < len(lines) and '}' not in lines[pn_end]:
+    pn_end += 1
+exec('\n'.join(lines[pn_start:pn_end + 1]), ns)
 
 # Load STUTTER_TIPS, MAX_INSIGHTS, DISFLUENCY_TYPES
 st_start = next(i for i, l in enumerate(lines) if l.startswith('STUTTER_TIPS = '))
@@ -312,7 +321,7 @@ if decide and flags_fn:
     flags = flags_fn(raw, clean, falcon_ok, False, 2)
     d = decide(falcon_ok, 2, False, flags)
     check('falcon rejection -> paste_raw', d['decision'] == 'paste_raw')
-    check('validator_reject in flags', 'validator_reject' in flags)
+    check('meaning_guard_reject in flags', 'meaning_guard_reject' in flags)
 else:
     print('  SKIP: functions not loaded')
 
@@ -345,7 +354,7 @@ if decide:
     d = decide(True, 4, False, [])
     check('RAW mode -> paste_raw (any layer)', d['decision'] == 'paste_raw')
 
-    d = decide(False, 2, True, ['validator_reject'])
+    d = decide(False, 2, True, ['meaning_guard_reject'])
     check('RAW mode ignores falcon/flags', d['decision'] == 'paste_raw')
     ns['current_mode'] = 'SAFE'
 else:
@@ -382,6 +391,19 @@ if crit:
     # No critical tokens in input
     lost = crit("I want to go to the store", "I want to go to the store.")
     check('no numbers -> empty', lost == [])
+
+    # Dates, capitalized names, and negation are meaning anchors too.
+    lost = crit("Call George on Monday", "Call George on Monday.")
+    check('name and date preserved', lost == [])
+
+    lost = crit("Call George on Monday", "Call Greg on Tuesday.")
+    check('changed name and date detected', 'George' in lost and 'Monday' in lost)
+
+    lost = crit("Do not send it to Maria", "Send it to Maria.")
+    check('lost negation detected', '<negation>' in lost)
+
+    lost = crit("Never send it to Maria", "Do not send it to Maria.")
+    check('equivalent negation retained', '<negation>' not in lost)
 
     # Empty inputs
     lost = crit("", "hello")
@@ -626,7 +648,7 @@ if decide:
     # SAFE mode with falcon rejection
     ns['current_mode'] = 'SAFE'
     for layer in (2, 3, 4):
-        d = decide(False, layer, False, ['validator_reject'])
+        d = decide(False, layer, False, ['meaning_guard_reject'])
         check(f'SAFE/L{layer}/falcon_reject -> paste_raw', d['decision'] == 'paste_raw')
 
     # Fallback always -> paste_raw

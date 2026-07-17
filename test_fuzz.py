@@ -110,17 +110,26 @@ target_funcs = [
     'detect_triggers_regex', 'check_redo',
 ]
 
-# Load _CRITICAL_TOKEN_RE
-for pat_name in ('_CRITICAL_TOKEN_RE',):
+# Load every pattern used by the deterministic meaning guard.
+for pat_name in (
+    '_CRITICAL_TOKEN_RE', '_NEGATION_RE', '_DATE_WORD_RE',
+    '_PROPER_NOUN_RE',
+):
     pat_start = next(i for i, l in enumerate(lines) if l.startswith(pat_name + ' = '))
     pat_end = pat_start
     pd = 0
     while pat_end < len(lines):
         pd += lines[pat_end].count('(') - lines[pat_end].count(')')
-        if pd <= 0 and pat_end > pat_start:
+        if pd <= 0:
             break
         pat_end += 1
     exec('\n'.join(lines[pat_start:pat_end + 1]), ns)
+
+pn_start = next(i for i, l in enumerate(lines) if l.startswith('_PROPER_NOUN_EXCLUDE = '))
+pn_end = pn_start + 1
+while pn_end < len(lines) and '}' not in lines[pn_end]:
+    pn_end += 1
+exec('\n'.join(lines[pn_start:pn_end + 1]), ns)
 
 for node in ast.walk(tree):
     if isinstance(node, ast.FunctionDef) and node.name in target_funcs:

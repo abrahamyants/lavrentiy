@@ -306,6 +306,36 @@ body::before {
   overflow-y: auto;
 }
 
+/* V1 opens in a focused view. The existing instrument panel remains one
+   explicit click away for experienced users and research inspection. */
+.view-toggle {
+  position: absolute;
+  top: 8px;
+  right: 38px;
+  min-width: 72px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border-hi);
+  border-radius: 4px;
+  background: var(--raised);
+  color: var(--text-muted);
+  font: 700 9px/1 var(--mono);
+  letter-spacing: 1px;
+  cursor: pointer;
+  z-index: 5;
+}
+.view-toggle:hover { color: var(--text); border-color: var(--brand-gold); }
+body:not(.advanced-ui) .advanced-only { display: none !important; }
+body:not(.advanced-ui) .learn-bar-row { display: none !important; }
+body:not(.advanced-ui) .stats-bar .stat-cell:nth-child(n+4) { display: none !important; }
+body:not(.advanced-ui) .stats-bar { grid-template-columns: repeat(3, 1fr); }
+body:not(.advanced-ui) .app { --sidebar-w: 320px; }
+body:not(.advanced-ui) .tone-btn,
+body:not(.advanced-ui) .layer-opt { padding: 9px 12px; }
+body:not(.advanced-ui) .tone-btn,
+body:not(.advanced-ui) .layer-opt .l-name { font-size: 13px; }
+body:not(.advanced-ui) .layer-opt .l-desc { font-size: 11px; }
+
 .sidebar-brand {
   padding: 16px 16px 14px;
   border-bottom: 1px solid var(--border);
@@ -2814,6 +2844,7 @@ body::before {
           <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
           Sign in with Google
         </button>
+        <button class="signout-btn" onclick="window.location.href='/onboard'" style="margin-top:6px;width:100%">Cloud setup / API key</button>
       </div>
       <div class="auth-signed-in" id="auth-signed-in" style="display:none">
         <span class="auth-email" id="auth-email"></span>
@@ -2825,6 +2856,7 @@ body::before {
       <button class="compact-toggle" onclick="toggleCompact()" title="Compact mode" aria-label="Minimize to compact mode">&#8863;</button>
       <div class="theme-toggle"><button class="theme-tog-btn" data-theme-set="dark" onclick="setTheme('dark')" aria-label="Dark theme">D</button><button class="theme-tog-btn" data-theme-set="light" onclick="setTheme('light')" aria-label="Light theme">L</button></div>
       <button class="help-btn" onclick="toggleHelp()" title="Manual" aria-label="Help">?</button>
+      <button class="view-toggle" id="view-toggle" onclick="toggleAdvancedUi()" aria-pressed="false">ADVANCED</button>
       <script>
         // Backup keyboard shortcuts: F5 and Ctrl+R reload the dashboard.
         // pywebview/WebView2 sometimes swallows F5 — wire explicitly.
@@ -2880,11 +2912,11 @@ body::before {
         <div class="layer-opt" data-layer="1" role="button" tabindex="0" aria-pressed="false"><div class="l-info"><div class="l-name">I. Transcribe</div><div class="l-desc">raw text, no cleanup</div></div></div>
         <div class="layer-opt" data-layer="2" role="button" tabindex="0" aria-pressed="false"><div class="l-info"><div class="l-name">II. Reconstruct</div><div class="l-desc">LLM + tone</div></div></div>
         <div class="layer-opt" data-layer="3" role="button" tabindex="0" aria-pressed="false"><div class="l-info"><div class="l-name">III. Profile</div><div class="l-desc">+ vocabulary</div></div></div>
-        <div class="layer-opt" data-layer="4" role="button" tabindex="0" aria-pressed="false"><div class="l-info"><div class="l-name">IV. Stutter</div><div class="l-desc">+ disfluency</div></div></div>
+        <div class="layer-opt" data-layer="4" role="button" tabindex="0" aria-pressed="false"><div class="l-info"><div class="l-name">IV. Advanced</div><div class="l-desc">+ speech context</div></div></div>
       </div>
     </div>
 
-    <div class="sidebar-section">
+    <div class="sidebar-section advanced-only">
       <div class="sidebar-section-title">Enhancements</div>
       <div class="engine-section-card">
         <div class="toggle-row" id="quiet-row"><label class="toggle-switch"><input type="checkbox" id="toggle-quiet-mode"><span class="toggle-slider"></span></label><span class="toggle-label">Quiet Mode</span><span class="toggle-hint" id="quiet-hint">auto · whispered/soft speech</span></div>
@@ -2895,7 +2927,7 @@ body::before {
       </div>
     </div>
 
-    <div class="sidebar-section">
+    <div class="sidebar-section advanced-only">
       <div class="sidebar-section-title">Situation</div>
       <div class="tone-stack">
         <div class="layer-opt sit-btn" data-situation="default" role="button" tabindex="0" aria-pressed="false"><div class="l-info"><div class="l-name">Default</div><div class="l-desc">+ everyday use</div></div></div>
@@ -2904,7 +2936,7 @@ body::before {
     </div>
 
     <!-- ═══ ENGINE PANEL — organized instrument cluster ═══ -->
-    <div class="sidebar-section" style="padding:6px 14px">
+    <div class="sidebar-section advanced-only" style="padding:6px 14px">
       <!-- DAF row — dial + toggle -->
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid rgba(0,0,0,0.08)">
         <span class="engine-group-label" style="margin-bottom:0">DAF</span>
@@ -2964,7 +2996,7 @@ body::before {
         <div class="engine-grid">
           <div class="engine-row"><span>Pause Ratio</span><span id="speech-pause" class="engine-val">—</span></div>
           <div class="engine-row"><span>Words/Min</span><span id="speech-rate" class="engine-val">—</span></div>
-          <div class="engine-row"><span>Severity Mod</span><span id="speech-sev-mod" class="engine-val">0</span></div>
+          <div class="engine-row"><span>Assist Level</span><span id="speech-sev-mod" class="engine-val">0</span></div>
           <div class="engine-row"><span>Paralinguistic</span><span id="para-events" class="engine-val">—</span></div>
           <div class="engine-row"><span>Speaker State</span><span id="speaker-state" class="engine-val">—</span></div>
         </div>
@@ -2981,8 +3013,8 @@ body::before {
       </div>
     </div>
 
-    <div class="grille-badge" style="margin:8px auto"><span>Лаврентий</span></div>
-    <div class="sidebar-section">
+    <div class="grille-badge advanced-only" style="margin:8px auto"><span>Лаврентий</span></div>
+    <div class="sidebar-section advanced-only">
       <div class="sidebar-section-title" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;color:var(--state-recording);font-weight:700;font-size:11px;letter-spacing:3px;border-bottom:2px solid rgba(238,90,36,0.3);padding-bottom:4px" onclick="toggleHotkeyEditor()">
         Shortcuts <span class="arrow hotkey-arrow" style="font-size:9px;transition:transform 0.3s">&#9654;</span>
       </div>
@@ -3024,7 +3056,7 @@ body::before {
       <div class="learn-cell"><div class="lv" id="l-redos">0</div><div class="ll">Redos</div></div>
       <div class="learn-cell"><div class="lv" id="l-loops" title="Whisper hallucination loops (compression_ratio > 2.4)">0</div><div class="ll">Loops</div></div>
       <div class="learn-progress-cell" id="fluency-cell">
-        <span class="lp-label">Fluency</span>
+        <span class="lp-label">Pause Trend</span>
         <span class="lp-count" id="lp-fluency" style="font-weight:700">—</span>
       </div>
       <div class="learn-progress-cell">
@@ -3036,11 +3068,10 @@ body::before {
       <div class="tab-bar">
         <button class="tab-btn active" data-tab="console">Console</button>
         <button class="tab-btn" data-tab="sessions">Sessions</button>
-        <button class="tab-btn" data-tab="learning">Learning</button>
-        <button class="tab-btn" data-tab="insights">Insights</button>
+        <button class="tab-btn advanced-only" data-tab="learning">Learning</button>
+        <button class="tab-btn advanced-only" data-tab="insights">Insights</button>
         <button class="tab-btn" data-tab="prep">Prep</button>
         <button class="tab-btn" data-tab="calibrate">Calibrate</button>
-        <button class="tab-btn" data-tab="tips">Tips</button>
         <button class="tab-btn" data-tab="profile">Profile</button>
       </div>
     </header>
@@ -3065,7 +3096,7 @@ body::before {
         </div>
         <div id="block-bridge-bar" style="display:none;padding:12px 24px;border-bottom:1px solid var(--border);background:rgba(200,164,92,0.06)">
           <div style="font-family:var(--mono);font-size:8px;letter-spacing:3px;color:#c8a45c;text-transform:uppercase;margin-bottom:8px">
-            BRIDGE THE BLOCK &mdash; tap to finish your sentence
+            PAUSE BRIDGE &mdash; tap to complete your thought
             <span onclick="_dismissBlock()" title="Dismiss" style="float:right;cursor:pointer;color:var(--text-dim);font-size:14px;letter-spacing:0">&times;</span>
           </div>
           <div id="block-bridge-options" style="display:flex;flex-direction:column;gap:6px"></div>
@@ -3090,7 +3121,7 @@ body::before {
            Learning + Insights as separate panels showing the same data. -->
       <div class="tab-panel" id="tab-insights">
         <div class="insights-wrap" id="insights">
-          <div class="learn-empty">Switch to Layer 4 to view stuttering insights.</div>
+          <div class="learn-empty">Switch to Layer 4 to view speech-pattern insights.</div>
         </div>
         <div style="padding:16px 24px;border-top:1px solid var(--border)">
           <div style="display:flex;gap:8px;margin-bottom:12px">
@@ -3127,7 +3158,7 @@ body::before {
           <div id="low-conf-content" style="font-family:var(--mono);font-size:11px;line-height:2"></div>
         </div>
         <div id="fluency-trend-section" style="display:none;padding:16px 24px;border-top:1px solid var(--border)">
-          <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">FLUENCY TREND
+          <div style="font-family:var(--mono);font-size:9px;letter-spacing:3px;color:var(--text-muted);margin-bottom:10px">PAUSE AND PACING TREND
             <span id="fluency-trend-label" style="margin-left:8px;font-size:8px;padding:1px 5px;border-radius:3px"></span>
             <span id="fluency-lang-dist" style="float:right;font-size:8px;color:var(--text-dim)"></span>
           </div>
@@ -3135,7 +3166,7 @@ body::before {
           <div style="display:flex;gap:16px;flex-wrap:wrap">
             <div style="font-size:9px;color:var(--text-dim)">AVG PAUSE <span id="fluency-avg-pause" style="color:var(--text-muted)">—</span></div>
             <div style="font-size:9px;color:var(--text-dim)">AVG RATE <span id="fluency-avg-rate" style="color:var(--text-muted)">—</span></div>
-            <div style="font-size:9px;color:var(--text-dim)">AVG SEV+ <span id="fluency-avg-sev" style="color:var(--text-muted)">—</span></div>
+            <div style="font-size:9px;color:var(--text-dim)">AVG ASSIST <span id="fluency-avg-sev" style="color:var(--text-muted)">—</span></div>
             <div style="font-size:9px;color:var(--text-dim)">SESSIONS <span id="fluency-count" style="color:var(--text-muted)">0</span></div>
           </div>
         </div>
@@ -3164,7 +3195,7 @@ body::before {
         <div class="cal-wrap">
           <div class="cal-card">
             <div class="cal-title">WHISPER CALIBRATION</div>
-            <div class="cal-subtitle">Read 60 prompts aloud. Each recording becomes a training sample for personalized speech recognition.</div>
+            <div class="cal-subtitle">Read 60 prompts, then answer five questions naturally. Confirm each transcript so the sample reflects what you intended to say.</div>
             <div class="cal-progress-bar">
               <div class="cal-progress-fill" id="cal-progress-fill" style="width:0%"></div>
             </div>
@@ -3175,7 +3206,7 @@ body::before {
             <div class="cal-prompt-area" id="cal-prompt-area" style="display:none">
               <div class="cal-category" id="cal-category"></div>
               <div class="cal-prompt-text" id="cal-prompt-text"></div>
-              <div class="cal-instruction">Read this sentence aloud, naturally. Don't try to hide your stutter.</div>
+              <div class="cal-instruction" id="cal-instruction">Read this sentence aloud naturally.</div>
               <div class="cal-rec-controls">
                 <button class="cal-rec-btn" id="cal-rec-btn" onclick="calToggleRecord()">
                   <span class="cal-rec-dot"></span> RECORD
@@ -3183,6 +3214,11 @@ body::before {
                 <button class="cal-skip-btn" onclick="calSkip()">SKIP</button>
               </div>
               <div class="cal-feedback" id="cal-feedback"></div>
+              <div id="cal-correction" style="display:none;margin-top:12px">
+                <label for="cal-reference" style="display:block;font-family:var(--mono);font-size:10px;letter-spacing:1px;color:var(--text-muted);margin-bottom:6px">WHAT YOU INTENDED TO SAY</label>
+                <textarea id="cal-reference" rows="3" style="width:100%;box-sizing:border-box;padding:10px;background:var(--recessed);border:1px solid var(--border);border-radius:6px;color:var(--text);font:14px/1.45 var(--font)"></textarea>
+                <button class="cal-start-btn" id="cal-confirm-btn" onclick="calConfirm()" style="margin-top:8px">SAVE TRANSCRIPT &amp; NEXT</button>
+              </div>
             </div>
             <div class="cal-wer-summary" id="cal-wer-summary" style="display:none">
               <div class="cal-wer-title">Calibration WER Summary</div>
@@ -3190,9 +3226,9 @@ body::before {
             </div>
           </div>
 
-          <div class="cal-card">
-            <div class="aug-title">DATA AUGMENTATION</div>
-            <div class="aug-subtitle">Generate synthetic disfluent speech from calibration data via TTS. Multiplies your training dataset 5x with word repetitions, phrase repetitions, and interjection insertions.</div>
+          <div class="cal-card advanced-only">
+            <div class="aug-title">EXPERIMENTAL SYNTHETIC DATA</div>
+            <div class="aug-subtitle">Creates ordinary TTS samples with inserted repetitions and fillers for engineering tests. It does not reproduce silent blocks or genuine stuttered speech.</div>
             <div class="aug-stats" id="aug-stats">Loading...</div>
             <button class="aug-btn" id="aug-btn" onclick="augStart()">GENERATE AUGMENTED DATA</button>
             <div class="aug-progress" id="aug-progress" style="display:none">
@@ -3404,13 +3440,13 @@ const I18N={
   layer1:{en:'I. Transcribe'},layer1d:{en:'raw text, no cleanup'},
   layer2:{en:'II. Reconstruct'},layer2d:{en:'LLM + tone'},
   layer3:{en:'III. Profile'},layer3d:{en:'+ vocabulary'},
-  layer4:{en:'IV. Stutter'},layer4d:{en:'+ disfluency'},
+  layer4:{en:'IV. Advanced'},layer4d:{en:'+ speech context'},
   // Enhancement toggles
   lbl_para:{en:'Paralinguistic'},hint_para:{en:'cough/laugh'},
   lbl_transcribe:{en:'Transcribe'},hint_transcribe:{en:'inject [tags] in text'},
   lbl_prosodic:{en:'Prosodic'},hint_prosodic:{en:'pitch/energy/rate'},
   // Mode descs
-  mode_raw:{en:'paste as-is'},mode_fast:{en:'skip validation'},mode_safe:{en:'+ Falcon check'},
+  mode_raw:{en:'paste original'},mode_fast:{en:'reconstruct'},mode_safe:{en:'+ meaning guard'},
   // Situations
   sit_default:{en:'Default'},sit_default_d:{en:'+ everyday use'},
   sit_stress:{en:'High Stress'},sit_stress_d:{en:'+ full assist'},
@@ -3422,7 +3458,7 @@ const I18N={
   lbl_sensitive:{en:'\u25C4 sensitive'},lbl_tolerant:{en:'tolerant \u25BA'},
   lbl_speech:{en:'SPEECH'},
   lbl_pause:{en:'Pause Ratio'},lbl_wpm_eng:{en:'Words/Min'},
-  lbl_sevmod:{en:'Severity Mod'},lbl_para2:{en:'Paralinguistic'},
+  lbl_sevmod:{en:'Assist Level'},lbl_para2:{en:'Paralinguistic'},
   lbl_speaker:{en:'Speaker State'},
   lbl_base:{en:'base'},lbl_speech2:{en:'speech'},
   // Shortcuts
@@ -3450,7 +3486,7 @@ const I18N={
   console_empty:{en:'Waiting for input...'},
   learn_empty:{en:'No patterns learned yet. Keep talking.'},
   learn_report:{en:'\uD83D\uDCCA WEEKLY REPORT'},
-  insights_empty:{en:'Switch to Layer 4 to view stuttering insights.'},
+  insights_empty:{en:'Switch to Layer 4 to view speech-pattern insights.'},
   insights_nodata:{en:'Not enough data yet. Keep using Layer 4.'},
   sessions_empty:{en:'Start dictating. Sessions appear here.'},
   // Insights section titles
@@ -3463,9 +3499,9 @@ const I18N={
   shadow_title:{en:'AVOIDANCE DRIFT'},
   lowconf_title:{en:'LOW CONFIDENCE SEGMENTS'},
   lowconf_sub:{en:'(last session \u2014 Whisper uncertainty near Brown risk positions)'},
-  fluency_title:{en:'FLUENCY TREND'},
+  fluency_title:{en:'PAUSE AND PACING TREND'},
   fl_pause:{en:'AVG PAUSE'},fl_rate:{en:'AVG RATE'},
-  fl_sev:{en:'AVG SEV+'},fl_sessions:{en:'SESSIONS'},
+  fl_sev:{en:'AVG ASSIST'},fl_sessions:{en:'SESSIONS'},
   // Prep tab
   prep_ph:{en:'Paste your script, talking points, or email here. Lavrentiy will flag words you might stutter on and suggest safer alternatives.'},
   prep_btn:{en:'PREP'},prep_scanning:{en:'SCANNING...'},
@@ -3476,15 +3512,15 @@ const I18N={
   prep_analyzing:{en:'Analyzing text and generating alternatives...'},
   // Calibrate tab
   cal_title:{en:'WHISPER CALIBRATION'},
-  cal_sub:{en:'Read 60 prompts aloud. Each recording becomes a training sample for personalized speech recognition.'},
+  cal_sub:{en:'Read 60 prompts, then answer five questions naturally. Confirm each transcript so the sample reflects what you intended to say.'},
   cal_start:{en:'BEGIN CALIBRATION'},cal_resume:{en:'RESUME CALIBRATION'},
   cal_record:{en:'RECORD'},cal_stop:{en:'STOP'},cal_saving:{en:'SAVING...'},
   cal_skip:{en:'SKIP'},
-  cal_instruction:{en:'Read this sentence aloud, naturally. Don\'t try to hide your stutter.'},
+  cal_instruction:{en:'Read this sentence aloud naturally.'},
   cal_complete:{en:'CALIBRATION COMPLETE'},
   cal_wer_title:{en:'Calibration WER Summary'},
-  aug_title:{en:'DATA AUGMENTATION'},
-  aug_sub:{en:'Generate synthetic disfluent speech from calibration data via TTS. Multiplies your training dataset 5x with word repetitions, phrase repetitions, and interjection insertions.'},
+  aug_title:{en:'EXPERIMENTAL SYNTHETIC DATA'},
+  aug_sub:{en:'Creates ordinary TTS samples with inserted repetitions and fillers for engineering tests. It does not reproduce silent blocks or genuine stuttered speech.'},
   aug_btn:{en:'GENERATE AUGMENTED DATA'},
   aug_regen:{en:'REGENERATE AUGMENTED DATA'},
   aug_generating:{en:'GENERATING...'},aug_starting:{en:'STARTING...'},
@@ -3515,20 +3551,20 @@ const I18N={
   help_title:{en:'Guide'},help_sub:{en:'OPERATIONS MANUAL'},
   help_search:{en:'Search...'},
   // Help sections
-  ha_layers:{en:'Layers'},ha_layers_sub:{en:'L1 Transcribe through L4 Stutter'},
-  ha_layers_body:{en:'<strong>L1 Transcribe</strong> \u2014 Whisper only. Raw speech-to-text, no AI cleanup. Fastest.<br><strong>L2 Reconstruct</strong> \u2014 GPT rewrites using your tone. Strips fillers, fixes grammar. ~1-2s slower.<br><strong>L3 Profile</strong> \u2014 Same as L2 + your personal vocabulary and corrections map.<br><strong>L4 Stutter</strong> \u2014 Full clinical mode. Disfluency tracking, exposure scoring, severity-scaled rewrites.<div class="ha-example"><span class="he-in">You say:</span> "So uh basically the the thing is um working"<br><span class="he-out">L1:</span> "So uh basically the the thing is um working"<br><span class="he-out">L2:</span> "The thing is working."</div>'},
+  ha_layers:{en:'Layers'},ha_layers_sub:{en:'L1 Transcribe through L4 Advanced'},
+  ha_layers_body:{en:'<strong>L1 Transcribe</strong> \u2014 Local speech-to-text with basic repetition and filler cleanup.<br><strong>L2 Reconstruct</strong> \u2014 Rewrites the transcript using your chosen tone.<br><strong>L3 Profile</strong> \u2014 Adds your vocabulary and confirmed corrections.<br><strong>L4 Advanced</strong> \u2014 Adds speech context, uncertainty signals, and user-approved Pause Bridge suggestions. It does not diagnose speech or recover words that were never spoken.<div class="ha-example"><span class="he-in">ASR heard:</span> "So uh basically the the thing is um working"<br><span class="he-out">L1:</span> "So basically the thing is working"<br><span class="he-out">L2:</span> "The thing is working."</div>'},
   ha_tone:{en:'Tone'},ha_tone_sub:{en:'How GPT rewrites your speech (L2+)'},
   ha_tone_body:{en:'<strong>Casual</strong> \u2014 Conversational. Contractions, simple words.<br><strong>Professional</strong> \u2014 Business-ready. Clean, precise language.<br><strong>Friend</strong> \u2014 Relaxed. Like texting a friend.<br><strong>Formal</strong> \u2014 Academic/legal. No contractions, precise.<br><br>Has no effect on L1 (collapses when L1 is selected).'},
   ha_mode:{en:'Mode'},ha_mode_sub:{en:'Pipeline steps: RAW, FAST, SAFE'},
-  ha_mode_body:{en:'<strong>RAW</strong> <code>paste as-is</code> \u2014 GPT runs for analytics but pastes Whisper\'s original text.<br><strong>FAST</strong> <code>skip validation</code> \u2014 GPT rewrites, trust it, paste. Best speed/quality.<br><strong>SAFE</strong> <code>+ Falcon check</code> \u2014 GPT rewrites, Falcon verifies meaning preserved. Slowest, safest.<br><br>All three produce identical output on L1. Collapses when L1 is selected.'},
+  ha_mode_body:{en:'<strong>RAW</strong> <code>paste original</code> \u2014 Pastes the transcription after basic cleanup.<br><strong>FAST</strong> <code>reconstruct</code> \u2014 Pastes the rewrite immediately.<br><strong>SAFE</strong> <code>+ meaning guard</code> \u2014 Keeps the original when a rewrite drops a name, number, date, amount, or negation. This is a deterministic guard, not a second AI or a guarantee of identical meaning.<br><br>All three produce the same output on L1.'},
   ha_enhance:{en:'Enhancements'},ha_enhance_sub:{en:'Paralinguistic + Prosodic analysis'},
-  ha_enhance_body:{en:'<strong>Paralinguistic</strong> \u2014 Detects cough, laugh, sigh, throat-clear, breathing, pause. Independent of layer.<br>&nbsp;&nbsp;\u2022 <strong>Transcribe sub-toggle:</strong> ON = tags injected in text (<code>[Laughter]</code>). OFF = logged only.<br><br><strong>Prosodic</strong> \u2014 Tracks pitch (F0), energy, speaking rate. Feeds severity modifier on L4. Auto-enables on L4 and High Stress.<div class="ha-example"><span class="he-out">Console:</span> "Speech: pause_ratio=47% rate=3.4syl/s \u2192 severity +0.4"<br><span class="he-out">Console:</span> "Prosodic: Vocal tension (erratic pitch in 100%)"</div>'},
+  ha_enhance_body:{en:'<strong>Paralinguistic</strong> \u2014 Estimates cough, laugh, sigh, throat-clear, breathing, and pauses from audio signals. These are experimental labels, not diagnoses.<br>&nbsp;&nbsp;\u2022 <strong>Transcribe sub-toggle:</strong> ON = tags may be inserted in text. OFF = logged only.<br><br><strong>Prosodic</strong> \u2014 Measures pitch, energy, and speaking rate and can increase L4 assist intensity. It does not measure stuttering severity.'},
   ha_situation:{en:'Situation'},ha_situation_sub:{en:'One-click engine presets'},
-  ha_situation_body:{en:'<strong>Default</strong> \u2014 Everyday dictation. Severity 1.0. No auto-toggles.<br><strong>High Stress</strong> \u2014 Phone, interview, presentation. Auto-enables L4, DAF 100ms, all toggles. Severity 1.5.<br><strong>Reading</strong> \u2014 Reading aloud. Near-fluent. Severity 0.3, light L3 touch.'},
-  ha_daf:{en:'DAF'},ha_daf_sub:{en:'Delayed Auditory Feedback for fluency'},
-  ha_daf_body:{en:'Plays your voice back through headphones with a slight delay. The delay tricks the brain into slowing down, improving fluency. Independent of all other settings.<br><br><strong>Toggle:</strong> ON/OFF &nbsp; <strong>Dial:</strong> Delay in milliseconds (default 100ms). More = stronger effect.'},
+  ha_situation_body:{en:'<strong>Default</strong> \u2014 Everyday dictation.<br><strong>High Stress</strong> \u2014 Gives the speaker more time and enables the full assistance stack for calls, interviews, or presentations.<br><strong>Reading</strong> \u2014 Uses lighter reconstruction while reading prepared text.'},
+  ha_daf:{en:'DAF'},ha_daf_sub:{en:'Optional delayed voice playback'},
+  ha_daf_body:{en:'Plays your voice back through headphones with a slight delay. Some users may find that this changes their pacing. It is optional and is not presented as treatment or a guaranteed fluency improvement.<br><br><strong>Toggle:</strong> ON/OFF &nbsp; <strong>Dial:</strong> delay in milliseconds.'},
   ha_whisper:{en:'Whisper Diagnostics'},ha_whisper_sub:{en:'Multi-temp, blocks, confidence'},
-  ha_whisper_body:{en:'<strong>Multi-Temp</strong> \u2014 Runs Whisper at multiple temperatures. Agreement = confident. Disagreement = flagged. 3x slower.<br><strong>Blocks</strong> \u2014 Speech blocks detected (Whisper hallucinated over silence).<br><strong>No Speech slider</strong> \u2014 \u25C4 Sensitive (catches more) vs. Tolerant \u25BA (fewer false alarms). Default: 15%.<br><strong>Avg LogProb</strong> \u2014 Whisper confidence. Above <code>-0.4</code> = good. Below <code>-0.7</code> = guessing.'},
+  ha_whisper_body:{en:'<strong>Multi-Temp</strong> \u2014 Runs speech recognition at multiple temperatures. Agreement suggests a more stable transcription; disagreement is flagged. It is slower.<br><strong>Pause suspects</strong> \u2014 Marks low-audio regions where ASR may hallucinate text. This does not detect an internal speech block or recover an unspoken word.<br><strong>No Speech slider</strong> \u2014 Sensitive catches more regions; Tolerant produces fewer false alarms.<br><strong>Avg LogProb</strong> \u2014 The recognizer\'s confidence signal.'},
   ha_stats:{en:'Stats & Learn Bars'},ha_stats_sub:{en:'Clickable \u2014 jump to detail tabs'},
   ha_stats_body:{en:'<strong>Words / Sessions</strong> \u2014 Click \u2192 Sessions tab.<br><strong>API Calls / Est. Cost</strong> \u2014 Click \u2192 Console tab. Cost ~$0.0032/session.<br><strong>Corrections</strong> \u2014 Auto-corrections learned (e.g. Duncan \u2192 Dankesch\u00F6n). Click \u2192 Learning tab.<br><strong>Fillers</strong> \u2014 Filler words identified (um, uh, like). Click \u2192 Learning tab.<br><strong>Vocabulary</strong> \u2014 Preferred terms in your profile. Click \u2192 Learning tab.<br><strong>Triggers</strong> \u2014 Words that cause speech blocks. Click \u2192 Learning tab.'},
   ha_hotkeys:{en:'Hotkeys'},ha_hotkeys_sub:{en:'Keyboard shortcuts (rebindable)'},
@@ -3536,7 +3572,7 @@ const I18N={
   ha_colors:{en:'Console Colors'},ha_colors_sub:{en:'What the colored text means'},
   ha_colors_body:{en:'<strong style="color:#222">White</strong> \u2014 Your transcribed speech (with word count)<br><strong style="color:var(--state-success)">Green</strong> \u2014 Pipeline status, recording, paste timing<br><strong style="color:#a16207">Yellow</strong> \u2014 Speech analytics and Whisper diagnostics<br><strong style="color:var(--state-error)">Red</strong> \u2014 Prosodic alerts (vocal tension, erratic pitch)<br><strong style="color:#92400e">Brown</strong> \u2014 Block suspect (Whisper hallucinated over silence)'},
   ha_pipeline:{en:'How It Works'},ha_pipeline_sub:{en:'What happens when you press Record'},
-  ha_pipeline_body:{en:'<strong style="color:var(--red-bright)">1. You speak</strong><br>Your voice is captured through the microphone. The audio is cleaned up (background noise removed, volume leveled) before anything else touches it.<br><br><strong style="color:var(--red-bright)">2. Whisper listens</strong><br>OpenAI\u2019s Whisper converts your speech to text. It also reports <em>how confident</em> it is about each word. Quiet moments (blocks, pauses) are flagged rather than guessed at.<br><span style="opacity:0.6;font-size:0.9em">If you use Script Prep, your intended text helps Whisper guess better \u2014 like giving it the answer key.</span><br><br><strong style="color:var(--red-bright)">3. Quick cleanup</strong><br>Before any AI gets involved, obvious disfluencies are stripped automatically (zero cost, instant):<br>\u2022 Repeated syllables: \u201cp-p-pop\u201d \u2192 \u201cpop\u201d<br>\u2022 Repeated words: \u201cI I I want\u201d \u2192 \u201cI want\u201d<br>\u2022 Fillers: \u201cum\u201d, \u201cuh\u201d, \u201clike\u201d, \u201cyou know\u201d<br>\u2022 False starts: \u201cgoing to\u2014 I went\u201d \u2192 \u201cI went\u201d<br>\u2022 Prolongations: \u201cmmmmaybe\u201d \u2192 \u201cmaybe\u201d<br><span style="opacity:0.6;font-size:0.9em">Natural phrases like \u201cbye bye\u201d and \u201chad had\u201d are kept \u2014 real grammar, not disfluencies.</span><br><br><strong style="color:var(--red-bright)">4. Depends on your Layer:</strong><br><br><strong>Layer 1</strong> \u2014 Done. The cleaned text is pasted. No AI, no cost beyond transcription.<br><br><strong>Layer 2</strong> \u2014 GPT rewrites using your chosen tone (casual, professional, etc). It knows the text came from a microphone, so it\u2019s forgiving about messiness. No personal data used.<br><br><strong>Layer 3</strong> \u2014 Same as L2, plus GPT knows <em>your</em> preferred words and learned corrections.<br><br><strong>Layer 4</strong> \u2014 The full engine. A stronger AI model gets a detailed briefing:<br>\u2022 Which sounds are hardest for you<br>\u2022 Words you tend to avoid and swap<br>\u2022 Where Whisper was uncertain or detected a block<br>\u2022 Non-verbal events (coughs, pauses) so it doesn\u2019t make up words<br>\u2022 Your pitch, energy, and speaking rate patterns<br><br><strong style="color:var(--red-bright)">5. Safety check</strong><br>In SAFE mode, a second AI reads both your original words and the rewrite, and asks: \u201cDid the meaning change?\u201d If yes, the rewrite is rejected and your original text is used. Numbers, dollar amounts, and percentages are double-checked separately.<br><br><strong style="color:var(--red-bright)">6. Paste</strong><br>The final text goes to your clipboard and is pasted into whatever app you\u2019re using.'},
+  ha_pipeline_body:{en:'<strong style="color:var(--red-bright)">1. Record</strong><br>Hold F9, or click once to start and again to stop. You control when listening ends.<br><br><strong style="color:var(--red-bright)">2. Transcribe</strong><br>Local faster-whisper is the default. Cloud transcription runs only when selected and configured. Script Prep can give the recognizer expected wording.<br><br><strong style="color:var(--red-bright)">3. Clean</strong><br>Rules remove recognizable fillers, repetitions, and common ASR artifacts. Lavrentiy can only work from captured audio and ASR text; silence does not reveal a missing word.<br><br><strong style="color:var(--red-bright)">4. Reconstruct</strong><br>L2 applies tone, L3 adds confirmed personal vocabulary, and L4 adds uncertainty and speech context. Pause Bridge may offer optional completions from the words already captured; the user chooses whether to use one.<br><br><strong style="color:var(--red-bright)">5. Guard</strong><br>SAFE mode keeps the original when a rewrite drops a name, number, date, amount, or negation. It is not a guarantee of identical meaning.<br><br><strong style="color:var(--red-bright)">6. Paste</strong><br>The chosen text is copied and pasted into the active Windows app.'},
   ha_tips:{en:'Tips'},ha_tips_sub:{en:'Power user tricks'},
   ha_tips_body:{en:'\u2022 Click the <strong>timer</strong> in the status ring to reset it.<br>\u2022 <strong>Compact toggle</strong> (top-left) collapses to a minimal bar with clickable chips.<br>\u2022 Tone and Mode <strong>auto-collapse</strong> on L1 (they have no effect).<br>\u2022 <strong>High Stress</strong> situation is a one-click panic button: L4 + DAF + all toggles.<br>\u2022 Click any <strong>stat/learn bar cell</strong> to jump to its detail tab.'},
 };
@@ -4797,40 +4833,6 @@ async function generateReport(){
   }catch(e){out.textContent='Report failed: '+e.message;}
   finally{btn.disabled=false;btn.textContent='📊 WEEKLY REPORT';}
 }
-async function generateClinicalProfile(){
-  const btn=document.getElementById('clinical-btn');
-  const out=document.getElementById('report-output');
-  btn.disabled=true;btn.textContent='🩺 LOADING...';
-  out.style.display='block';out.textContent='Building clinical profile...';
-  try{
-    const r=await fetch(API+'/api/clinical_profile');
-    const d=await r.json();
-    if(d.error){out.textContent='Clinical Profile: '+d.error;return;}
-    const lines=[
-      `CLINICAL PROFILE — ${d.user}`,
-      `Period: ${(d.period?.start||'').slice(0,10)} → ${(d.period?.end||'').slice(0,10)}`,
-      `Sessions: ${d.total_sessions} | Minutes: ${d.total_minutes}`,
-      ``,
-      `PRIMARY DISFLUENCY: ${d.primary_disfluency?.type} (${d.primary_disfluency?.percentage}%)`,
-      `Frequency: ${d.frequency_per_minute}/min  Trend: ${d.frequency_trend > 0 ? '+' : ''}${d.frequency_trend}%`,
-      ``,
-      `SITUATIONAL BREAKDOWN:`,
-      ...Object.entries(d.situational_breakdown||{}).map(([s,v])=>`  ${s}: ${v.rate}/min ${v.vs_baseline||v.label||''}`),
-      ``,
-      `TOP ONSET TRIGGERS:`,
-      ...(d.top_onset_triggers||[]).map(t=>`  ${t.onset} weight=${t.weight} events=${t.events}`),
-      ``,
-      `COVERT AVOIDANCE: ${d.covert_avoidance?.active_pairs} pairs | rate ${d.covert_avoidance?.avoidance_rate}% (${d.covert_avoidance?.trend})`,
-      ``,
-      `EDITORIAL DISTANCE: avg=${d.editorial_distance?.average} (${d.editorial_distance?.trend})`,
-      `FLUENCY IMPROVEMENT: ${d.fluency_trend?.improvement > 0 ? '+' : ''}${d.fluency_trend?.improvement}%`,
-      ``,
-      `EXPOSURE: avg=${d.exposure?.average_score} band=${d.exposure?.average_band} | high-difficulty ${d.exposure?.high_difficulty_sessions_pct}% of sessions`,
-    ];
-    out.textContent=lines.join('\n');
-  }catch(e){out.textContent='Clinical profile failed: '+e.message;}
-  finally{btn.disabled=false;btn.textContent='🩺 CLINICAL PROFILE';}
-}
 async function updatePatience(val){
   const v=parseFloat(val);
   document.getElementById('patience-pct').textContent=v.toFixed(1)+'s';
@@ -5056,8 +5058,15 @@ function calShowPrompt(p){
   calCurrentPrompt=p;
   document.getElementById('cal-category').textContent=p.category.replace(/_/g,' ');
   document.getElementById('cal-prompt-text').textContent=p.text;
+  document.getElementById('cal-instruction').textContent=p.category==='spontaneous'
+    ? 'Answer the question naturally in your own words. Do not read the question aloud.'
+    : 'Read this sentence aloud naturally.';
   document.getElementById('cal-feedback').classList.remove('visible');
   document.getElementById('cal-feedback').innerHTML='';
+  document.getElementById('cal-correction').style.display='none';
+  document.getElementById('cal-reference').value='';
+  const confirmBtn=document.getElementById('cal-confirm-btn');
+  confirmBtn.disabled=false;confirmBtn.textContent='SAVE TRANSCRIPT & NEXT';
   // Reset record button
   const btn=document.getElementById('cal-rec-btn');
   btn.classList.remove('recording');
@@ -5126,32 +5135,51 @@ async function calProcessRecording(){
       body:JSON.stringify({prompt_id:calCurrentPrompt.id,audio_b64:b64})
     });
     const d=await r.json();
-    // Show WER feedback
+    if(d.error) throw new Error(d.error);
+    // The user's correction is the ground truth. For read prompts this starts
+    // with the displayed sentence; for natural answers it starts with ASR.
     const fb=document.getElementById('cal-feedback');
-    if(d.wer!==null && d.wer!==undefined){
-      const werPct=Math.round(d.wer*100);
-      const cls=werPct<10?'wer-good':werPct<25?'wer-ok':'wer-bad';
-      calWerResults.push({id:calCurrentPrompt.id,wer:d.wer,category:calCurrentPrompt.category});
-      fb.innerHTML=`<span class="${cls}">WER: ${werPct}%</span>`
-        +`<br>Ground truth: "${d.ground_truth}"`
-        +`<br>Whisper heard: "${d.whisper_raw}"`;
-    }else{
-      fb.innerHTML='Saved (no WER data)';
-    }
+    fb.textContent=d.whisper_raw
+      ? `Whisper heard: “${d.whisper_raw}” — correct the transcript below if needed.`
+      : 'Audio saved. Type what you intended to say below.';
     fb.classList.add('visible');
+    document.getElementById('cal-reference').value=d.suggested_reference||'';
+    document.getElementById('cal-correction').style.display='block';
     calUpdateStats(d.status);
-    // Auto-advance after 2 seconds
-    setTimeout(()=>{
-      calShowPrompt(d.next_prompt);
-      const btn=document.getElementById('cal-rec-btn');
-      btn.disabled=false;
-    },2000);
   }catch(e){
     console.error('Cal process failed:',e);
     const fb=document.getElementById('cal-feedback');
     fb.innerHTML='<span class="wer-bad">Processing failed: '+e.message+'</span>';
     fb.classList.add('visible');
     document.getElementById('cal-rec-btn').disabled=false;
+  }
+}
+
+async function calConfirm(){
+  if(!calCurrentPrompt)return;
+  const reference=document.getElementById('cal-reference').value.trim();
+  const btn=document.getElementById('cal-confirm-btn');
+  const fb=document.getElementById('cal-feedback');
+  if(!reference){fb.textContent='Type the words you intended to say.';fb.classList.add('visible');return;}
+  btn.disabled=true;btn.textContent='SAVING...';
+  try{
+    const r=await fetch(API+'/api/calibration/confirm',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({prompt_id:calCurrentPrompt.id,reference_text:reference})
+    });
+    const d=await r.json();
+    if(d.error)throw new Error(d.error);
+    if(d.wer!==null&&d.wer!==undefined){
+      const werPct=Math.round(d.wer*100);
+      const cls=werPct<10?'wer-good':werPct<25?'wer-ok':'wer-bad';
+      calWerResults.push({id:calCurrentPrompt.id,wer:d.wer,category:calCurrentPrompt.category});
+      fb.innerHTML=`<span class="${cls}">Confirmed · WER ${werPct}%</span>`;
+    }else{fb.textContent='Transcript confirmed.';}
+    calUpdateStats(d.status);
+    setTimeout(()=>{calShowPrompt(d.next_prompt);document.getElementById('cal-rec-btn').disabled=false;},700);
+  }catch(e){
+    fb.textContent='Could not save transcript: '+e.message;
+    btn.disabled=false;btn.textContent='SAVE TRANSCRIPT & NEXT';
   }
 }
 
@@ -5196,8 +5224,8 @@ function calUpdateStats(s){
   if(!s) return;
   document.getElementById('cal-stats').textContent=`${s.completed} / ${s.total_prompts} — ${s.pct}%`;
   document.getElementById('cal-progress-fill').style.width=s.pct+'%';
-  if(s.existing_samples>=50){
-    document.getElementById('cal-stats').textContent+=` ✓ ready for fine-tuning`;
+  if(s.ready_for_finetuning){
+    document.getElementById('cal-stats').textContent+=` ✓ ${s.confirmed_samples} confirmed samples`;
   }
 }
 
@@ -5534,17 +5562,17 @@ const _LAV_TIPS = [
   {title:"Click 'idle' to record", body:'The word "idle" in the status ring is clickable. Click once to start recording, click again to stop — mouse alternative to F9.'},
   {title:"Click the timer to reset it", body:"The 00:00 timer under the status ring is clickable. Click to reset session uptime back to zero."},
   {title:"Click any stat to jump to details", body:"Every cell in the stats bar and learn bar is clickable. Click Words to see Sessions tab, click Corrections to see The File tab, etc."},
-  {title:"High Stress = one-click panic button", body:"Hit Situation → High Stress. Auto-enables Layer 4, DAF at 100ms, paralinguistic + prosodic, severity 1.5×. Everything on for stressful moments."},
-  {title:"Script Prep feeds Whisper the answer key", body:"Paste what you're about to say into the Prep tab. Whisper uses it as a decoder hint — transcription accuracy jumps on technical terms and names."},
+  {title:"High Stress = one-click assistance preset", body:"Hit Situation → High Stress. It gives you more time and enables Layer 4 plus the optional audio-analysis tools."},
+  {title:"Script Prep gives ASR context", body:"Paste what you're about to say into the Prep tab. The recognizer can use it as a hint for technical terms and names."},
   {title:"Quiet Mode for whispered speech", body:"Voice section → Quiet Mode. Boosts gain to -6dB and tightens high-pass to 100Hz for dictating in libraries, offices, late at night."},
-  {title:"The engine learns your avoidance patterns", body:"When you swap 'door' for 'entrance' to avoid a /d/ block, the engine detects it via Script Prep comparison. Layer 4 uses this to reconstruct the word you meant."},
+  {title:"Confirm your personal wording", body:"Use Script Prep, vocabulary, and corrections to tell Layer 3 and Layer 4 which terms you actually want preserved."},
   {title:"F10 cycles tone, F11 cycles layer", body:"Don't touch the dashboard. F10 rotates Casual → Professional → Friend → Formal. F11 rotates Layer I → II → III → IV. F12 prints stats."},
-  {title:"Your personal phonetic risk map", body:"The engine tracks which initial sounds you block on (k, p, br, etc.) and builds personalized onset weights. Feeds into trigger prediction at Layer 4."},
-  {title:"Anti-compulsion nudge", body:"Re-record similar content 3+ times in a row and the engine flags it. Stuttering can trigger obsessive redo loops — this pushes you to accept and move on."},
-  {title:"Weekly clinical report", body:'Learning tab → "Weekly Report" button. GPT-generated summary of your week: disfluency trends, trigger patterns, progress. Uses real session data.'},
+  {title:"Personal speech patterns", body:"The engine can track recurring initial sounds and confirmed trigger words. Treat these as app observations, not a clinical assessment."},
+  {title:"Re-recording nudge", body:"Re-record similar content 3+ times in a row and the engine reminds you that another take may not help."},
+  {title:"Weekly communication summary", body:'Insights → "Weekly Report" creates a summary of measured app use, edits, pauses, and recurring patterns. It is not a clinical report.'},
   {title:"Voice Profile unlocks at 500 words", body:'The "You" tab shows your headline, catchphrase, peak dictation time, day streak, and superpower. Celebrates what you accomplished, not what went wrong.'},
   {title:"Whisper hallucinations auto-stripped", body:"When audio is silent or whispered, Whisper sometimes injects 'Transcribed by otter.ai' or 'Thanks for watching' — training data leaks. Engine catches and removes them."},
-  {title:"Hold F9 longer on high-risk words", body:"When Script Prep text is loaded, engine predicts Brown peak risk before recording. Logs ⚠ HIGH RISK if a block is likely — hold the key through it."},
+  {title:"You decide when recording ends", body:"Hold F9 for as long as you need, including through pauses. Or click once to begin and again to stop."},
 ];
 function _todaysTip(){
   const d=new Date();
@@ -5602,15 +5630,15 @@ function toggleTipsEnabled(){
   // Contextual hint pools by current state
   const HINTS_BY_CTX = {
     command: ['select text + hold F8', 'say: make this formal', 'say: fix grammar', 'say: translate', 'transforms selection'],
-    recording: ['speak naturally', 'release when done', 'hold through blocks'],
+    recording: ['speak naturally', 'release when done', 'hold through pauses'],
     processing: ['reconstructing...'],
     l1: ['raw transcription', 'no GPT call', 'fastest, cheapest', 'F11 = next layer'],
     l2: ['GPT rewrites with tone', 'F10 cycles tone', 'fillers stripped', 'F8 to transform text'],
     l3: ['uses your vocabulary', 'learns your corrections', 'same as L2 + profile'],
-    l4: ['stutter clinical mode', 'tracks onset weights', 'covert avoidance detected', 'use High Stress preset', 'hold F9 through blocks'],
+    l4: ['advanced speech context', 'tracks confirmed patterns', 'Pause Bridge is optional', 'use High Stress preset', 'hold F9 through pauses'],
     idle_default: ['F9 to record', 'hold F8 to transform', 'click "idle" to toggle', 'F10 tone · F11 layer', 'click any stat to jump', 'F5 or Ctrl+R to refresh dashboard'],
     para_on: ['cough/laugh detected', 'non-speech tagged'],
-    prosodic_on: ['pitch & energy tracked', 'feeds L4 severity'],
+    prosodic_on: ['pitch & energy tracked', 'feeds L4 assist level'],
     quiet_on: ['audio boosted +6dB', 'dictate in public'],
   };
   function currentPool(){
@@ -5664,7 +5692,25 @@ function toggleTipsEnabled(){
   tick();
 })();
 
+function applyUiMode(){
+  let advanced=false;
+  try{advanced=localStorage.getItem('lav_advanced_ui')==='1';}catch(e){}
+  document.body.classList.toggle('advanced-ui',advanced);
+  const btn=document.getElementById('view-toggle');
+  if(btn){btn.textContent=advanced?'BASIC':'ADVANCED';btn.setAttribute('aria-pressed',advanced?'true':'false');}
+}
+
+function toggleAdvancedUi(){
+  const advanced=!document.body.classList.contains('advanced-ui');
+  try{localStorage.setItem('lav_advanced_ui',advanced?'1':'0');}catch(e){}
+  document.body.classList.toggle('advanced-ui',advanced);
+  const btn=document.getElementById('view-toggle');
+  if(btn){btn.textContent=advanced?'BASIC':'ADVANCED';btn.setAttribute('aria-pressed',advanced?'true':'false');}
+  if(!advanced&&document.querySelector('.tab-btn.advanced-only.active'))switchTab('console');
+}
+
 async function init(){
+  applyUiMode();
   await runBootSequence();
   applyCompact();
   // Apply saved language preference
@@ -5690,19 +5736,23 @@ async function runBootSequence(){
   const overlay=document.getElementById('boot-overlay');
   if(!log||!overlay)return;
 
+  let bootState=null;
+  try{
+    const response=await fetch(API+'/api/state');
+    if(response.ok)bootState=await response.json();
+  }catch(e){}
   const lines=[
-    {t:'BIOS',m:'Lavrentiy v4.2',d:120},
-    {t:'SYS',m:'Python 3.14 / Windows 11',d:100},
-    {t:'OK',m:'Whisper model loaded',d:200},
-    {t:'OK',m:'GPT-4o endpoint verified',d:150},
-    {t:'OK',m:'Falcon: disabled (stub)',d:100},
-    {t:'OK',m:'Profile loaded ('+Math.floor(Math.random()*30+5)+' corrections)',d:120},
-    {t:'OK',m:'Keyboard hooks registered (F9-F12)',d:100},
-    {t:'OK',m:'DAF audio pipeline ready',d:80},
-    {t:'OK',m:'Paralinguistic analyzer armed',d:100},
-    {t:'OK',m:'Prosodic F0 tracker initialized',d:80},
-    {t:'SYS',m:'Dashboard server :7878',d:100},
-    {t:'OK',m:'All systems nominal',d:150},
+    {t:'BIOS',m:'Lavrentiy v1.7.0',d:100},
+    bootState
+      ? {t:'OK',m:'Engine connected on :7878',d:120}
+      : {t:'ERR',m:'Engine connection unavailable',d:120},
+    bootState&&bootState.l1_cloud_asr
+      ? {t:'SYS',m:'Cloud transcription selected',d:120}
+      : {t:'SYS',m:'Local transcription selected — model loads on first use',d:120},
+    bootState&&bootState.auth&&bootState.auth.signed_in
+      ? {t:'OK',m:'Signed-in cloud access available',d:120}
+      : {t:'SYS',m:'Local mode ready; sign in or add your key for cloud layers',d:120},
+    {t:'OK',m:'Interface ready',d:100},
   ];
 
   let progress=0;
@@ -6125,17 +6175,17 @@ function _checkProfileSync(){
   <div class="ha-row open" data-ha>
     <div class="ha-header" onclick="toggleHa(this)">
       <div class="ha-icon">&#9776;</div>
-      <div class="ha-info"><div class="ha-name">Layers</div><div class="ha-sub">L1 Transcribe through L4 Stutter</div></div>
+      <div class="ha-info"><div class="ha-name">Layers</div><div class="ha-sub">L1 Transcribe through L4 Advanced</div></div>
       <div class="ha-chevron">&#9654;</div>
     </div>
     <div class="ha-body"><div class="ha-content">
-      <strong>L1 Transcribe</strong> &#8212; Whisper only. Raw speech-to-text, no AI cleanup. Fastest.<br>
-      <strong>L2 Reconstruct</strong> &#8212; GPT rewrites using your tone. Strips fillers, fixes grammar. ~1-2s slower.<br>
-      <strong>L3 Profile</strong> &#8212; Same as L2 + your personal vocabulary and corrections map.<br>
-      <strong>L4 Stutter</strong> &#8212; Full clinical mode. Disfluency tracking, exposure scoring, severity-scaled rewrites.
+      <strong>L1 Transcribe</strong> &#8212; Local speech-to-text with basic repetition and filler cleanup.<br>
+      <strong>L2 Reconstruct</strong> &#8212; Rewrites the transcript using your tone.<br>
+      <strong>L3 Profile</strong> &#8212; Adds your vocabulary and confirmed corrections.<br>
+      <strong>L4 Advanced</strong> &#8212; Adds speech context, uncertainty signals, and optional Pause Bridge suggestions. It does not diagnose speech or recover unspoken words.
       <div class="ha-example">
-        <span class="he-in">You say:</span> "So uh basically the the thing is um working"<br>
-        <span class="he-out">L1:</span> "So uh basically the the thing is um working"<br>
+        <span class="he-in">ASR heard:</span> "So uh basically the the thing is um working"<br>
+        <span class="he-out">L1:</span> "So basically the thing is working"<br>
         <span class="he-out">L2:</span> "The thing is working."
       </div>
     </div></div>
@@ -6163,10 +6213,10 @@ function _checkProfileSync(){
       <div class="ha-chevron">&#9654;</div>
     </div>
     <div class="ha-body"><div class="ha-content">
-      <strong>RAW</strong> <code>paste as-is</code> &#8212; GPT runs for analytics but pastes Whisper's original text.<br>
-      <strong>FAST</strong> <code>skip validation</code> &#8212; GPT rewrites, trust it, paste. Best speed/quality.<br>
-      <strong>SAFE</strong> <code>+ Falcon check</code> &#8212; GPT rewrites, Falcon verifies meaning preserved. Slowest, safest.<br><br>
-      All three produce identical output on L1. Collapses when L1 is selected.
+      <strong>RAW</strong> <code>paste original</code> &#8212; Pastes the transcription after basic cleanup.<br>
+      <strong>FAST</strong> <code>reconstruct</code> &#8212; Pastes the rewrite immediately.<br>
+      <strong>SAFE</strong> <code>+ meaning guard</code> &#8212; Keeps the original when a rewrite drops a name, number, date, amount, or negation. This is not a second AI or a guarantee of identical meaning.<br><br>
+      All three produce the same output on L1.
     </div></div>
   </div>
 
@@ -6179,11 +6229,7 @@ function _checkProfileSync(){
     <div class="ha-body"><div class="ha-content">
       <strong>Paralinguistic</strong> &#8212; Detects cough, laugh, sigh, throat-clear, breathing, pause. Independent of layer.<br>
       &nbsp;&nbsp;&#8226; <strong>Transcribe sub-toggle:</strong> ON = tags injected in text (<code>[Laughter]</code>). OFF = logged only.<br><br>
-      <strong>Prosodic</strong> &#8212; Tracks pitch (F0), energy, speaking rate. Feeds severity modifier on L4. Auto-enables on L4 and High Stress.
-      <div class="ha-example">
-        <span class="he-out">Console:</span> "Speech: pause_ratio=47% rate=3.4syl/s &#8594; severity +0.4"<br>
-        <span class="he-out">Console:</span> "Prosodic: Vocal tension (erratic pitch in 100%)"
-      </div>
+      <strong>Prosodic</strong> &#8212; Measures pitch, energy, and speaking rate and can increase L4 assist intensity. It does not measure stuttering severity.
     </div></div>
   </div>
 
@@ -6194,21 +6240,21 @@ function _checkProfileSync(){
       <div class="ha-chevron">&#9654;</div>
     </div>
     <div class="ha-body"><div class="ha-content">
-      <strong>Default</strong> &#8212; Everyday dictation. Severity 1.0. No auto-toggles.<br>
-      <strong>High Stress</strong> &#8212; Phone, interview, presentation. Auto-enables L4, DAF 100ms, all toggles. Severity 1.5.<br>
-      <strong>Reading</strong> &#8212; Reading aloud. Near-fluent. Severity 0.3, light L3 touch.
+      <strong>Default</strong> &#8212; Everyday dictation.<br>
+      <strong>High Stress</strong> &#8212; Gives the speaker more time and enables the full assistance stack.<br>
+      <strong>Reading</strong> &#8212; Uses lighter reconstruction for prepared text.
     </div></div>
   </div>
 
   <div class="ha-row" data-ha>
     <div class="ha-header" onclick="toggleHa(this)">
       <div class="ha-icon">&#9834;</div>
-      <div class="ha-info"><div class="ha-name">DAF</div><div class="ha-sub">Delayed Auditory Feedback for fluency</div></div>
+      <div class="ha-info"><div class="ha-name">DAF</div><div class="ha-sub">Optional delayed voice playback</div></div>
       <div class="ha-chevron">&#9654;</div>
     </div>
     <div class="ha-body"><div class="ha-content">
-      Plays your voice back through headphones with a slight delay. The delay tricks the brain into slowing down, improving fluency. Independent of all other settings.<br><br>
-      <strong>Toggle:</strong> ON/OFF &nbsp; <strong>Dial:</strong> Delay in milliseconds (default 100ms). More = stronger effect.
+      Plays your voice back through headphones with a slight delay. Some users may find that this changes their pacing. It is optional and is not presented as treatment or a guaranteed improvement.<br><br>
+      <strong>Toggle:</strong> ON/OFF &nbsp; <strong>Dial:</strong> delay in milliseconds.
     </div></div>
   </div>
 
@@ -6220,7 +6266,7 @@ function _checkProfileSync(){
     </div>
     <div class="ha-body"><div class="ha-content">
       <strong>Multi-Temp</strong> &#8212; Runs Whisper at multiple temperatures. Agreement = confident. Disagreement = flagged. 3x slower.<br>
-      <strong>Blocks</strong> &#8212; Speech blocks detected (Whisper hallucinated over silence).<br>
+      <strong>Pause suspects</strong> &#8212; Low-audio regions where ASR may hallucinate text. This does not detect an internal block or recover a missing word.<br>
       <strong>No Speech slider</strong> &#8212; &#9664; Sensitive (catches more) vs. Tolerant &#9654; (fewer false alarms). Default: 15%.<br>
       <strong>Avg LogProb</strong> &#8212; Whisper confidence. Above <code>-0.4</code> = good. Below <code>-0.7</code> = guessing.
     </div></div>
@@ -6281,44 +6327,18 @@ function _checkProfileSync(){
       <div class="ha-chevron">&#9654;</div>
     </div>
     <div class="ha-body"><div class="ha-content" style="line-height:1.7">
-      <strong style="color:var(--red-bright)">1. You speak</strong><br>
-      Your voice is captured through the microphone. The audio is cleaned up (background noise removed, volume leveled) before anything else touches it.<br><br>
-
-      <strong style="color:var(--red-bright)">2. Whisper listens</strong><br>
-      OpenAI's Whisper converts your speech to text. It also reports <em>how confident</em> it is about each word. Quiet moments (blocks, pauses) are flagged rather than guessed at.<br>
-      <div class="ha-example">If you use <strong>Script Prep</strong>, your intended text helps Whisper guess better &#8212; like giving it the answer key.</div>
-
-      <strong style="color:var(--red-bright)">3. Quick cleanup</strong><br>
-      Before any AI gets involved, obvious disfluencies are stripped automatically (zero cost, instant):<br>
-      &#8226; Repeated syllables: "p-p-pop" &#8594; "pop"<br>
-      &#8226; Repeated words: "I I I want" &#8594; "I want"<br>
-      &#8226; Fillers: "um", "uh", "like", "you know"<br>
-      &#8226; False starts: "going to&#8212; I went" &#8594; "I went"<br>
-      &#8226; Prolongations: "mmmmaybe" &#8594; "maybe"<br>
-      <div class="ha-example">Natural phrases like "bye bye" and "had had" are kept &#8212; they're real grammar, not disfluencies.</div>
-
-      <strong style="color:var(--red-bright)">4. What happens next depends on your Layer:</strong><br><br>
-
-      <div style="margin-left:12px">
-        <strong>Layer 1</strong> &#8212; Done. The cleaned text is pasted. No AI, no internet after Whisper, no cost beyond transcription.<br><br>
-
-        <strong>Layer 2</strong> &#8212; GPT rewrites your text using your chosen <em>tone</em> (casual, professional, etc). It knows the text came from a microphone, not a keyboard, so it's forgiving about messiness. No personal data is used.<br><br>
-
-        <strong>Layer 3</strong> &#8212; Same as Layer 2, plus GPT knows <em>your</em> preferred words and corrections. If it's learned that you always say "gonna" but mean "going to" in professional mode, it fixes that automatically.<br><br>
-
-        <strong>Layer 4</strong> &#8212; The full engine. GPT switches to a stronger model and gets a detailed briefing:<br>
-        &#8226; Which sounds are hardest for you (your personal phoneme map)<br>
-        &#8226; Words you tend to avoid and swap for easier ones<br>
-        &#8226; Where Whisper was uncertain or detected a block<br>
-        &#8226; Non-verbal events (coughs, laughter, pauses) so it doesn't hallucinate words over them<br>
-        &#8226; Your pitch, energy, and speaking rate patterns<br>
-      </div><br>
-
-      <strong style="color:var(--red-bright)">5. Safety check</strong><br>
-      In <strong>SAFE</strong> mode, a second AI (Falcon) reads both your original words and the rewrite, and asks: "Did the meaning change?" If yes, the rewrite is rejected and your original text is used instead. Numbers, dollar amounts, and percentages are double-checked separately.<br><br>
-
+      <strong style="color:var(--red-bright)">1. Record</strong><br>
+      Hold F9, or click once to start and again to stop. You control when listening ends.<br><br>
+      <strong style="color:var(--red-bright)">2. Transcribe</strong><br>
+      Local faster-whisper is the default. Cloud transcription runs only when selected and configured. Script Prep can provide expected wording.<br><br>
+      <strong style="color:var(--red-bright)">3. Clean</strong><br>
+      Rules remove recognizable fillers, repetitions, and common ASR artifacts. Silence does not reveal a missing word.<br><br>
+      <strong style="color:var(--red-bright)">4. Reconstruct</strong><br>
+      L2 applies tone, L3 adds confirmed vocabulary, and L4 adds uncertainty and speech context. Pause Bridge offers optional completions based on captured words; you choose whether to use one.<br><br>
+      <strong style="color:var(--red-bright)">5. Guard</strong><br>
+      SAFE mode keeps the original when a rewrite drops a name, number, date, amount, or negation. It is not a guarantee of identical meaning.<br><br>
       <strong style="color:var(--red-bright)">6. Paste</strong><br>
-      The final text goes to your clipboard and is pasted into whatever app you're using.
+      The chosen text is copied and pasted into the active Windows app.
     </div></div>
   </div>
 
@@ -6383,11 +6403,10 @@ function _checkProfileSync(){
       <div class="ha-chevron">&#9654;</div>
     </div>
     <div class="ha-body"><div class="ha-content">
-      <strong>Your voice audio is never stored.</strong> It's sent to Whisper for transcription, then discarded.<br><br>
-      <strong>Your transcripts stay on YOUR computer</strong> (in <code>~/.lavrentiy/</code>). They never leave your device.<br><br>
-      <strong>If you sign in with Google:</strong> Only pattern metadata syncs to the cloud (trigger words, filler words, vocabulary, corrections, onset weights). Never raw text or audio.<br><br>
-      <strong>Export / Delete:</strong> Sign in, go to <strong>The File</strong> tab, click EXPORT to download all your data as JSON, or DELETE CLOUD DATA to wipe your Firestore record (local data stays).<br><br>
-      <strong>Retention:</strong> Cloud data auto-deletes after 24 months of inactivity.
+      <strong>Session audio is archived locally by default</strong> in your Lavrentiy profile, up to the configured storage cap. Calibration recordings are also stored locally.<br><br>
+      Raw and reconstructed text are stored in the local session database. Audio or text is sent to cloud providers only when you use a configured cloud transcription or reconstruction path.<br><br>
+      <strong>If you sign in with Google:</strong> account details and selected learned profile metadata sync through Firebase. Reconstruction text may pass through the authenticated backend.<br><br>
+      Use the Profile tab to export or delete data. See the linked Privacy Policy for exact storage and deletion details.
     </div></div>
   </div>
 

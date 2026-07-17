@@ -8,8 +8,8 @@
 ' Result: one chromeless native-feeling window, rendered by the bundled
 ' WebView2 runtime instead of through the user's installed Chrome/Edge.
 '
-' Companion shortcut: Lavrentiy.vbs (default) uses Chrome/Edge in --app=
-' mode instead. Both produce a chromeless dashboard window.
+' Lavrentiy.vbs remains available as a browser-window troubleshooting fallback.
+' The v1.7.0 installer exposes this native route as the single app shortcut.
 Option Explicit
 
 Dim sh : Set sh = CreateObject("WScript.Shell")

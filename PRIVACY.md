@@ -1,144 +1,94 @@
-# Privacy Policy
+# Lavrentiy Privacy Policy
 
-**Effective Date:** March 29, 2026
-**Last Updated:** April 4, 2026
+**Effective date:** July 17, 2026
 
-This Privacy Policy applies to **Лаврентий (Lavrentiy)** for Windows and **WiM — What I Meant** for Android (collectively, "the App"). WiM is powered by the Лаврентий voice reconstruction engine.
+**Last updated:** July 17, 2026
 
-The App is developed by George Abrahamyants ("we," "us," "our").
+This policy applies to Lavrentiy for Windows. It does not describe the separate WiM Android app.
 
----
+Lavrentiy is developed by Gurgen Abrahamyants ("we," "us," or "our").
 
-## What the App Does
+## What Lavrentiy does
 
-The App is a voice reconstruction tool that turns messy, real-world speech into clean, professional text. It captures speech via your device's microphone, transcribes it, reconstructs it into polished text matching your chosen tone, and pastes the result into the active application or text field. Whether you're dictating emails, taking meeting notes, or drafting messages on the go, the App delivers what you meant to say — not what the microphone heard.
+Lavrentiy records speech when the user deliberately starts recording, converts captured audio to text, optionally reconstructs that text, and pastes the result into the active Windows application. It includes communication-assistance features for repetitions, pauses, substitutions, and other speech disfluencies. It is not a diagnostic or treatment service.
 
-The App includes advanced speech accessibility features — including disfluency detection, clinical reconstruction layers, and personalized learning informed by established speech science research (Brown, 1945; Ghai & Mueller, ASSETS 2021) — that make it particularly effective for users with speech disfluencies.
+## Local data
 
----
+Lavrentiy stores the following on the user's Windows computer:
 
-## What Data We Collect
+- Raw transcriptions, reconstructed text, timestamps, settings, processing measurements, and session history.
+- A profile containing vocabulary, confirmed corrections, fillers, trigger words, and other learned preferences.
+- Session audio. Audio archiving is enabled by default and pauses when the configured local storage cap is reached (currently approximately 2 GB).
+- Calibration recordings, corrected calibration transcripts, and any experimental synthetic test data the user chooses to generate.
 
-### Voice Audio
-Audio is captured from your microphone **only while you are actively recording** (you press a button to start and stop). Audio is streamed to the OpenAI Whisper API for transcription and is **not stored** by us. Once the transcription is returned, the audio is discarded. We do not record, save, or retain your voice audio.
+Local profile data is normally under `%USERPROFILE%\.lavrentiy\profiles\`. It remains until the user deletes the profile, its files, or the application data.
 
-### Transcription and Reconstruction Text
-Your raw transcription (what the speech recognizer heard) and the reconstructed output (the cleaned text) are stored **locally on your device** in a session history database. This data does not leave your device unless you are signed in and using the cloud reconstruction service, in which case the text is sent to our backend server for processing and is not retained after the response is returned.
+## Local and cloud processing
 
-### Voice Profile
-The App learns your speech patterns over time: vocabulary you use frequently, corrections the system makes repeatedly, words that trigger disfluency, and filler words. This profile data is stored **locally on your device** in a JSON file.
+Local faster-whisper transcription is the default. In that path, transcription audio remains on the computer.
 
-**Cloud sync (only if signed in with Google):** A subset of this profile metadata — trigger words (up to 30), onset weights (phonetic difficulty scores), covert avoidance patterns, filler words (up to 25), vocabulary (up to 20), and correction mappings (up to 10) — is synced to our Firestore database. This enables the cloud reconstruction service to personalize output to your speech patterns. **Your raw transcriptions, reconstructed text, session history, and audio are never uploaded.** Only the learned pattern metadata described above.
+Cloud processing occurs only when the user selects or invokes a configured cloud feature:
 
-### Account Information
-If you sign in with Google, we receive your email address, display name, and a unique identifier from Google/Firebase Authentication. This is used solely to identify your account and manage your subscription tier. We do not access your Google contacts, calendar, Drive, or any other Google service.
+- With a user-provided OpenAI key, audio may be sent directly to OpenAI for cloud transcription and text may be sent for reconstruction.
+- With a configured Anthropic key, reconstruction text may be sent directly to Anthropic.
+- When signed in with Google, reconstruction text and the context required for that request may be sent through the authenticated Google Cloud backend. The backend may then call an AI provider.
 
-### Usage Metadata
-We store basic session metadata locally on your device: timestamps, which tone and layer settings were used, word counts, and processing times. This data is used to display your session history and is not transmitted to any server.
+Lavrentiy cannot reconstruct words that were never captured in audio. Pause Bridge may generate optional completion suggestions from the text already captured; the user decides whether to use one.
 
----
+## Google sign-in and profile sync
 
-## What Data We Do NOT Collect
+If the user signs in with Google, Firebase Authentication provides the account email address, display name, and unique account identifier. Lavrentiy does not request access to Google contacts, calendar, Drive, or Gmail.
 
-- We do not record or store your voice audio
-- We do not collect your location
-- We do not collect your contacts
-- We do not use cookies, tracking pixels, or advertising identifiers
-- We do not fingerprint your device
-- We do not sell or rent any data to anyone
+Selected learned profile metadata may be synchronized to Firestore, including vocabulary, corrections, filler words, trigger words, phonetic weights, and avoidance-pair data. This supports use across devices and personalized backend reconstruction. Local session audio is not uploaded as part of profile sync.
 
----
+## Third-party services
 
-## Third-Party Services
+Depending on the features the user chooses, data may be processed by:
 
-### OpenAI (Whisper API and GPT)
-Voice audio is sent to OpenAI's Whisper API for transcription. Reconstructed text is generated using OpenAI's GPT models. Per OpenAI's API data usage policy (as of March 2025), **data sent through the API is not used to train OpenAI's models** by default. We do not opt in to any data sharing or training programs with OpenAI. For OpenAI's full privacy practices, see: https://openai.com/policies/privacy-policy
+- OpenAI for cloud speech transcription or text reconstruction: <https://openai.com/policies/privacy-policy>
+- Anthropic for text reconstruction: <https://www.anthropic.com/legal/privacy>
+- Google Firebase and Google Cloud for authentication, profile synchronization, and authenticated backend processing: <https://policies.google.com/privacy>
 
-### Google Firebase (Authentication)
-If you sign in with Google, authentication is handled by Firebase Authentication, a Google Cloud service. Firebase receives your Google account credentials to verify your identity. See Google's privacy policy at: https://policies.google.com/privacy
+Those providers process data under their own terms and policies. Lavrentiy does not promise that a third-party provider retains no operational logs; users should consult the linked provider policies.
 
-### Google Cloud Functions (Backend Proxy)
-When you are signed in and using cloud reconstruction, your text (not audio) is sent to a Google Cloud Function that acts as a proxy to OpenAI. The text is processed in memory and is not stored. The Cloud Function verifies your identity, checks your subscription tier, and forwards the reconstruction request.
+## Data we do not intentionally collect
 
----
+Lavrentiy does not request location, contacts, advertising identifiers, or access to unrelated Google services. We do not sell or rent user data and do not include advertising.
 
-## Data Storage and Retention
+## Model training
 
-| Data | Where Stored | Retention |
-|------|-------------|-----------|
-| Voice audio | Not stored | Discarded immediately after transcription |
-| Session transcripts | Your device only | Until you delete them |
-| Voice profile (full) | Your device only | Until you delete it or delete the app |
-| Profile metadata (synced) | Firestore (if signed in) | While account active; deleted after 24 months of inactivity |
-| Account info (email, uid) | Firebase Auth | Until you delete your account |
-| Cloud reconstruction text | Processed in memory | Not retained after response |
+Lavrentiy does not automatically upload local archived audio or calibration recordings for shared-model training. The local archive and corrected calibration set are retained so the user may later evaluate or train a personal speech model. Experimental synthetic samples are engineering data and are not represented as genuine stuttered-speech recordings.
 
-**Retention policy:** We keep your synced profile metadata while your account is active because it personalizes reconstruction output for you. After 24 months of inactivity (no sign-ins, no reconstruction requests), we automatically delete your Firestore data. You can also delete your cloud data immediately at any time — see "Your Rights" below.
+Third-party AI providers govern their own processing and model-training practices under the policies linked above.
 
-If you delete your account or uninstall the App, your local data (profile, session history) remains on your device until you manually delete the application folder. Deleting your cloud data via the in-app button does not affect your local data.
+## Retention and deletion
 
----
+| Data | Location | Retention |
+|---|---|---|
+| Session audio | User's computer | Until deleted or the local archive policy removes/pauses data |
+| Calibration audio and transcripts | User's computer | Until deleted by the user |
+| Session text and metadata | User's computer | Until the profile or application data is deleted |
+| Local learned profile | User's computer | Until the profile or application data is deleted |
+| Synced profile metadata | Firestore, after Google sign-in | Until the user deletes cloud data or requests account deletion |
+| Account identifier and email | Firebase Authentication | Until account deletion |
+| Cloud request audio or text | Selected cloud provider/backend | Subject to the applicable provider and service policies |
 
-## Data Sharing
-
-We do not share your personal data with any third party except as described above (OpenAI for transcription/reconstruction, Firebase for authentication). We do not share data with advertisers, analytics services, data brokers, or any other entity.
-
----
-
-## AI Model Training
-
-**We do not use your data to train any AI model.** Your voice, transcriptions, profile data, and usage patterns are never used for machine learning training, by us or by any third party. OpenAI's API data usage policy confirms that API inputs and outputs are not used for model training by default, and we have not opted into any training data programs.
-
----
-
-## Voice Profile and Biometric Data
-
-The App builds a voice profile that includes vocabulary patterns, disfluency triggers, and learned corrections. This profile describes your **speech patterns**, not your **voice biometrics** (voiceprint, vocal frequency signature, or speaker identification features). The profile cannot be used to identify you by voice. It is stored locally on your device and is not transmitted to any server.
-
-If you reside in a jurisdiction with biometric data laws (such as Illinois BIPA, Texas CUBI, or Washington state), please note that we do not collect, store, or process biometric identifiers or biometric information as defined by those laws.
-
----
-
-## Children's Privacy
-
-The App is not directed at children under 13. We do not knowingly collect personal information from children under 13. If you believe a child has provided us with personal information, contact us and we will delete it.
-
----
-
-## Your Rights
-
-You have the right to:
-- **Access** your data — all profile and session data is stored locally on your device and is directly accessible to you. When signed in, the "Export My Data" button in "The File" tab downloads all your local and cloud-synced data as a JSON file.
-- **Delete** your data — delete the application folder to remove all local data. When signed in, the "Delete Cloud Data" button in "The File" tab immediately and permanently deletes your Firestore record. Contact us to delete your Firebase Authentication account.
-- **Opt out** of cloud processing — use a local API key instead of signing in with Google; all processing stays on your device, nothing is synced to Firestore.
-- **Export** your data — in-app export (signed in) or copy your profile (JSON) and session history (SQLite) directly from `~/.lavrentiy/profiles/<name>/` at any time.
-- **Rectify** your data — "The File" tab lets you directly edit your profile (vocabulary, corrections, trigger words, fillers). Changes sync to Firestore automatically when signed in.
-
----
+The Profile tab includes export and cloud-data deletion controls. Deleting cloud data does not automatically delete local files. Deleting the local profile does not automatically delete the Firebase Authentication account. Contact us for account deletion assistance.
 
 ## Security
 
-- Audio is transmitted to OpenAI over encrypted HTTPS connections
-- Authentication tokens are transmitted over encrypted HTTPS connections
-- Local data is stored in your user profile directory with standard operating system file permissions
-- The Cloud Function backend does not log or store request or response bodies
+Cloud requests use encrypted HTTPS connections. Local files use the permissions of the user's Windows account. No software or transmission method can be guaranteed completely secure.
 
----
+## Children's privacy
 
-## Changes to This Policy
+Lavrentiy is not directed to children under 13. If you believe a child supplied personal information through a cloud account, contact us so it can be reviewed and deleted.
 
-We may update this Privacy Policy from time to time. Changes will be posted to this page with an updated "Last Updated" date. Continued use of the App after changes constitutes acceptance of the revised policy.
+## Changes
 
----
+We may update this policy as Lavrentiy changes. The current version and update date will remain in this repository.
 
 ## Contact
 
-For questions, data deletion requests, or concerns about this Privacy Policy:
-
-**George Abrahamyants**
+**Gurgen Abrahamyants**
 Email: gugosf@gmail.com
-GitHub: https://github.com/gugosf114/lavrentiy
-
----
-
-*This policy covers both Лаврентий (Lavrentiy) for Windows and WiM — What I Meant for Android. WiM is powered by the Лаврентий voice reconstruction engine.*
+GitHub: <https://github.com/gugosf114/lavrentiy>

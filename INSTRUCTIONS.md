@@ -4,7 +4,9 @@ For end users. If you're a developer working on Lavrentiy, see `README.md` inste
 
 ## What Lavrentiy is
 
-A desktop app for people whose speech doesn't come out clean — stuttering, blocks, fillers, word swaps. You hold F9, talk into your mic, and Lavrentiy turns your messy spoken words into the clean sentence you meant to say, then pastes it into whatever app is in front of you (email, Slack, browser, anywhere). It runs on Windows, sits quietly in your system tray, and gets smarter at understanding YOUR speech the more you use it.
+A Windows voice-to-intent app for everyday dictation. It transcribes captured audio, can clean recognizable fillers and repetitions, optionally reconstructs the transcript using personal context, and pastes the result into the active application. It is designed to remain usable when speech contains long pauses, substitutions, repetitions, or blocks.
+
+Lavrentiy does **not** diagnose a speech condition, measure clinical severity, or recover a word that was never captured. Pause Bridge can offer optional sentence completions from the words already transcribed; the user chooses whether to use one.
 
 ---
 
@@ -12,7 +14,7 @@ A desktop app for people whose speech doesn't come out clean — stuttering, blo
 
 Go to: **https://github.com/gugosf114/lavrentiy/releases/latest**
 
-Click on `Lavrentiy-Setup-v1.6.4.exe` to download it. The file is about 520 MB — give it a minute or two depending on your connection.
+Click `Lavrentiy-Setup-v1.7.0.exe`. The installer is large because it includes the local speech-recognition model.
 
 That's the only file you need. There's no separate "trial" or "free" version. The download is the full app.
 
@@ -20,7 +22,7 @@ That's the only file you need. There's no separate "trial" or "free" version. Th
 
 ## Install
 
-1. Double-click the downloaded `Lavrentiy-Setup-v1.6.4.exe`.
+1. Double-click `Lavrentiy-Setup-v1.7.0.exe`.
 
 2. **You'll see "Windows protected your PC."** This is normal — the installer isn't code-signed yet (signing is on the to-do list). Click **More info → Run anyway**. This happens once. Future launches don't show the warning.
 
@@ -32,27 +34,17 @@ That's the only file you need. There's no separate "trial" or "free" version. Th
 
 ---
 
-## First launch — two shortcuts
+## First launch
 
-After install, you'll see **two** Lavrentiy shortcuts in Start Menu:
-
-- **Lavrentiy** — opens the dashboard in Chrome or Edge in app mode (chromeless — no URL bar, no tabs, looks like a normal Windows window).
-- **Lavrentiy (Native)** — opens the dashboard in a bundled WebView2 window. No external browser involved.
-
-Both do exactly the same thing visually. The difference is what's running underneath:
-
-- The first uses whatever Chrome or Edge you already have installed.
-- The second uses Microsoft's built-in WebView2 component (ships with Windows 10 and 11 by default).
-
-**Pick whichever you like.** Most people use the first one. If you don't have Chrome or Edge installed for some reason, use the second.
+The installer creates one **Lavrentiy** shortcut. It opens the dashboard in a normal Windows application window. The first start may be slower while Windows and the local speech model initialize.
 
 ---
 
 ## How to use it
 
 1. Click the Lavrentiy shortcut. Engine starts, dashboard window opens.
-2. Hold **F9** down while you talk into your microphone. Release F9 when you're done.
-3. Wait 1–3 seconds. The cleaned-up version gets pasted into whatever app you have in front of you (the one with the typing cursor).
+2. Either hold **F9** while speaking and release when finished, or click **idle** once to begin and again to stop.
+3. Lavrentiy transcribes and processes the recording, then pastes the selected result wherever the typing cursor was. Processing time depends on the recording length, computer, and layer.
 
 Other hotkeys live in the dashboard sidebar — F10 cycles tone (casual / professional / friend / formal), F11 cycles layer, F12 prints stats.
 
@@ -75,18 +67,11 @@ How to sign in:
 
 ---
 
-## Using your own API key (optional)
+## Free local mode and cloud access
 
-Lavrentiy comes with the developer's OpenAI and Anthropic API keys pre-loaded so you can use it immediately without setup. Your usage is billed against the developer's accounts.
+Local Layer 1 transcription works without an API key and is the default. Lavrentiy does **not** include the developer's private API keys.
 
-If you have your own OpenAI / Anthropic accounts and prefer to bill against them:
-
-1. Open the dashboard.
-2. Find the **API key** field in the sidebar settings.
-3. Paste your own key in.
-4. Save.
-
-After that, all your usage bills to your accounts, not the developer's. You can switch back to the bundled keys later by clearing your custom key.
+For cloud reconstruction, click **Cloud setup / API key** below the sign-in button. Either sign in with an invited Google account or enter your own OpenAI key. A user-provided key is stored locally on that computer and its usage is billed by OpenAI to that user.
 
 ---
 
@@ -128,15 +113,15 @@ Test the mic by recording yourself in Windows Voice Recorder first. If that work
 ### "Reconstruction is really slow."
 
 Three causes:
-- **First launch after install** — cold start. The engine loads a 500 MB speech recognition model the first time. Subsequent F9 presses are 1–3 seconds.
-- **Cloud reconstruction is busy** — happens during peak hours when OpenAI / Anthropic queues are full. Wait, try again.
+- **First transcription after each app start** — the bundled speech model must load into memory. Later recordings in that session are usually faster; exact time depends on the computer and recording length.
+- **Cloud reconstruction is busy** — cloud-provider or network delays can vary. Wait briefly and try again.
 - **Very long recordings** — anything over 30 seconds takes proportionally longer. Try shorter bursts.
 
 ### "I signed in but my old learned data isn't there."
 
-Make sure you're on **v1.6.4 or newer**. Earlier versions (v1.6.3 and below) had one-way cloud sync — they could push your profile up but couldn't pull it back. v1.6.4 fixes this.
+Make sure you're on **v1.7.0 or newer**.
 
-If you're on v1.6.4 and still see an empty profile after sign-in:
+If you're on v1.7.0 and still see an empty profile after sign-in:
 - Check the engine log file at `%LOCALAPPDATA%\Programs\Lavrentiy\_internal\engine_err.log` for any "Profile pull from cloud failed" messages.
 - Wait 30 seconds, sign out, sign back in.
 
@@ -148,10 +133,7 @@ Google blocks OAuth inside embedded browsers, so Lavrentiy opens sign-in in your
 
 ### "My API key was rejected."
 
-For OpenAI: starts with `sk-` (project keys) or `sk-proj-` (newer format).
-For Anthropic: starts with `sk-ant-`.
-
-If you pasted one in the other slot, swap them. Check the key in OpenAI's / Anthropic's console isn't expired or revoked.
+OpenAI keys normally start with `sk-` or `sk-proj-`. Check that the key is active and has API credit.
 
 ### "Engine is running but no window opens."
 
@@ -167,7 +149,7 @@ If there's no tray icon at all: end Lavrentiy.exe via Task Manager, then click t
 
 Settings → Apps → Installed apps → search "Lavrentiy" → click → Uninstall.
 
-This removes the app but **leaves your profile data** at `C:\Users\<you>\.lavrentiy\`. If you want a truly clean wipe (lose all learned data), manually delete that folder after uninstalling.
+This removes the app but **leaves your profile, session text, archived audio, and calibration data** at `C:\Users\<you>\.lavrentiy\`. Delete that folder afterward only if you want a complete local wipe.
 
 If you signed in: your cloud-stored profile stays in your Firestore record even after uninstall. Reinstall + sign in = your profile comes back.
 
@@ -178,7 +160,7 @@ If you signed in: your cloud-stored profile stays in your Firestore record even 
 Email: **gugosf@gmail.com**
 
 Please include:
-- Which version of Lavrentiy (top of the dashboard, or check `%LOCALAPPDATA%\Programs\Lavrentiy\_internal\VERSION.txt`).
+- Which version of Lavrentiy (shown during startup and in the installer filename).
 - What you did, what you expected, what actually happened.
 - Any error message text (full text, not a description).
 - If the engine logged anything: contents of `%LOCALAPPDATA%\Programs\Lavrentiy\_internal\engine_err.log`.

@@ -203,7 +203,7 @@ if flags_fn:
     check('clean run = no flags', len(f) == 0, str(f))
 
     f = flags_fn('hello world', 'hello world', False, False, 2)
-    check('falcon reject flagged', 'validator_reject' in f)
+    check('meaning guard reject flagged', 'meaning_guard_reject' in f)
 
     f = flags_fn('hello world', 'hello world', True, True, 2)
     check('fallback flagged', 'reconstruct_fallback' in f)

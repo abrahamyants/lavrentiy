@@ -433,7 +433,7 @@ print('=== POST /api/layer ===')
 try:
     r = post('/api/layer', {'layer': 4})
     check('layer changed to 4', r['layer'] == 4)
-    check('layer_name = stutter', r['layer_name'] == 'stutter')
+    check('layer_name = advanced assist', r['layer_name'] == 'advanced assist')
     r2 = get('/api/state')
     check('state reflects new layer', r2['layer'] == 4)
     # Restore
@@ -682,6 +682,8 @@ try:
     check('has categories', 'categories' in r)
     check('has next_prompt', 'next_prompt' in r)
     check('total_prompts > 0', r['total_prompts'] > 0)
+    check('60 read prompts', r.get('read_prompts') == 60)
+    check('5 natural questions', r.get('natural_questions') == 5)
     check('remaining = total - done - skipped',
           r['remaining'] == r['total_prompts'] - r['completed'] - r['skipped'])
 except Exception as e:
@@ -736,6 +738,33 @@ try:
     check('missing audio -> error', 'error' in r)
 except Exception as e:
     check(f'POST /api/calibration/record failed: {e}', False)
+
+print()
+print('=== POST /api/calibration/confirm ===')
+try:
+    r = post('/api/calibration/confirm', {})
+    check('missing confirm fields -> error', 'error' in r)
+    r = post('/api/calibration/confirm', {'prompt_id': 1, 'reference_text': 'hello'})
+    check('confirm before recording -> error', 'error' in r)
+    draft_path = _test_cal_dir / 'cal_001_test.json'
+    draft_path.write_text(json.dumps({
+        'prompt_id': 1,
+        'category': 'test',
+        'ground_truth': 'draft',
+        'whisper_raw': 'hello word',
+        'confirmed': False,
+    }), encoding='utf-8')
+    r = post('/api/calibration/confirm', {
+        'prompt_id': 1,
+        'reference_text': 'hello world',
+    })
+    check('recorded transcript confirms', r.get('confirmed') is True)
+    check('corrected transcript saved', r.get('ground_truth') == 'hello world')
+    saved = json.loads(draft_path.read_text(encoding='utf-8'))
+    check('metadata marked confirmed', saved.get('confirmed') is True)
+    check('WER calculated', isinstance(saved.get('wer'), float))
+except Exception as e:
+    check(f'POST /api/calibration/confirm failed: {e}', False)
 
 print()
 print('=== POST /api/calibration/stop ===')
@@ -861,34 +890,25 @@ except Exception as e:
     check(f'POST /api/patience failed: {e}', False)
 
 # ============================================================
-# GAP: Clinical profile endpoint
+# Retired clinical profile endpoint
 # ============================================================
 print()
 print('=== GET /api/clinical_profile ===')
 try:
     r = get('/api/clinical_profile')
     check('returns dict', isinstance(r, dict))
-    # With empty sessions stub, should return the "need N sessions" error
-    check('error key present (no sessions)', 'error' in r or 'total_sessions' in r)
-    # Test with sessions populated
+    check('retired endpoint explains removal', 'error' in r and 'removed' in r['error'].lower())
+    # The endpoint stays retired even when session history exists. This prevents
+    # old clinical-looking claims from reappearing through a hidden route.
     ns['db_get_sessions'] = lambda limit=50: [
         {'ts': '2026-01-01T10:00:00', 'words': 50, 'situation': 'default',
          'disfluency_counts': {'word_rep': 3, 'filler': 2, 'total': 5},
          'editorial_distance': 0.3, 'exposure': {'score': 0.35, 'band': 'moderate'},
-         'lang': 'en'}
+        'lang': 'en'}
     ] * 25  # 25 sessions to exceed min_sessions=20
     r2 = get('/api/clinical_profile')
-    check('enough sessions: no error', 'error' not in r2)
-    check('has total_sessions', 'total_sessions' in r2)
-    check('has primary_disfluency', 'primary_disfluency' in r2)
-    check('has frequency_per_minute', 'frequency_per_minute' in r2)
-    check('has situational_breakdown', 'situational_breakdown' in r2)
-    check('has editorial_distance', 'editorial_distance' in r2)
-    check('has fluency_trend', 'fluency_trend' in r2)
-    check('has exposure', 'exposure' in r2)
-    check('has covert_avoidance', 'covert_avoidance' in r2)
-    check('total_sessions = 25', r2.get('total_sessions') == 25)
-    check('primary_disfluency has type', 'type' in r2.get('primary_disfluency', {}))
+    check('retired endpoint ignores session count', 'error' in r2 and 'removed' in r2['error'].lower())
+    check('no clinical metrics returned', 'primary_disfluency' not in r2)
     # Restore stub
     ns['db_get_sessions'] = lambda limit=50: []
 except Exception as e:

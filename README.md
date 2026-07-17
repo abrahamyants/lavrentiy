@@ -1,10 +1,10 @@
 # LAVRENTIY
 
-**Voice Reconstruction Engine**
+**Voice-to-intent for Windows**
 
-Lavrentiy captures voice via microphone, transcribes with Whisper (with optional decoder seeding, block preservation, confidence targeting, and multi-temperature voting), reconstructs through GPT-4o/4o-mini with personalized phoneme context, validates meaning with Falcon, and pastes output into the active application. It learns speech patterns over time — corrections, filler words, vocabulary, and stutter triggers — building a persistent profile.
+Lavrentiy records when the user deliberately starts recording, transcribes locally by default, optionally reconstructs captured text with personal context, and pastes the chosen result into the active Windows application. Recording supports both hold-F9 and click-on/click-off control.
 
-Built for people who stutter. The Layer 4 pipeline uses a reconstruction prompt informed by stuttering research, covering overt disfluencies (part-word repetitions, prolongations, blocks, schwa substitution, consonant cluster breaks) and covert stuttering patterns (postponement fillers, synonym substitution, circumlocution, sentence abandonment). Includes DAF (Delayed Auditory Feedback), covert avoidance detection, and a 5-feature phonetic risk model based on Brown's linguistic predictors.
+It is designed to remain usable when speech contains repetitions, substitutions, long pauses, or blocks. It does not diagnose a speech condition, measure clinical severity, or recover a word that was never captured. Pause Bridge generates optional completions from existing transcript context; the user decides whether to paste one.
 
 ## Architecture
 
@@ -21,21 +21,31 @@ Mic → Whisper (Script Prep seed | verbose JSON | multi-temp voting)
         ↓
    Reconstruction (phoneme context + Whisper confidence + paralinguistic events)
         ↓
-   Falcon Validation → Clipboard → Paste
+   Deterministic meaning guard → Clipboard → Paste
         ↓
    Covert Avoidance Detection ← Script Prep
 ```
 
 - **Engine** (`lavrentiy.py`): Hotkey listener, audio capture, LLM pipeline, DAF streaming, calibration, augmentation, embedded HTTP server
 - **Dashboard** (`dashboard.html`): Browser-based control panel served on `localhost:7878`. Open in any browser at that URL, OR use the native window launcher below.
-- **Native window launcher** (`native/pywebview_app.py`): Renders the dashboard in a native OS window via pywebview + Windows WebView2 (Edge Chromium). Run with `pythonw.exe native/pywebview_app.py` — engine and dashboard start together; closing the window leaves the engine + system tray running; quit via tray right-click. Replaces the prior PySide6+QWebEngineView attempt, which is now deprecated due to QtWebEngine's older bundled Chromium rendering modern CSS in dashboard.html unreliably.
+- **Native window launcher** (`lavrentiy_launcher.py --native`): Renders the dashboard with pywebview/WebView2. V1 installs one normal Lavrentiy shortcut using this route; browser mode remains an installed troubleshooting fallback.
 - **Profiles** (`~/.lavrentiy/profiles/<name>/`): Multi-user support — each profile gets its own profile.json, history.db, and backups/
 - **Active Profile** (`~/.lavrentiy/active_profile`): Tracks which profile is loaded across restarts
-- **Calibration** (`~/.lavrentiy/calibration/`): 60-prompt structured data collection with WER tracking
-- **Audio Archive** (`~/.lavrentiy/audio_archive/`): Session WAV + metadata pairs for future Whisper fine-tuning
-- **Augmented Data** (`~/.lavrentiy/calibration/augmented/`): Synthetic disfluent speech via TTS for dataset multiplication
+- **Calibration** (`~/.lavrentiy/profiles/<name>/calibration/`): 60 read prompts plus five natural-answer questions. Every ASR transcript is confirmed or corrected by the user before it becomes ground truth.
+- **Audio Archive** (`~/.lavrentiy/profiles/<name>/audio_archive/`): Local session WAV + metadata pairs for personal evaluation or future personal-model work.
+- **Synthetic test data** (`calibration/augmented/`): Optional TTS with inserted repetitions/fillers. It is engineering data, not genuine stuttered-speech training data.
 
-## What I Meant (WIM) — Consumer Mobile App
+## Current release documents
+
+- `EVALUATOR_GUIDE.md` — the short researcher/evaluator path
+- `INSTRUCTIONS.md` — current installation and everyday-use instructions
+- `PRIVACY.md` — current data handling and cloud behavior
+
+## Historical engineering notebook — not current release documentation
+
+Everything from this heading through the changelog is retained as project history. It includes superseded experiments, names, layers, clinical framing, Falcon claims, and an old WiM PWA. Do not treat it as a description of v1.7.0. The current Android product lives at <https://github.com/gugosf114/wim-android>.
+
+## What I Meant (WIM) — historical PWA
 
 Standalone PWA in `wim/` — the consumer face of the Лаврентий engine. Voice-to-Intent for everyone.
 
@@ -76,27 +86,28 @@ wim/
 
 | Layer | Name | What it does |
 |-------|------|-------------|
-| 1 | Transcribe | Enhanced Whisper (Script Prep seeding, block preservation, verbose JSON) + disfluency post-filter |
+| 1 | Transcribe | Local faster-whisper by default + recognizable filler/repetition cleanup |
 | 2 | Reconstruct | LLM cleans grammar, strips fillers, restructures (generic — no personal data) |
 | 3 | Profile | + your learned vocabulary, corrections, preferred terms (vocabulary/corrections injected at L3+, not L2) |
-| 4 | Stutter | + disfluency detection, trigger word tracking, clinical insights, personalized onset weighting, per-user phoneme context in prompt, covert avoidance reversal |
-| 5 | Paralinguistic | + non-verbal event detection (laughter, cough, sigh, breathing, throat-clearing, pauses) via HNR analysis + Whisper error patterns. Detected events injected into reconstruction prompt to prevent hallucination near non-speech audio. + Prosodic bridging: per-segment F0/energy/rate extraction, speaker state inference, stutter-specific prosodic rules. Rich acoustic context injected into GPT prompt to recover information Whisper's text decoder destroys |
+| 4 | Advanced | + ASR uncertainty, speech context, personal pattern context, and optional user-approved Pause Bridge suggestions |
+
+Paralinguistic and prosodic analysis are optional Advanced controls, not separate product layers. Their labels are experimental signal estimates, not clinical measurements.
 
 ## Modes
 
 | Mode | Behavior |
 |------|----------|
 | **RAW** | Paste raw transcription, no reconstruction |
-| **FAST** | Reconstruct but skip Falcon validation (~500ms faster) |
-| **SAFE** | Full pipeline with Falcon meaning check (default) |
+| **FAST** | Reconstruct and paste immediately |
+| **SAFE** | Reconstruct, then keep the original if a deterministic guard finds a lost name, number, date, amount, or negation |
 
 ## Situational Context
 
-| Situation | Severity | Effect |
+| Situation | Internal assist multiplier | Effect |
 |-----------|----------|--------|
-| Default | 1.0x | Standard reconstruction — everyday use |
-| High Stress | 1.5x | Auto-L4 + DAF + all toggles ON — full assist for phone, presentation, interview |
-| Reading | 0.3x | Light touch — reading aloud is near-fluent for most PWS |
+| Default | 1.0x | Standard everyday reconstruction |
+| High Stress | 1.5x | More patience + L4 + optional analysis controls for calls, presentations, or interviews |
+| Reading | 0.3x | Lighter reconstruction for prepared text |
 
 Collapsed from 6 situations to 3 (phone/presentation/interview merged into High Stress, casual merged into Default). Old situation names (`phone`, `interview`, `presentation`, `casual`) still work via back-compat aliases. Situation is tracked per session in the history database and displayed as a tag on session cards in the dashboard.
 
@@ -108,7 +119,7 @@ Collapsed from 6 situations to 3 (phone/presentation/interview merged into High 
 
 | Key | Action |
 |-----|--------|
-| **F9** (hold) | Record while held, process on release |
+| **F9** (hold) | Record while held, process on release. The dashboard ring also supports click once to start and again to stop. |
 | **F10** | Cycle tone |
 | **F11** | Cycle layer |
 | **F12** | Print stats to console |
@@ -120,8 +131,9 @@ Collapsed from 6 situations to 3 (phone/presentation/interview merged into High 
 
 - Python 3.10+
 - Windows (uses Win32 APIs for focus management and single-instance mutex)
-- OpenAI API key: reads from `api_key.txt` (gitignored) first, falls back to `OPENAI_API_KEY` env var
-- Anthropic API key (for L4 Sonnet 4.6 extended thinking + optional L1 Haiku polish): reads from `anthropic_key.txt` (gitignored) first, falls back to `ANTHROPIC_API_KEY` env var
+- No key is required for free local Layer 1.
+- Optional OpenAI API key: reads from local `api_key.txt` or `OPENAI_API_KEY`. Private keys are not bundled in public installers.
+- Optional Anthropic key for direct advanced reconstruction: reads from local `anthropic_key.txt` or `ANTHROPIC_API_KEY`. It is not bundled in public installers.
 
 ### Install dependencies
 

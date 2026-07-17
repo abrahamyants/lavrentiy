@@ -464,6 +464,13 @@ CALIBRATION_PROMPTS = [
     {"id": 58, "category": "personal", "text": "Call my wife and tell her I am running about twenty minutes late"},
     {"id": 59, "category": "personal", "text": "Save this recipe for banana bread so I can make it this weekend"},
     {"id": 60, "category": "personal", "text": "Set an alarm for six thirty tomorrow morning"},
+    # Five additional read prompts bring the research protocol to 60 read
+    # utterances plus the five natural-answer questions above.
+    {"id": 61, "category": "read_additional", "text": "Please email the revised contract to Maria before Wednesday"},
+    {"id": 62, "category": "read_additional", "text": "Do not charge the customer more than forty-five dollars"},
+    {"id": 63, "category": "read_additional", "text": "George will present the quarterly numbers in San Diego next month"},
+    {"id": 64, "category": "read_additional", "text": "The confirmation number is seven four two nine one"},
+    {"id": 65, "category": "read_additional", "text": "I would rather reschedule than cancel the appointment"},
 ]
 
 # -- Stutter insights ────────────────────────────────────────────
@@ -560,7 +567,7 @@ MAX_INSIGHTS = 6
 TONES = ["casual", "professional", "friend", "formal"]
 TONE_SHORT = {"casual": "CAS", "professional": "PRO", "friend": "FRD", "formal": "FRM"}
 LAYERS = [1, 2, 3, 4]
-LAYER_NAMES = {1: "transcribe", 2: "reconstruct", 3: "profile", 4: "stutter"}
+LAYER_NAMES = {1: "transcribe", 2: "reconstruct", 3: "profile", 4: "advanced assist"}
 
 # -- Situational context (affects reconstruction aggressiveness) ──
 SITUATIONS = ["default", "high_stress", "reading"]
@@ -1536,12 +1543,15 @@ def pull_profile_from_firestore():
 def _snapshot_profile(prof):
     """Save timestamped backup. Keep last 5."""
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # Include microseconds so two migrations/saves in the same second never
+    # overwrite one another or make the caller inspect the wrong backup.
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     path = BACKUP_DIR / f"profile_{ts}.json"
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(prof, f, indent=2, ensure_ascii=False)
     for old in sorted(BACKUP_DIR.glob("profile_*.json"))[:-5]:
         old.unlink()
+    return path
 
 def list_profiles():
     """Return sorted list of available profile names."""
@@ -1851,8 +1861,16 @@ def calibration_status():
     skipped = len(_calibration_state["skipped"])
     remaining = total - done - skipped
     existing_wavs = 0
+    confirmed_samples = 0
     if CALIBRATION_DIR.exists():
         existing_wavs = len(list(CALIBRATION_DIR.glob("*.wav")))
+        for meta_path in CALIBRATION_DIR.glob("cal_*.json"):
+            try:
+                with open(meta_path, encoding="utf-8") as meta_file:
+                    if json.load(meta_file).get("confirmed", True):
+                        confirmed_samples += 1
+            except (OSError, ValueError):
+                continue
     return {
         "active": _calibration_state["active"],
         "total_prompts": total,
@@ -1861,7 +1879,10 @@ def calibration_status():
         "remaining": remaining,
         "pct": round(done / total * 100) if total else 0,
         "existing_samples": existing_wavs,
-        "ready_for_finetuning": existing_wavs >= 50,
+        "confirmed_samples": confirmed_samples,
+        "ready_for_finetuning": confirmed_samples >= 60,
+        "read_prompts": sum(p["category"] != "spontaneous" for p in CALIBRATION_PROMPTS),
+        "natural_questions": sum(p["category"] == "spontaneous" for p in CALIBRATION_PROMPTS),
         "categories": list({p["category"] for p in CALIBRATION_PROMPTS}),
         "started_at": _calibration_state["started_at"],
     }
@@ -1878,7 +1899,7 @@ def calibration_next_prompt():
 
 
 def calibration_save_audio(prompt_id, audio_data, sample_rate):
-    """Save calibration audio with ground-truth alignment."""
+    """Save audio and ASR output as a draft awaiting user confirmation."""
     prompt = next((p for p in CALIBRATION_PROMPTS if p["id"] == prompt_id), None)
     if not prompt:
         return {"error": "unknown prompt_id"}
@@ -1898,28 +1919,67 @@ def calibration_save_audio(prompt_id, audio_data, sample_rate):
             stats_inc("local_transcribe_unavailable")
     except Exception as e:
         log(f"Calibration local ASR pass failed: {e}", "error")
-    wer_val = None
-    if whisper_raw:
-        wer_val, _, _, _ = compute_wer(prompt["text"], whisper_raw)
+    suggested_reference = whisper_raw if prompt["category"] == "spontaneous" else prompt["text"]
     meta = {
         "prompt_id": prompt_id,
         "category": prompt["category"],
-        "ground_truth": prompt["text"],
+        "ground_truth": suggested_reference,
         "whisper_raw": whisper_raw,
-        "wer": round(wer_val, 4) if wer_val is not None else None,
+        "wer": None,
+        "confirmed": False,
         "timestamp": datetime.now().isoformat(),
         "sample_rate": sample_rate,
     }
     with open(meta_path, 'w', encoding='utf-8') as f:
         json.dump(meta, f, indent=2, ensure_ascii=False)
-    if prompt_id not in _calibration_state["completed"]:
-        _calibration_state["completed"].append(prompt_id)
-    wer_pct = f" (WER: {round(wer_val * 100, 1)}%)" if wer_val is not None else ""
-    log(f"Calibration #{prompt_id}: saved{wer_pct}", "info")
+    log(f"Calibration #{prompt_id}: audio saved; transcript confirmation required", "info")
     return {
         "saved": True, "prompt_id": prompt_id,
-        "whisper_raw": whisper_raw, "ground_truth": prompt["text"],
-        "wer": round(wer_val, 4) if wer_val is not None else None,
+        "whisper_raw": whisper_raw,
+        "suggested_reference": suggested_reference,
+        "prompt_type": "natural_answer" if prompt["category"] == "spontaneous" else "read",
+        "confirmed": False,
+    }
+
+
+def calibration_confirm_transcript(prompt_id, reference_text):
+    """Store the user's corrected transcript and finish one calibration item."""
+    reference_text = (reference_text or "").strip()
+    if not reference_text:
+        return {"error": "reference_text is required"}
+    matches = list(CALIBRATION_DIR.glob(f"cal_{prompt_id:03d}_*.json"))
+    if not matches:
+        return {"error": "record audio before confirming the transcript"}
+    meta_path = matches[0]
+    try:
+        with open(meta_path, encoding="utf-8") as meta_file:
+            meta = json.load(meta_file)
+    except (OSError, ValueError) as exc:
+        return {"error": f"calibration metadata unreadable: {exc}"}
+
+    whisper_raw = meta.get("whisper_raw", "")
+    wer_val = None
+    if whisper_raw:
+        wer_val, _, _, _ = compute_wer(reference_text, whisper_raw)
+    meta.update(
+        {
+            "ground_truth": reference_text,
+            "wer": round(wer_val, 4) if wer_val is not None else None,
+            "confirmed": True,
+            "confirmed_at": datetime.now().isoformat(),
+        }
+    )
+    with open(meta_path, "w", encoding="utf-8") as meta_file:
+        json.dump(meta, meta_file, indent=2, ensure_ascii=False)
+    if prompt_id not in _calibration_state["completed"]:
+        _calibration_state["completed"].append(prompt_id)
+    log(f"Calibration #{prompt_id}: corrected transcript confirmed", "info")
+    return {
+        "confirmed": True,
+        "prompt_id": prompt_id,
+        "ground_truth": reference_text,
+        "whisper_raw": whisper_raw,
+        "wer": meta["wer"],
     }
 
 
@@ -1932,7 +1992,7 @@ def calibration_load_progress():
             with open(meta_file, 'r') as f:
                 data = json.load(f)
             pid = data.get("prompt_id")
-            if pid and pid not in _calibration_state["completed"]:
+            if pid and data.get("confirmed", True) and pid not in _calibration_state["completed"]:
                 _calibration_state["completed"].append(pid)
         except Exception:
             pass
@@ -4516,7 +4576,7 @@ def compute_risk_flags(raw_text, clean_text, falcon_ok, used_fallback, layer):
     """Deterministic risk flags — no LLM calls."""
     flags = []
     if not falcon_ok:
-        flags.append("validator_reject")
+        flags.append("meaning_guard_reject")
     if used_fallback:
         flags.append("reconstruct_fallback")
     if clean_text and layer > 1:
@@ -4534,20 +4594,47 @@ def compute_risk_flags(raw_text, clean_text, falcon_ok, used_fallback, layer):
     return flags
 
 _CRITICAL_TOKEN_RE = re.compile(
-    r'\b(?:\d+(?:[.,]\d+)?%?|\$?\d+(?:,\d{3})*(?:\.\d+)?)\b'  # numbers, percentages, dollar amounts
+    r'\b(?:\d+(?:[.,]\d+)?%?|\$?\d+(?:,\d{3})*(?:\.\d+)?)\b'
 )
+_NEGATION_RE = re.compile(
+    r"\b(?:no|not|never|neither|nor|without|cannot|can't|won't|don't|doesn't|"
+    r"didn't|isn't|aren't|wasn't|weren't|shouldn't|wouldn't|couldn't|mustn't)\b",
+    re.IGNORECASE,
+)
+_DATE_WORD_RE = re.compile(
+    r"\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+    r"january|february|march|april|may|june|july|august|september|october|"
+    r"november|december)\b",
+    re.IGNORECASE,
+)
+_PROPER_NOUN_RE = re.compile(r"\b[A-Z][a-z]{1,}\b")
+_PROPER_NOUN_EXCLUDE = {
+    "A", "An", "And", "Are", "As", "At", "But", "By", "Can", "Could",
+    "Do", "For", "From", "How", "I", "If", "In", "Is", "It", "My",
+    "No", "Not", "On", "Or", "Please", "Set", "Show", "Tell", "The",
+    "This", "To", "Turn", "What", "When", "Where", "Which", "Who", "Why",
+    "Will", "With", "Would", "You", "Your",
+}
 
 def _check_critical_retention(raw_text, clean_text):
-    """Check if numbers and dollar amounts from raw text survived reconstruction.
+    """Check whether deterministic meaning anchors survived reconstruction.
 
-    Returns list of lost tokens, or empty list if all preserved.
-    Zero cost — regex only, no API calls.
+    Protect numbers/amounts, explicit dates, capitalized names, and negation.
+    This is deliberately conservative and free: it does not pretend to be an
+    AI validator or a complete semantic-equivalence test.
     """
-    critical = _CRITICAL_TOKEN_RE.findall(raw_text)
-    if not critical:
-        return []
+    raw_text = raw_text or ""
+    clean_text = clean_text or ""
+    critical = list(_CRITICAL_TOKEN_RE.findall(raw_text))
+    critical.extend(_DATE_WORD_RE.findall(raw_text))
+    critical.extend(
+        token for token in _PROPER_NOUN_RE.findall(raw_text)
+        if token not in _PROPER_NOUN_EXCLUDE
+    )
     clean_lower = clean_text.lower()
     lost = [t for t in critical if t.lower() not in clean_lower]
+    if _NEGATION_RE.search(raw_text) and not _NEGATION_RE.search(clean_text):
+        lost.append("<negation>")
     return lost
 
 
@@ -6767,7 +6854,7 @@ def pipeline():
                 if is_authenticated():
                     # Signed in → route through backend (rules live server-side).
                     # Local API key is dev-only per product decision 2026-04-20.
-                    clean_text, _backend_falcon, _backend_result = reconstruct_via_backend(
+                    clean_text, _legacy_backend_guard, _backend_result = reconstruct_via_backend(
                         filtered_text, current_tone, current_layer, profile,
                         current_situation, current_mode,
                         language_code=dictation_language,
@@ -6780,9 +6867,10 @@ def pipeline():
                         word_count=raw_word_count,
                         previous_outputs=prior_outputs_for_regen,
                     )
-                    if clean_text is not None and current_mode == "SAFE":
-                        falcon_ok = _backend_falcon  # backend already ran Falcon
-                    elif clean_text is None and API_KEY:
+                    # Ignore the backend's legacy `falcon_ok` compatibility
+                    # field. SAFE mode applies the same deterministic local
+                    # meaning guard to every reconstruction route below.
+                    if clean_text is None and API_KEY:
                         log("Backend unreachable — falling back to local API key", "info")
                         # clean_text stays None; drop through to the direct-OpenAI branch below
 
@@ -6829,31 +6917,23 @@ def pipeline():
                     clean_text, filtered_text, used_fallback
                 )
 
-            # Step 3: Falcon (SAFE mode only, skip if fallback)
+            # SAFE mode uses deterministic meaning retention below. The former
+            # second-AI/Falcon validator was retired; do not imply it ran.
             if current_mode == "SAFE" and clean_text and not used_fallback:
                 if len(filtered_text.split()) <= 3:
                     falcon_ok = True
                     clean_text = filtered_text
-                    log(f"Falcon: SKIPPED (short utterance -- {len(filtered_text.split())} words)", "info")
+                    log(f"Meaning guard: original kept (short utterance -- {len(filtered_text.split())} words)", "info")
                 elif _text_nearly_identical(raw_text, clean_text):
                     falcon_ok = True
-                    log("Falcon: SKIPPED (text nearly identical -- no meaningful reconstruction)", "info")
-                else:
-                    try:
-                        falcon_ok = falcon_validate(raw_text, clean_text, current_layer, current_tone)
-                    except Exception:
-                        falcon_ok = True
-                    if not falcon_ok:
-                        stats_inc("falcon_rejects")
-                        log("Falcon: REJECTED -- using raw", "error")
+                    log("Meaning guard: rewrite is nearly identical", "info")
             t_val = time.time()
 
-        # Critical token retention: verify numbers, names, dollar amounts survived reconstruction
+        # Deterministic meaning retention: names, numbers, dates, amounts, negation.
         if clean_text and not used_fallback:
             critical_lost = _check_critical_retention(filtered_text, clean_text)
             if critical_lost:
-                log(f"Critical tokens lost in reconstruction: {critical_lost}", "warn")
-                # Fall back to raw if names/numbers were destroyed
+                log(f"Meaning guard kept original; changed anchors: {critical_lost}", "warn")
                 falcon_ok = False
 
         # Decision
@@ -6894,7 +6974,8 @@ def pipeline():
             stats_inc("chars", len(output))
             stats_inc("sessions")
             paste(output)
-        # Stutter analytics: L4+ only — clinical metrics, not needed for basic transcription/rewrite
+        # Optional speech-pattern measurements: Advanced only, not needed for
+        # basic transcription/rewrite and not presented as clinical metrics.
         if current_layer >= 4:
             disf_counts, exposure, covert_pairs = _run_l4_stutter_analytics(
                 raw_text, output, current_situation
@@ -8078,7 +8159,7 @@ def handle_GET_api_report(body=None) -> dict:
         report_data = {'total_sessions': len(sessions), 'total_words': total_words, 'avg_edit_dist': round(sum(edit_dists) / len(edit_dists), 3) if edit_dists else None, 'edit_dist_trend': {'first_half': round(sum(edit_dists[len(edit_dists) // 2:]) / max(len(edit_dists) // 2, 1), 3) if edit_dists else None, 'second_half': round(sum(edit_dists[:len(edit_dists) // 2]) / max(len(edit_dists) // 2, 1), 3) if edit_dists else None}, 'situation_breakdown': sit_breakdown, 'language_breakdown': lang_breakdown, 'avg_pause_ratio': round(sum(pause_data) / len(pause_data), 3) if pause_data else None, 'top_onset_triggers': dict(sorted(onset_triggers.items(), key=lambda x: -x[1])[:5]), 'trigger_count': len(triggers), 'corrections_count': len(profile.get('corrections', {})), 'covert_avoidance_events': sum((entry.get('avoided_count', 0) for sit_words in profile.get('covert_profile', {}).get('avoidance_pairs', {}).values() for entry in sit_words.values()))}
         stats_inc('api_calls')
         try:
-            resp = client.chat.completions.create(model='gpt-4o-2024-11-20', messages=[{'role': 'system', 'content': 'You are a speech-language pathology assistant generating a clinical weekly progress report for a person who stutters. Be direct, use data. Use emoji sparingly (✅ ❌ 🎯 📞). Format as a concise summary with bullet points. Highlight improvements, flag concerns, suggest focus areas.'}, {'role': 'user', 'content': f'Generate a weekly clinical stutter progress report from this data:\n{json.dumps(report_data, indent=2)}'}], max_tokens=600, temperature=0.3)
+            resp = client.chat.completions.create(model='gpt-4o-2024-11-20', messages=[{'role': 'system', 'content': 'Summarize communication patterns from app session data. Be direct and concise. Report only measured app behavior such as use, edits, pauses, and recurring words. Do not diagnose, grade stuttering severity, claim treatment progress, or provide medical advice.'}, {'role': 'user', 'content': f'Generate a communication-pattern summary from this Lavrentiy usage data:\n{json.dumps(report_data, indent=2)}'}], max_tokens=600, temperature=0.3)
             return {'report': (resp.choices[0].message.content or "").strip(), 'data': report_data}
         except Exception as e:
             log(f'Report generation failed: {e}', 'error')
@@ -8124,8 +8205,10 @@ def handle_GET_api_patience(body=None) -> dict:
     return {'patience': get_patience_timeout(), 'default': PATIENCE_DEFAULT, 'stutter': PATIENCE_STUTTER}
 
 def handle_GET_api_clinical_profile(body=None) -> dict:
-    profile_data = generate_clinical_profile()
-    return profile_data
+    return {
+        'error': 'Clinical profiling was removed in v1.7.0. '
+                 'Use the communication-pattern summary instead.'
+    }
 
 def handle_GET_api_voice_profile(body=None) -> dict:
     return generate_voice_profile()
@@ -8401,7 +8484,6 @@ def handle_POST_api_calibration_record(body=None) -> dict:
             tmp.close()
             audio_data, sr = sf.read(tmp.name)
             result = calibration_save_audio(int(body['prompt_id']), audio_data, sr)
-            result['next_prompt'] = calibration_next_prompt()
             result['status'] = calibration_status()
             return result
         except Exception as e:
@@ -8415,6 +8497,21 @@ def handle_POST_api_calibration_record(body=None) -> dict:
                     pass
     else:
         return {'error': 'Send {"prompt_id": N, "audio_b64": "..."}'}
+
+
+def handle_POST_api_calibration_confirm(body=None) -> dict:
+    body = body or {}
+    if 'prompt_id' not in body or 'reference_text' not in body:
+        return {'error': 'Send {"prompt_id": N, "reference_text": "correct transcript"}'}
+    try:
+        result = calibration_confirm_transcript(int(body['prompt_id']), body['reference_text'])
+    except (TypeError, ValueError) as exc:
+        return {'error': str(exc)}
+    if result.get('error'):
+        return result
+    result['next_prompt'] = calibration_next_prompt()
+    result['status'] = calibration_status()
+    return result
 
 def handle_POST_api_calibration_skip(body=None) -> dict:
     if body and 'prompt_id' in body:
@@ -8464,19 +8561,16 @@ def handle_POST_api_reconstruct_test(body=None) -> dict:
         situation = body.get('situation', current_situation)
         filtered = strip_disfluencies(raw_text)
         clean_text = filtered
-        falcon_ok = True
+        meaning_guard_ok = True
         if layer >= 2:
             try:
                 clean_text = reconstruct(filtered, tone, layer, profile, situation=situation)
             except Exception as e:
                 log(f'reconstruct_test failed: {e}', 'error')
                 clean_text = filtered
-            try:
-                falcon_ok = falcon_validate(raw_text, clean_text, layer, tone)
-                if not falcon_ok:
-                    clean_text = filtered
-            except Exception:
-                falcon_ok = True
+            meaning_guard_ok = not _check_critical_retention(filtered, clean_text)
+            if not meaning_guard_ok:
+                clean_text = filtered
         _ms = round((_t.time() - _t0) * 1000)
         raw_words = raw_text.lower().split()
         clean_words = clean_text.lower().split()
@@ -8491,7 +8585,14 @@ def handle_POST_api_reconstruct_test(body=None) -> dict:
             wer = round(dp[_m] / _n, 4)
         else:
             wer = 0.0
-        return {'raw': raw_text, 'filtered': filtered, 'clean': clean_text, 'tone': tone, 'layer': layer, 'situation': situation, 'falcon_ok': falcon_ok, 'wer': wer, 'recon_ms': _ms, 'pipeline': 'lavrentiy'}
+        return {
+            'raw': raw_text, 'filtered': filtered, 'clean': clean_text,
+            'tone': tone, 'layer': layer, 'situation': situation,
+            'meaning_guard_ok': meaning_guard_ok,
+            # Backward-compatible field for the historical benchmark harness.
+            'falcon_ok': meaning_guard_ok,
+            'wer': wer, 'recon_ms': _ms, 'pipeline': 'lavrentiy',
+        }
     except Exception as e:
         log(f'reconstruct_test error: {e}', 'error')
         return {'error': str(e)}
@@ -8729,6 +8830,7 @@ _POST_ROUTES = {
     '/api/calibration/start':             handle_POST_api_calibration_start,
     '/api/calibration/stop':              handle_POST_api_calibration_stop,
     '/api/calibration/record':            handle_POST_api_calibration_record,
+    '/api/calibration/confirm':           handle_POST_api_calibration_confirm,
     '/api/calibration/skip':              handle_POST_api_calibration_skip,
     '/api/hotkeys':                       handle_POST_api_hotkeys,
     '/api/reconstruct_test':              handle_POST_api_reconstruct_test,

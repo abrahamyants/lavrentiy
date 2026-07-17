@@ -9,7 +9,7 @@ Two launch modes:
     Used by Lavrentiy-Native.vbs.
 
 Self-contained: when frozen, all .py modules + data files (l1_packs/,
-domain_packs/, lang_packs/, local/, dashboard.html, silero_vad.onnx, api keys,
+domain_packs/, lang_packs/, local/, dashboard.html, silero_vad.onnx, and the
 faster-whisper model) are bundled alongside Lavrentiy.exe in the output
 directory under _internal/. Internet only required for cloud API calls
 (whisper-1, gpt-4o, sonnet) during use.

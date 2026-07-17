@@ -19,7 +19,7 @@
 #       lavrentiy.py
 #       l1_pack.py, domain_pack.py, rejection_store.py, style_examples.py
 #       dashboard.html, onboard.html, auth_google.html
-#       silero_vad.onnx, lavrentiy.ico, api_key.txt, anthropic_key.txt
+#       silero_vad.onnx, lavrentiy.ico
 #       l1_packs/, domain_packs/, lang_packs/, local/
 #       models/faster-whisper/small.en/   (offline L1)
 #       <python runtime + every dep>
@@ -52,8 +52,6 @@ datas = [
     (str(REPO / 'sw.js'),              '.'),
     (str(REPO / 'silero_vad.onnx'),    '.'),
     (str(REPO / 'lavrentiy.ico'),      '.'),
-    (str(REPO / 'api_key.txt'),        '.'),
-    (str(REPO / 'anthropic_key.txt'),  '.'),
     (str(REPO / 'l1_packs'),           'l1_packs'),
     (str(REPO / 'domain_packs'),       'domain_packs'),
     (str(REPO / 'lang_packs'),         'lang_packs'),
@@ -78,8 +76,8 @@ for pkg in (
     'sounddevice', 'soundfile', 'keyboard',
     'openai', 'anthropic', 'metaphone', 'pyperclip',
     'pyautogui',
-    # v1.6.3 — native window option (pywebview + WebView2 via pythonnet).
-    # User picks at install time via the Lavrentiy-Native shortcut.
+    # Native app window (pywebview + WebView2 via pythonnet). This is the
+    # v1.7.0 shortcut path; browser mode remains a troubleshooting fallback.
     'webview', 'pythonnet', 'clr_loader',
 ):
     try:

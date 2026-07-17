@@ -1,12 +1,12 @@
 # Lavrentiy — Claude Code Primer
 
 ## What this is
-Voice reconstruction engine for speech disfluency. Clinical/research instrument for foundations + university speech labs (NOT consumer app store — that's WiM). Self-surgery origin: George built it for himself first; he has hard speech blocks (silent airflow lock). Python desktop, Windows installer. Same engine that powers WiM Android via the `wim-reconstruct` Cloud Function.
+Windows voice-to-intent and communication-assistance tool. Researcher outreach is welcome, but the app is not a clinical instrument, diagnosis, treatment, or severity measure. It processes captured audio/ASR text and cannot recover an unspoken word. Python desktop, Windows installer. Some reconstruction code is shared with WiM through the `wim-reconstruct` Cloud Function.
 
 ## Architecture
 
 ### Engine
-- **Entry point (PyInstaller --onedir build, current ship path)**: `lavrentiy_launcher.py` (61 lines) — imports `lavrentiy` and calls `start_engine(run_http_server=True, block=True)`, then opens default browser at `http://localhost:7878/` once the port binds.
+- **Entry point (PyInstaller --onedir build)**: `lavrentiy_launcher.py` — starts the engine and opens either the native pywebview/WebView2 window or the browser fallback at `http://localhost:7878/`.
 - **Engine**: `lavrentiy.py` — single-file Python, ~10,056 lines as of 2026-05-05. Module-level top-to-bottom execution (no `__main__` guard). Hotkey listener (F9 record / F10 tone / F11 layer / F12 stats / F3 triple-tap quit), audio capture, LLM pipeline, embedded `ThreadingHTTPServer` on :7878, dispatch table at `dispatch_api()` (line ~9443) so the same handlers serve HTTP and (formerly) QWebChannel paths.
 - **Dashboard**: `dashboard.html` — single file, opened in user's default browser. Polls `/api/state` every 750ms (2s toggle cooldown to prevent poll snap-back).
 - **Native pywebview path** (`desktop.py`, 348 lines): legacy. Watchdog + tray-removed + stdout None-guard. Replaced as the primary launcher in v1.6.0 by `lavrentiy_launcher.py`.
@@ -15,19 +15,18 @@ Voice reconstruction engine for speech disfluency. Clinical/research instrument 
 ### Layer pipeline
 | Layer | Name | What runs (as of 2026-05-05) |
 |---|---|---|
-| L1 Transcribe | ASR | Two PEERS (not fallback chain): cloud `whisper-1` (default, multilingual) OR local **faster-whisper small.en** (~486 MB, English, offline). Toggle via dashboard L1 SOURCE section, `POST /api/l1_asr {cloud: bool}`. `L1_CLOUD_ASR=True` is default. |
+| L1 Transcribe | ASR | Local **faster-whisper small.en** by default (English, offline) or optional cloud transcription. Toggle via Advanced → L1 SOURCE, `POST /api/l1_asr {cloud: bool}`. |
 | L2 Reconstruct | Cloud GPT-4o, generic cleanup |
 | L3 Profile | + vocabulary/corrections/triggers (vocab+corrections inject at L3+, NOT L2) |
-| L4 Stutter (clinical) | Cloud whisper-1 with `verbose_json` (segment metadata: `avg_logprob`, `no_speech_prob`, timestamps), then **Anthropic Sonnet 4.6 with extended thinking** (budget 8000, max 16000). Reasoning trace is the differentiator for SLPs/researchers. |
+| L4 Advanced | Uses richer ASR uncertainty and speech/profile context with the configured reconstruction route. Pause Bridge suggestions are context completions approved by the user, not recovered silent speech. |
 | L5 Paralinguistic / L5.5 Prosodic | HNR + F0/energy/rate. L4-only — needs Whisper segment data. Greyed out on dashboard at L1/L2/L3. |
 
-### Falcon validator
-- L2/L3: **Anthropic Haiku 4.5** (cross-vendor — catches errors a same-vendor self-check misses). ~500ms.
-- L4: **Skipped** (extended thinking IS the validator).
-- 2026-05-01 Session B note: `falcon_validate()` was stubbed to always-True at all layers to save latency/cost. DB column + decision pipeline still read bool. Plumbing kept; behavior is no-op. **Verify against current code before trusting either claim.**
+### Meaning guard
+- `falcon_validate()` is a legacy no-op retained only for schema compatibility. Never claim that a second AI validates output.
+- SAFE mode uses deterministic retention checks for names, numbers, dates, amounts, and negation. This is a limited guard, not semantic-equivalence proof.
 
 ### Auth flow
-Firebase Auth, then Google ID token, then engine `/api/auth` stores it; backend reconstruction calls (when signed in) route through `wim-reconstruct` Cloud Function in `bakers-agent` GCP project. When signed in, L4 rules come from server regardless of local `api_key.txt`. Local `api_key.txt` / `anthropic_key.txt` are dev fallbacks; both are bundled into the installer at `{app}\engine\` so the wife's-laptop / evaluator install boots straight to a working dashboard.
+Firebase Auth supplies a Google ID token to `/api/auth`; signed-in backend reconstruction routes through `wim-reconstruct`. Local `api_key.txt` / `anthropic_key.txt` are user/dev fallbacks only. **Never bundle either key in a public installer.** Free local Layer 1 requires no key.
 
 ### Profile + DB
 - Multi-user: `~/.lavrentiy/profiles/<name>/{profile.json, history.db, backups/}`. Active profile name in `~/.lavrentiy/active_profile`.
@@ -36,7 +35,9 @@ Firebase Auth, then Google ID token, then engine `/api/auth` stores it; backend 
 - 9 dedicated locks: `_profile_lock`, `_db_lock`, `_shadow_lock`, `_learn_lock`, `_stats_lock`, `_prep_lock`, `preview_lock`, `_redo_lock`, `_augment_lock`.
 - `_profile_switch_epoch`: background threads capture epoch at launch, bail if changed before saving (prevents cross-profile corruption).
 
-## Active state (as of 2026-05-10)
+## Historical state snapshot (as of 2026-05-10)
+
+This section is retained for failure history and provenance. It is not the current release state; use the architecture and meaning-guard sections above plus `EVALUATOR_GUIDE.md`, `INSTRUCTIONS.md`, and the current code.
 
 ### Shipping path
 - **v1.6.1 installer** built (`installer/Output/Lavrentiy-Setup-v1.6.1.exe`, 2026-05-07). PyInstaller `--onedir` (NOT `--onefile` — see DON'T list). Drift-proof: `[Files]` is one wildcard line, no manual file enumeration, so future imports auto-bundle. AppId `{B7E5F4A2-9C3D-4E1B-8A6F-2D8B5E9C1F3A}` (distinct from v1.5.7).
@@ -53,7 +54,7 @@ Per `project_lavrentiy_current_mode`: holding foundation emails until heavy-stut
 Per `project_lav_bottleneck_is_launcher`: **launch UX is the ship-blocker, NOT recon prompt-stack quality.** v1.6.0 directly addresses this (drift-proof installer + browser-based UI). Recon work (ALWAYS RESTATE, slang preservation, domain packs, rate-gap, rejection store, style examples, audience context, PhoneticMatcher port, 10 L1-transfer packs) is real engineering but stays "backstage tweaks" framing — never pitch material. Foundation outreach is gated on "the app actually works when someone double-clicks it."
 
 ### Code signing
-Researched 2026-05-05, deferred. SignPath Foundation is free for OSS but requires LICENSE file (Lav has none — "all rights reserved" by default). Apache 2.0 is the recommendation if/when George picks. Azure Trusted Signing $9.99/mo, 1-2 wk identity verification, no license requirement. Skip-signing path means Edge "Keep" + SmartScreen "Run anyway" click-throughs once + occasional Defender quarantine on PyInstaller binaries (regular pattern, not edge case).
+Deferred for V1. Lavrentiy has an Apache 2.0 license and a historical SignPath application, but the V1 research build ships unsigned with clear SmartScreen instructions. Do not delay V1 for signing.
 
 ### L1-transfer packs (10 languages)
 - `lavrentiy/l1_packs/{russian,spanish,mandarin,hindi,arabic,farsi,french,german,korean,japanese}.json`. Source paper: `docs/L1_Transfer_Markers_in_Written_English.md` (40-page Gemini-generated research paper, primary source for adding new language packs).
@@ -82,9 +83,7 @@ Currently must edit `~/.lavrentiy/profile.json` by hand. WiM Android has the Pro
 - `SITUATION_SEVERITY`: default=1.0, high_stress=1.5, reading=0.3
 - `TONE_TEMP`: formal=0.1, professional=0.15, casual=0.35, friend=0.4
 - Auto-learn gate: L2+ (NOT L3+)
-- Falcon on backend path: read `falcon_ok` from response JSON, do NOT run client-side
 - Backend payload keys: `vocabulary`, `corrections`, `filler_words`, `trigger_words`, `onset_weights`, `covert_profile`, `audience_package`, `language_code`
-- Falcon prompt labels: `Original:` / `Reconstruction:` (NOT `Raw:` / `Reconstructed:`)
 - PhoneticMatcher gate: L2/L3 only on both apps (NOT L1, NOT L4). Constants: `_PHONETIC_MIN_WORD_LENGTH = 3`, `_PHONETIC_HIGH_RISK_THRESHOLD = 0.5`. First-letter guard against b/p, t/d, k/g, m/n Double-Metaphone collisions.
 - `NATURAL_REPEATS` extended with 7 emphatic doublings (really, many, much, right, sure, okay, just) — protect 3+ case via the `(?:\s+\1){2,}` regex.
 

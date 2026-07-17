@@ -434,8 +434,8 @@ if fmt:
 print('=== TEST 5: LAYERS and LAYER_NAMES ===')
 check('LAYERS has 4 entries', len(ns.get('LAYERS', [])) == 4)
 check('LAYERS max is 4', max(ns.get('LAYERS', [0])) == 4)
-check('LAYER_NAMES[4] = stutter',
-      ns.get('LAYER_NAMES', {}).get(4) == 'stutter')
+check('LAYER_NAMES[4] = advanced assist',
+      ns.get('LAYER_NAMES', {}).get(4) == 'advanced assist')
 print()
 
 # ============================================================
