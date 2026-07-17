@@ -6,6 +6,8 @@ Lavrentiy is a Windows voice-to-intent application. It records only when the use
 
 It is designed to remain usable when speech includes repetitions, substitutions, long pauses, or blocks. It is not a diagnostic or treatment tool and does not recover words that were never captured.
 
+Lavrentiy was created by Gurgen Abrahamyants, a political refugee from Armenia who arrived in the United States without speaking English and lives with a speech block and a strong accent. He built it from his own daily communication needs, then expanded it for others who may face similar friction.
+
 ## Install
 
 1. Download `Lavrentiy-Setup-v1.7.1.exe` from <https://github.com/gugosf114/lavrentiy/releases/latest>.

@@ -6,6 +6,10 @@ Lavrentiy records when the user deliberately starts recording, transcribes local
 
 It is designed to remain usable when speech contains repetitions, substitutions, long pauses, or blocks. It does not diagnose a speech condition, measure clinical severity, or recover a word that was never captured. Pause Bridge generates optional completions from existing transcript context; the user decides whether to paste one.
 
+## Why it exists
+
+Lavrentiy was created by Gurgen Abrahamyants, a political refugee from Armenia who arrived in the United States without speaking English and lives with a speech block and a strong accent. After discovering what AI could make possible, he began building communication tools for his own daily use and for other people who face similar friction. Lavrentiy is engineering shaped by lived experience—not a clinical claim or a substitute for professional care.
+
 ## Current language support
 
 - **Interface:** English and Russian (`EN / RU` above the status ring).
