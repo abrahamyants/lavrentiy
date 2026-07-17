@@ -25,7 +25,7 @@ _SIZE_MAP = {
 
 def _resolve_size(model_size):
     """Use the installer-selected size, falling back to the bundled model."""
-    selected = os.environ.get("LAV_FW_MODEL_SIZE", "small.en")
+    selected = os.environ.get("LAV_FW_MODEL_SIZE", model_size or "small.en")
     return _SIZE_MAP.get(selected, selected)
 
 

@@ -71,7 +71,7 @@ How to sign in:
 
 Local Layer 1 transcription works without an API key and is the default. Lavrentiy does **not** include the developer's private API keys.
 
-For cloud reconstruction, click **Cloud setup / API key** below the sign-in button. Either sign in with an invited Google account or enter your own OpenAI key. A user-provided key is stored locally on that computer and its usage is billed by OpenAI to that user.
+For cloud reconstruction, click **Cloud setup / API key** below the sign-in button. Either sign in with an invited Google account or enter your own OpenAI key. A user-provided key is stored locally at `%USERPROFILE%\.lavrentiy\api_key.txt` and its usage is billed by OpenAI to that user.
 
 ---
 

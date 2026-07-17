@@ -229,6 +229,7 @@ _test_cal_dir = Path(_tmpmod.mkdtemp())
 ns['CALIBRATION_DIR'] = _test_cal_dir
 ns['AUGMENT_DIR'] = _test_cal_dir / "augmented"
 ns['PROFILE_DIR'] = _test_cal_dir.parent
+ns['_key_file'] = str(_test_cal_dir / 'credentials' / 'api_key.txt')
 
 # ---------------------------------------------------------------------------
 # Stub the I/O the handlers reach, so the test stays offline and never writes
@@ -410,6 +411,17 @@ except Exception as e:
 # ============================================================
 # POST ENDPOINT TESTS
 # ============================================================
+print()
+print('=== POST /api/set-key ===')
+try:
+    r = post('/api/set-key', {'key': 'sk-test-not-a-real-key'})
+    check('key saved', r.get('ok') is True)
+    saved_key_path = Path(ns['_key_file'])
+    check('key stored in configured user-data path', saved_key_path.exists())
+    check('saved key content matches', saved_key_path.read_text(encoding='utf-8') == 'sk-test-not-a-real-key')
+except Exception as e:
+    check(f'POST /api/set-key failed: {e}', False)
+
 print()
 print('=== POST /api/tone ===')
 try:

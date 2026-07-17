@@ -1,9 +1,8 @@
 """
-LAVRENTIY -- Voice Reconstruction Engine
-"We've got a file on you"
+LAVRENTIY -- Voice-to-intent engine
 
-Pipeline: Mic -> Whisper -> Reconstruction -> Falcon -> Paste
-Layers:  1=Transcribe  2=Reconstruct  3=Profile  4=Stutter  5=Paralinguistic
+Pipeline: Mic -> ASR -> optional reconstruction -> meaning guard -> paste
+Layers:  1=Transcribe  2=Reconstruct  3=Profile  4=Advanced
 Tones:   casual | professional | friend | formal
 
 Defaults: F9=talk  F10=tone  F11=layer  F12=stats  F3x3=quit  (rebindable)
@@ -182,33 +181,51 @@ except Exception:
     user32.SetProcessDPIAware()
 
 # -- Configuration ────────────────────────────────────────────────
+# User-entered credentials belong in the user's data directory, never beside
+# the frozen executable. A source checkout can still read its historical
+# repo-local files as a developer fallback, but public installers do not ship
+# those files and the installer removes any legacy bundled copies on upgrade.
+_credential_dir = Path.home() / ".lavrentiy"
+_key_file = str(_credential_dir / "api_key.txt")
+_anthropic_key_file = str(_credential_dir / "anthropic_key.txt")
+_legacy_key_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "api_key.txt")
+_legacy_anthropic_key_file = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "anthropic_key.txt"
+)
+
+
+def _read_optional_key(primary_path, env_name, legacy_path):
+    for path in (primary_path, legacy_path):
+        try:
+            if os.path.exists(path):
+                value = Path(path).read_text(encoding="utf-8").strip()
+                if value:
+                    return value
+        except OSError:
+            pass
+    return os.environ.get(env_name, "").strip()
+
+
 API_KEY = ""
-_key_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "api_key.txt")
-if os.path.exists(_key_file):
-    API_KEY = open(_key_file, "r").read().strip()
-if not API_KEY:
-    API_KEY = os.environ.get("OPENAI_API_KEY", "")
+API_KEY = _read_optional_key(_key_file, "OPENAI_API_KEY", _legacy_key_file)
 if not API_KEY:
     try:
         print("WARNING: No local API key found. Google Sign-In required for reconstruction.")
-        print("  Or: put your key in api_key.txt / set OPENAI_API_KEY env var")
+        print("  Or: use Cloud Setup / API key, or set OPENAI_API_KEY")
     except Exception:
         pass
 
 # Anthropic key — used for L4 Sonnet extended thinking reconstruction and L1 polish (Haiku).
 # Optional: falcon_validate is a no-op stub; the key is not used for validation.
 ANTHROPIC_KEY = ""
-_anthropic_key_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "anthropic_key.txt")
-if os.path.exists(_anthropic_key_file):
-    ANTHROPIC_KEY = open(_anthropic_key_file, "r").read().strip()
-if not ANTHROPIC_KEY:
-    ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_KEY = _read_optional_key(
+    _anthropic_key_file, "ANTHROPIC_API_KEY", _legacy_anthropic_key_file
+)
 FALCON_HAIKU_MODEL = "claude-haiku-4-5-20251001"
 
-# L4 clinical reconstruction uses Anthropic Sonnet 4.6 with extended thinking.
-# Reasoning trace is the validator — Falcon is skipped at L4 (the model
-# self-checks during the thinking phase). Fallback to GPT-4o if Anthropic
-# unavailable. Thinking budget 8000 tokens; max output 16000 (must exceed budget).
+# Advanced reconstruction can use Anthropic Sonnet with extended thinking and
+# fall back to GPT when unavailable. SAFE applies the same deterministic local
+# meaning guard afterward; model reasoning is not represented as validation.
 SONNET_THINK_MODEL = "claude-sonnet-4-6"
 SONNET_THINK_BUDGET = 8000
 SONNET_THINK_MAX_TOKENS = 16000
@@ -283,7 +300,7 @@ LOCAL_WHISPER = True                 # L1 ASR runs locally (no cloud fallback at
 # first-run evaluator UX is slower. Flip to True for the snappier cloud path
 # (and L1 auto-falls-back to cloud anyway if faster-whisper isn't installed).
 L1_CLOUD_ASR = False
-LOCAL_FW_MODEL_SIZE = os.environ.get("LAV_FW_MODEL_SIZE", "large-v3-turbo")  # faster-whisper primary (real Whisper, full verbose JSON)
+LOCAL_FW_MODEL_SIZE = os.environ.get("LAV_FW_MODEL_SIZE", "small.en")  # bundled free local model
 LOCAL_FW_COMPUTE_TYPE = os.environ.get("LAV_FW_COMPUTE_TYPE", "int8")         # CPU-friendly quantization
 LOCAL_FW_DEVICE = os.environ.get("LAV_FW_DEVICE", "cpu")                       # target eval hardware
 # Local ASR: faster-whisper only (Moonshine + Vosk retired 2026-04-30).
@@ -8713,10 +8730,11 @@ def handle_POST_api_set_key(body=None) -> dict:
         API_KEY = key
         client = openai.OpenAI(api_key=API_KEY, timeout=CLOUD_TIMEOUT_SEC, max_retries=2)
         try:
-            with open(_key_file, 'w') as f:
+            Path(_key_file).parent.mkdir(parents=True, exist_ok=True)
+            with open(_key_file, 'w', encoding='utf-8') as f:
                 f.write(key)
-        except Exception:
-            pass
+        except OSError as exc:
+            return {'ok': False, 'error': f'could not save key: {exc}'}
         return {'ok': True}
     else:
         return {'ok': False, 'error': 'no key provided'}

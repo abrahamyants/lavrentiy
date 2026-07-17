@@ -70,6 +70,17 @@ Source: "C:\Users\georg\Documents\GitHub\lavrentiy\dist-onedir\Lavrentiy\*"; Des
 Source: "C:\Users\georg\Documents\GitHub\lavrentiy\Lavrentiy.vbs";         DestDir: "{app}"; Flags: ignoreversion
 Source: "C:\Users\georg\Documents\GitHub\lavrentiy\Lavrentiy-Native.vbs";  DestDir: "{app}"; Flags: ignoreversion
 
+[InstallDelete]
+; v1.6.8 and earlier accidentally shipped developer API keys beside the frozen
+; engine. Remove every historical app-directory location during upgrade.
+; User-entered keys in v1.7.0 live under %USERPROFILE%\.lavrentiy instead.
+Type: files; Name: "{app}\_internal\api_key.txt"
+Type: files; Name: "{app}\_internal\anthropic_key.txt"
+Type: files; Name: "{app}\api_key.txt"
+Type: files; Name: "{app}\anthropic_key.txt"
+Type: files; Name: "{app}\engine\api_key.txt"
+Type: files; Name: "{app}\engine\anthropic_key.txt"
+
 [Icons]
 ; V1 presents one normal application shortcut. The browser-mode launcher stays
 ; installed as a troubleshooting fallback but is not pushed onto the user.
