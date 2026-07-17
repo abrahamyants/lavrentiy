@@ -2909,7 +2909,7 @@ body:not(.advanced-ui) .layer-opt .l-desc { font-size: 11px; }
     <div class="sidebar-section">
       <div class="sidebar-section-title">Layer</div>
       <div class="layer-stack">
-        <div class="layer-opt" data-layer="1" role="button" tabindex="0" aria-pressed="false"><div class="l-info"><div class="l-name">I. Transcribe</div><div class="l-desc">raw text, no cleanup</div></div></div>
+        <div class="layer-opt" data-layer="1" role="button" tabindex="0" aria-pressed="false"><div class="l-info"><div class="l-name">I. Transcribe</div><div class="l-desc">local speech-to-text + basic cleanup</div></div></div>
         <div class="layer-opt" data-layer="2" role="button" tabindex="0" aria-pressed="false"><div class="l-info"><div class="l-name">II. Reconstruct</div><div class="l-desc">LLM + tone</div></div></div>
         <div class="layer-opt" data-layer="3" role="button" tabindex="0" aria-pressed="false"><div class="l-info"><div class="l-name">III. Profile</div><div class="l-desc">+ vocabulary</div></div></div>
         <div class="layer-opt" data-layer="4" role="button" tabindex="0" aria-pressed="false"><div class="l-info"><div class="l-name">IV. Advanced</div><div class="l-desc">+ speech context</div></div></div>
@@ -3309,7 +3309,7 @@ body:not(.advanced-ui) .layer-opt .l-desc { font-size: 11px; }
       </div>
     </div>
 
-    <div class="bottom-bar"><div class="disclaimer">"Лаврентий does his best. Check your work before you wreck your work." &nbsp; <a href="https://github.com/gugosf114/lavrentiy/blob/main/PRIVACY.md" target="_blank" style="color:var(--brand-gold);text-decoration:none;font-style:normal;font-weight:400;font-size:9px">Privacy Policy</a></div></div>
+    <div class="bottom-bar"><div class="disclaimer">Your words. Your intent. Review important details before sending. &nbsp; <a href="https://github.com/gugosf114/lavrentiy/blob/main/PRIVACY.md" target="_blank" style="color:var(--brand-gold);text-decoration:none;font-style:normal;font-weight:400;font-size:9px">Privacy Policy</a></div></div>
   </main>
 </div>
 
@@ -3437,7 +3437,7 @@ const I18N={
   tone_friend:{en:'Friend'},
   tone_formal:{en:'Formal'},
   // Layers
-  layer1:{en:'I. Transcribe'},layer1d:{en:'raw text, no cleanup'},
+  layer1:{en:'I. Transcribe'},layer1d:{en:'local speech-to-text + basic cleanup'},
   layer2:{en:'II. Reconstruct'},layer2d:{en:'LLM + tone'},
   layer3:{en:'III. Profile'},layer3d:{en:'+ vocabulary'},
   layer4:{en:'IV. Advanced'},layer4d:{en:'+ speech context'},
@@ -3537,7 +3537,7 @@ const I18N={
   prof_heard:{en:'Heard as...'},
   prof_should:{en:'Should be...'},
   // Bottom
-  disclaimer:{en:'\u201C\u041B\u0430\u0432\u0440\u0435\u043D\u0442\u0438\u0439 does his best. Check your work before you wreck your work.\u201D'},
+  disclaimer:{en:'Your words. Your intent. Review important details before sending.'},
   // Profiles
   prof_new_title:{en:'New Profile'},
   prof_cancel:{en:'Cancel'},
@@ -5561,7 +5561,7 @@ const _LAV_TIPS = [
   {title:"Transform text with your voice", body:"Select text anywhere, hold <kbd>F8</kbd>, speak a command, release. Your selection gets replaced.", examples:'Try: <em>"make this formal"</em> · <em>"fix grammar"</em> · <em>"translate"</em>'},
   {title:"Click 'idle' to record", body:'The word "idle" in the status ring is clickable. Click once to start recording, click again to stop — mouse alternative to F9.'},
   {title:"Click the timer to reset it", body:"The 00:00 timer under the status ring is clickable. Click to reset session uptime back to zero."},
-  {title:"Click any stat to jump to details", body:"Every cell in the stats bar and learn bar is clickable. Click Words to see Sessions tab, click Corrections to see The File tab, etc."},
+  {title:"Words and Sessions show your history", body:"Click Words or Sessions in the top bar to open your recent dictation history."},
   {title:"High Stress = one-click assistance preset", body:"Hit Situation → High Stress. It gives you more time and enables Layer 4 plus the optional audio-analysis tools."},
   {title:"Script Prep gives ASR context", body:"Paste what you're about to say into the Prep tab. The recognizer can use it as a hint for technical terms and names."},
   {title:"Quiet Mode for whispered speech", body:"Voice section → Quiet Mode. Boosts gain to -6dB and tightens high-pass to 100Hz for dictating in libraries, offices, late at night."},
