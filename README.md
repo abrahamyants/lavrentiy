@@ -3716,3 +3716,46 @@ and interaction burden after ASR, not a claim that it clinically treats speech.
   than the available evidence. The release now makes a functional software
   claim; heavy-speech testing and outside evaluation must precede any clinical
   or research-effectiveness claim.
+
+## Session Log — 2026-07-19 (post-crash audit session)
+
+- Termux crashed on 2026-07-17 and killed roughly six live agent sessions.
+  This session audited whether any work was lost. Verdict: nothing was lost.
+  All six 2026-07-17 Lavrentiy commits (v1.7.0 evaluator release prep through
+  the founder story) were committed, pushed, and CI-green before the crash.
+  Working tree clean, no stash, no orphaned reflog entries, no files modified
+  after the last commit. The /root clone is a stale June 26 copy — the Termux
+  home clone is the live one.
+- Cross-checked WiM as the one thread left hanging at crash time. The
+  stable-signed test APK fix landed and its CI run is green: CI now builds
+  and publishes the release-signed APK (with an apksigner verify gate)
+  instead of a debug APK. Root problem it fixes: GitHub's ephemeral debug
+  keystore changed the signer every run, forcing uninstall/reinstall, which
+  wiped the AccessibilityService grant and re-armed the Android 13+
+  restricted-settings lock on every test cycle. The bubble touch-region
+  branch also reached main with green CI, so both crash-day WiM threads
+  closed clean.
+- Known residual risks, recorded for later: deliberate clean installs still
+  re-arm the restricted-settings lock regardless of signing (adb installs
+  sidestep it); and Play distribution will require the AccessibilityService
+  declaration, since text injection via the accessibility API is WiM's core
+  function. That policy review is the real upcoming gate.
+- Decision: the bakers-agent GCP project stays the shared cloud umbrella for
+  WiM and Lavrentiy functions and secrets. The catch-all name is naming debt,
+  not a bug. No rename — a project-ID change would mean redeploying every
+  function and touching hardcoded URLs for zero functional gain.
+
+## Failure Log — 2026-07-19
+
+- Session opened by presenting a week-stale item as the live thread: the
+  memory index one-liner still said the SF SPCA morning call was pending
+  when it had happened seven days earlier. Root cause: reading the index
+  hook line instead of the status log underneath it. Index lines now carry
+  current state, and time-sensitive answers require reading the status log.
+- An explanation was opened with what the answer was NOT instead of what it
+  IS. Operator rejected the whole answer unread on that signal. Standing
+  rule recorded: first sentence states the positive answer; negation-first
+  framing marks the response as untrustworthy.
+- A second explanation defended the system with unverifiable claims about
+  sibling sessions before checking any evidence. Corrected approach:
+  transcripts and git history first, theory second.
