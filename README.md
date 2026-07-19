@@ -3667,3 +3667,52 @@ Explicit punch list of items that are open as of 2026-05-30. Some are tiny code 
 - [ ] **PHONE WIRELESS DEBUGGING TILE** — Samsung One UI hard-blocks unknown tile specs from the render layer. Multiple ADB approaches confirmed: setting writes persist but renderer ignores them. The operator's `sysui_qs_tiles` and `grid_quick_panel_specs` have residual harmless mutations (sysui_qs_tiles has an extra `custom(com.android.settings/.development.qstile.DevelopmentTiles$WirelessDebugging)` entry at position 14; grid_quick_panel_specs has `WirelessDebugging` at L2:7 where `LifestyleMode` used to be). Don't render — neither does the original LifestyleMode. Reversible if requested.
 
 ---
+
+## Session Log — 2026-07-18 (full multi-day session, July 14–18)
+
+This session converted Lavrentiy's current source into a truthful evaluator
+release suitable for direct distribution to researchers, speech organizations,
+and technical collaborators.
+
+- Built and published the WiM authenticated audio, billing-verification, quota,
+  account-deletion, and reviewer-access backend paths that live in this repo.
+- Prepared the v1.7 evaluator boundary: local ASR remains free after download,
+  users may provide their own API key for cloud transcription/reconstruction,
+  and the Basic/Advanced dashboard transition is covered by an end-to-end test.
+- Polished the evaluator dashboard and instructions around the actual workflow:
+  press/hold or press-again recording, transcription, optional reconstruction,
+  and paste-ready output.
+- Removed legacy bundled credentials from the engine and installer upgrade path.
+- Restored Russian UI support plus the documented multilingual dictation and
+  reconstruction paths across engine, dashboard, onboarding, installer, specs,
+  instructions, privacy text, and tests.
+- Added evaluator guidance and the founder context without converting either
+  into a clinical efficacy claim.
+- Published v1.7.0, then v1.7.1 as the corrected multilingual evaluator release.
+  Version 1.7.1 is current; CI and Pages deployment are green.
+
+The distribution position is now direct and simple: Lavrentiy is desktop
+voice-to-text and voice-to-intent software with local and user-funded cloud
+paths. Its value for stuttering, speech blocks, and accents is reduced cleanup
+and interaction burden after ASR, not a claim that it clinically treats speech.
+
+## Failure Log — 2026-07-18 (full multi-day session, July 14–18)
+
+- The initial audit language overstated the product as converting blocked or
+  disfluent audio into usable text. Lavrentiy usually receives ASR text and then
+  cleans or reconstructs it. Positioning was corrected to match the pipeline.
+- The first evaluator release path did not preserve the previously working
+  multilingual surface completely. Russian UI and the additional dictation and
+  reconstruction languages were restored across code, installer, docs, and
+  tests, then released as v1.7.1.
+- Legacy bundled credentials could survive an upgrade and undermine the stated
+  local/BYOK model. The installer and runtime cleanup were corrected before the
+  evaluator release.
+- Code signing began to expand into a release blocker even though evaluator
+  distribution can use an unsigned Windows installer with clear SmartScreen
+  instructions. Paid signing was postponed rather than delaying evidence and
+  outreach.
+- Stuttering and accent positioning repeatedly drifted toward claims stronger
+  than the available evidence. The release now makes a functional software
+  claim; heavy-speech testing and outside evaluation must precede any clinical
+  or research-effectiveness claim.
