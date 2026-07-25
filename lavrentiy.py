@@ -1010,6 +1010,105 @@ def brown_peak_risk(text):
     return max(s[1] for s in scores)
 
 
+# ── Clarifier candidates ────────────────────────────────────────────────
+# The join between two signals the engine has always collected separately:
+#
+#   1. Where the ASR was damaged  — low-confidence segments, block suspects,
+#      and multi-temperature disagreements (competing hypotheses for a span).
+#   2. Which onsets THIS speaker blocks on — learned into _personal_onset_weights
+#      from their own confirmed trigger words.
+#
+# Until now (1) fed the L4 prompt and (2) fed the L4 prompt, and nothing ever
+# asked whether they overlapped. They should: a generic ASR error does not care
+# what sound a word starts with, but a block does. When the damage keeps landing
+# on the speaker's own blocking onsets, that is a block signature rather than
+# microphone noise — and it is the only kind worth interrupting the user about.
+#
+# This is what keeps the clarifier from becoming a nag. Whisper being unsure
+# about "timeline" is noise. Whisper being unsure about a /p/-initial word, for
+# a speaker whose confirmed triggers cluster on /p/, is worth one question.
+_last_clarify_candidates = []
+
+
+def build_clarify_candidates(low_conf_segments=None, disagreements=None,
+                             onset_weights=None, min_onset_weight=0.42, limit=3):
+    # min_onset_weight is tied to learn_onset_weights' own scale, not picked by
+    # feel: 0.4 is the population floor every high-risk onset starts at, and
+    # onsets with no personal evidence sit at 0.3. Anything above 0.4 therefore
+    # means "this speaker's own confirmed triggers contain this onset". 0.42
+    # clears the floor without demanding the onset be one of their worst.
+    """Return the uncertain words worth asking the user about.
+
+    disagreements: [{position, variants: [str, ...]}] from multi-temperature
+        voting. variants[0] is what shipped; the rest are the alternatives the
+        decoder also considered — i.e. a free "did you mean" list that costs no
+        extra model call.
+    low_conf_segments: [{text, avg_logprob, no_speech_prob, block_suspect, ...}]
+    onset_weights: {onset: weight 0..1}. Defaults to the loaded personal profile.
+
+    Returns [{word, alternatives, onset, onset_weight, reason}], highest
+    onset_weight first, capped at `limit`. Empty when nothing clears the bar —
+    which is the common case and is intended.
+    """
+    weights = onset_weights if onset_weights is not None else _personal_onset_weights
+    if not weights:
+        return []
+
+    seen = set()
+    out = []
+
+    for d in (disagreements or []):
+        variants = [v for v in (d.get("variants") or []) if v and v.strip()]
+        if len(variants) < 2:
+            continue
+        chosen = variants[0].strip()
+        key = chosen.lower()
+        if key in seen:
+            continue
+        onset = _extract_onset(chosen)
+        if not onset:
+            continue
+        w = weights.get(onset, 0.0)
+        if w < min_onset_weight:
+            continue
+        seen.add(key)
+        out.append({
+            "word": chosen,
+            "alternatives": [v.strip() for v in variants[1:4]],
+            "onset": onset,
+            "onset_weight": round(w, 2),
+            "reason": "decoder_disagreement",
+        })
+
+    # Block suspects carry no competing variants — Whisper hallucinated or
+    # dropped rather than hesitating between spellings. Surface the word so the
+    # user can retype it, with no alternatives offered.
+    for seg in (low_conf_segments or []):
+        if not seg.get("block_suspect"):
+            continue
+        for word in re.findall(r"\b\w+\b", seg.get("text", "")):
+            key = word.lower()
+            if key in seen:
+                continue
+            onset = _extract_onset(word)
+            if not onset:
+                continue
+            w = weights.get(onset, 0.0)
+            if w < min_onset_weight:
+                continue
+            seen.add(key)
+            out.append({
+                "word": word,
+                "alternatives": [],
+                "onset": onset,
+                "onset_weight": round(w, 2),
+                "reason": "block_suspect",
+            })
+
+    out.sort(key=lambda c: c["onset_weight"], reverse=True)
+    return out[:limit]
+
+
 def predict_triggers_in_text(text, existing_triggers):
     """Score all content words in text, return predicted triggers above threshold.
     Uses full Brown's 4-feature scoring with sentence context."""
@@ -2786,6 +2885,19 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
     # that fired when the L1 transfer pack actually injected a block.
     if 2 <= layer <= 3 and l1_pack.prompt_injection(prof or {}):
         stats_inc("l1_patterns_normalized")
+
+    # Same two inputs the prompt gets, also joined against the speaker's onset
+    # profile to decide whether anything is worth asking about. See
+    # build_clarify_candidates. Recomputed per take; empty is the normal result.
+    global _last_clarify_candidates
+    try:
+        _last_clarify_candidates = build_clarify_candidates(
+            low_conf_segments=whisper_low_conf,
+            disagreements=whisper_disagreements,
+        )
+    except Exception as e:
+        _last_clarify_candidates = []
+        log(f'[CLARIFY] candidate build failed: {e}', 'error')
 
     system_prompt = prompt_builder.build_prompt(
         raw_text,
@@ -8902,8 +9014,23 @@ def handle_POST_api_quiet_threshold(body=None) -> dict:
     return {'quiet_auto_dbfs': QUIET_AUTO_DBFS}
 
 
+def handle_GET_api_clarify(body=None) -> dict:
+    """Uncertain words from the last take that landed on this speaker's own
+    blocking onsets. Dashboard turns these into the "did you mean" card.
+
+    Returns {candidates: [...], onsets: [top personal onsets]}. Reading is
+    non-destructive — the dashboard polls, and the same candidates stay
+    available until the next take replaces them.
+    """
+    return {
+        "candidates": list(_last_clarify_candidates),
+        "onsets": list(_personal_dominant_onsets)[:3],
+    }
+
+
 _GET_ROUTES = {
     '/api/state':                 handle_GET_api_state,
+    '/api/clarify':               handle_GET_api_clarify,
     '/api/profiles':              handle_GET_api_profiles,
     '/api/profile':               handle_GET_api_profile,
     '/api/sessions':              handle_GET_api_sessions,

@@ -1557,6 +1557,47 @@ body:not(.advanced-ui) .layer-opt .l-desc { font-size: 11px; }
 .cmd-intro-examples em {
   color: var(--brand-gold-soft); font-style: normal;
 }
+/* Clarifier — the daily-tip slot, repurposed when the engine is unsure about a
+   word that starts with one of this speaker's blocking onsets. Same card so it
+   lands where the eye already goes; amber + pulse so it reads as "act on me"
+   rather than "read me later". Reverts to the tip on answer, dismiss, or
+   timeout — it must never become permanent furniture. */
+.cmd-intro-banner.clarify {
+  background: linear-gradient(135deg, rgba(200,160,78,0.16) 0%, rgba(92,70,30,0.38) 100%);
+  border-color: rgba(200,160,78,0.55);
+  border-left-color: var(--amber, #c8a04e);
+  animation: clarify-pulse 1.6s ease-in-out 3;
+}
+@keyframes clarify-pulse {
+  0%, 100% { box-shadow: 0 2px 12px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04); }
+  50%      { box-shadow: 0 0 0 3px rgba(200,160,78,0.28), 0 2px 16px rgba(200,160,78,0.25); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cmd-intro-banner.clarify { animation: none; }
+}
+.cmd-intro-banner.clarify .cmd-intro-label { color: var(--amber, #c8a04e); }
+.cmd-intro-banner.clarify .cmd-intro-title { color: var(--amber, #c8a04e); }
+.clarify-why {
+  font-family: var(--mono); font-size: 9px; color: var(--text-dim);
+  letter-spacing: 0.5px; margin-bottom: 8px;
+}
+.clarify-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.clarify-opt {
+  font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 4px;
+  background: rgba(200,160,78,0.14); border: 1px solid rgba(200,160,78,0.5);
+  color: var(--amber, #c8a04e); cursor: pointer;
+}
+.clarify-opt:hover { background: rgba(200,160,78,0.26); }
+.clarify-opt.keep {
+  background: transparent; border-color: var(--border); color: var(--text-muted);
+}
+/* The matching word in the CORRECT RECONSTRUCTION row, so the question above
+   is anchored to a position in the sentence rather than floating free. */
+.clr-chip.uncertain {
+  border-color: var(--amber, #c8a04e);
+  background: rgba(200,160,78,0.18);
+  color: var(--amber, #c8a04e);
+}
 .cmd-intro-close {
   position: absolute; top: 8px; right: 8px;
   background: transparent; border: 1px solid rgba(212,165,116,0.2);
@@ -4304,7 +4345,7 @@ function renderConsole(){
   const lastOut = [...logLines].reverse().find(e=>e.kind==='out');
   if(lastOut){
     const rawText = lastOut.text.replace(/^-> "/,'').replace(/"  \[\d+w\].*$/,'').trim();
-    if(rawText && rawText !== _clrText){ _clrText=rawText; _clrRender(); }
+    if(rawText && rawText !== _clrText){ _clrText=rawText; _clrRender(); _clarifyFetch(); }
   }
 }
 function _clrRender(){
@@ -4318,6 +4359,9 @@ function _clrRender(){
     if(/^\s+$/.test(tok)){chips.appendChild(document.createTextNode(' '));return;}
     const chip=document.createElement('span');
     chip.className='clr-chip';
+    // Amber the word the clarifier is asking about, so the card above points
+    // at a place in the sentence instead of naming a word in isolation.
+    if(_clrUncertain.has(tok.toLowerCase().replace(/[^\w']/g,''))) chip.className+=' uncertain';
     chip.textContent=tok;
     chip.title='Click to correct this word';
     chip.addEventListener('click',function(){_clrEditChip(chip,tok,i);});
@@ -4352,6 +4396,106 @@ function _clrApply(){
   });
 }
 function _clrDismiss(){ _clrText=''; const bar=document.getElementById('clarifier-bar');if(bar)bar.style.display='none'; }
+
+// ── Clarifier ──────────────────────────────────────────────────────────
+// Engine side (build_clarify_candidates) only returns words where the ASR was
+// damaged AND the word starts with an onset this speaker actually blocks on.
+// So by the time anything reaches here it is already worth one question — the
+// filtering that stops this being a nag lives in the engine, not the UI.
+//
+// The card takes over the daily-tip slot rather than adding a new surface: it
+// is where the eye already goes, and reusing it guarantees only one thing is
+// ever competing for attention. It always reverts — answered, dismissed, or
+// timed out — so it can never become permanent furniture.
+var _clrUncertain = new Set();
+var _clarifyTimer = null;
+var _clarifyQueue = [];
+
+function _clarifyFetch(){
+  fetch('/api/clarify').then(r=>r.ok?r.json():null).then(function(d){
+    if(!d || !d.candidates || !d.candidates.length){ return; }
+    _clarifyQueue = d.candidates.slice();
+    _clrUncertain = new Set(_clarifyQueue.map(c=>String(c.word).toLowerCase().replace(/[^\w']/g,'')));
+    _clrRender();
+    _clarifyShowNext();
+  }).catch(function(){});
+}
+
+function _clarifyShowNext(){
+  if(_clarifyTimer){ clearTimeout(_clarifyTimer); _clarifyTimer=null; }
+  if(!_clarifyQueue.length){ _clarifyRevert(); return; }
+  const c = _clarifyQueue.shift();
+  const banner = document.getElementById('cmd-intro-banner') || _clarifyMakeBanner();
+  if(!banner) return;
+  banner.classList.add('clarify');
+  const alts = (c.alternatives||[]).slice(0,3);
+  const why = c.reason === 'block_suspect'
+    ? `possible block · "${c.onset}" is one of your onsets`
+    : `recognizer was split · "${c.onset}" is one of your onsets`;
+  banner.innerHTML = `
+    <button class="cmd-intro-close" title="Dismiss">&times;</button>
+    <div class="cmd-intro-label">DID YOU MEAN?</div>
+    <div class="cmd-intro-title">${_clarifyEsc(c.word)}</div>
+    <div class="clarify-why">${_clarifyEsc(why)}</div>
+    <div class="clarify-opts"></div>`;
+  const opts = banner.querySelector('.clarify-opts');
+  alts.forEach(function(a){
+    const b=document.createElement('button');
+    b.className='clarify-opt'; b.textContent=a;
+    b.addEventListener('click',function(){ _clarifyPick(c.word,a); });
+    opts.appendChild(b);
+  });
+  // No alternatives means Whisper dropped or invented the span rather than
+  // hesitating between spellings — there is nothing to offer, so the useful
+  // action is to point at it and let the user retype the chip.
+  const keep=document.createElement('button');
+  keep.className='clarify-opt keep';
+  keep.textContent = alts.length ? 'keep it' : 'got it';
+  keep.addEventListener('click',function(){ _clarifyShowNext(); });
+  opts.appendChild(keep);
+  banner.querySelector('.cmd-intro-close').addEventListener('click',function(){
+    _clarifyQueue=[]; _clarifyRevert();
+  });
+  // Unanswered questions expire. Interrupting once is help; waiting forever is
+  // pressure, and this user is mid-sentence in another application.
+  _clarifyTimer = setTimeout(function(){ _clarifyShowNext(); }, 12000);
+}
+
+function _clarifyPick(original, replacement){
+  if(_clrText){
+    const re = new RegExp('(?<![\\w])'+String(original).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?![\\w])');
+    _clrText = _clrText.replace(re, replacement);
+  }
+  _clrUncertain.delete(String(original).toLowerCase().replace(/[^\w']/g,''));
+  _clrRender();
+  _clrApply();   // corrected text straight onto the clipboard, ready to paste
+  _clarifyShowNext();
+}
+
+function _clarifyRevert(){
+  if(_clarifyTimer){ clearTimeout(_clarifyTimer); _clarifyTimer=null; }
+  _clrUncertain = new Set();
+  _clrRender();
+  const banner=document.getElementById('cmd-intro-banner');
+  if(banner) banner.remove();
+  _maybeShowCommandModeIntro();
+}
+
+function _clarifyMakeBanner(){
+  const console_el=document.getElementById('console');
+  if(!console_el) return null;
+  const banner=document.createElement('div');
+  banner.id='cmd-intro-banner';
+  banner.className='cmd-intro-banner';
+  console_el.insertBefore(banner, console_el.firstChild);
+  return banner;
+}
+
+function _clarifyEsc(s){
+  return String(s).replace(/[&<>"']/g,function(m){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m];
+  });
+}
 function _setL1FromDetect(lang){
   if(!lang || !/^\w+$/.test(lang)) return;
   fetch('/api/profile', {method:'POST', headers:{'Content-Type':'application/json'},
