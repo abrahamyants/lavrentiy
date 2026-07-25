@@ -6,6 +6,22 @@ Lavrentiy records when the user deliberately starts recording, transcribes local
 
 It is designed to remain usable when speech contains repetitions, substitutions, long pauses, or blocks. It does not diagnose a speech condition, measure clinical severity, or recover a word that was never captured. Pause Bridge generates optional completions from existing transcript context; the user decides whether to paste one.
 
+## Get it
+
+| | What it is | Link |
+|---|---|---|
+| **Windows** | Installer. A real desktop app — its own window, its own taskbar icon, no browser opens. The speech model ships inside the download, so transcription keeps working with no internet. | **[Download the installer](https://github.com/gugosf114/lavrentiy/releases/latest)** |
+| **Android** | WiM — the phone version, same engine. | **[Download the APK](https://github.com/gugosf114/wim-android/releases/latest)** |
+| **Browser** | Not available yet. See below. | — |
+
+The Windows installer is unsigned, so Windows SmartScreen will warn on first run — choose **More info → Run anyway**. Setup and troubleshooting are in [INSTRUCTIONS.md](INSTRUCTIONS.md).
+
+**A browser version is the missing piece.** Right now, trying Lavrentiy means downloading a 549 MB installer and getting past a SmartScreen warning. That is a hard ask for anyone evaluating it for the first time — a researcher, a clinic, a speech organization, or just a curious person. A "open a page in Chrome and talk into it" version removes that entire barrier.
+
+It does not exist today. A first attempt (`hosted/`) was deployed to Cloud Run in May 2026 and killed the same day because it rendered as a generic marketing form rather than the actual product. The folder remains in the repo as scaffolding. A real browser version should reuse `dashboard.html` so the web and desktop surfaces are recognisably the same app.
+
+Note what a browser version cannot do: no offline model (the 461 MB local ASR is a desktop-only advantage), and no paste-into-the-app-you-are-using, because a web page cannot type into other Windows programs. It is the way to *try* Lavrentiy. The installer is how you *use* it.
+
 ## Why it exists
 
 Lavrentiy was created by Gurgen Abrahamyants, a political refugee from Armenia who arrived in the United States without speaking English and lives with a speech block and a strong accent. After discovering what AI could make possible, he began building communication tools for his own daily use and for other people who face similar friction. Lavrentiy is engineering shaped by lived experience—not a clinical claim or a substitute for professional care.
