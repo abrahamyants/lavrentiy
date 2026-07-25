@@ -29,6 +29,7 @@ except ImportError:
     # path; the deployed CF always has it via requirements.txt.
     anthropic = None
 
+import meaning_guard
 from prompt_builder import build_prompt, build_completion_prompt, TONE_TEMP, SITUATION_SEVERITY
 
 # ─── Config ───
@@ -292,6 +293,33 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
         if not falcon_ok:
             clean_text = strip_disfluencies(raw_text)
 
+    # Deterministic meaning guard. lavrentiy.py has had this for a long time;
+    # this path never did, so it protected direct-key desktop users and nobody
+    # else — signed-in desktop and every WiM Android user come through here.
+    #
+    # Always evaluated (it is pure regex, no cost, no latency) so the flags are
+    # visible in every mode, but only ACTED on in SAFE. FAST's contract is
+    # "give me the reconstruction and get out of the way"; silently swapping in
+    # raw text there would change a mode people rely on.
+    guard_result = {"ok": True, "lost": [], "invented": []}
+    try:
+        guard_result = meaning_guard.guard(
+            raw_text, clean_text,
+            vocabulary=(profile or {}).get("vocabulary"),
+        )
+        if mode == "SAFE" and not guard_result["ok"]:
+            # Falling back to the rule-stripped raw text is the conservative
+            # move: a slightly rougher sentence the speaker actually said beats
+            # a fluent one containing a name or figure they did not.
+            logging.warning(
+                "meaning guard tripped: lost=%s invented=%s — falling back to raw",
+                guard_result["lost"], guard_result["invented"],
+            )
+            clean_text = strip_disfluencies(raw_text)
+            falcon_ok = False
+    except Exception as e:
+        logging.warning("meaning guard failed, passing reconstruction through: %s", e)
+
     gamma = compute_confidence(raw_text, clean_text, falcon_ok, layer)
     ms = round((time.time() - t0) * 1000)
 
@@ -305,4 +333,8 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
         "tone": tone,
         "layer": layer,
         "model": served_model,
+        # Surfaced so the desktop console and the WiM bubble can tell the user
+        # something was dropped or invented rather than silently handing them a
+        # sentence that reads fine.
+        "meaning_guard": guard_result,
     }
