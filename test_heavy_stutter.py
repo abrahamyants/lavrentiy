@@ -576,11 +576,19 @@ INLINE_FALLBACK_CASES = [
 ]
 
 
-def load_cases():
-    if SCRIPTS_JSON.exists():
-        with open(SCRIPTS_JSON, "r", encoding="utf-8") as f:
+def load_cases(path=None):
+    """Load the corpus. Defaults to heavy_stutter_test_scripts.json (v2);
+    --scripts points it at another file so a harder corpus can be run without
+    overwriting the one the published results were produced from."""
+    src = Path(path) if path else SCRIPTS_JSON
+    if not src.is_absolute():
+        src = HERE / src
+    if src.exists():
+        with open(src, "r", encoding="utf-8") as f:
             data = json.load(f)
         return data["cases"]
+    if path:
+        raise FileNotFoundError(f"corpus not found: {src}")
     return INLINE_FALLBACK_CASES
 
 
@@ -597,9 +605,12 @@ def main():
                         help="HTTP backend only.")
     parser.add_argument("--limit", type=int, default=None,
                         help="Run only first N cases (for fast iteration).")
+    parser.add_argument("--scripts", default=None,
+                        help="Corpus JSON to run. Default heavy_stutter_test_scripts.json. "
+                             "Use heavy_stutter_stress_v3.json for the harder set.")
     args = parser.parse_args()
 
-    cases = load_cases()
+    cases = load_cases(args.scripts)
     if args.limit:
         cases = cases[: args.limit]
     layers = [args.layer] if args.layer else DEFAULT_LAYERS

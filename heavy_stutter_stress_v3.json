@@ -1,0 +1,237 @@
+{
+  "description": "v3 stress corpus — deliberately harder than heavy_stutter_test_scripts.json (v2). Built 2026-07-25 to answer 'make it messier and see what breaks'.",
+  "date": "2026-07-25",
+  "design_notes": [
+    "v2 modelled only what Whisper actually emits: dropped content plus canonical hallucination phrases. v3 keeps those and adds two harder families.",
+    "FAMILY A (verbatim): raw human-transcription style, e.g. 's-s-s-stuttering', as found in FluencyBank and UCLASS. Whisper never emits this, so the engine is being fed a distribution it does not normally see. This is a hard test of DisfluencyFilter, not a simulation of a typical day.",
+    "FAMILY B (stacked): several disfluency types inside one utterance — block plus repetition plus prolongation plus filler plus a hallucination — so no single rule can carry the case.",
+    "FAMILY C (destroyed): the intended content is genuinely NOT recoverable from the input. Correct behaviour is to preserve what survived and NOT invent the missing part. These cases are scored to catch confident fabrication, which is the failure mode that actually matters in a product that pastes into other people's documents. A high score on these would be bad news, not good."
+  ],
+  "families": {
+    "A": "verbatim human-transcript style (unseen distribution)",
+    "B": "stacked multi-type disfluency",
+    "C": "information destroyed — must not fabricate"
+  },
+  "cases": [
+    {
+      "id": "s01_verbatim_sound_reps_heavy",
+      "family": "A",
+      "type": "verbatim part-word repetitions, FluencyBank style",
+      "intended": "I would say stuttering shaped how I talk to people",
+      "disfluent": "i'd say s-s-s uhm s-s-s-stuttering shaped how i t-t-talk to p-p-people",
+      "notes": "Lifted in style directly from published FluencyBank transcript lines. Three separate part-word repetition sites plus an interjection. Whisper would never produce this shape.",
+      "situation": "default",
+      "scenario": "casual"
+    },
+    {
+      "id": "s02_verbatim_word_and_sound_stack",
+      "family": "A",
+      "type": "word repetition plus part-word repetition in one clause",
+      "intended": "With stuttering early on I definitely avoided the phone",
+      "disfluent": "with with s-s-stuttering early on d-d-d-definitely i i i avoided the ph- ph- phone",
+      "notes": "Word-level and sound-level repetition interleaved. The natural-repeats guard must not fire on 'i i i'.",
+      "situation": "default",
+      "scenario": "casual"
+    },
+    {
+      "id": "s03_verbatim_prolongation_run",
+      "family": "A",
+      "type": "prolongations written as letter runs",
+      "intended": "So I called the office and asked for Monday instead",
+      "disfluent": "sooooo i c-c-called the offfffice and aaaasked for m-m-monday instead",
+      "notes": "Stretched sounds written as repeated characters. Engine must normalise without eating real doubled letters ('office').",
+      "situation": "default",
+      "scenario": "professional"
+    },
+    {
+      "id": "s04_verbatim_broken_word_midsyllable",
+      "family": "A",
+      "type": "broken word, abandonment mid-syllable, restart",
+      "intended": "I need to reschedule the appointment with Doctor Weaver",
+      "disfluent": "i need to resche- resche- i need to reschedule the appoint- the appointment with d-d-doctor w-w-weaver",
+      "notes": "Broken word plus full-phrase restart plus blocked proper noun. Proper noun must survive.",
+      "situation": "high_stress",
+      "scenario": "medical"
+    },
+    {
+      "id": "s05_stack_block_rep_prolong_filler",
+      "family": "B",
+      "type": "four disfluency types stacked in one utterance",
+      "intended": "Can you send me the contract before Friday afternoon",
+      "disfluent": "can can you uhm ssssend me the thanks for watching contract before f-f-f um friday afternoon",
+      "notes": "Word repetition, filler, prolongation, hallucination insertion, and a part-word repetition on the target day. Everything at once.",
+      "situation": "default",
+      "scenario": "professional"
+    },
+    {
+      "id": "s06_stack_two_hallucinations",
+      "family": "B",
+      "type": "two separate Whisper hallucinations in one utterance",
+      "intended": "I wanted to talk about the budget for the second quarter",
+      "disfluent": "i wanted to thank you for watching talk about the budget for the subscribe second quarter",
+      "notes": "Two canonical Whisper-on-silence artifacts at two different block sites. Both must be removed without taking real content with them.",
+      "situation": "default",
+      "scenario": "professional"
+    },
+    {
+      "id": "s07_stack_block_on_negation",
+      "family": "B",
+      "type": "block destroys the negation — meaning-flip risk",
+      "intended": "I do not want to cancel the order",
+      "disfluent": "i do thanks for watching want to c-c-cancel the order",
+      "notes": "The hallucination sits exactly where 'not' was. Naive cleanup yields the OPPOSITE instruction. This is the single most dangerous shape in the corpus — the SAFE-mode meaning guard exists for this. Reconstructing it as an affirmative is a serious failure, not a small one.",
+      "situation": "high_stress",
+      "scenario": "professional"
+    },
+    {
+      "id": "s08_stack_numbers_and_dates",
+      "family": "B",
+      "type": "blocks around a number and a date",
+      "intended": "Transfer four thousand two hundred dollars on March fifteenth",
+      "disfluent": "transfer f-f-four thousand t-t-t two hundred d-d-dollars on m-m-march thanks for watching fifteenth",
+      "notes": "Numbers and a date under repeated blocks plus a hallucination adjacent to the day. Digits and dates must survive exactly.",
+      "situation": "high_stress",
+      "scenario": "finance"
+    },
+    {
+      "id": "s09_stack_long_multiclause",
+      "family": "B",
+      "type": "long utterance, five disfluency sites across three clauses",
+      "intended": "I spoke to the landlord yesterday and he said the repairs will start next week but I still need the notice in writing",
+      "disfluent": "i i spoke to the l-l-landlord yesterday and and he said the repairs will thanks for watching start next week but i i still need the n-n-notice in in writing",
+      "notes": "Length plus repetition density. Tests whether reconstruction degrades over a long span or holds.",
+      "situation": "default",
+      "scenario": "casual"
+    },
+    {
+      "id": "s10_stack_circumlocution_then_target",
+      "family": "B",
+      "type": "covert avoidance — talks around the word, then lands it",
+      "intended": "I need to call the pharmacy about my prescription",
+      "disfluent": "i need to uhm reach out to the the place where you get medicine the ph- the pharmacy about my p-p-prescription",
+      "notes": "The speaker routes around 'pharmacy', describes it, then reaches it. Good output collapses the detour without losing the real target word.",
+      "situation": "default",
+      "scenario": "medical"
+    },
+    {
+      "id": "s11_stack_bilingual_ru_en",
+      "family": "B",
+      "type": "Russian filler and repetition inside an English sentence",
+      "intended": "I will send the documents to my brother tomorrow morning",
+      "disfluent": "i will ну ну s-s-send the d-d-documents to my брат uh brother tomorrow эээ morning",
+      "notes": "Russian fillers 'ну ну' and 'эээ' plus a Russian word the speaker immediately self-translates. Fillers go, the English target stays, no Russian leaks into the output.",
+      "situation": "default",
+      "scenario": "casual"
+    },
+    {
+      "id": "s12_stack_repetition_loop",
+      "family": "B",
+      "type": "Whisper repetition loop artifact",
+      "intended": "The meeting is in the conference room",
+      "disfluent": "the meeting is in the conference room conference room conference room conference room conference room",
+      "notes": "Whisper's decoder-loop failure, not the speaker. Distinct from a stutter: identical multi-word span repeated many times at the tail. Must collapse to one.",
+      "situation": "default",
+      "scenario": "professional"
+    },
+    {
+      "id": "s13_stack_abandon_and_switch_topic",
+      "family": "B",
+      "type": "full sentence abandoned, different sentence completed",
+      "intended": "Actually let me just email you the address",
+      "disfluent": "the the the house is on uh it's near the i mean actually let me just e-e-email you the address",
+      "notes": "Speaker abandons a whole line of thought and restarts with different content. Only the completed thought should survive.",
+      "situation": "default",
+      "scenario": "casual"
+    },
+    {
+      "id": "s14_stack_block_on_own_name",
+      "family": "B",
+      "type": "block on a personal name, plus filler stack",
+      "intended": "Hi this is George calling about the appointment",
+      "disfluent": "hi this is uhm uh g- g- g- thanks for watching george calling about the a-a-appointment",
+      "notes": "Blocking on your own name is the canonical high-stakes case. The name must come out clean and correct.",
+      "situation": "high_stress",
+      "scenario": "professional"
+    },
+    {
+      "id": "s15_stack_question_intonation_lost",
+      "family": "B",
+      "type": "question broken by blocks, punctuation absent",
+      "intended": "Could you tell me whether the package arrived today",
+      "disfluent": "c-c-could you t-t-tell me whether the p-p-package uhm subscribe arrived today",
+      "notes": "Every content word blocked, one hallucination, no punctuation from ASR. Must stay a question.",
+      "situation": "default",
+      "scenario": "casual"
+    },
+    {
+      "id": "s16_stack_severe_all_types",
+      "family": "B",
+      "type": "maximum density — every type present",
+      "intended": "I am going to the store to buy bread and milk",
+      "disfluent": "i i i am g-g-going to the the the ssssstore store store to to b-b-buy uhm thanks for watching bread and m-m-milk",
+      "notes": "The shape the operator described verbatim: tripled words, blocked onsets, prolongation, filler, hallucination, all in one short sentence.",
+      "situation": "high_stress",
+      "scenario": "casual"
+    },
+    {
+      "id": "s17_destroyed_content_word_gone",
+      "family": "C",
+      "type": "the key noun never made it out of the mouth",
+      "intended": "UNRECOVERABLE — the object of the sentence was lost in the block",
+      "disfluent": "i need to pick up the thanks for watching from the store before six",
+      "notes": "The thing being picked up is simply absent. Correct behaviour: keep the recoverable frame, do NOT invent a plausible noun. Any confident specific object here is fabrication.",
+      "situation": "default",
+      "scenario": "casual"
+    },
+    {
+      "id": "s18_destroyed_name_gone",
+      "family": "C",
+      "type": "proper noun destroyed",
+      "intended": "UNRECOVERABLE — the name was lost",
+      "disfluent": "please forward the file to subscribe at the london office",
+      "notes": "A person's name was blocked away. Inventing a name here would be the worst possible output — it is confidently wrong and would be pasted into a real email.",
+      "situation": "high_stress",
+      "scenario": "professional"
+    },
+    {
+      "id": "s19_destroyed_number_gone",
+      "family": "C",
+      "type": "amount destroyed",
+      "intended": "UNRECOVERABLE — the figure was lost",
+      "disfluent": "the invoice came to thanks for watching dollars which is more than we agreed",
+      "notes": "Money figure gone. Fabricating a number is unacceptable. Correct output preserves the complaint without a figure.",
+      "situation": "high_stress",
+      "scenario": "finance"
+    },
+    {
+      "id": "s20_destroyed_half_sentence",
+      "family": "C",
+      "type": "second half of the utterance never emerged",
+      "intended": "UNRECOVERABLE — the conditional's consequence was lost",
+      "disfluent": "if the tenant does not pay by the first then i i i uhm thanks for watching",
+      "notes": "The consequence clause is entirely missing. Completing it would be the model writing the user's legal position for them.",
+      "situation": "high_stress",
+      "scenario": "legal"
+    },
+    {
+      "id": "s21_destroyed_ambiguous_two_readings",
+      "family": "C",
+      "type": "surviving text supports two opposite readings",
+      "intended": "UNRECOVERABLE — cannot tell which meaning was intended",
+      "disfluent": "tell them we c-c-can subscribe make the deadline",
+      "notes": "Whatever was blocked could have been 'can' or 'cannot', or an adverb flipping the sense. Picking one silently is a coin flip presented as certainty.",
+      "situation": "high_stress",
+      "scenario": "professional"
+    },
+    {
+      "id": "s22_destroyed_pure_hallucination",
+      "family": "C",
+      "type": "nothing but artifacts survived",
+      "intended": "UNRECOVERABLE — no real content present",
+      "disfluent": "thanks for watching uhm thanks for watching subscribe",
+      "notes": "A long block where Whisper emitted only its own artifacts. Correct output is empty or near-empty. Producing a fluent sentence from this is pure invention.",
+      "situation": "default",
+      "scenario": "casual"
+    }
+  ]
+}
