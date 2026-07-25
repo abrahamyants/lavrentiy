@@ -3779,7 +3779,18 @@ Explicit punch list. **Last verified against the live repo 2026-07-25** — item
 
 - [ ] **L4 PACKS DESIGN COMMENT** — reduced, not closed. `prompt_builder.py` has since been decomposed; the pack injections now live in `_pb_layer2_3_restate()`, so the function name itself carries the L2/L3-only intent and both injections have explanatory comments. What is still missing is one line saying *why* L4 is excluded (it has its own clinical framing). The old line reference `844-853` is stale — don't chase it.
 
-- [ ] **HEAVY-STUTTER CORPUS — ACTUAL RUN** — still open. Calibration was verified 05-30 (`build_prompt` byte-diff against pre-refactor identical across 8 of 9 input variants), but the corpus run itself was never executed. If evaluator or foundation outreach needs a credibility artifact, run it against v1.7.1 and capture JSON + HTML output.
+- [x] ~~**HEAVY-STUTTER CORPUS — ACTUAL RUN**~~ — **DONE 2026-07-25 against v1.7.1** (`e9ec2ab`, `--backend=module --layer=4 --tone=casual`, v2 corpus, 18 cases). Artifacts committed at repo root: `results_heavy_stutter_2026-07-25T04-20-28Z.json` + `report_heavy_stutter_2026-07-25T04-20-28Z.html`. Results below.
+
+  | engine | n | WER | intent (Jaccard) | coverage | proper-noun | mean s |
+  |---|---|---|---|---|---|---|
+  | **Lavrentiy L4** | 18 | **0.009** | **0.984** | **0.991** | 1.000 | 2.82 |
+  | Commodity baseline | 18 | 0.162 | 0.894 | 0.968 | 1.000 | 0.70 |
+
+  Zero errors, Falcon guard passed on all 18. L4 returned a fully clean reconstruction on 17 of 18 cases; the commodity baseline managed 13 of 18. Four cases separate them decisively — `h01_silent_block_hard_onset_p` (baseline WER 0.88 → L4 0.00), `h03_long_block_breath_restart` (0.83 → 0.00), `h10_proper_noun_block` (0.50 → 0.00), `h18_block_then_substitution` (0.50 → 0.00). All four are silent-block cases where Whisper hallucinated or dropped content; the baseline reconstructs the hallucination as if it were speech, L4 recovers the intent.
+
+  One genuine regression to keep honest: `h07_phone_stress_block_avalanche` — L4 scored WER 0.17 / intent 0.71 where the baseline was perfect. It is the densest case in the corpus (multiple silent blocks plus hallucination under phone stress) and the only case where the extra clinical context hurt. Worth a look before this table is quoted to anyone.
+
+  Caveat for anyone citing these numbers: this is a text-in/text-out corpus of 18 synthetic cases. It measures reconstruction quality given ASR output, not end-to-end performance on real stuttered audio, and it is not clinical evidence.
 
 - [x] ~~**v1.6.7 INSTALLER BUILD + RELEASE**~~ — **SUPERSEDED.** v1.6.7, v1.6.8, v1.7.0 and v1.7.1 all shipped; `installer/Lavrentiy.iss` is at AppVersion 1.7.1 and v1.7.1 is the Latest release.
 
