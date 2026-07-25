@@ -953,6 +953,14 @@ def build_prompt(
             parts.append(reader_block)
 
     # L4 clinical block — full disfluency context, multilingual lang pack, onset weights.
+    #
+    # NOTE: L4 deliberately does NOT receive the l1_pack / domain_pack injections.
+    # Those are attached inside _pb_layer2_3_restate() and are L2/L3-only by design
+    # (decision recorded in the 2026-04-28 README entry). L4 carries its own
+    # first-language and clinical framing via _pb_layer4_block, so injecting the
+    # packs here would duplicate that context and dilute the clinical prompt.
+    # This is intentional, not an oversight — it has been re-flagged as a bug by
+    # multiple review passes.
     if layer >= 4:
         l4_block = _pb_layer4_block(profile, language_code, personal_onset_weights,
                                      personal_dominant_onsets, predicted_triggers)
