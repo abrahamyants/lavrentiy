@@ -55,9 +55,20 @@ class _JSAPI:
     Google blocks OAuth in embedded webviews, so the dashboard calls
     open_google_signin() which we route through the system default browser."""
 
+    # MUST be "localhost", never "127.0.0.1". Google treats them as two
+    # different origins, and only http://localhost:7878 is on the OAuth
+    # client's authorized JavaScript origins list. Opening the 127.0.0.1
+    # form makes Google Identity Services reject the sign-in with
+    # "doesn't comply with Google's OAuth 2.0 policy" — which is what every
+    # native-window user hit from v1.7.1 onward, because v1.7.1 made the
+    # native shortcut the default and this is the only route that used the
+    # 127.0.0.1 spelling. The engine (lavrentiy.py handle_POST_api_open_signin)
+    # and dashboard.html fallbacks all use localhost; this was the one outlier.
+    SIGNIN_URL = 'http://localhost:7878/auth/google'
+
     def open_google_signin(self):
         try:
-            webbrowser.open('http://127.0.0.1:7878/auth/google', new=2)
+            webbrowser.open(self.SIGNIN_URL, new=2)
             return {'ok': True}
         except Exception as e:
             return {'ok': False, 'error': str(e)[:200]}

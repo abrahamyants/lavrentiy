@@ -3904,6 +3904,22 @@ and interaction burden after ASR, not a claim that it clinically treats speech.
   not a bug. No rename — a project-ID change would mean redeploying every
   function and touching hardcoded URLs for zero functional gain.
 
+## 2026-07-25 — Sign-in broken for every native-window user since v1.7.1
+
+**Symptom.** Clicking Sign In produced Google's "Access blocked — this app doesn't comply with Google's OAuth 2.0 policy." Reproduced on a clean v1.7.1 install.
+
+**Root cause.** `lavrentiy_launcher.py` opened the sign-in page at `http://127.0.0.1:7878/auth/google`. The engine (`handle_POST_api_open_signin`) and both `dashboard.html` fallbacks open `http://localhost:7878/auth/google`. Google Identity Services treats `localhost` and `127.0.0.1` as **different origins**, and only `http://localhost:7878` is on the OAuth client's authorized JavaScript origins list. The 127.0.0.1 spelling was rejected every time.
+
+**Why it surfaced at v1.7.1 and not earlier.** The 127.0.0.1 route is reachable only through the pywebview `_JSAPI` bridge. Before v1.7.1 the default Start Menu shortcut was the Edge `--app=` launcher, which routes sign-in through the engine — the localhost spelling. v1.7.1 made the native window the single default shortcut, so every user switched onto the one code path carrying the wrong origin. Nothing about the auth code changed; the shortcut did.
+
+**Blast radius.** Every fresh install from v1.7.0/v1.7.1 onward. Sign-in was unreachable through the UI, which also blocks cloud reconstruction and cross-device profile sync. The only workaround was for the user to open a browser and type `http://localhost:7878/auth/google` manually — which requires knowing the engine is listening on 7878.
+
+**Fix.** Both pywebview bridges (`lavrentiy_launcher.py` `_JSAPI` and `native/pywebview_app.py` `JSAPI`) now use a `SIGNIN_URL = 'http://localhost:7878/auth/google'` constant with a comment stating the origin must never be respelled. Verified: no `127.0.0.1:7878/auth` reference remains anywhere in the tree.
+
+**Not yet shipped.** The fix is in source only. The released v1.7.1 installer still carries the bug — it needs a rebuild and a new release before any downloader gets it.
+
+**Lesson.** Two spellings of the same loopback address across four call sites, three agreeing and one not, survived because the disagreeing one was on a code path that wasn't the default. Changing which shortcut ships is a behavioural change, not packaging: it silently re-routes users onto different code.
+
 ## Failure Log — 2026-07-19
 
 - Session opened by presenting a week-stale item as the live thread: the

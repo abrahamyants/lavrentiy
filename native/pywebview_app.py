@@ -14,9 +14,14 @@ from pathlib import Path
 # it for Google OAuth (Google blocks OAuth in embedded webviews — must route
 # through the system default browser via webbrowser.open).
 class JSAPI:
+    # MUST be "localhost", never "127.0.0.1" — Google treats them as different
+    # origins and only http://localhost:7878 is an authorized JavaScript origin
+    # on the OAuth client. See the same note in lavrentiy_launcher.py.
+    SIGNIN_URL = 'http://localhost:7878/auth/google'
+
     def open_google_signin(self):
         try:
-            webbrowser.open('http://127.0.0.1:7878/auth/google', new=2)
+            webbrowser.open(self.SIGNIN_URL, new=2)
             return {'ok': True}
         except Exception as e:
             return {'ok': False, 'error': str(e)[:200]}
