@@ -10,17 +10,12 @@ It is designed to remain usable when speech contains repetitions, substitutions,
 
 | | What it is | Link |
 |---|---|---|
-| **Windows** | Installer. A real desktop app — its own window, its own taskbar icon, no browser opens. The speech model ships inside the download, so transcription keeps working with no internet. | **[Download the installer](https://github.com/gugosf114/lavrentiy/releases/latest)** |
+| **Windows** | Installer, ~549 MB. Installs like any Windows program — its own icon, its own window, no browser window opens. The speech model is inside the download, so dictation keeps working with no internet. | **[Download the installer](https://github.com/gugosf114/lavrentiy/releases/latest)** |
 | **Android** | WiM — the phone version, same engine. | **[Download the APK](https://github.com/gugosf114/wim-android/releases/latest)** |
-| **Browser** | Not available yet. See below. | — |
 
-The Windows installer is unsigned, so Windows SmartScreen will warn on first run — choose **More info → Run anyway**. Setup and troubleshooting are in [INSTRUCTIONS.md](INSTRUCTIONS.md).
+The installer is unsigned, so Windows SmartScreen warns on first run — choose **More info → Run anyway**. Setup and troubleshooting: [INSTRUCTIONS.md](INSTRUCTIONS.md).
 
-**A browser version is the missing piece.** Right now, trying Lavrentiy means downloading a 549 MB installer and getting past a SmartScreen warning. That is a hard ask for anyone evaluating it for the first time — a researcher, a clinic, a speech organization, or just a curious person. A "open a page in Chrome and talk into it" version removes that entire barrier.
-
-It does not exist today. A first attempt (`hosted/`) was deployed to Cloud Run in May 2026 and killed the same day because it rendered as a generic marketing form rather than the actual product. The folder remains in the repo as scaffolding. A real browser version should reuse `dashboard.html` so the web and desktop surfaces are recognisably the same app.
-
-Note what a browser version cannot do: no offline model (the 461 MB local ASR is a desktop-only advantage), and no paste-into-the-app-you-are-using, because a web page cannot type into other Windows programs. It is the way to *try* Lavrentiy. The installer is how you *use* it.
+**How the window works, stated plainly.** Lavrentiy is a Python program packaged into `Lavrentiy.exe`. On launch it starts a small HTTP server on `localhost:7878` on your own machine and displays that page inside an Edge WebView2 window (`lavrentiy_launcher.py` → `webview.create_window(DASHBOARD_URL)`). So the interface is a web page, rendered in the app's own window. No browser is launched, there is no address bar or tabs, and port 7878 never leaves your computer — it is your machine talking to itself, not a network service. The desktop installer is the only supported way to run it; a hosted browser version is deliberately not offered.
 
 ## Why it exists
 
