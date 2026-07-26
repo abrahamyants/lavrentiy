@@ -167,13 +167,78 @@ def check_retention(raw_text, clean_text, vocabulary=None):
     return lost
 
 
+# Whisper's stock output when it is decoding silence — training-data leakage
+# from captioned video. Their presence in a transcript means a span of the
+# recording produced no speech, which for this user usually means a block.
+HALLUCINATION_ARTIFACT_RE = re.compile(
+    r"(thanks?\s+for\s+watching|thank\s+you\s+for\s+watching|"
+    r"don'?t\s+forget\s+to\s+subscribe|please\s+subscribe|\bsubscribe\b|"
+    r"transcribed\s+by|subtitles?\s+by|amara\.org|otter\.ai|"
+    r"\[BLANK_AUDIO\]|\[INAUDIBLE\]|\[MUSIC\])",
+    re.IGNORECASE,
+)
+
+# Function words reconstruction is free to add, remove or swap. Anything not in
+# here and long enough is treated as carrying meaning.
+_FUNCTION_WORDS = {
+    "a", "an", "the", "and", "or", "but", "if", "then", "than", "that", "this",
+    "these", "those", "there", "here", "is", "are", "was", "were", "be", "been",
+    "being", "am", "do", "does", "did", "have", "has", "had", "will", "would",
+    "can", "could", "shall", "should", "may", "might", "must", "to", "of", "in",
+    "on", "at", "by", "for", "with", "from", "into", "about", "as", "so", "not",
+    "no", "yes", "it", "its", "i", "you", "your", "we", "our", "they", "them",
+    "their", "he", "she", "his", "her", "him", "me", "my", "mine", "us", "who",
+    "what", "when", "where", "why", "how", "which", "just", "very", "really",
+    "some", "any", "all", "both", "each", "more", "most", "other", "such",
+    "only", "own", "same", "too", "up", "out", "down", "over", "under", "again",
+    "get", "got", "go", "going", "went", "let", "like", "want", "need", "make",
+    "made", "take", "took", "come", "came", "know", "think", "say", "said",
+    "tell", "told", "please", "okay", "well", "now", "also", "still", "back",
+}
+
+
+def _content_words(text):
+    """Meaning-carrying words: not function words, at least four characters."""
+    return [
+        w for w in re.findall(r"[A-Za-z']{4,}", text or "")
+        if w.lower() not in _FUNCTION_WORDS
+    ]
+
+
+def _has_source(word, raw_lower):
+    """True if `word` plausibly derives from something in the input.
+
+    Prefix comparison on the first five characters absorbs the ordinary
+    inflection reconstruction performs — prescription/prescriptions,
+    call/called, meet/meeting — without needing a stemmer.
+    """
+    w = word.lower()
+    if w in raw_lower:
+        return True
+    stem = w[:5]
+    return any(t.startswith(stem) for t in re.findall(r"[a-z']+", raw_lower))
+
+
 def check_fabrication(raw_text, clean_text):
     """Anchors that appear in the output but were never in the input.
 
     Catches the failure the retention check cannot: the reconstructor filling a
-    destroyed span with a confident, plausible, wrong name or figure. Only
-    proper nouns and figures are checked, because those are the ones that cause
-    real damage when pasted and the ones a rule can identify without guessing.
+    destroyed span with a confident, plausible, wrong value. Loss is
+    recoverable by falling back to raw; invention is not, because it reads as
+    correct.
+
+    Names and figures are checked unconditionally — those cause real damage in
+    an email or an invoice and a rule can identify them without guessing.
+
+    Ordinary words are checked ONLY when the input contains a Whisper
+    hallucination artifact. That gate matters: reconstruction is allowed to
+    rephrase at L2/L3, so flagging every unsourced content word would fire on
+    legitimate rewording constantly. But when the input contains "thanks for
+    watching", a span of that recording was silence — and a confident new noun
+    appearing where the silence was is the model filling a hole it cannot see
+    into. That is the "pick up the <block> from the store" -> "pick up the
+    prescription" case, which the same input produced twice with two different
+    objects.
     """
     raw_text = raw_text or ""
     clean_text = clean_text or ""
@@ -183,6 +248,13 @@ def check_fabrication(raw_text, clean_text):
     for token in _proper_nouns(clean_text):
         if token.lower() not in raw_lower:
             invented.append(token)
+
+    if HALLUCINATION_ARTIFACT_RE.search(raw_text):
+        for word in _content_words(clean_text):
+            if word in invented:
+                continue
+            if not _has_source(word, raw_lower):
+                invented.append(word)
 
     # A figure in the output is only suspicious when the input offered nothing
     # numeric at all — otherwise "four thousand two hundred" -> "$4,200" would
