@@ -294,8 +294,9 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
             clean_text = strip_disfluencies(raw_text)
 
     # Deterministic meaning guard. lavrentiy.py has had this for a long time;
-    # this path never did, so it protected direct-key desktop users and nobody
-    # else — signed-in desktop and every WiM Android user come through here.
+    # this path never did, so a signed-in desktop user got no server-side check.
+    # WiM Android was NOT in that gap — ReconstructClient.computeRiskFlags has
+    # guarded the backend path client-side since 2026-06-03.
     #
     # Always evaluated (it is pure regex, no cost, no latency) so the flags are
     # visible in every mode, but only ACTED on in SAFE. FAST's contract is

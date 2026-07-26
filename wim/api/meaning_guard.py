@@ -4,14 +4,20 @@ Why this exists
 ---------------
 `lavrentiy.py` has had `_check_critical_retention` for a long time: a free,
 rule-based check that names, numbers, dates and negations survived
-reconstruction. The Cloud Function never had an equivalent, so the guard
-protected direct-key desktop users and nobody else — signed-in desktop users
-and every WiM Android user run through this module's caller instead. Same
-shape as the L4 model-parity gap: a feature that only exists on one of the
-three distribution paths.
+reconstruction. The Cloud Function itself never had an equivalent, so a
+signed-in desktop user got no server-side check.
 
-This module closes that gap and adds the direction the desktop check was
-missing.
+**WiM Android was already covered and this module did not close a gap for it.**
+`ReconstructClient.computeRiskFlags` (with `checkCriticalTokens` and
+`RiskFlagsTest`) has run client-side on the backend reconstruction path since
+2026-06-03, added precisely to stop the server shipping reconstructions with
+missing amounts or dates into a user's text field. An earlier version of this
+docstring claimed WiM users were unprotected. That was wrong — written after
+checking this directory and not the Android source.
+
+So what this module actually adds: the same protection for the signed-in
+desktop path, in one shared place, plus the direction BOTH existing
+implementations were missing.
 
 Two directions, not one
 -----------------------
