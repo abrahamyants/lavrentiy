@@ -948,9 +948,23 @@ def build_prompt(
     # L2/L3 prose-restate block (Strunk & White + restructure + self-correction + ASR examples)
     if 2 <= layer <= 3:
         parts.append(_pb_layer2_3_restate(profile, previous_outputs))
-        reader_block = _pb_reader_block(window_title)
-        if reader_block:
-            parts.append(reader_block)
+
+    # Reader context from the foreground window — Slack wants short and
+    # sign-off-free, Outlook wants full sentences, Word wants prose.
+    #
+    # This used to be L2/L3 only, which meant L4 — the layer for the hardest
+    # speech — was the one flying blind on register. That is backwards: a
+    # speaker managing a block has the least attention spare for noticing the
+    # output is pitched wrong for where it is about to land, and is the least
+    # likely to go and flip a tone switch first. Register detection is worth
+    # more at L4 than anywhere else, not less.
+    #
+    # Unlike the l1/domain packs above, this does not duplicate anything in the
+    # L4 clinical block — that block carries disfluency and onset context and
+    # says nothing about audience or medium.
+    reader_block = _pb_reader_block(window_title)
+    if reader_block:
+        parts.append(reader_block)
 
     # L4 clinical block — full disfluency context, multilingual lang pack, onset weights.
     #

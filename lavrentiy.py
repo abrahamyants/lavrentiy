@@ -2919,7 +2919,11 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
         personal_onset_weights=_personal_onset_weights if layer >= 4 else None,
         personal_dominant_onsets=_personal_dominant_onsets if layer >= 4 else None,
         predicted_triggers=predicted,
-        window_title=_target_window_title if 2 <= layer <= 3 else None,
+        # Sent at every layer including L4. Previously L2/L3 only, which left
+        # the layer built for the hardest speech with no idea whether it was
+        # writing into Slack or a legal document. See the reader-context note
+        # in prompt_builder.build_prompt.
+        window_title=_target_window_title,
     )
 
     temp = prompt_builder.TONE_TEMP.get(tone, 0.3)
