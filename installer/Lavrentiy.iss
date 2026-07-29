@@ -1,4 +1,4 @@
-; Lavrentiy.iss — Inno Setup installer for v1.7.1 (drift-proof bundling).
+; Lavrentiy.iss — Inno Setup installer for v1.7.2 (drift-proof bundling).
 ;
 ; CONTRAST WITH v1.5.7 (Lavrentiy-Eval.iss):
 ;   v1.5.7 manually enumerated each engine source file in the [Files] block.
@@ -15,7 +15,7 @@
 ;        --distpath dist-onedir --workpath build-onedir
 ;        -> Produces dist-onedir\Lavrentiy\Lavrentiy.exe + _internal\
 ;   2. iscc installer\Lavrentiy.iss
-;        -> Produces installer\Output\Lavrentiy-Setup-v1.7.1.exe
+;        -> Produces installer\Output\Lavrentiy-Setup-v1.7.2.exe
 ;
 ; INSTALL TARGET:
 ;   {userpf}\Lavrentiy = %LOCALAPPDATA%\Programs\Lavrentiy
@@ -33,8 +33,8 @@
 [Setup]
 AppId={{B7E5F4A2-9C3D-4E1B-8A6F-2D8B5E9C1F3A}}
 AppName=Lavrentiy
-AppVersion=1.7.1
-AppVerName=Lavrentiy 1.7.1
+AppVersion=1.7.2
+AppVerName=Lavrentiy 1.7.2
 AppPublisher=Gurgen Abrahamyants
 AppPublisherURL=https://github.com/gugosf114/lavrentiy
 AppSupportURL=https://github.com/gugosf114/lavrentiy/issues
@@ -45,9 +45,9 @@ UninstallDisplayIcon={app}\_internal\lavrentiy.ico
 UninstallDisplayName=Lavrentiy
 Compression=lzma2/max
 SolidCompression=yes
-OutputDir=C:\Users\georg\Documents\GitHub\lavrentiy\installer\Output
-OutputBaseFilename=Lavrentiy-Setup-v1.7.1
-SetupIconFile=C:\Users\georg\Documents\GitHub\lavrentiy\lavrentiy.ico
+OutputDir=Output
+OutputBaseFilename=Lavrentiy-Setup-v1.7.2
+SetupIconFile=..\lavrentiy.ico
 PrivilegesRequired=lowest
 WizardStyle=modern
 DisableProgramGroupPage=yes
@@ -66,9 +66,9 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 
 [Files]
 ; PyInstaller --onedir build, plus both launcher .vbs files next to the .exe.
-Source: "C:\Users\georg\Documents\GitHub\lavrentiy\dist-onedir\Lavrentiy\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "C:\Users\georg\Documents\GitHub\lavrentiy\Lavrentiy.vbs";         DestDir: "{app}"; Flags: ignoreversion
-Source: "C:\Users\georg\Documents\GitHub\lavrentiy\Lavrentiy-Native.vbs";  DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist-onedir\Lavrentiy\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\Lavrentiy.vbs";         DestDir: "{app}"; Flags: ignoreversion
+Source: "..\Lavrentiy-Native.vbs";  DestDir: "{app}"; Flags: ignoreversion
 
 [InstallDelete]
 ; v1.6.8 and earlier accidentally shipped developer API keys beside the frozen
