@@ -2548,8 +2548,42 @@ body:not(.advanced-ui) .layer-opt .l-desc { font-size: 11px; }
   background: var(--raised); color: var(--red-bright);
   font-family: var(--mono); font-size: 9px; font-weight: 700;
   letter-spacing: 0.5px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 3px;
 }
+.lang-select::after { content: '▾'; font-size: 7px; color: var(--text-muted); }
+.lang-select[aria-expanded="true"] { border-color: var(--red-bright); background: var(--elevated); }
 .lang-select:focus { outline: 1px solid var(--red-bright); outline-offset: 1px; }
+.lang-menu {
+  position: absolute; top: calc(100% + 4px); right: 0;
+  width: 42px; padding: 3px;
+  border: 1px solid rgba(185,28,28,0.35); border-radius: 4px;
+  background: var(--raised); box-shadow: 0 8px 20px rgba(0,0,0,0.45);
+  z-index: 80;
+}
+.lang-menu[hidden] { display: none; }
+.lang-option {
+  position: relative; display: block; width: 100%; height: 22px; padding: 0;
+  border: 0; border-radius: 2px; background: transparent;
+  color: var(--text-muted); cursor: pointer;
+  font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: 0.5px;
+}
+.lang-option:hover, .lang-option:focus-visible, .lang-option.active {
+  background: rgba(185,28,28,0.16); color: var(--red-bright);
+}
+.lang-option:focus-visible { outline: 1px solid var(--red-bright); outline-offset: -1px; }
+.lang-option-tooltip {
+  position: absolute; top: 50%; right: calc(100% + 7px); transform: translateY(-50%);
+  padding: 4px 7px; border: 1px solid rgba(185,28,28,0.3); border-radius: 3px;
+  background: var(--elevated); color: var(--text);
+  font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0;
+  white-space: nowrap; pointer-events: none;
+  opacity: 0; visibility: hidden; transition: opacity 0.12s ease;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+}
+.lang-option:hover .lang-option-tooltip,
+.lang-option:focus-visible .lang-option-tooltip {
+  opacity: 1; visibility: visible;
+}
 .theme-toggle {
   position: absolute; top: 6px; left: 34px; display: flex; z-index: 20;
 }
@@ -2575,7 +2609,7 @@ body:not(.advanced-ui) .layer-opt .l-desc { font-size: 11px; }
 .status-controls .compact-toggle { order: 1; }
 .status-controls .theme-toggle { order: 2; }
 .status-controls .view-toggle { order: 3; width: 84px; }
-.status-controls .lang-toggle { order: 4; }
+.status-controls .lang-toggle { order: 4; position: relative; }
 .status-controls .help-btn { order: 5; }
 .lang-btn, .theme-tog-btn {
   padding: 2px 5px; font-family: var(--mono); font-size: 9px; font-weight: 600;
@@ -2940,20 +2974,27 @@ body:not(.advanced-ui) .layer-opt .l-desc { font-size: 11px; }
       <button class="compact-toggle" onclick="toggleCompact()" title="Compact mode" aria-label="Minimize to compact mode">&#8863;</button>
       <div class="theme-toggle"><button class="theme-tog-btn" data-theme-set="dark" onclick="setTheme('dark')" aria-label="Dark theme">D</button><button class="theme-tog-btn" data-theme-set="light" onclick="setTheme('light')" aria-label="Light theme">L</button></div>
       <div class="lang-toggle">
-        <select class="lang-select" id="ui-language-select" onchange="setLang(this.value)" aria-label="Spoken and interface language">
-          <option value="en">EN</option>
-          <option value="es">ES</option>
-          <option value="ru">RU</option>
-          <option value="pt">PT</option>
-          <option value="fr">FR</option>
-          <option value="ar">AR</option>
-          <option value="de">DE</option>
-          <option value="hi">HI</option>
-          <option value="it">IT</option>
-          <option value="ja">JA</option>
-          <option value="ko">KO</option>
-          <option value="zh">ZH</option>
-        </select>
+        <button class="lang-select" id="ui-language-select" type="button"
+          onclick="toggleLanguageMenu()" onkeydown="handleLanguagePickerKey(event)"
+          aria-haspopup="listbox" aria-expanded="false"
+          aria-label="English selected. Choose spoken and interface language">
+          <span id="ui-language-code">EN</span>
+        </button>
+        <div class="lang-menu" id="ui-language-menu" role="listbox"
+          aria-label="Spoken and interface language" hidden>
+          <button class="lang-option" type="button" role="option" data-lang="en" data-name="English" onclick="chooseLanguage('en')">EN<span class="lang-option-tooltip" aria-hidden="true">English</span></button>
+          <button class="lang-option" type="button" role="option" data-lang="es" data-name="Spanish" onclick="chooseLanguage('es')">ES<span class="lang-option-tooltip" aria-hidden="true">Spanish</span></button>
+          <button class="lang-option" type="button" role="option" data-lang="ru" data-name="Russian" onclick="chooseLanguage('ru')">RU<span class="lang-option-tooltip" aria-hidden="true">Russian</span></button>
+          <button class="lang-option" type="button" role="option" data-lang="pt" data-name="Portuguese" onclick="chooseLanguage('pt')">PT<span class="lang-option-tooltip" aria-hidden="true">Portuguese</span></button>
+          <button class="lang-option" type="button" role="option" data-lang="fr" data-name="French" onclick="chooseLanguage('fr')">FR<span class="lang-option-tooltip" aria-hidden="true">French</span></button>
+          <button class="lang-option" type="button" role="option" data-lang="ar" data-name="Arabic" onclick="chooseLanguage('ar')">AR<span class="lang-option-tooltip" aria-hidden="true">Arabic</span></button>
+          <button class="lang-option" type="button" role="option" data-lang="de" data-name="German" onclick="chooseLanguage('de')">DE<span class="lang-option-tooltip" aria-hidden="true">German</span></button>
+          <button class="lang-option" type="button" role="option" data-lang="hi" data-name="Hindi" onclick="chooseLanguage('hi')">HI<span class="lang-option-tooltip" aria-hidden="true">Hindi</span></button>
+          <button class="lang-option" type="button" role="option" data-lang="it" data-name="Italian" onclick="chooseLanguage('it')">IT<span class="lang-option-tooltip" aria-hidden="true">Italian</span></button>
+          <button class="lang-option" type="button" role="option" data-lang="ja" data-name="Japanese" onclick="chooseLanguage('ja')">JA<span class="lang-option-tooltip" aria-hidden="true">Japanese</span></button>
+          <button class="lang-option" type="button" role="option" data-lang="ko" data-name="Korean" onclick="chooseLanguage('ko')">KO<span class="lang-option-tooltip" aria-hidden="true">Korean</span></button>
+          <button class="lang-option" type="button" role="option" data-lang="zh" data-name="Chinese" onclick="chooseLanguage('zh')">ZH<span class="lang-option-tooltip" aria-hidden="true">Chinese</span></button>
+        </div>
       </div>
       <button class="help-btn" onclick="toggleHelp()" title="Manual" aria-label="Help">?</button>
       <button class="view-toggle" id="view-toggle" data-mode="basic" onclick="toggleAdvancedUi()" aria-pressed="false" aria-label="Basic mode active. Switch to Advanced mode">BASIC</button>
@@ -3521,6 +3562,7 @@ const FIELD_MAP={trigger:'trigger_words',filler:'filler_words',vocab:'vocabulary
 
 // ─── i18n ──────────────────────────────────────────────
 const APP_LANGUAGES=['en','es','ru','pt','fr','ar','de','hi','it','ja','ko','zh'];
+const APP_LANGUAGE_NAMES={en:'English',es:'Spanish',ru:'Russian',pt:'Portuguese',fr:'French',ar:'Arabic',de:'German',hi:'Hindi',it:'Italian',ja:'Japanese',ko:'Korean',zh:'Chinese'};
 const UI_LANGUAGES=['en','es','ru','pt','fr'];
 let selectedLanguage=localStorage.getItem('lavrentiy-language')||localStorage.getItem('lavrentiy-lang')||'en';
 if(!APP_LANGUAGES.includes(selectedLanguage))selectedLanguage='en';
@@ -3731,6 +3773,41 @@ async function loadUiTranslations(){
 }
 function t(key){return I18N[key]?.[currentLang]||I18N[key]?.en||key;}
 function _setFirstText(el,text){for(const n of el.childNodes){if(n.nodeType===3&&n.textContent.trim()){n.textContent=text;return;}}el.prepend(document.createTextNode(text));}
+function setLanguageMenuOpen(open){
+  const picker=document.getElementById('ui-language-select');
+  const menu=document.getElementById('ui-language-menu');
+  if(!picker||!menu)return;
+  picker.setAttribute('aria-expanded',open?'true':'false');
+  menu.hidden=!open;
+}
+function toggleLanguageMenu(){
+  const picker=document.getElementById('ui-language-select');
+  setLanguageMenuOpen(!(picker&&picker.getAttribute('aria-expanded')==='true'));
+}
+function chooseLanguage(lang){
+  setLanguageMenuOpen(false);
+  setLang(lang);
+  const picker=document.getElementById('ui-language-select');if(picker)picker.focus();
+}
+function handleLanguagePickerKey(event){
+  if(!['ArrowDown','ArrowUp','Enter',' '].includes(event.key))return;
+  event.preventDefault();
+  setLanguageMenuOpen(true);
+  const options=[...document.querySelectorAll('.lang-option')];
+  const active=options.find(option=>option.dataset.lang===selectedLanguage)||options[0];
+  if(active)active.focus();
+}
+document.addEventListener('click',event=>{
+  if(!event.target.closest('.lang-toggle'))setLanguageMenuOpen(false);
+});
+document.addEventListener('keydown',event=>{
+  if(event.key!=='Escape')return;
+  const picker=document.getElementById('ui-language-select');
+  if(picker&&picker.getAttribute('aria-expanded')==='true'){
+    setLanguageMenuOpen(false);
+    picker.focus();
+  }
+});
 function syncLanguageSelection(lang){
   if(!APP_LANGUAGES.includes(lang))lang='en';
   selectedLanguage=lang;
@@ -3739,7 +3816,19 @@ function syncLanguageSelection(lang){
   const interfaceChanged=currentLang!==interfaceLanguage;
   currentLang=interfaceLanguage;
   localStorage.setItem('lavrentiy-lang',interfaceLanguage);
-  const select=document.getElementById('ui-language-select');if(select)select.value=lang;
+  const picker=document.getElementById('ui-language-select');
+  if(picker){
+    picker.value=lang;
+    picker.dataset.lang=lang;
+    picker.title=APP_LANGUAGE_NAMES[lang];
+    picker.setAttribute('aria-label',`${APP_LANGUAGE_NAMES[lang]} selected. Choose spoken and interface language`);
+  }
+  const code=document.getElementById('ui-language-code');if(code)code.textContent=lang.toUpperCase();
+  document.querySelectorAll('.lang-option').forEach(option=>{
+    const active=option.dataset.lang===lang;
+    option.classList.toggle('active',active);
+    option.setAttribute('aria-selected',active?'true':'false');
+  });
   document.querySelectorAll('.dict-lang-opt').forEach(b=>b.classList.toggle('active',b.dataset.dict===lang));
   document.documentElement.lang=interfaceLanguage;
   if(interfaceChanged)applyI18n();
@@ -6013,7 +6102,7 @@ async function init(){
   await runBootSequence();
   applyCompact();
   // Apply saved language preference
-  const languageSelect=document.getElementById('ui-language-select');if(languageSelect)languageSelect.value=selectedLanguage;
+  syncLanguageSelection(selectedLanguage);
   document.documentElement.lang=currentLang;
   await Promise.all([fetchProfiles(),fetchProfile(),fetchSessions(),fetchLearn(),fetchDAF(),fetchHotkeys(),fetchFluencyData(),fetchPatience()]);
   applyI18n();

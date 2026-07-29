@@ -23,14 +23,27 @@ PIPELINE_ONLY = {"ar", "de", "hi", "it", "ja", "ko", "zh"}
 
 def test_dashboard_exposes_all_pipeline_languages_in_one_picker():
     dashboard = (ROOT / "dashboard.html").read_text(encoding="utf-8")
-    select = re.search(
-        r'<select[^>]+id="ui-language-select".*?</select>',
+    picker = re.search(
+        r'<button[^>]+id="ui-language-select".*?</button>',
         dashboard,
         re.DOTALL,
     )
-    assert select, "Missing interface-language picker"
-    options = set(re.findall(r'<option value="([a-z]{2})">', select.group(0)))
+    assert picker, "Missing interface-language picker"
+    menu = re.search(
+        r'<div[^>]+id="ui-language-menu".*?</div>',
+        dashboard,
+        re.DOTALL,
+    )
+    assert menu, "Missing full language menu"
+    options = set(re.findall(r'data-lang="([a-z]{2})"', menu.group(0)))
     assert options == PIPELINE_LANGUAGES
+    names = dict(re.findall(
+        r'data-lang="([a-z]{2})" data-name="([^"]+)"',
+        menu.group(0),
+    ))
+    assert set(names) == PIPELINE_LANGUAGES
+    assert all(name in menu.group(0) for name in names.values())
+    assert "lang-option-tooltip" in menu.group(0)
     assert (
         "const APP_LANGUAGES=['en','es','ru','pt','fr','ar','de','hi','it','ja','ko','zh'];"
         in dashboard

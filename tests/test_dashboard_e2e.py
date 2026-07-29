@@ -108,28 +108,32 @@ class TestDashboardLoad:
     def test_translated_interface_switches_are_live(self, page: Page):
         page.goto(DASHBOARD_URL)
         page.wait_for_timeout(1200)
-        selector = page.locator('#ui-language-select')
-        assert selector.count() == 1
+        picker = page.locator('#ui-language-select')
+        assert picker.count() == 1
         for code, expected in [
             ('es', 'Perfil'),
             ('ru', 'Профиль'),
             ('pt', 'Perfil'),
             ('fr', 'Profil'),
         ]:
-            selector.select_option(code)
+            picker.click()
+            page.locator(f'.lang-option[data-lang="{code}"]').click()
             expect(page.locator('.tab-btn[data-tab="profile"]')).to_have_text(expected)
-        selector.select_option('en')
+        picker.click()
+        page.locator('.lang-option[data-lang="en"]').click()
         expect(page.locator('.tab-btn[data-tab="profile"]')).to_have_text('Profile')
 
     def test_pipeline_only_language_keeps_english_interface(self, page: Page):
         page.goto(DASHBOARD_URL)
         page.wait_for_timeout(1200)
-        selector = page.locator('#ui-language-select')
-        selector.select_option('de')
+        picker = page.locator('#ui-language-select')
+        picker.click()
+        page.locator('.lang-option[data-lang="de"]').click()
         expect(page.locator('.tab-btn[data-tab="profile"]')).to_have_text('Profile')
         page.wait_for_timeout(500)
         assert _get_state().get('dictation_language') == 'de'
-        selector.select_option('en')
+        picker.click()
+        page.locator('.lang-option[data-lang="en"]').click()
 
     def test_spoken_language_picker_matches_backend_policy(self, page: Page):
         page.goto(DASHBOARD_URL)

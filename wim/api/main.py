@@ -43,7 +43,7 @@ from billing_backend import (
 from billing_events import BillingEventError, decode_pubsub_cloud_event
 from quota_backend import plan_audio_usage, plan_cloud_usage
 from reviewer_access import reviewer_email_is_allowed
-from user_data_backend import delete_cloud_account
+from user_data_backend import delete_cloud_account, make_json_safe
 
 # Structured logging — Cloud Run / Functions parses JSON lines on stdout into
 # Cloud Logging fields. INFO level for normal flow, ERROR for failures.
@@ -228,7 +228,9 @@ def _action_export_data(uid, tier_config, body):
     """GDPR: export user's stored data, stripping internal billing/quota state."""
     doc = db.collection("wim_users").document(uid).get()
     full = doc.to_dict() if doc.exists else {}
-    user_visible = {k: v for k, v in full.items() if k in _EXPORT_VISIBLE_KEYS}
+    user_visible = make_json_safe(
+        {k: v for k, v in full.items() if k in _EXPORT_VISIBLE_KEYS}
+    )
     return (json.dumps({"ok": True, "data": user_visible}), 200, _JSON_CORS)
 
 

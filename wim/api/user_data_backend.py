@@ -1,4 +1,17 @@
-"""Deletion helpers for WiM cloud accounts and all nested user data."""
+"""Export and deletion helpers for WiM cloud accounts."""
+
+from datetime import date, datetime
+
+
+def make_json_safe(value):
+    """Convert Firestore timestamp values into JSON-safe ISO strings."""
+    if isinstance(value, dict):
+        return {key: make_json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [make_json_safe(item) for item in value]
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return value
 
 
 def _delete_query_documents(db, query, batch_size=400):
