@@ -600,6 +600,10 @@ _SITUATION_ALIASES = {
     "interview": "high_stress", "casual": "default",
 }
 current_situation = "default"
+# High Stress is a temporary preset. Remember the engine configuration that
+# was active before it so returning to Default restores the user's layer and
+# optional-analysis choices instead of leaving the High Stress stack running.
+_situation_restore_state = None
 
 # -- Phonetic trigger prediction ──────────────────────────────────
 # Stop plosives, affricates, and clusters that cause >90% of blocks
@@ -7611,10 +7615,23 @@ SITUATION_PRESETS = {
 }
 
 def set_situation(situation):
-    global current_situation, current_layer
+    global current_situation, current_layer, _situation_restore_state
     # Resolve aliases from old 6-situation system
     situation = _SITUATION_ALIASES.get(situation, situation)
     if situation in SITUATIONS:
+        previous_situation = current_situation
+        if situation == "high_stress" and previous_situation != "high_stress":
+            _situation_restore_state = {
+                "layer": current_layer,
+                "paralinguistic": paralinguistic_enabled,
+                "prosodic": prosodic_enabled,
+            }
+        restore_state = None
+        if previous_situation == "high_stress" and situation != "high_stress":
+            if situation == "default":
+                restore_state = _situation_restore_state
+            _situation_restore_state = None
+
         current_situation = situation
         severity = SITUATION_SEVERITY[situation]
         preset = SITUATION_PRESETS.get(situation, {})
@@ -7643,6 +7660,22 @@ def set_situation(situation):
             set_prosodic(preset["prosodic"])
             if preset["prosodic"]:
                 actions.append("prosodic:ON")
+        # Default reverses only the automatic changes made by High Stress.
+        # Manual settings that were active before the preset are preserved.
+        if restore_state:
+            if restore_state["layer"] != current_layer:
+                set_layer(restore_state["layer"])
+                actions.append(f"L{restore_state['layer']}")
+            if restore_state["paralinguistic"] != paralinguistic_enabled:
+                set_paralinguistic(restore_state["paralinguistic"])
+                actions.append(
+                    f"para:{'ON' if restore_state['paralinguistic'] else 'OFF'}"
+                )
+            if restore_state["prosodic"] != prosodic_enabled:
+                set_prosodic(restore_state["prosodic"])
+                actions.append(
+                    f"prosodic:{'ON' if restore_state['prosodic'] else 'OFF'}"
+                )
         # Auto-prep text
         if preset.get("prep"):
             set_last_prep(preset["prep"])
