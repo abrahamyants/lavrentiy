@@ -479,7 +479,16 @@ def _pb_layer3_user_context(profile, prior_rejections, style_examples):
         pairs = [f"{k}->{v}" for k, v in list(profile["corrections"].items())[:10]]
         ctx.append(f"Known corrections: {'; '.join(pairs)}")
     if ctx:
-        out_parts.append("\nUser context:\n" + "\n".join(ctx))
+        out_parts.append(
+            "\nLAYER 3 PROFILE TERMS — AUTHORITATIVE:\n"
+            + "\n".join(ctx)
+            + "\nUse the exact saved spelling and capitalization whenever the ASR text "
+              "is a plausible phonetic rendering of one of these terms. A known "
+              "correction is not limited to an exact literal match: low-confidence "
+              "neighbors may be different ASR guesses of the same intended word. "
+              "Compare whole phrases as well as individual words. Never return an "
+              "unchanged transcript while a plausible profile correction remains."
+        )
 
     if prior_rejections:
         block = [

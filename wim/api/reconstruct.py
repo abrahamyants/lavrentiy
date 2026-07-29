@@ -30,6 +30,7 @@ except ImportError:
     anthropic = None
 
 import meaning_guard
+import profile_terms
 from prompt_builder import (
     L2_MAX_REWRITE_ATTEMPTS,
     SITUATION_SEVERITY,
@@ -220,6 +221,7 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
 
     t0 = time.time()
     profile = profile or {}
+    source_raw_text = raw_text
 
     if layer <= 1 or mode == "RAW":
         cleaned = strip_disfluencies(raw_text)
@@ -229,6 +231,19 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
             "falcon_ok": True, "ms": ms, "mode": mode, "tone": tone, "layer": layer,
             "model": "local-strip",
         }
+
+    profile_matches = []
+    if layer >= 3:
+        low_conf_texts = [
+            str(segment.get("text", ""))
+            for segment in (whisper_low_conf or [])
+            if isinstance(segment, dict) and segment.get("text")
+        ]
+        raw_text, profile_matches = profile_terms.apply_profile_terms(
+            raw_text,
+            profile,
+            low_conf_texts=low_conf_texts,
+        )
 
     system_prompt = build_prompt(
         raw_text, tone=tone, layer=layer, profile=profile, situation=situation,
@@ -293,7 +308,7 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
             )
             return (resp.choices[0].message.content or "").strip()
 
-        if layer == 2:
+        if layer in (2, 3):
             def _guard_once(candidate):
                 return meaning_guard.guard(
                     raw_text,
@@ -303,8 +318,9 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
 
             def _log_retry(attempts, candidate, retry_guard):
                 logging.warning(
-                    "Layer 2 rewrite rejected on attempt %s: lost=%s "
+                    "Layer %s rewrite rejected on attempt %s: lost=%s "
                     "invented=%s unchanged=%s — retrying",
+                    layer,
                     attempts,
                     retry_guard.get("lost", []),
                     retry_guard.get("invented", []),
@@ -350,13 +366,14 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
             raw_text, clean_text,
             vocabulary=(profile or {}).get("vocabulary"),
         )
-        if layer == 2 and is_effectively_unchanged(raw_text, clean_text):
+        if layer in (2, 3) and is_effectively_unchanged(raw_text, clean_text):
             guard_result["unchanged"] = True
             guard_result["ok"] = False
         if mode == "SAFE" and not guard_result["ok"]:
             logging.warning(
-                "Layer 2 repair attempts exhausted: lost=%s invented=%s "
+                "Layer %s repair attempts exhausted: lost=%s invented=%s "
                 "unchanged=%s — reconstruction unavailable",
+                layer,
                 guard_result["lost"], guard_result["invented"],
                 guard_result.get("unchanged", False),
             )
@@ -365,12 +382,12 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
     except Exception as e:
         logging.warning("meaning guard failed, passing reconstruction through: %s", e)
 
-    gamma = compute_confidence(raw_text, clean_text, falcon_ok, layer)
+    gamma = compute_confidence(source_raw_text, clean_text, falcon_ok, layer)
     ms = round((time.time() - t0) * 1000)
 
     return {
         "clean": clean_text,
-        "raw": raw_text,
+        "raw": source_raw_text,
         "confidence": gamma,
         "falcon_ok": falcon_ok,
         "ms": ms,
@@ -379,6 +396,7 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
         "layer": layer,
         "model": served_model,
         "rewrite_attempts": rewrite_attempts,
+        "profile_matches": profile_matches,
         # Surfaced so the desktop console and the WiM bubble can tell the user
         # something was dropped or invented rather than silently handing them a
         # sentence that reads fine.

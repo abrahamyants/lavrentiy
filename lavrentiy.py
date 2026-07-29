@@ -50,6 +50,8 @@ import style_examples
 # module that ships with the Cloud Function so L2/L3 prompts cannot drift
 # between the desktop engine and the signed-in-user CF path).
 import prompt_builder
+import learning_backend
+import profile_terms
 
 # Phonetic-neighbor matcher. Mirrors WiM PhoneticMatcher.kt parity.
 # Defensive import — engines bundled before metaphone landed in Lavrentiy.spec
@@ -1388,6 +1390,32 @@ def reconstruct_via_backend(raw_text, tone, layer, prof, situation="default", mo
     except Exception as e:
         log(f"Backend reconstruct failed: {e}", "error")
         return None, False, {"error": str(e)}
+
+
+def learn_profile_via_backend(pairs):
+    """Run background Layer 3 learning with the signed-in backend key."""
+    import urllib.request
+    payload = {
+        "action": "learn_profile",
+        "pairs": pairs[:12000],
+    }
+    req = urllib.request.Request(
+        BACKEND_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {_firebase_id_token}",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        result = json.loads(resp.read().decode("utf-8"))
+    learnings = result.get("learnings")
+    if not isinstance(learnings, dict):
+        raise learning_backend.LearningResponseError(
+            result.get("error", "Backend returned no learning result")
+        )
+    return learning_backend.parse_learning_response(json.dumps(learnings))
 
 # -- Mic selection ────────────────────────────────────────────────
 DEVICE = None
@@ -2983,7 +3011,7 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
         )
         return (resp.choices[0].message.content or "").strip()
 
-    if layer == 2:
+    if layer in (2, 3):
         def _guard_once(candidate):
             return {
                 "lost": _check_critical_retention(raw_text, candidate),
@@ -2996,7 +3024,7 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
                 raw_text, candidate
             )
             log(
-                f"Layer 2 rewrite rejected on attempt {attempts}: "
+                f"Layer {layer} rewrite rejected on attempt {attempts}: "
                 f"anchors={lost} unchanged={unchanged} — retrying",
                 "warn",
             )
@@ -3998,37 +4026,16 @@ def learn_from_sessions(prof, _epoch=None):
         f"Raw: {s['raw']}\nOut: {s['out']}" for s in recent
     )
 
-    stats_inc("api_calls")
     try:
-        resp = client.chat.completions.create(
-            model=MODEL,
-            messages=[
-                {"role": "system", "content": (
-                    "Analyze these voice transcription pairs (raw speech → cleaned output). "
-                    "Extract patterns:\n"
-                    "1. corrections: recurring words misheard by speech-to-text that map to "
-                    "different intended words (e.g. \"Duncan\" → \"Dankeschön\"). Only include "
-                    "clear, confident mappings.\n"
-                    "2. fillers: filler words/sounds the speaker uses IN ANY LANGUAGE "
-                    "(e.g. English: um, uh, like, you know; Russian: это, ну, вот, типа, как бы). "
-                    "Speaker is bilingual. Only words that appear as filler, not meaningful content.\n"
-                    "3. vocabulary: domain-specific or preferred terms the speaker consistently uses.\n"
-                    "Return ONLY valid JSON: {\"corrections\": {}, \"fillers\": [], \"vocabulary\": []}\n"
-                    "If nothing to extract, return empty collections. Be conservative — only "
-                    "include patterns you're confident about."
-                )},
-                {"role": "user", "content": pairs}
-            ],
-            max_tokens=300,
-            temperature=0
-        )
-        text = (resp.choices[0].message.content or "").strip()
-        # Strip markdown fences if present
-        if text.startswith("```"):
-            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-        learnings = json.loads(text)
-    except (json.JSONDecodeError, Exception) as e:
-        log(f"Learn: parse failed ({e})", "error")
+        stats_inc("api_calls")
+        if is_authenticated():
+            learnings = learn_profile_via_backend(pairs)
+            log("Learn: signed-in backend completed", "info")
+        else:
+            learnings = learning_backend.learn_from_pairs(client, MODEL, pairs)
+            log("Learn: local API key completed", "info")
+    except Exception as e:
+        log(f"Learn: request failed ({e})", "error")
         return
 
     with _profile_lock:
@@ -6778,7 +6785,9 @@ def _clean_and_filter_text(raw_text, whisper_low_conf, current_layer):
          deterministic punctuation gives L1 paste readable output without a
          cloud round-trip. No-op when text already punctuated.
       4. apply_profile_corrections — L2+ so GPT sees learned fixes.
-      5. phonetic_match (Double Metaphone) — L2/L3 only. Catches mishears
+      5. Layer 3 profile phrase recovery — catches low-confidence phonetic
+         variants of saved corrections and multiword preferred vocabulary.
+      6. phonetic_match (Double Metaphone) — L2/L3 only. Catches mishears
          that aren't explicit correction pairs ("smyth" → "Smith"). Skipped at
          L1 (paste-raw, no LLM benefit) and L4 (Sonnet ext-think handles
          phonetic context via the onset_weights prompt block).
@@ -6788,6 +6797,23 @@ def _clean_and_filter_text(raw_text, whisper_low_conf, current_layer):
     filtered_text = repunctuate(filtered_text)
     if current_layer >= 2:
         filtered_text = apply_profile_corrections(filtered_text, profile)
+    if current_layer >= 3:
+        low_conf_texts = [
+            str(segment.get("text", ""))
+            for segment in (whisper_low_conf or [])
+            if isinstance(segment, dict) and segment.get("text")
+        ]
+        filtered_text, profile_matches = profile_terms.apply_profile_terms(
+            filtered_text,
+            profile,
+            low_conf_texts=low_conf_texts,
+        )
+        for match in profile_matches:
+            log(
+                f"Layer 3 profile: \"{match['heard']}\" -> "
+                f"\"{match['term']}\" ({match['kind']})",
+                "info",
+            )
     if 2 <= current_layer <= 3:
         filtered_text = phonetic_match(
             filtered_text,
@@ -7137,10 +7163,18 @@ def pipeline():
                     )
                     if _backend_result.get("rewrite_attempts", 1) > 1:
                         log(
-                            "Layer 2 rewrite repaired after "
+                            f"Layer {current_layer} rewrite repaired after "
                             f"{_backend_result['rewrite_attempts']} attempts",
                             "info",
                         )
+                    for match in _backend_result.get("profile_matches", []):
+                        if isinstance(match, dict):
+                            log(
+                                f"Layer 3 backend profile: "
+                                f"\"{match.get('heard', '')}\" -> "
+                                f"\"{match.get('term', '')}\"",
+                                "info",
+                            )
                     # Ignore the backend's legacy `falcon_ok` compatibility
                     # field. SAFE mode applies the same deterministic local
                     # meaning guard to every reconstruction route below.
@@ -7194,7 +7228,7 @@ def pipeline():
             # SAFE mode uses deterministic meaning retention below. The former
             # second-AI/Falcon validator was retired; do not imply it ran.
             if current_mode == "SAFE" and clean_text and not used_fallback:
-                if len(filtered_text.split()) <= 3 and current_layer != 2:
+                if len(filtered_text.split()) <= 3 and current_layer not in (2, 3):
                     falcon_ok = True
                     clean_text = filtered_text
                     log(f"Meaning guard: original kept (short utterance -- {len(filtered_text.split())} words)", "info")
@@ -8886,14 +8920,43 @@ def handle_POST_api_reconstruct_test(body=None) -> dict:
         _t0 = _t.time()
         raw_text = body['raw']
         tone = body.get('tone', current_tone)
-        layer = body.get('layer', current_layer)
+        layer = int(body.get('layer', current_layer))
         situation = body.get('situation', current_situation)
-        filtered = strip_disfluencies(raw_text)
+        mode = body.get('mode', current_mode)
+        whisper_low_conf = body.get('whisper_low_conf', [])
+        if not isinstance(whisper_low_conf, list):
+            whisper_low_conf = []
+        filtered = _clean_and_filter_text(
+            raw_text, whisper_low_conf, layer
+        )
         clean_text = filtered
         meaning_guard_ok = True
+        backend_result = {}
         if layer >= 2:
             try:
-                clean_text = reconstruct(filtered, tone, layer, profile, situation=situation)
+                if is_authenticated():
+                    clean_text, _legacy_guard, backend_result = reconstruct_via_backend(
+                        filtered,
+                        tone,
+                        layer,
+                        profile,
+                        situation=situation,
+                        mode=mode,
+                        whisper_low_conf=whisper_low_conf,
+                    )
+                    if clean_text is None:
+                        raise RuntimeError(
+                            backend_result.get('error', 'backend returned no text')
+                        )
+                else:
+                    clean_text = reconstruct(
+                        filtered,
+                        tone,
+                        layer,
+                        profile,
+                        situation=situation,
+                        whisper_low_conf=whisper_low_conf,
+                    )
             except Exception as e:
                 log(f'reconstruct_test failed: {e}', 'error')
                 clean_text = filtered
@@ -8917,9 +8980,12 @@ def handle_POST_api_reconstruct_test(body=None) -> dict:
         return {
             'raw': raw_text, 'filtered': filtered, 'clean': clean_text,
             'tone': tone, 'layer': layer, 'situation': situation,
+            'mode': mode,
             'meaning_guard_ok': meaning_guard_ok,
             # Backward-compatible field for the historical benchmark harness.
             'falcon_ok': meaning_guard_ok,
+            'rewrite_attempts': backend_result.get('rewrite_attempts', 1),
+            'profile_matches': backend_result.get('profile_matches', []),
             'wer': wer, 'recon_ms': _ms, 'pipeline': 'lavrentiy',
         }
     except Exception as e:

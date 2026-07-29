@@ -15,6 +15,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'wim', 'api'))
 
 import reconstruct as R
 import prompt_builder as PB  # SITUATION_SEVERITY/TONE_TEMP live here; reconstruct re-exports only TONE_TEMP
+import learning_backend as LB
+import profile_terms as PT
 
 passed = 0
 failed = 0
@@ -141,6 +143,61 @@ check('shared Layer 2 runner retries identity output',
       retry_count == 2)
 check('shared Layer 2 runner returns material rewrite',
       retry_result == 'Please do not send it to George.')
+
+print()
+print('=== TEST 3B: Layer 3 profile term recovery ===')
+
+def _fake_metaphone(value):
+    normalized = ' '.join(re.findall(r"[A-Za-z]+", value.lower()))
+    return {
+        'count': ('KNT', ''),
+        'cloth': ('KL0', 'KLT'),
+        'claude': ('KLT', ''),
+        'yellow flag': ('ALFLK', ''),
+        'yolo flag': ('ALFLK', ''),
+        'powershell': ('PRXL', ''),
+        'could': ('KLT', ''),
+    }.get(normalized, ('', ''))
+
+layer3_profile = {
+    'corrections': {'cloth': 'Claude'},
+    'vocabulary': ['YOLO flag', 'PowerShell'],
+}
+profile_fixed, profile_matches = PT.apply_profile_terms(
+    'Tell count to check the yellow flag in PowerShell.',
+    layer3_profile,
+    low_conf_texts=['Tell count to check the yellow flag in PowerShell.'],
+    encoder=_fake_metaphone,
+)
+check('Layer 3 recovers phonetic correction outside exact saved key',
+      'Claude' in profile_fixed and 'count' not in profile_fixed)
+check('Layer 3 recovers multiword preferred vocabulary',
+      'YOLO flag' in profile_fixed and 'yellow flag' not in profile_fixed)
+check('Layer 3 reports the profile matches it applied',
+      {m['heard'].lower() for m in profile_matches} >= {'count', 'yellow flag'})
+
+blocked_fixed, _ = PT.apply_profile_terms(
+    'I could help.',
+    layer3_profile,
+    low_conf_texts=['I could help.'],
+    encoder=_fake_metaphone,
+)
+check('Layer 3 does not rewrite a common helper word to Claude',
+      blocked_fixed == 'I could help.')
+
+parsed_learning = LB.parse_learning_response(
+    '```json\n{"corrections":{"cloth":"Claude"},'
+    '"fillers":[],"vocabulary":["YOLO flag"]}\n```'
+)
+check('Layer 3 learning parser accepts fenced valid JSON',
+      parsed_learning['corrections'] == {'cloth': 'Claude'})
+try:
+    LB.parse_learning_response('{"corrections":[]}')
+    invalid_learning_rejected = False
+except LB.LearningResponseError:
+    invalid_learning_rejected = True
+check('Layer 3 learning parser rejects an invalid profile shape',
+      invalid_learning_rejected)
 
 print()
 print('=== TEST 4: build_prompt — situations ===')
@@ -380,6 +437,41 @@ try:
     check('L3: prompt includes corrections', 'Duncan' in system_msg or 'Dankeschoen' in system_msg)
     check('L3: model is pinned gpt-4o snapshot', api_call['model'].startswith('gpt-4o'))
     check('L3 formal: low temperature', api_call['temperature'] == 0.1)
+
+    # The exact failed production sentence: saved profile terms must be
+    # restored before the model sees it, and unchanged Layer 3 output must
+    # trigger the same repair retry as Layer 2.
+    original_profile_encoder = PT._doublemetaphone
+    try:
+        PT._doublemetaphone = _fake_metaphone
+        R.client = SequenceClient([
+            'Tell Claude to check the YOLO flag in PowerShell.',
+            'Please tell Claude to check the YOLO flag in PowerShell.',
+        ])
+        exact_layer3 = R.reconstruct_intent(
+            'Tell count to check the yellow flag in PowerShell.',
+            tone='casual',
+            layer=3,
+            mode='SAFE',
+            profile=layer3_profile,
+            whisper_low_conf=[{
+                'text': 'Tell count to check the yellow flag in PowerShell.',
+                'avg_logprob': -0.8,
+            }],
+        )
+    finally:
+        PT._doublemetaphone = original_profile_encoder
+    layer3_api_call = R.client.chat.completions.calls[0]
+    check('Layer 3 sends recovered profile spelling to the model',
+          'Claude' in layer3_api_call['messages'][1]['content']
+          and 'YOLO flag' in layer3_api_call['messages'][1]['content'])
+    check('Layer 3 identity output triggers a repair retry',
+          len(R.client.chat.completions.calls) == 2)
+    check('Layer 3 returns the reconstructed profile-aware sentence',
+          exact_layer3['clean']
+          == 'Please tell Claude to check the YOLO flag in PowerShell.')
+    check('Layer 3 returns applied profile match evidence',
+          len(exact_layer3['profile_matches']) >= 2)
 
     # L4 model selection
     R.client = FakeClient()
