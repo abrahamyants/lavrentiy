@@ -4693,11 +4693,11 @@ function _setL1FromDetect(lang){
 }
 
 function renderLearn(){
-  const t=learnData.totals||{};
-  document.getElementById('l-corrections').textContent=t.corrections||0;
-  document.getElementById('l-fillers').textContent=t.fillers||0;
-  document.getElementById('l-vocab').textContent=t.vocabulary||0;
-  document.getElementById('l-triggers').textContent=t.triggers||0;
+  const totals=learnData.totals||{};
+  document.getElementById('l-corrections').textContent=totals.corrections||0;
+  document.getElementById('l-fillers').textContent=totals.fillers||0;
+  document.getElementById('l-vocab').textContent=totals.vocabulary||0;
+  document.getElementById('l-triggers').textContent=totals.triggers||0;
   // Edit distance + redos
   const edEl=document.getElementById('l-editdist');
   if(edEl){

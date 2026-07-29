@@ -1086,6 +1086,8 @@ check('cost is not calculated from all sessions',
       'st.sessions*0.0032' not in dashboard_source)
 check('learning totals render even with zero new events',
       'lastLearnEventCount=learnData.events.length;renderLearn();' in dashboard_source)
+check('empty learning feed can call the translation helper',
+      'const totals=learnData.totals||{};' in dashboard_source)
 check('pause trend uses fluency endpoint data',
       "const trend=fluencyData?.pause_trend||'no_data';" in dashboard_source)
 
