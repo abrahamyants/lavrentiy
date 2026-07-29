@@ -4753,7 +4753,7 @@ _PROPER_NOUN_RE = re.compile(r"\b[A-Z][a-z]{1,}\b")
 _PROPER_NOUN_EXCLUDE = {
     "A", "An", "And", "Are", "As", "At", "But", "By", "Can", "Could",
     "Do", "For", "From", "How", "I", "If", "In", "Is", "It", "My",
-    "No", "Not", "On", "Or", "Please", "Set", "Show", "Tell", "The",
+    "No", "Not", "Okay", "On", "Or", "Please", "Set", "Show", "Tell", "The",
     "This", "To", "Turn", "What", "When", "Where", "Which", "Who", "Why",
     "Will", "With", "Would", "You", "Your",
 }
@@ -4775,7 +4775,17 @@ def _check_critical_retention(raw_text, clean_text):
     )
     clean_lower = clean_text.lower()
     lost = [t for t in critical if t.lower() not in clean_lower]
-    if _NEGATION_RE.search(raw_text) and not _NEGATION_RE.search(clean_text):
+    raw_whether_or_not = bool(re.search(
+        r"\bwhether\b[^.?!]*\bor\s+not\b", raw_text, re.IGNORECASE
+    ))
+    clean_keeps_uncertainty = bool(re.search(
+        r"\b(?:whether|if)\b", clean_text, re.IGNORECASE
+    ))
+    if (
+        _NEGATION_RE.search(raw_text)
+        and not _NEGATION_RE.search(clean_text)
+        and not (raw_whether_or_not and clean_keeps_uncertainty)
+    ):
         lost.append("<negation>")
     return lost
 

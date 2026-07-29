@@ -86,6 +86,28 @@ check('L4 has onset weights', '/c/' in p_l4)
 # size; the meaningful invariant is L4-specific clinical content presence.
 check('L4 has clinical phoneme content', 'HARDEST PHONEMES' in p_l4)
 check('L2 has prose-restate scaffolding', 'ALWAYS RESTATE' in p_l2)
+check('L2 prompt names the active product layer',
+      'Layer 2 reconstruction' in p_l2)
+check('L2 prompt protects action-changing negation',
+      'PRESERVE action-changing negation' in p_l2)
+check('L3 prompt names the active product layer',
+      'Layer 3 profile' in p_l3)
+check('L4 prompt names the active product layer',
+      'Layer 4 advanced assist' in p_l4)
+
+guard = R.meaning_guard.guard(
+    "Okay, check whether the filters work or not.",
+    "Check whether the filters work.",
+)
+check('meaning guard does not treat sentence-opening Okay as a name',
+      guard['lost'] == [])
+
+guard = R.meaning_guard.guard(
+    "Okay, now I'm testing weakest reduction to see whether it works or not.",
+    "Okay, now I'm testing Layer 2 reconstruction to see whether it works.",
+)
+check('meaning guard allows contextual Layer 2 ASR correction',
+      guard['ok'] is True)
 
 print()
 print('=== TEST 4: build_prompt — situations ===')
@@ -526,7 +548,7 @@ check('L2 has subject-verb-close-together rule',
 check('L2 has everyday-words rule',
       'Use everyday words' in p_l2)
 check('L2 has simple-active-declarative rule',
-      'simple, active, affirmative, declarative' in p_l2)
+      'simple, active, direct, and declarative' in p_l2)
 check('L2 has "let me rephrase" self-correction marker',
       'let me rephrase' in p_l2)
 check('L2 has DO-NOT-summarize hard rule',

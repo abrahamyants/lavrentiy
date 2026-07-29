@@ -405,6 +405,18 @@ if crit:
     lost = crit("Never send it to Maria", "Do not send it to Maria.")
     check('equivalent negation retained', '<negation>' not in lost)
 
+    lost = crit(
+        "Okay, check whether the filters work or not.",
+        "Check whether the filters work or not.",
+    )
+    check('sentence-opening Okay is not treated as a name', lost == [])
+
+    lost = crit(
+        "Check whether the filters work or not.",
+        "Check whether the filters work.",
+    )
+    check('whether keeps the uncertainty in whether-or-not', lost == [])
+
     # Empty inputs
     lost = crit("", "hello")
     check('empty raw -> empty', lost == [])
