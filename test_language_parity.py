@@ -21,7 +21,7 @@ TRANSLATED_INTERFACES = {"en", "es", "ru", "pt", "fr"}
 PIPELINE_ONLY = {"ar", "de", "hi", "it", "ja", "ko", "zh"}
 
 
-def test_dashboard_exposes_five_translated_interfaces():
+def test_dashboard_exposes_all_pipeline_languages_in_one_picker():
     dashboard = (ROOT / "dashboard.html").read_text(encoding="utf-8")
     select = re.search(
         r'<select[^>]+id="ui-language-select".*?</select>',
@@ -30,8 +30,14 @@ def test_dashboard_exposes_five_translated_interfaces():
     )
     assert select, "Missing interface-language picker"
     options = set(re.findall(r'<option value="([a-z]{2})">', select.group(0)))
-    assert options == TRANSLATED_INTERFACES
+    assert options == PIPELINE_LANGUAGES
+    assert (
+        "const APP_LANGUAGES=['en','es','ru','pt','fr','ar','de','hi','it','ja','ko','zh'];"
+        in dashboard
+    )
     assert "const UI_LANGUAGES=['en','es','ru','pt','fr'];" in dashboard
+    assert "UI_LANGUAGES.includes(lang)?lang:'en'" in dashboard
+    assert "body:JSON.stringify({language:lang})" in dashboard
 
 
 def test_translated_interfaces_are_complete_and_markup_safe():
@@ -67,12 +73,18 @@ def test_translation_pack_matches_current_dashboard_english():
     end = dashboard.index("\n};", start) + 2
     javascript = dashboard[start:end]
     node = (
-        "const vm=require('vm');"
-        "const data=vm.runInNewContext('('+process.argv[1]+')');"
+        "const fs=require('fs'),vm=require('vm');"
+        "const source=fs.readFileSync(0,'utf8');"
+        "const data=vm.runInNewContext('('+source+')');"
         "process.stdout.write(JSON.stringify(data));"
     )
     current = json.loads(
-        subprocess.check_output(["node", "-e", node, javascript], text=True)
+        subprocess.check_output(
+            ["node", "-e", node],
+            input=javascript,
+            text=True,
+            encoding="utf-8",
+        )
     )
     pack = json.loads(
         (ROOT / "lang_packs" / "dashboard_i18n_multilang.json").read_text(
@@ -80,9 +92,16 @@ def test_translation_pack_matches_current_dashboard_english():
         )
     )
     assert set(current) == set(pack) - {"_meta"}
-    assert {key: value["en"] for key, value in current.items()} == {
+    current_english = {key: value["en"] for key, value in current.items()}
+    packed_english = {
         key: value["en"] for key, value in pack.items() if key != "_meta"
     }
+    mismatches = {
+        key: (current_english.get(key), packed_english.get(key))
+        for key in current_english.keys() | packed_english.keys()
+        if current_english.get(key) != packed_english.get(key)
+    }
+    assert not mismatches, mismatches
 
 
 def test_all_pipeline_language_packs_are_present_in_both_runtimes():
