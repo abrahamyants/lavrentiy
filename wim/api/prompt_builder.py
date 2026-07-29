@@ -17,6 +17,7 @@ keeps the two callers seeing the same modules they would have seen pre-refactor.
 """
 
 import json
+import re
 from pathlib import Path
 
 import l1_pack
@@ -689,6 +690,108 @@ def _pb_current_layer_context(layer):
         "insert the layer name into unrelated dictation."
         + example
     )
+
+
+L2_MAX_REWRITE_ATTEMPTS = 3
+
+
+def is_effectively_unchanged(raw_text, reconstructed_text):
+    """True when Layer 2 changed only case, punctuation, or whitespace."""
+    def _words(text):
+        return re.findall(r"\w+", (text or "").casefold(), flags=re.UNICODE)
+
+    raw_words = _words(raw_text)
+    return bool(raw_words) and raw_words == _words(reconstructed_text)
+
+
+def layer2_rewrite_needs_retry(raw_text, reconstructed_text,
+                               lost=None, invented=None):
+    """Layer 2 must produce a non-identity rewrite that passes the guard."""
+    return (
+        not (reconstructed_text or "").strip()
+        or is_effectively_unchanged(raw_text, reconstructed_text)
+        or bool(lost)
+        or bool(invented)
+    )
+
+
+def build_layer2_repair_instruction(raw_text, reconstructed_text,
+                                    lost=None, invented=None):
+    """Tell the model why its Layer 2 rewrite was rejected and require repair."""
+    lost = list(lost or [])
+    invented = list(invented or [])
+    reasons = []
+    if not (reconstructed_text or "").strip():
+        reasons.append("- The previous answer was empty.")
+    elif is_effectively_unchanged(raw_text, reconstructed_text):
+        reasons.append(
+            "- The previous answer merely repeated the transcript. "
+            "Use different wording or sentence structure."
+        )
+    if lost:
+        anchors = [item for item in lost if item != "<negation>"]
+        if anchors:
+            reasons.append(
+                "- It dropped protected content. Preserve these exact items: "
+                + ", ".join(repr(item) for item in anchors)
+                + "."
+            )
+        if "<negation>" in lost:
+            reasons.append(
+                "- It changed negative meaning. Keep the original negation explicit."
+            )
+    if invented:
+        reasons.append(
+            "- It invented protected content. Remove these unsupported items: "
+            + ", ".join(repr(item) for item in invented)
+            + "."
+        )
+    return (
+        "RECONSTRUCTION REPAIR REQUIRED.\n"
+        + "\n".join(reasons)
+        + "\nRewrite the original transcript again. Produce a materially different, "
+        "natural reconstruction while preserving every fact and instruction. "
+        "Return only the rewritten text on one line."
+    )
+
+
+def run_layer2_rewrite(raw_text, messages, rewrite_once, guard_once,
+                       on_retry=None, max_attempts=L2_MAX_REWRITE_ATTEMPTS):
+    """Run Layer 2 until it is both materially rewritten and guard-approved."""
+    messages = list(messages)
+    clean_text = ""
+    guard_result = {"lost": [], "invented": []}
+    attempts = 0
+    for attempt_index in range(max_attempts):
+        clean_text = (rewrite_once(messages, attempt_index) or "").strip()
+        attempts += 1
+        guard_result = guard_once(clean_text) or {"lost": [], "invented": []}
+        lost = list(guard_result.get("lost") or [])
+        invented = list(guard_result.get("invented") or [])
+        if not layer2_rewrite_needs_retry(
+            raw_text,
+            clean_text,
+            lost=lost,
+            invented=invented,
+        ):
+            break
+        if attempt_index + 1 >= max_attempts:
+            break
+        if on_retry:
+            on_retry(attempts, clean_text, guard_result)
+        messages.extend([
+            {"role": "assistant", "content": clean_text},
+            {
+                "role": "user",
+                "content": build_layer2_repair_instruction(
+                    raw_text,
+                    clean_text,
+                    lost=lost,
+                    invented=invented,
+                ),
+            },
+        ])
+    return clean_text, attempts, guard_result
 
 
 def _pb_layer4_onset_hint(personal_onset_weights, profile):

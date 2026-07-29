@@ -30,7 +30,15 @@ except ImportError:
     anthropic = None
 
 import meaning_guard
-from prompt_builder import build_prompt, build_completion_prompt, TONE_TEMP, SITUATION_SEVERITY
+from prompt_builder import (
+    L2_MAX_REWRITE_ATTEMPTS,
+    SITUATION_SEVERITY,
+    TONE_TEMP,
+    build_completion_prompt,
+    build_prompt,
+    is_effectively_unchanged,
+    run_layer2_rewrite,
+)
 
 # ─── Config ───
 # Model pinned to a specific snapshot so silent OpenAI version drift can't
@@ -269,17 +277,51 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
                 str(e)[:120], use_model)
             clean_text = ""
 
+    rewrite_attempts = 1 if clean_text else 0
     if not clean_text:
-        resp = client.chat.completions.create(
-            model=use_model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": raw_text}
-            ],
-            max_tokens=max_out,
-            temperature=temp
-        )
-        clean_text = (resp.choices[0].message.content or "").strip()
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": raw_text},
+        ]
+
+        def _rewrite_once(rewrite_messages, attempt_index):
+            resp = client.chat.completions.create(
+                model=use_model,
+                messages=rewrite_messages,
+                max_tokens=max_out,
+                temperature=temp if attempt_index == 0 else min(temp, 0.1),
+            )
+            return (resp.choices[0].message.content or "").strip()
+
+        if layer == 2:
+            def _guard_once(candidate):
+                return meaning_guard.guard(
+                    raw_text,
+                    candidate,
+                    vocabulary=profile.get("vocabulary"),
+                )
+
+            def _log_retry(attempts, candidate, retry_guard):
+                logging.warning(
+                    "Layer 2 rewrite rejected on attempt %s: lost=%s "
+                    "invented=%s unchanged=%s — retrying",
+                    attempts,
+                    retry_guard.get("lost", []),
+                    retry_guard.get("invented", []),
+                    is_effectively_unchanged(raw_text, candidate),
+                )
+
+            clean_text, rewrite_attempts, _retry_guard = run_layer2_rewrite(
+                raw_text,
+                messages,
+                _rewrite_once,
+                _guard_once,
+                on_retry=_log_retry,
+                max_attempts=L2_MAX_REWRITE_ATTEMPTS,
+            )
+        else:
+            clean_text = _rewrite_once(messages, 0)
+            rewrite_attempts = 1
         served_model = use_model
 
     falcon_ok = True
@@ -308,13 +350,15 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
             raw_text, clean_text,
             vocabulary=(profile or {}).get("vocabulary"),
         )
+        if layer == 2 and is_effectively_unchanged(raw_text, clean_text):
+            guard_result["unchanged"] = True
+            guard_result["ok"] = False
         if mode == "SAFE" and not guard_result["ok"]:
-            # Falling back to the rule-stripped raw text is the conservative
-            # move: a slightly rougher sentence the speaker actually said beats
-            # a fluent one containing a name or figure they did not.
             logging.warning(
-                "meaning guard tripped: lost=%s invented=%s — falling back to raw",
+                "Layer 2 repair attempts exhausted: lost=%s invented=%s "
+                "unchanged=%s — reconstruction unavailable",
                 guard_result["lost"], guard_result["invented"],
+                guard_result.get("unchanged", False),
             )
             clean_text = strip_disfluencies(raw_text)
             falcon_ok = False
@@ -334,6 +378,7 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
         "tone": tone,
         "layer": layer,
         "model": served_model,
+        "rewrite_attempts": rewrite_attempts,
         # Surfaced so the desktop console and the WiM bubble can tell the user
         # something was dropped or invented rather than silently handing them a
         # sentence that reads fine.

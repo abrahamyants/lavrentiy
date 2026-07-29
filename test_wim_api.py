@@ -109,6 +109,39 @@ guard = R.meaning_guard.guard(
 check('meaning guard allows contextual Layer 2 ASR correction',
       guard['ok'] is True)
 
+check('Layer 2 detects identity output as needing retry',
+      PB.layer2_rewrite_needs_retry(
+          'The project is ready.', 'The project is ready.'
+      ))
+check('Layer 2 accepts a materially different safe rewrite',
+      not PB.layer2_rewrite_needs_retry(
+          'The project is ready.', 'The project is ready to go.'
+      ))
+repair_prompt = PB.build_layer2_repair_instruction(
+    'Do not send $500 to George.',
+    'Send the money.',
+    lost=['500', 'George', '<negation>'],
+)
+check('Layer 2 repair prompt names lost anchors',
+      '500' in repair_prompt and 'George' in repair_prompt)
+check('Layer 2 repair prompt protects negation',
+      'negation' in repair_prompt.lower())
+
+retry_outputs = iter([
+    'Do not send it to George.',
+    'Please do not send it to George.',
+])
+retry_result, retry_count, retry_guard = PB.run_layer2_rewrite(
+    'Do not send it to George.',
+    [{'role': 'user', 'content': 'Do not send it to George.'}],
+    lambda messages, attempt: next(retry_outputs),
+    lambda candidate: {'lost': [], 'invented': []},
+)
+check('shared Layer 2 runner retries identity output',
+      retry_count == 2)
+check('shared Layer 2 runner returns material rewrite',
+      retry_result == 'Please do not send it to George.')
+
 print()
 print('=== TEST 4: build_prompt — situations ===')
 
@@ -248,6 +281,23 @@ class FakeClient:
     def __init__(self):
         self.chat = FakeChat()
 
+
+class SequenceCompletions:
+    def __init__(self, outputs):
+        self.outputs = list(outputs)
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        index = min(len(self.calls) - 1, len(self.outputs) - 1)
+        return FakeResponse(self.outputs[index])
+
+
+class SequenceClient:
+    def __init__(self, outputs):
+        self.chat = type('Chat', (), {})()
+        self.chat.completions = SequenceCompletions(outputs)
+
 # Monkey-patch the module's client
 original_client = R.client
 original_anthropic_client = R.anthropic_client
@@ -282,6 +332,38 @@ try:
     r3 = R.reconstruct_intent('um hello world', tone='casual', layer=2, mode='SAFE')
     check('L2 SAFE: 1 API call (falcon retired)', len(R.client.chat.completions.calls) == 1)
     check('L2 SAFE: falcon_ok = True (stub)', r3['falcon_ok'] is True)
+
+    # A rejected Layer 2 rewrite is repaired, not immediately replaced by raw.
+    R.client = SequenceClient([
+        'Send it to Maria.',
+        'Please do not send it to Maria.',
+    ])
+    repaired = R.reconstruct_intent(
+        'Do not send it to Maria.', tone='casual', layer=2, mode='SAFE'
+    )
+    check('L2 guard rejection triggers a second rewrite',
+          len(R.client.chat.completions.calls) == 2)
+    check('L2 repaired rewrite is pasted instead of raw',
+          repaired['clean'] == 'Please do not send it to Maria.')
+    check('L2 reports repair attempt count',
+          repaired['rewrite_attempts'] == 2)
+    check('L2 repaired rewrite passes guard',
+          repaired['meaning_guard']['ok'] is True)
+
+    # A clean transcript still gets a materially different reconstruction.
+    R.client = SequenceClient([
+        'The project is ready.',
+        'The project is ready to go.',
+    ])
+    restated = R.reconstruct_intent(
+        'The project is ready.', tone='casual', layer=2, mode='SAFE'
+    )
+    check('L2 identity output triggers a second rewrite',
+          len(R.client.chat.completions.calls) == 2)
+    check('L2 clean transcript is still reconstructed',
+          restated['clean'] == 'The project is ready to go.')
+    check('L2 identity repair passes guard',
+          restated['meaning_guard']['ok'] is True)
 
     # Falcon-rejection scenarios are no longer reachable — stub always returns
     # True. Prior tests at this location (falcon_ok=False / strip_disfluencies
