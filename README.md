@@ -64,7 +64,7 @@ Mic → Whisper (Script Prep seed | verbose JSON | multi-temp voting)
 
 ## Historical engineering notebook — not current release documentation
 
-Everything from this heading through the changelog is retained as project history. It includes superseded experiments, names, layers, clinical framing, Falcon claims, and an old WiM PWA. Do not treat it as a description of v1.7.2. The current Android product lives at <https://github.com/gugosf114/wim-android>.
+Everything from this heading through the changelog is retained as project history. It includes superseded experiments, names, layers, clinical framing, Falcon claims, and an old WiM PWA. Do not treat it as a description of v1.7.3. The current Android product lives at <https://github.com/gugosf114/wim-android>.
 
 ## What I Meant (WIM) — historical PWA
 

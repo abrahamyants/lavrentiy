@@ -14,7 +14,7 @@ Lavrentiy does **not** diagnose a speech condition, measure clinical severity, o
 
 Go to: **https://github.com/gugosf114/lavrentiy/releases/latest**
 
-Click `Lavrentiy-Setup-v1.7.1.exe`. The installer is large because it includes the local English speech-recognition model.
+Click `Lavrentiy-Setup-v1.7.3.exe`. The installer is large because it includes the local English speech-recognition model.
 
 That's the only file you need. There's no separate "trial" or "free" version. The download is the full app.
 
@@ -22,7 +22,7 @@ That's the only file you need. There's no separate "trial" or "free" version. Th
 
 ## Install
 
-1. Double-click `Lavrentiy-Setup-v1.7.1.exe`.
+1. Double-click `Lavrentiy-Setup-v1.7.3.exe`.
 
 2. **You may see "Windows protected your PC."** The installer is not code-signed. Click **More info → Run anyway**. Windows may show this again for a future unsigned installer version; ordinary app launches normally do not show it.
 
@@ -125,9 +125,9 @@ Three causes:
 
 ### "I signed in but my old learned data isn't there."
 
-Make sure you're on **v1.7.1 or newer**.
+Make sure you're on **v1.7.3 or newer**.
 
-If you're on v1.7.1 and still see an empty profile after sign-in:
+If you're on v1.7.3 and still see an empty profile after sign-in:
 - Check `%USERPROFILE%\.lavrentiy\engine_err.log` for any "Profile pull from cloud failed" messages.
 - Wait 30 seconds, sign out, sign back in.
 

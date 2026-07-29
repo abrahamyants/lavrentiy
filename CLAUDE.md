@@ -169,7 +169,7 @@ pyinstaller --noconfirm Lavrentiy-onedir.spec
 
 # 2. Compile Inno Setup installer
 "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" installer/Lavrentiy.iss
-# Produces installer/Output/Lavrentiy-Setup-v1.7.1.exe (per-user install, no admin)
+# Produces installer/Output/Lavrentiy-Setup-v1.7.3.exe (per-user install, no admin)
 ```
 
 ### Smoke test before declaring v1.x ready

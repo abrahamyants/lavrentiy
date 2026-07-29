@@ -10,7 +10,7 @@ Lavrentiy was created by Gurgen Abrahamyants, a political refugee from Armenia w
 
 ## Install
 
-1. Download `Lavrentiy-Setup-v1.7.1.exe` from <https://github.com/gugosf114/lavrentiy/releases/latest>.
+1. Download `Lavrentiy-Setup-v1.7.3.exe` from <https://github.com/gugosf114/lavrentiy/releases/latest>.
 2. If Windows shows **Windows protected your PC**, select **More info → Run anyway**. V1 is not code-signed.
 3. Complete the installer and open the single **Lavrentiy** shortcut.
 

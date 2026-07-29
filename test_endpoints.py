@@ -242,6 +242,9 @@ ns['log'] = lambda msg, level='info': None
 ns['stats_inc'] = lambda key, n=1: None
 ns['save_profile'] = lambda prof, _epoch=None: None
 ns['db_session_count'] = lambda: 50
+ns['db_dashboard_stats'] = lambda: {
+    'words': 321, 'sessions': 12, 'avg_wpm': 99, 'wpm_samples': 4,
+}
 ns['db_get_sessions'] = lambda limit=50: []
 def _stub_daf_start(ms=None):
     ns['_daf_active'] = True
@@ -314,11 +317,15 @@ try:
     check('has mode', 'mode' in r)
     check('has situation', 'situation' in r)
     check('has stats', 'stats' in r)
+    check('has persistent history_stats', 'history_stats' in r)
     check('has model', 'model' in r)
     check('state = idle', r['state'] == 'idle')
     check('tone = casual', r['tone'] == 'casual')
     check('layer = 2', r['layer'] == 2)
     check('mode = SAFE', r['mode'] == 'SAFE')
+    check('persistent word total returned', r['history_stats']['words'] == 321)
+    check('persistent session total returned', r['history_stats']['sessions'] == 12)
+    check('persistent average WPM returned', r['history_stats']['avg_wpm'] == 99)
 except Exception as e:
     check(f'GET /api/state failed: {e}', False)
 
@@ -1026,6 +1033,61 @@ print('=== ASR source labels ===')
 check('zero API calls reports local', ns['_asr_source_label'](0) == 'local')
 check('one API call reports cloud', ns['_asr_source_label'](1) == 'cloud:1call')
 check('multiple API calls report cloud count', ns['_asr_source_label'](3) == 'cloud:3calls')
+
+# ============================================================
+# Signed-in reconstruction usage accounting (mocked network)
+# ============================================================
+print()
+print('=== Signed-in reconstruction usage accounting ===')
+_orig_urlopen = urllib.request.urlopen
+_orig_stats_inc = ns['stats_inc']
+_counted_stats = {}
+
+class _FakeBackendResponse:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self):
+        return json.dumps({
+            'clean': 'Rewritten text.',
+            'falcon_ok': True,
+        }).encode('utf-8')
+
+try:
+    urllib.request.urlopen = lambda request, timeout=30: _FakeBackendResponse()
+    ns['stats_inc'] = lambda key, n=1: _counted_stats.__setitem__(
+        key, _counted_stats.get(key, 0) + n
+    )
+    clean, falcon_ok, result = ns['reconstruct_via_backend'](
+        'raw text', 'casual', 2, ns['profile']
+    )
+    check('signed-in reconstruction returns backend text', clean == 'Rewritten text.')
+    check('signed-in reconstruction succeeds', falcon_ok is True)
+    check('signed-in reconstruction counts one cloud call',
+          _counted_stats.get('api_calls') == 1)
+finally:
+    urllib.request.urlopen = _orig_urlopen
+    ns['stats_inc'] = _orig_stats_inc
+
+# ============================================================
+# Dashboard stat rendering contract
+# ============================================================
+print()
+print('=== Dashboard stat rendering contract ===')
+dashboard_source = Path('dashboard.html').read_text(encoding='utf-8')
+check('dashboard renders persistent history totals',
+      'const history=state.history_stats||st;' in dashboard_source)
+check('cost is calculated from current-run cloud calls',
+      'const cost=st.api_calls*0.0032;' in dashboard_source)
+check('cost is not calculated from all sessions',
+      'st.sessions*0.0032' not in dashboard_source)
+check('learning totals render even with zero new events',
+      'lastLearnEventCount=learnData.events.length;renderLearn();' in dashboard_source)
+check('pause trend uses fluency endpoint data',
+      "const trend=fluencyData?.pause_trend||'no_data';" in dashboard_source)
 
 # ============================================================
 # Shutdown
