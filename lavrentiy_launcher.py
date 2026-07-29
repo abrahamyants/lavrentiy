@@ -42,6 +42,15 @@ def _wait_for_port(port, timeout_s=60):
     return False
 
 
+def _port_is_open(port):
+    """Return immediately when an existing engine already owns the port."""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
 def _open_browser_when_ready():
     if _wait_for_port(DASHBOARD_PORT):
         try:
@@ -96,40 +105,49 @@ def _show_error_dialog(text, title='Lavrentiy'):
 
 
 def _run_native_window():
-    """Start engine + HTTP server in a non-daemon background thread, wait for
-    the port to bind, then open the pywebview/WebView2 window. Non-daemon so
-    closing the window does NOT kill the engine — user quits via tray.
+    """Open the native window, starting the engine only when it is not live.
+
+    The engine thread is non-daemon, so closing the window does not kill
+    global hotkeys. A later launcher process reconnects to that live engine.
 
     Logs every step to native_boot.log so silent failures are diagnosable."""
     _native_log("step 1: entered _run_native_window")
     _native_log(f"step 2: bundle_dir={_bundle_dir()} sys.executable={sys.executable}")
     _native_log(f"step 3: sys.argv={sys.argv}")
 
-    try:
-        import lavrentiy
-        _native_log("step 4: lavrentiy module imported")
-    except Exception as e:
-        _native_log(f"FAIL at step 4: lavrentiy import failed: {type(e).__name__}: {e}")
-        import traceback
-        _native_log(traceback.format_exc()[:1500])
-        _show_error_dialog(f"Failed to import Lavrentiy engine:\n{type(e).__name__}: {e}\n\nSee native_boot.log.")
-        sys.exit(1)
-
-    def _engine_target():
+    engine_already_running = _port_is_open(DASHBOARD_PORT)
+    if engine_already_running:
+        # Closing the native window intentionally leaves the engine alive for
+        # global hotkeys. A later shortcut click must reopen a window without
+        # importing lavrentiy again: the engine's single-instance mutex would
+        # terminate this second launcher during that import.
+        _native_log("step 4: existing engine detected; reopening native window")
+    else:
         try:
-            lavrentiy.start_engine(run_http_server=True, block=True)
+            import lavrentiy
+            _native_log("step 4: lavrentiy module imported")
         except Exception as e:
-            _native_log(f"engine thread crashed: {type(e).__name__}: {e}")
+            _native_log(f"FAIL at step 4: lavrentiy import failed: {type(e).__name__}: {e}")
+            import traceback
+            _native_log(traceback.format_exc()[:1500])
+            _show_error_dialog(f"Failed to import Lavrentiy engine:\n{type(e).__name__}: {e}\n\nSee native_boot.log.")
+            sys.exit(1)
 
-    threading.Thread(target=_engine_target, name="lavrentiy-engine",
-                     daemon=False).start()
-    _native_log("step 5: engine thread spawned (non-daemon)")
+        def _engine_target():
+            try:
+                lavrentiy.start_engine(run_http_server=True, block=True)
+            except Exception as e:
+                _native_log(f"engine thread crashed: {type(e).__name__}: {e}")
 
-    if not _wait_for_port(DASHBOARD_PORT, timeout_s=60):
-        _native_log("FAIL at step 6: engine never bound port 7878 within 60s")
-        _show_error_dialog("Lavrentiy engine failed to start. Check engine_err.log and native_boot.log.")
-        sys.exit(1)
-    _native_log("step 6: port 7878 is bound (engine up)")
+        threading.Thread(target=_engine_target, name="lavrentiy-engine",
+                         daemon=False).start()
+        _native_log("step 5: engine thread spawned (non-daemon)")
+
+        if not _wait_for_port(DASHBOARD_PORT, timeout_s=60):
+            _native_log("FAIL at step 6: engine never bound port 7878 within 60s")
+            _show_error_dialog("Lavrentiy engine failed to start. Check engine_err.log and native_boot.log.")
+            sys.exit(1)
+        _native_log("step 6: port 7878 is bound (engine up)")
 
     try:
         import webview

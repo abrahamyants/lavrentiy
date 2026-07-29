@@ -92,3 +92,6 @@ jobs:
 
       - name: Run speech rate tests
         run: python test_speech_rate.py -v
+
+      - name: Run desktop launcher tests
+        run: python test_launcher.py
