@@ -228,6 +228,7 @@ def _get_lang_part_word_example(code):
         "hi": "'म-म-मैं जाना चाहता हूँ' → 'मैं जाना चाहता हूँ'",
         "ar": "'ب-ب-بدي أروح' → 'بدي أروح'",
         "ko": "'ㄱ-ㄱ-가고 싶어요' → '가고 싶어요'",
+        "ru": "'п-п-привет, м-м-можем поговорить?' → 'Привет, можем поговорить?'",
     }.get(c, "'b-b-b-buy' → 'buy', 'Ca-ca-ca-can' → 'Can'")
 
 
@@ -240,6 +241,7 @@ def _get_lang_prolongation_example(code):
         "it": "'Mmmmmamma mia' → 'Mamma mia'",
         "pt": "'Sssssenhor, preciso...' → 'Senhor, preciso...'",
         "ja": "prolonged initial mora: 'かーーーく' → 'かく'",
+        "ru": "'Сссспасибо, я хотел спросить...' → 'Спасибо, я хотел спросить...'",
     }.get(c, "'mmmmaybe' → 'maybe', 'Sssssscience' → 'Science'")
 
 
@@ -252,6 +254,7 @@ def _get_lang_epenthesis_note(code):
         "it": "Italian may insert a transitional /i/ or /e/ at blocked clusters",
         "pt": "Portuguese may insert a transitional /i/ (BP) or /ə/ (EP) at blocked clusters",
         "hi": "Hindi: inherent /a/ vowel of Devanagari consonants can be extended during blocks",
+        "ru": "Russian epenthetic /ə/ (often heard as 'э') during blocked onset clusters (e.g. 'в-э-стреча' for 'встреча', 'з-э-дравствуйте' for 'здравствуйте') — Russian's dense clusters make this frequent",
     }.get(c, "schwa substitution: 'guh-guh-goat' → 'goat' (neutral /ə/ inserted in repeated clusters)")
 
 
@@ -264,6 +267,7 @@ def _get_lang_dialect_avoidance_note(code):
         "ja": "- Japanese casual/keigo register: an unexpected keigo form on a content word MAY indicate avoidance of a feared initial consonant (speculative — not established in Japanese stuttering literature). Preserve the speaker's chosen form.",
         "ko": "- Korean 반말/존댓말 register: an unexpected register shift MAY indicate phonemic avoidance (speculative — not established in Korean stuttering literature). Preserve the speaker's chosen form.",
         "ar": "- Arabic diglossia: an unexpected colloquial→MSA (عامية→فصحى) shift on a specific word MAY indicate register avoidance (speculative — not established in Arabic stuttering literature). Preserve the speaker's chosen register.",
+        "ru": "- Russian ты/Вы register: an unexpected Вы-form where ты is established MAY indicate avoidance of a /t/ onset (speculative — not established in Russian stuttering literature). Preserve the speaker's chosen form.",
     }.get(c, "")
 
 
@@ -273,6 +277,8 @@ def _get_lang_syllable_timing_note(code):
         return f"- {_lang_name(c)} is syllable-timed — anticipatory pauses are less prosodically marked than in English. Require both a filler cluster AND a hard-onset match before treating a pause as anticipatory."
     if c == "de":
         return "- German is stress-timed — anticipatory pauses have predictive weight similar to English."
+    if c == "ru":
+        return "- Russian is stress-timed with strong vowel reduction — anticipatory pauses have predictive weight similar to English."
     if c == "ja":
         return "- Japanese is mora-timed — stuttering occurs at mora boundaries, not English-style word-initial position."
     return ""
@@ -288,6 +294,7 @@ def _get_lang_epenthesis_corruption_note(code):
         "pt": "EPENTHETIC /i/ CORRUPTION: blocked clusters in BP may be transcribed with an intrusive /i/ (e.g. 'p-i-lanta' for 'planta')",
         "ja": "MORA CORRUPTION: repeated moras ('か-か-かく') may collapse into a single mora or a different katakana/hiragana character",
         "zh": "TONE CORRUPTION: repeated syllables in Mandarin may be transcribed with a wrong tone, producing a different word (same pinyin, different character)",
+        "ru": "CLUSTER CORRUPTION: Russian onset clusters (вз-, вс-, стр-, здр-) broken by a block may be transcribed as separate short words or with an intrusive vowel (e.g. 'в-э-стреча' → 'в эту встречу')",
     }.get(c, "SCHWA CORRUPTION: neutral vowel in repeated clusters → transcribed as a real word (e.g. 'buh-buh-blue' → 'but but blue' or 'above blue')")
 
 
@@ -300,6 +307,7 @@ def _get_lang_onset_caveat(code):
         "it": "Onset weights cite Zmarich et al. 2004. Italian is unaspirated — moderate extrapolation risk.",
         "pt": "Onset weights cite Juste et al. 2007, a pediatric study — adult onset weights are extrapolated; treat with lower confidence for adult users.",
         "ja": "Onset weights cite Umezaki et al. 1999. /k/ is the documented hard onset; words beginning with か行 (ka, ki, ku, ke, ko) are elevated-risk.",
+        "ru": "Onset weights are ADAPTED from cross-linguistic plosive data (Howell et al. 2004) — no Russian-specific published weights located. Russian's dense initial clusters (стр-, вз-, здр-) are additional high-risk sites; treat weights as directional, not cited.",
     }.get(c, "")
 
 
@@ -404,6 +412,17 @@ _LANG_FEW_SHOT = {
         "  RESULT:      '아니 아니, 그게 맞지 않아요'\n\n"
         "  CIRCUMLOCUTION:  '그... 쓰는 거 있잖아요... 필요해요'\n"
         "  RESULT:      '펜 필요해요'  [if context is clear]"
+    ),
+    "ru": (
+        "DISFLUENCY EXAMPLES (Russian):\n"
+        "  REPETITION:  'Я-я-я хотел с-с-сказать про в-в-встречу'\n"
+        "  RESULT:      'Я хотел сказать про встречу'\n\n"
+        "  EMPHATIC (PRESERVE):  'Нет нет, так не пойдёт'\n"
+        "  RESULT:      'Нет нет, так не пойдёт'\n\n"
+        "  CLUSTER BLOCK:  'Мне нужна с-с-спра... э-э... справка от врача'\n"
+        "  RESULT:      'Мне нужна справка от врача'\n\n"
+        "  CIRCUMLOCUTION:  'Позови того... ну... человека, который занимается деньгами'\n"
+        "  RESULT:      'Позови бухгалтера'  [if context makes this clear — else preserve circumlocution literally]"
     ),
     "en": (
         "DISFLUENCY EXAMPLES (English):\n"

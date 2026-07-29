@@ -72,6 +72,9 @@ jobs:
       - name: Run WiM API tests
         run: python test_wim_api.py -v
 
+      - name: Run language parity tests
+        run: python test_language_parity.py
+
       - name: Run WiM authenticated audio contract tests
         run: python test_wim_audio_backend.py
 

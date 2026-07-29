@@ -3,74 +3,75 @@
   "language_name_en": "Russian",
   "language_name_native": "Русский",
   "fillers": [
-    "э",
-    "ээ",
-    "эм",
     "ну",
-    "нуу",
-    "вот",
-    "типа",
-    "как бы",
-    "значит",
-    "короче",
     "это",
     "это самое",
+    "как бы",
+    "значит",
     "в общем",
-    "так сказать",
-    "блин"
+    "короче",
+    "типа",
+    "вот",
+    "эм",
+    "э-э",
+    "так сказать"
   ],
   "natural_repeats": [
     "да да",
     "нет нет",
-    "так так",
     "ну ну",
-    "да да да"
+    "так так",
+    "всё всё",
+    "давай давай"
   ],
   "productive_prefixes": [
     "по-",
-    "на-",
-    "за-",
     "пере-",
-    "до-",
     "при-",
-    "под-",
-    "раз-",
     "про-",
-    "вы-"
+    "за-",
+    "на-",
+    "вы-",
+    "под-",
+    "от-",
+    "раз-",
+    "рас-",
+    "недо-",
+    "анти-"
   ],
   "hard_onsets": {
     "data": [
       {
         "onset": "/p/",
         "difficulty_weight": 0.85,
-        "source": "Howell et al. 2004, Cross-linguistic comparison of stuttering"
+        "source": "Howell et al. 2004, Cross-linguistic comparison of stuttering; plosive onset difficulty generalizes across languages"
+      },
+      {
+        "onset": "/t/",
+        "difficulty_weight": 0.82,
+        "source": "Howell et al. 2004, Cross-linguistic comparison of stuttering; plosive onset difficulty generalizes across languages"
       },
       {
         "onset": "/k/",
         "difficulty_weight": 0.80,
-        "source": "Howell et al. 2004, Cross-linguistic comparison of stuttering"
+        "source": "Howell et al. 2004, Cross-linguistic comparison of stuttering; plosive onset difficulty generalizes across languages"
       },
       {
-        "onset": "/t/",
+        "onset": "/str/",
         "difficulty_weight": 0.78,
-        "source": "Howell et al. 2004, Cross-linguistic comparison of stuttering"
+        "source": "Adapted: complex consonant clusters (стр-, вз-, вс-) are frequent Russian word onsets and cluster onsets carry elevated disfluency risk cross-linguistically (Howell et al. 2004)"
+      },
+      {
+        "onset": "/vz/",
+        "difficulty_weight": 0.74,
+        "source": "Adapted: complex consonant clusters (стр-, вз-, вс-) are frequent Russian word onsets and cluster onsets carry elevated disfluency risk cross-linguistically (Howell et al. 2004)"
       }
     ],
-    "quality_note": "cross_linguistic"
+    "quality_note": "adapted — cross-linguistic plosive/cluster findings applied to Russian onsets; no Russian-specific published weights located"
   },
   "script_unicode_ranges": [
-    [
-      1040,
-      1103
-    ],
-    [
-      1025,
-      1025
-    ],
-    [
-      1105,
-      1105
-    ]
+    [32, 126],
+    [1024, 1279]
   ],
   "script_detection_regex": "[\\u0400-\\u04FF]"
 }
