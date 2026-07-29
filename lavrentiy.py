@@ -1386,6 +1386,7 @@ def reconstruct_via_backend(raw_text, tone, layer, prof, situation="default", mo
         _cf_timeout = 90 if layer >= 4 else 30
         with urllib.request.urlopen(req, timeout=_cf_timeout) as resp:
             result = json.loads(resp.read().decode("utf-8"))
+        stats_inc("api_calls")
         return result.get("clean", raw_text), result.get("falcon_ok", True), result
     except Exception as e:
         log(f"Backend reconstruct failed: {e}", "error")
@@ -2587,6 +2588,46 @@ def db_session_count():
     """Total number of sessions stored."""
     with _db_lock:
         return _db.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+
+
+def db_dashboard_stats():
+    """Persistent summary for the dashboard's lifetime usage boxes.
+
+    Words and sessions cover the complete active-profile history. WPM is the
+    average recorded speaking rate from the latest 50 sessions that contain a
+    valid audio-derived rate; old rows without that measurement are ignored.
+    """
+    with _db_lock:
+        session_count, total_words = _db.execute(
+            "SELECT COUNT(*), COALESCE(SUM(words), 0) FROM sessions"
+        ).fetchone()
+        metric_rows = _db.execute(
+            "SELECT words, speech_metrics FROM sessions "
+            "WHERE speech_metrics IS NOT NULL "
+            "ORDER BY id DESC LIMIT 50"
+        ).fetchall()
+
+    recent_wpm = []
+    for words, metrics_json in metric_rows:
+        try:
+            metrics = json.loads(metrics_json)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        words_per_second = metrics.get("speaking_rate_wps")
+        if isinstance(words_per_second, (int, float)) and words_per_second > 0:
+            recent_wpm.append(words_per_second * 60)
+            continue
+        duration = metrics.get("audio_duration_s")
+        if (isinstance(duration, (int, float)) and duration > 0
+                and isinstance(words, (int, float)) and words > 0):
+            recent_wpm.append(words / duration * 60)
+
+    return {
+        "words": int(total_words or 0),
+        "sessions": int(session_count or 0),
+        "avg_wpm": round(sum(recent_wpm) / len(recent_wpm)) if recent_wpm else 0,
+        "wpm_samples": len(recent_wpm),
+    }
 
 # -- State ────────────────────────────────────────────────────────
 recording = []
@@ -8393,7 +8434,8 @@ def handle_GET_api_state(body=None) -> dict:
         _net_status = 'ok'
     else:
         _net_status = 'idle'
-    return {'state': 'command' if is_command_mode else state, 'is_command_mode': is_command_mode, 'mode': current_mode, 'network_status': _net_status, 'network_error': _last_api_error_msg if _net_status == 'error' else '', 'tone': current_tone, 'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?'), 'situation': current_situation, 'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0), 'stats': stats, 'model': MODEL_L4 if current_layer >= 4 else MODEL, 'whisper_temp': WHISPER_TEMP, 'whisper_no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD, 'whisper_multi_temp': WHISPER_MULTI_TEMP, 'speech_metrics': _last_speech_metrics, 'avg_logprob': _last_avg_logprob, 'redo_count': _redo_count, 'block_count': _block_count, 'avg_exposure': _compute_avg_exposure(), 'paralinguistic_events': _last_paralinguistic_events, 'speaker_state': _last_speaker_state, 'paralinguistic_enabled': paralinguistic_enabled, 'paralinguistic_transcribe': paralinguistic_transcribe, 'prosodic_enabled': prosodic_enabled, 'paralinguistic_available': current_layer != 1, 'prosodic_available': current_layer != 1, 'quiet_mode_enabled': quiet_mode_enabled, 'quiet_auto_active': _quiet_auto_active, 'dictation_language': dictation_language, 'l1_cloud_asr': L1_CLOUD_ASR, 'profile_name': _active_profile_name, 'block_candidates': _block_candidates, 'sonnet_downgraded': _sonnet_downgraded, 'last_recon_model': _last_recon_model, 'auth': {'signed_in': is_authenticated(), 'user': _auth_user, 'has_local_key': bool(API_KEY)}}
+    history_stats = db_dashboard_stats()
+    return {'state': 'command' if is_command_mode else state, 'is_command_mode': is_command_mode, 'mode': current_mode, 'network_status': _net_status, 'network_error': _last_api_error_msg if _net_status == 'error' else '', 'tone': current_tone, 'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?'), 'situation': current_situation, 'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0), 'stats': stats, 'history_stats': history_stats, 'model': MODEL_L4 if current_layer >= 4 else MODEL, 'whisper_temp': WHISPER_TEMP, 'whisper_no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD, 'whisper_multi_temp': WHISPER_MULTI_TEMP, 'speech_metrics': _last_speech_metrics, 'avg_logprob': _last_avg_logprob, 'redo_count': _redo_count, 'block_count': _block_count, 'avg_exposure': _compute_avg_exposure(), 'paralinguistic_events': _last_paralinguistic_events, 'speaker_state': _last_speaker_state, 'paralinguistic_enabled': paralinguistic_enabled, 'paralinguistic_transcribe': paralinguistic_transcribe, 'prosodic_enabled': prosodic_enabled, 'paralinguistic_available': current_layer != 1, 'prosodic_available': current_layer != 1, 'quiet_mode_enabled': quiet_mode_enabled, 'quiet_auto_active': _quiet_auto_active, 'dictation_language': dictation_language, 'l1_cloud_asr': L1_CLOUD_ASR, 'profile_name': _active_profile_name, 'block_candidates': _block_candidates, 'sonnet_downgraded': _sonnet_downgraded, 'last_recon_model': _last_recon_model, 'auth': {'signed_in': is_authenticated(), 'user': _auth_user, 'has_local_key': bool(API_KEY)}}
 
 def handle_GET_api_profiles(body=None) -> dict:
     return {'profiles': list_profiles(), 'active': _active_profile_name}

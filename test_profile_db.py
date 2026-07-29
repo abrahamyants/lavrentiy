@@ -161,6 +161,7 @@ _init_db = ns['_init_db']
 log_session = ns['log_session']
 db_get_sessions = ns['db_get_sessions']
 db_session_count = ns['db_session_count']
+db_dashboard_stats = ns['db_dashboard_stats']
 
 # Initialize DB
 ns['_db'] = _init_db(ns['DB_PATH'])
@@ -396,7 +397,13 @@ test_timings = {"whisper_ms": 1200, "reconstruct_ms": 800, "total_ms": 2000}
 test_disf = {"total": 3, "repetition": 2, "filler": 1}
 test_exposure = {"score": 0.45, "band": "medium", "components": {}}
 test_edit_dist = 0.234
-test_speech = {"pause_ratio": 0.15, "speaking_rate_sps": 3.2, "severity_modifier": 0.1}
+test_speech = {
+    "pause_ratio": 0.15,
+    "speaking_rate_sps": 3.2,
+    "speaking_rate_wps": 2.0,
+    "audio_duration_s": 3.5,
+    "severity_modifier": 0.1,
+}
 test_para = [{"type": "cough", "start": 1.2, "end": 1.5, "confidence": 0.8}]
 test_prosodic = {"f0_mean": 120.5, "energy_mean": 0.05, "rate": 3.1}
 
@@ -430,6 +437,14 @@ check('editorial_distance round-tripped', isinstance(s.get('editorial_distance')
 check('speech_metrics round-tripped', s.get('speech_metrics', {}).get('pause_ratio') == 0.15)
 check('prosodic_summary round-tripped', s.get('prosodic_summary', {}).get('f0_mean') == 120.5)
 
+# Persistent dashboard totals use the complete active-profile history, while
+# WPM uses only sessions with a valid speech-rate measurement.
+dashboard_stats = db_dashboard_stats()
+check('dashboard session total', dashboard_stats['sessions'] == 1)
+check('dashboard word total', dashboard_stats['words'] == 7)
+check('dashboard WPM average', dashboard_stats['avg_wpm'] == 120)
+check('dashboard WPM sample count', dashboard_stats['wpm_samples'] == 1)
+
 # ============================================================
 # TEST 11: db_session_count
 # ============================================================
@@ -443,6 +458,10 @@ for i in range(5):
     log_session(ns['profile'], f"raw {i}", f"out {i}", "casual", 2)
 count2 = db_session_count()
 check('count increased by 5', count2 == count + 5)
+dashboard_stats2 = db_dashboard_stats()
+check('dashboard totals include added sessions', dashboard_stats2['sessions'] == 6)
+check('dashboard totals include added words', dashboard_stats2['words'] == 17)
+check('sessions without metrics do not dilute WPM', dashboard_stats2['avg_wpm'] == 120)
 
 # ============================================================
 # TEST 12: log_session with None/missing optional fields

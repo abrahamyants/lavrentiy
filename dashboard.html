@@ -3181,12 +3181,12 @@ body:not(.advanced-ui) .layer-opt .l-desc { font-size: 11px; }
   <main class="main" id="main-panel" role="main">
     <header class="top-bars" id="top-bars" role="banner">
     <div class="stats-bar">
-      <div class="stat-cell"><div class="sv" id="s-words">0</div><div class="sl">Words</div></div>
-      <div class="stat-cell"><div class="sv" id="s-sessions">0</div><div class="sl">Sessions</div></div>
-      <div class="stat-cell"><div class="sv" id="s-wpm">0</div><div class="sl">WPM</div></div>
-      <div class="stat-cell"><div class="sv-row"><span class="sv" id="s-api">0</span><span class="wifi-bars" id="wifi-bars" title="Network status"><i></i><i></i><i></i><i></i></span></div><div class="sl">API · Network</div></div>
+      <div class="stat-cell" title="All saved sessions in the active profile"><div class="sv" id="s-words">0</div><div class="sl">Words</div></div>
+      <div class="stat-cell" title="All saved sessions in the active profile"><div class="sv" id="s-sessions">0</div><div class="sl">Sessions</div></div>
+      <div class="stat-cell" title="Average speaking rate from the latest 50 measured sessions"><div class="sv" id="s-wpm">—</div><div class="sl">Avg WPM</div></div>
+      <div class="stat-cell" title="Cloud calls since Lavrentiy was opened"><div class="sv-row"><span class="sv" id="s-api">0</span><span class="wifi-bars" id="wifi-bars" title="Network status"><i></i><i></i><i></i><i></i></span></div><div class="sl">Cloud Calls · Run</div></div>
       <div class="stat-cell"><div class="sv" id="s-difficulty" title="Average exposure difficulty from recent sessions">—</div><div class="sl">Avg Difficulty</div></div>
-      <div class="stat-cell"><div class="sv" id="s-cost">$0.00</div><div class="sl">Est. Cost</div></div>
+      <div class="stat-cell" title="Rough estimate from cloud calls since Lavrentiy was opened; local work costs $0"><div class="sv" id="s-cost">$0.00</div><div class="sl">Est. Cost · Run</div></div>
     </div>
 
     <div class="learn-bar-row">
@@ -3618,8 +3618,8 @@ const I18N={
   hk_save:{en:'Save to Engine'},
   // Stats bar
   sl_words:{en:'Words'},sl_sessions:{en:'Sessions'},
-  sl_wpm:{en:'WPM'},sl_api:{en:'API Calls'},
-  sl_difficulty:{en:'Avg Difficulty'},sl_cost:{en:'Est. Cost'},
+  sl_wpm:{en:'Avg WPM'},sl_api:{en:'Cloud Calls · Run'},
+  sl_difficulty:{en:'Avg Difficulty'},sl_cost:{en:'Est. Cost · Run'},
   // Learn bar
   ll_corrections:{en:'Corrections'},ll_fillers:{en:'Fillers'},
   ll_vocab:{en:'Vocabulary'},ll_triggers:{en:'Triggers'},
@@ -3714,7 +3714,7 @@ const I18N={
   ha_whisper:{en:'Whisper Diagnostics'},ha_whisper_sub:{en:'Multi-temp, blocks, confidence'},
   ha_whisper_body:{en:'<strong>Multi-Temp</strong> \u2014 Runs speech recognition at multiple temperatures. Agreement suggests a more stable transcription; disagreement is flagged. It is slower.<br><strong>Pause suspects</strong> \u2014 Marks low-audio regions where ASR may hallucinate text. This does not detect an internal speech block or recover an unspoken word.<br><strong>No Speech slider</strong> \u2014 Sensitive catches more regions; Tolerant produces fewer false alarms.<br><strong>Avg LogProb</strong> \u2014 The recognizer\'s confidence signal.'},
   ha_stats:{en:'Stats & Learn Bars'},ha_stats_sub:{en:'Clickable \u2014 jump to detail tabs'},
-  ha_stats_body:{en:'<strong>Words / Sessions</strong> \u2014 Click \u2192 Sessions tab.<br><strong>API Calls / Est. Cost</strong> \u2014 Click \u2192 Console tab. Cost ~$0.0032/session.<br><strong>Corrections</strong> \u2014 Auto-corrections learned (e.g. Duncan \u2192 Dankesch\u00F6n). Click \u2192 Learning tab.<br><strong>Fillers</strong> \u2014 Filler words identified (um, uh, like). Click \u2192 Learning tab.<br><strong>Vocabulary</strong> \u2014 Preferred terms in your profile. Click \u2192 Learning tab.<br><strong>Triggers</strong> \u2014 Words that cause speech blocks. Click \u2192 Learning tab.'},
+  ha_stats_body:{en:'<strong>Words / Sessions</strong> \u2014 All saved active-profile history.<br><strong>Avg WPM</strong> \u2014 Average speaking rate from the latest 50 measured sessions.<br><strong>Cloud Calls / Est. Cost</strong> \u2014 This app run only. Local work costs $0; cloud calls are estimated at ~$0.0032 each.<br><strong>Corrections</strong> \u2014 Auto-corrections learned (e.g. Duncan \u2192 Dankesch\u00F6n). Click \u2192 Learning tab.<br><strong>Fillers</strong> \u2014 Filler words identified (um, uh, like). Click \u2192 Learning tab.<br><strong>Vocabulary</strong> \u2014 Preferred terms in your profile. Click \u2192 Learning tab.<br><strong>Triggers</strong> \u2014 Words that cause speech blocks. Click \u2192 Learning tab.'},
   ha_hotkeys:{en:'Hotkeys'},ha_hotkeys_sub:{en:'Keyboard shortcuts (rebindable)'},
   ha_hotkeys_body:{en:'<span class="ha-kbd">F9</span> Start/stop recording &nbsp;<span class="ha-kbd">F10</span> Cycle tones &nbsp;<span class="ha-kbd">F11</span> Cycle layers &nbsp;<span class="ha-kbd">F12</span> Print stats &nbsp;<span class="ha-kbd">F3</span> \u00D73 Quit<br><br>All rebindable from the Shortcuts section at the bottom of the sidebar.'},
   ha_colors:{en:'Console Colors'},ha_colors_sub:{en:'What the colored text means'},
@@ -3866,7 +3866,7 @@ function applyI18n(){
     ['.disclaimer','disclaimer'],
     // Stat labels (sibling of id'd value elements)
     ['#s-words~.sl','sl_words'],['#s-sessions~.sl','sl_sessions'],['#s-wpm~.sl','sl_wpm'],
-    ['#s-api~.sl','sl_api'],['#s-difficulty~.sl','sl_difficulty'],['#s-cost~.sl','sl_cost'],
+    ['.stats-bar .stat-cell:nth-child(4) .sl','sl_api'],['#s-difficulty~.sl','sl_difficulty'],['#s-cost~.sl','sl_cost'],
     // Learn labels
     ['#l-corrections~.ll','ll_corrections'],['#l-fillers~.ll','ll_fillers'],
     ['#l-vocab~.ll','ll_vocab'],['#l-triggers~.ll','ll_triggers'],
@@ -4244,7 +4244,7 @@ async function _dismissBlock(){
 async function fetchSessions(){try{const r=await fetch(API+'/api/sessions');sessions=await r.json();renderSessions();}catch(e){console.warn("silent catch:", e)}}
 async function fetchLog(){try{const r=await fetch(API+'/api/log');const entries=await r.json();const n=entries.filter(e=>e.id>lastLogId);if(n.length>0){lastLogId=entries[entries.length-1].id;logLines=entries;renderConsole();}}catch(e){console.warn("silent catch:", e)}}
 async function fetchProfile(){try{const r=await fetch(API+'/api/profile');profile=await r.json();renderProfile();}catch(e){console.warn("silent catch:", e)}}
-async function fetchLearn(){try{const r=await fetch(API+'/api/learn');learnData=await r.json();if(learnData.events.length!==lastLearnEventCount){lastLearnEventCount=learnData.events.length;renderLearn();}updateLearnProgress();renderInsights();}catch(e){console.warn("silent catch:", e)}}
+async function fetchLearn(){try{const r=await fetch(API+'/api/learn');learnData=await r.json();lastLearnEventCount=learnData.events.length;renderLearn();updateLearnProgress();renderInsights();}catch(e){console.warn("silent catch:", e)}}
 async function fetchVoiceProfile(){
   try{
     const r=await fetch(API+'/api/voice_profile');
@@ -4306,10 +4306,11 @@ function updateUI(){
   document.querySelectorAll('.mode-btn').forEach(b=>b.classList.toggle('active',b.dataset.mode===state.mode));
   document.querySelectorAll('.sit-btn').forEach(b=>{const on=b.dataset.situation===(state.situation||'default');b.classList.toggle('active',on);if(b.hasAttribute('aria-pressed'))b.setAttribute('aria-pressed',on?'true':'false');});
   const st=state.stats;
-  document.getElementById('s-words').textContent=st.words.toLocaleString();
-  document.getElementById('s-sessions').textContent=st.sessions;
-  const mins=(Date.now()/1000-st.start_time)/60;
-  document.getElementById('s-wpm').textContent=mins>0?Math.round(st.words/mins):0;
+  const history=state.history_stats||st;
+  document.getElementById('s-words').textContent=(history.words||0).toLocaleString();
+  document.getElementById('s-sessions').textContent=history.sessions||0;
+  const hasMeasuredWpm=(history.wpm_samples||0)>0;
+  document.getElementById('s-wpm').textContent=hasMeasuredWpm?history.avg_wpm:'—';
   document.getElementById('s-api').textContent=st.api_calls;
   // Network status Wi-Fi bars
   const wifi=document.getElementById('wifi-bars');
@@ -4327,7 +4328,7 @@ function updateUI(){
     diffEl.style.color=diffColors[ae.band]||'';
     diffEl.title=`Band: ${ae.band} (avg score from last 20 sessions)`;
   }
-  const cost=st.sessions*0.0032;
+  const cost=st.api_calls*0.0032;
   document.getElementById('s-cost').textContent='$'+cost.toFixed(cost<0.01?4:2);
   // Whisper sidebar state
   const mtToggle=document.getElementById('multitemp-toggle');
@@ -4725,16 +4726,7 @@ function renderLearn(){
   }).join('');
 }
 function updateLearnProgress(){
-  // Fluency improvement
-  const fl=document.getElementById('lp-fluency');
-  if(fl&&learnData.status){
-    const imp=learnData.status.fluency_improvement;
-    if(imp!=null){
-      const sign=imp>=0?'+':'';
-      fl.textContent=sign+Math.round(imp)+'%';
-      fl.style.color=imp>=0?'var(--green)':'var(--red-bright)';
-    }else{fl.textContent='--';}
-  }
+  updatePauseTrendBox();
   // Decay progress bar
   const decay=learnData.decay||{};
   const sweepEvery=decay.sweep_every||30;
@@ -4956,9 +4948,20 @@ async function fetchFluencyData(){
   try{
     const r=await fetch(API+'/api/fluency');
     fluencyData=await r.json();
+    updatePauseTrendBox();
     renderFluencyTrend();
     updateSeverityBreakdown();
   }catch(e){console.warn("silent catch:", e)}
+}
+function updatePauseTrendBox(){
+  const el=document.getElementById('lp-fluency');
+  if(!el)return;
+  const trend=fluencyData?.pause_trend||'no_data';
+  const labels={improving:'IMPROVING',stable:'STABLE',worsening:'WORSENING'};
+  const colors={improving:'var(--green)',stable:'var(--text-muted)',worsening:'var(--red-bright)'};
+  el.textContent=labels[trend]||'--';
+  el.style.color=colors[trend]||'';
+  el.title=labels[trend]?`Recent pause trend: ${trend}`:'Not enough measured sessions yet';
 }
 function renderFluencyTrend(){
   const el=document.getElementById('fluency-trend-section');
@@ -6130,7 +6133,7 @@ async function runBootSequence(){
     if(response.ok)bootState=await response.json();
   }catch(e){}
   const lines=[
-    {t:'BIOS',m:'Lavrentiy v1.7.2',d:100},
+    {t:'BIOS',m:'Lavrentiy v1.7.3',d:100},
     bootState
       ? {t:'OK',m:'Engine connected on :7878',d:120}
       : {t:'ERR',m:'Engine connection unavailable',d:120},
