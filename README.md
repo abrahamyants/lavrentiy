@@ -23,7 +23,7 @@ Lavrentiy was created by Gurgen Abrahamyants, a political refugee from Armenia w
 
 ## Current language support
 
-- **Interface:** English and Russian (`EN / RU` above the status ring).
+- **Interface:** English, Spanish, Russian, Portuguese, and French. The compact language picker also selects Arabic, German, Hindi, Italian, Japanese, Korean, or Mandarin for the speech pipeline while keeping the interface in English.
 - **Spoken dictation:** the bundled local `small.en` model is English-only. Cloud transcription supports Russian, Spanish, Portuguese, French, Arabic, German, Hindi, Italian, Japanese, Korean, and Mandarin when the user signs in or supplies an OpenAI key.
 - **English first-language transfer packs:** Layer 2/3 can optionally account for common transfer patterns associated with Russian, Spanish, Mandarin, Hindi, Arabic, Farsi, French, German, Korean, or Japanese. These packs are reconstruction context—not spoken-language packs, accent diagnosis, or evidence that an accent needs correction.
 
@@ -64,7 +64,7 @@ Mic → Whisper (Script Prep seed | verbose JSON | multi-temp voting)
 
 ## Historical engineering notebook — not current release documentation
 
-Everything from this heading through the changelog is retained as project history. It includes superseded experiments, names, layers, clinical framing, Falcon claims, and an old WiM PWA. Do not treat it as a description of v1.7.1. The current Android product lives at <https://github.com/gugosf114/wim-android>.
+Everything from this heading through the changelog is retained as project history. It includes superseded experiments, names, layers, clinical framing, Falcon claims, and an old WiM PWA. Do not treat it as a description of v1.7.2. The current Android product lives at <https://github.com/gugosf114/wim-android>.
 
 ## What I Meant (WIM) — historical PWA
 
