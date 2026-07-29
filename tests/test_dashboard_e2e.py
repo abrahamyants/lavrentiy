@@ -105,13 +105,20 @@ class TestDashboardLoad:
         ]:
             assert page.locator(selector).count() >= 1, f"Missing selector: {selector}"
 
-    def test_russian_interface_switch_is_live(self, page: Page):
+    def test_translated_interface_switches_are_live(self, page: Page):
         page.goto(DASHBOARD_URL)
         page.wait_for_timeout(1200)
-        assert page.locator('.lang-btn[data-lang="ru"]').count() == 1
-        page.locator('.lang-btn[data-lang="ru"]').click()
-        expect(page.locator('.tab-btn[data-tab="profile"]')).to_have_text('Профиль')
-        page.locator('.lang-btn[data-lang="en"]').click()
+        selector = page.locator('#ui-language-select')
+        assert selector.count() == 1
+        for code, expected in [
+            ('es', 'Perfil'),
+            ('ru', 'Профиль'),
+            ('pt', 'Perfil'),
+            ('fr', 'Profil'),
+        ]:
+            selector.select_option(code)
+            expect(page.locator('.tab-btn[data-tab="profile"]')).to_have_text(expected)
+        selector.select_option('en')
         expect(page.locator('.tab-btn[data-tab="profile"]')).to_have_text('Profile')
 
     def test_spoken_language_picker_matches_backend_policy(self, page: Page):

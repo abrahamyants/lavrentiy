@@ -2542,6 +2542,14 @@ body:not(.advanced-ui) .layer-opt .l-desc { font-size: 11px; }
 .lang-toggle {
   position: absolute; top: 6px; right: 32px; display: flex; z-index: 20;
 }
+.lang-select {
+  width: 42px; height: 20px; padding: 1px 3px;
+  border: 1px solid rgba(185,28,28,0.3); border-radius: 3px;
+  background: var(--raised); color: var(--red-bright);
+  font-family: var(--mono); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.5px; cursor: pointer;
+}
+.lang-select:focus { outline: 1px solid var(--red-bright); outline-offset: 1px; }
 .theme-toggle {
   position: absolute; top: 6px; left: 34px; display: flex; z-index: 20;
 }
@@ -2931,7 +2939,15 @@ body:not(.advanced-ui) .layer-opt .l-desc { font-size: 11px; }
       <div class="status-controls">
       <button class="compact-toggle" onclick="toggleCompact()" title="Compact mode" aria-label="Minimize to compact mode">&#8863;</button>
       <div class="theme-toggle"><button class="theme-tog-btn" data-theme-set="dark" onclick="setTheme('dark')" aria-label="Dark theme">D</button><button class="theme-tog-btn" data-theme-set="light" onclick="setTheme('light')" aria-label="Light theme">L</button></div>
-      <div class="lang-toggle"><button class="lang-btn active" data-lang="en" onclick="setLang('en')" aria-label="English interface">EN</button><button class="lang-btn" data-lang="ru" onclick="setLang('ru')" aria-label="Русский интерфейс">RU</button></div>
+      <div class="lang-toggle">
+        <select class="lang-select" id="ui-language-select" onchange="setLang(this.value)" aria-label="Interface language">
+          <option value="en">EN</option>
+          <option value="es">ES</option>
+          <option value="ru">RU</option>
+          <option value="pt">PT</option>
+          <option value="fr">FR</option>
+        </select>
+      </div>
       <button class="help-btn" onclick="toggleHelp()" title="Manual" aria-label="Help">?</button>
       <button class="view-toggle" id="view-toggle" data-mode="basic" onclick="toggleAdvancedUi()" aria-pressed="false" aria-label="Basic mode active. Switch to Advanced mode">BASIC</button>
       </div>
@@ -3497,7 +3513,9 @@ let lastLearnEventCount=0;let lastLogFetch=0;let lastLearnFetch=0;let lastPrevie
 const FIELD_MAP={trigger:'trigger_words',filler:'filler_words',vocab:'vocabulary'};
 
 // ─── i18n ──────────────────────────────────────────────
+const UI_LANGUAGES=['en','es','ru','pt','fr'];
 let currentLang=localStorage.getItem('lavrentiy-lang')||'en';
+if(!UI_LANGUAGES.includes(currentLang))currentLang='en';
 const I18N={
   // Boot
   boot_sub:{en:'VOICE RECONSTRUCTION ENGINE'},
@@ -3655,11 +3673,9 @@ const I18N={
   ha_tips_body:{en:'\u2022 Click the <strong>timer</strong> in the status ring to reset it.<br>\u2022 <strong>Compact toggle</strong> (top-left) collapses to a minimal bar with clickable chips.<br>\u2022 Tone and Mode <strong>auto-collapse</strong> on L1 (they have no effect).<br>\u2022 <strong>High Stress</strong> situation is a one-click panic button: L4 + DAF + all toggles.<br>\u2022 Click any <strong>stat/learn bar cell</strong> to jump to its detail tab.'},
 };
 
-// The historical translation pack remains useful, but English copy changes
-// often. Load a Russian value only when the English source still matches the
-// current dashboard; this prevents old clinical or capability claims from
-// reappearing through a stale translation. These overrides cover copy that was
-// deliberately rewritten for the current release.
+// Load a translation only when its English source still matches the current
+// dashboard. This prevents stale capability or clinical claims from
+// reappearing through an old language pack.
 const RU_CURRENT={
   layer1d:'локально + очистка',
   layer4:'IV. Расширенный',layer4d:'+ речевой контекст',
@@ -3695,16 +3711,20 @@ async function loadUiTranslations(){
     if(!response.ok)return;
     const pack=await response.json();
     Object.entries(pack).forEach(([key,entry])=>{
-      if(I18N[key]&&entry&&entry.en===I18N[key].en&&typeof entry.ru==='string')I18N[key].ru=entry.ru;
+      if(!I18N[key]||!entry||entry.en!==I18N[key].en)return;
+      UI_LANGUAGES.filter(lang=>lang!=='en').forEach(lang=>{
+        if(typeof entry[lang]==='string'&&!entry[lang].startsWith(`[${lang}]`))I18N[key][lang]=entry[lang];
+      });
     });
     Object.entries(RU_CURRENT).forEach(([key,value])=>{if(I18N[key])I18N[key].ru=value;});
-  }catch(e){console.warn('Russian interface pack unavailable',e);}
+  }catch(e){console.warn('Interface translation pack unavailable',e);}
 }
 function t(key){return I18N[key]?.[currentLang]||I18N[key]?.en||key;}
 function _setFirstText(el,text){for(const n of el.childNodes){if(n.nodeType===3&&n.textContent.trim()){n.textContent=text;return;}}el.prepend(document.createTextNode(text));}
 function setLang(lang){
+  if(!UI_LANGUAGES.includes(lang))lang='en';
   currentLang=lang;localStorage.setItem('lavrentiy-lang',lang);
-  document.querySelectorAll('.lang-btn').forEach(b=>b.classList.toggle('active',b.dataset.lang===lang));
+  const select=document.getElementById('ui-language-select');if(select)select.value=lang;
   document.documentElement.lang=lang;
   applyI18n();
 }
@@ -4687,7 +4707,7 @@ function renderLangOnsets(){
   const hasData=Object.values(byLang).some(lw=>Object.keys(lw).length>0);
   if(!hasData){el.style.display='none';return;}
   el.style.display='block';
-  const langLabels={en:'English',ru:'Русский'};
+  const langLabels={en:'English',es:'Español',ru:'Русский',pt:'Português',fr:'Français',ar:'العربية',de:'Deutsch',hi:'हिन्दी',it:'Italiano',ja:'日本語',ko:'한국어',zh:'中文'};
   content.innerHTML=Object.entries(byLang).filter(([,lw])=>Object.keys(lw).length>0).map(([lang,weights])=>{
     const sorted=Object.entries(weights).sort((a,b)=>b[1]-a[1]);
     const bars=sorted.map(([onset,weight])=>{
@@ -5951,7 +5971,7 @@ async function init(){
   await runBootSequence();
   applyCompact();
   // Apply saved language preference
-  document.querySelectorAll('.lang-btn').forEach(b=>b.classList.toggle('active',b.dataset.lang===currentLang));
+  const languageSelect=document.getElementById('ui-language-select');if(languageSelect)languageSelect.value=currentLang;
   document.documentElement.lang=currentLang;
   await Promise.all([fetchProfiles(),fetchProfile(),fetchSessions(),fetchLearn(),fetchDAF(),fetchHotkeys(),fetchFluencyData(),fetchPatience()]);
   applyI18n();
