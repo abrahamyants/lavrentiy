@@ -231,6 +231,7 @@ SONNET_THINK_BUDGET = 8000
 SONNET_THINK_MAX_TOKENS = 16000
 
 _last_recon_model = ""  # updated by reconstruct() — shows in log status line
+_last_rewrite_attempts = 0
 _sonnet_downgraded = False  # True when L4 fell back from Sonnet ext-think to GPT-4o
 
 LANGUAGE = "en"
@@ -2928,7 +2929,8 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
 
     temp = prompt_builder.TONE_TEMP.get(tone, 0.3)
 
-    global _last_recon_model, _sonnet_downgraded
+    global _last_recon_model, _last_rewrite_attempts, _sonnet_downgraded
+    _last_rewrite_attempts = 0
     use_model = MODEL_L4 if layer >= 4 else MODEL
 
     # L4 clinical reconstruction → Anthropic Sonnet 4.6 with extended thinking.
@@ -2960,21 +2962,57 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
             log(f"Sonnet 4.6 ext-think failed ({str(e)[:120]}), falling back to GPT-4o", "warn")
             _sonnet_downgraded = True
 
-    # L2/L3 cloud reconstruction (and L4 fallback): GPT-4o single-pass.
+    # L2/L3 cloud reconstruction (and L4 fallback): GPT-4o.
     if layer < 4:
         _sonnet_downgraded = False
-    stats_inc("api_calls")
-    resp = client.chat.completions.create(
-        model=use_model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": raw_text}
-        ],
-        max_tokens=1000,
-        temperature=temp
-    )
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": raw_text},
+    ]
+    def _rewrite_once(rewrite_messages, attempt_index):
+        stats_inc("api_calls")
+        resp = client.chat.completions.create(
+            model=use_model,
+            messages=rewrite_messages,
+            max_tokens=1000,
+            temperature=temp if attempt_index == 0 else min(temp, 0.1),
+        )
+        return (resp.choices[0].message.content or "").strip()
+
+    if layer == 2:
+        def _guard_once(candidate):
+            return {
+                "lost": _check_critical_retention(raw_text, candidate),
+                "invented": [],
+            }
+
+        def _log_retry(attempts, candidate, guard_result):
+            lost = guard_result.get("lost", [])
+            unchanged = prompt_builder.is_effectively_unchanged(
+                raw_text, candidate
+            )
+            log(
+                f"Layer 2 rewrite rejected on attempt {attempts}: "
+                f"anchors={lost} unchanged={unchanged} — retrying",
+                "warn",
+            )
+
+        clean_text, _last_rewrite_attempts, _retry_guard = (
+            prompt_builder.run_layer2_rewrite(
+                raw_text,
+                messages,
+                _rewrite_once,
+                _guard_once,
+                on_retry=_log_retry,
+                max_attempts=prompt_builder.L2_MAX_REWRITE_ATTEMPTS,
+            )
+        )
+    else:
+        clean_text = _rewrite_once(messages, 0)
+        _last_rewrite_attempts = 1
+
     _last_recon_model = use_model
-    return (resp.choices[0].message.content or "").strip()
+    return clean_text
 
 
 def complete_partial_candidates(partial_text, n=3):
@@ -7093,6 +7131,12 @@ def pipeline():
                         word_count=raw_word_count,
                         previous_outputs=prior_outputs_for_regen,
                     )
+                    if _backend_result.get("rewrite_attempts", 1) > 1:
+                        log(
+                            "Layer 2 rewrite repaired after "
+                            f"{_backend_result['rewrite_attempts']} attempts",
+                            "info",
+                        )
                     # Ignore the backend's legacy `falcon_ok` compatibility
                     # field. SAFE mode applies the same deterministic local
                     # meaning guard to every reconstruction route below.
@@ -7146,7 +7190,7 @@ def pipeline():
             # SAFE mode uses deterministic meaning retention below. The former
             # second-AI/Falcon validator was retired; do not imply it ran.
             if current_mode == "SAFE" and clean_text and not used_fallback:
-                if len(filtered_text.split()) <= 3:
+                if len(filtered_text.split()) <= 3 and current_layer != 2:
                     falcon_ok = True
                     clean_text = filtered_text
                     log(f"Meaning guard: original kept (short utterance -- {len(filtered_text.split())} words)", "info")
