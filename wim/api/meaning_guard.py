@@ -52,10 +52,9 @@ what it cannot do:
     word "not" before the text arrived, nothing downstream can know. The guard
     only ensures reconstruction does not make things worse.
 
-Number handling is deliberately loose in one direction: "four thousand two
-hundred dollars" legitimately becomes "$4,200", so a figure in the output is
-only treated as invented when the input contained no digits AND no number
-words at all.
+Number handling compares integer values across figures and spelled-out runs,
+so "four thousand two hundred dollars" may become "$4,200", while "$1,200"
+is rejected as numeric drift.
 """
 
 import re
@@ -79,6 +78,13 @@ DATE_WORD_RE = re.compile(
     re.IGNORECASE,
 )
 PROPER_NOUN_RE = re.compile(r"\b[A-Z][a-z]{1,}\b")
+TITLE_RE = re.compile(
+    r"\b(?:doctor|dr|professor|prof|nurse|officer|detective|judge|attorney|counsel|"
+    r"reverend|father|sister|rabbi|imam|senator|governor|mayor|chief|captain|"
+    r"sergeant|lieutenant|colonel|general|admiral|principal|dean|coach|"
+    r"mr|mrs|ms|miss|sir|madam|ma'am)\b\.?",
+    re.IGNORECASE,
+)
 
 PROPER_NOUN_EXCLUDE = {
     "A", "An", "And", "Are", "As", "At", "But", "By", "Can", "Could",
@@ -143,6 +149,14 @@ def check_retention(raw_text, clean_text, vocabulary=None):
     critical = list(CRITICAL_TOKEN_RE.findall(raw_text))
     critical.extend(DATE_WORD_RE.findall(raw_text))
     critical.extend(_proper_nouns(raw_text))
+    raw_titles = {
+        match.group(0).rstrip(".").lower()
+        for match in TITLE_RE.finditer(raw_text)
+    }
+    critical.extend(
+        match.group(0).rstrip(".")
+        for match in TITLE_RE.finditer(raw_text)
+    )
 
     for term in (vocabulary or []):
         term = str(term).strip()
@@ -152,6 +166,10 @@ def check_retention(raw_text, clean_text, vocabulary=None):
             critical.append(term)
 
     clean_lower = clean_text.lower()
+    clean_titles = {
+        match.group(0).rstrip(".").lower()
+        for match in TITLE_RE.finditer(clean_text)
+    }
     seen = set()
     lost = []
     for t in critical:
@@ -159,7 +177,11 @@ def check_retention(raw_text, clean_text, vocabulary=None):
         if key in seen:
             continue
         seen.add(key)
-        if key not in clean_lower:
+        if key in raw_titles:
+            retained = key in clean_titles
+        else:
+            retained = key in clean_lower
+        if not retained:
             lost.append(t)
 
     raw_whether_or_not = bool(re.search(
@@ -303,6 +325,84 @@ def check_fabrication(raw_text, clean_text):
     return invented
 
 
+_NUMBER_UNITS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4,
+    "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+    "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+    "fourteen": 14, "fifteen": 15, "sixteen": 16,
+    "seventeen": 17, "eighteen": 18, "nineteen": 19,
+    "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50,
+    "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+}
+_NUMBER_SCALES = {
+    "thousand": 1_000,
+    "million": 1_000_000,
+    "billion": 1_000_000_000,
+}
+
+
+def _numeric_token_value(token):
+    normalized = token.replace(",", "").lstrip("$").rstrip("%")
+    try:
+        value = float(normalized)
+    except (TypeError, ValueError):
+        return None
+    return int(value) if value.is_integer() else None
+
+
+def numeric_values(text):
+    """Return integer values stated as figures or spelled-out number runs."""
+    values = {
+        value
+        for value in (
+            _numeric_token_value(match.group(0))
+            for match in CRITICAL_TOKEN_RE.finditer(text or "")
+        )
+        if value is not None
+    }
+
+    current = 0
+    total = 0
+    saw_number = False
+
+    def flush():
+        nonlocal current, total, saw_number
+        if saw_number:
+            values.add(total + current)
+        current = 0
+        total = 0
+        saw_number = False
+
+    for word in re.findall(r"[a-z]+", (text or "").lower()):
+        if word in _NUMBER_UNITS:
+            current += _NUMBER_UNITS[word]
+            saw_number = True
+        elif word == "hundred" and saw_number:
+            current *= 100
+        elif word in _NUMBER_SCALES and saw_number:
+            total += current * _NUMBER_SCALES[word]
+            current = 0
+        elif word == "and" and saw_number:
+            continue
+        else:
+            flush()
+    flush()
+    return values
+
+
+def check_numeric_drift(raw_text, clean_text):
+    """Figures in the rewrite whose numeric value was not stated in the input."""
+    raw_values = numeric_values(raw_text)
+    if not raw_values:
+        return []
+    drifted = []
+    for match in CRITICAL_TOKEN_RE.finditer(clean_text or ""):
+        value = _numeric_token_value(match.group(0))
+        if value is not None and value not in raw_values:
+            drifted.append(match.group(0))
+    return drifted
+
+
 def guard(raw_text, clean_text, vocabulary=None):
     """Full check. Returns {ok, lost, invented}.
 
@@ -311,5 +411,8 @@ def guard(raw_text, clean_text, vocabulary=None):
     rule-stripped raw text rather than paste a reconstruction that failed this.
     """
     lost = check_retention(raw_text, clean_text, vocabulary=vocabulary)
-    invented = check_fabrication(raw_text, clean_text)
+    invented = list(dict.fromkeys(
+        check_fabrication(raw_text, clean_text)
+        + check_numeric_drift(raw_text, clean_text)
+    ))
     return {"ok": not lost and not invented, "lost": lost, "invented": invented}

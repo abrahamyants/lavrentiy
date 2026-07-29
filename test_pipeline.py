@@ -228,6 +228,8 @@ if strip and apply_corr and strip_halluc and decide:
     # Stage 1: strip disfluencies
     filtered = strip(raw)
     check('strip removes repetitions', 'I I I' not in filtered)
+    check('strip removes punctuated cloud-ASR repetitions',
+          strip('I, I, I need to reschedule') == 'I need to reschedule')
     check('strip removes fillers', ' um ' not in filtered)
     check('strip preserves "store"', 'store' in filtered.lower())
 

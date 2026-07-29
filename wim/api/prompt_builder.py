@@ -629,12 +629,16 @@ def _pb_layer2_3_restate(profile, previous_outputs):
         "and 'without approval'. Never turn a negative instruction into a positive one."
         "\n- PRESERVE the speaker's intent and the substance of every clause."
         "\n- DO NOT add information or invent details not present in the input."
-        "\n- DO NOT soften, sanitize, or change profanity / strong language / slang. Output the words the speaker chose."
+        "\n- DO NOT soften, sanitize, or censor profanity or strong language. If the speaker swore, the swearing stays."
+        "\n- This protects the speaker's CONTENT and force; it does not override the selected tone. "
+        "Greetings, sign-offs, filler address terms ('hey man', 'dude', 'yo'), and general register "
+        "must change when the tone calls for it."
         "\n- DO NOT summarize away content; restate, don't compress."
         "\n- TREAT unfamiliar, invented-looking, or single-syllable unrecognized words as INTENTIONAL slang, brand names, or in-group vocabulary. "
         "Do not substitute them, do not assume transcription error, do not 'fix' them. "
         "Examples of what to PRESERVE without modification: 'rizz', 'bussin', 'no cap', 'mid', 'delulu', 'skibidi', 'ick', 'fanum tax', "
-        "any proper noun the speaker emphasized, any startup or tool name the speaker said clearly."
+        "any proper noun the speaker emphasized, any startup or tool name the speaker said clearly. "
+        "This protects unusual nouns; it does not freeze the sentence's register or greeting."
     )
     out_parts.append(
         "\n\nSELF-CORRECTION — CANONICAL OVERWRITE:"
@@ -1054,6 +1058,7 @@ def build_prompt(
 
     parts = [
         f"Rebuild this raw voice transcription into clean {tone} text.{lang_note}{aggression_note}",
+        f"Tone: {tone} — this is a REQUIREMENT, not a hint. Rewrite the register to match it.",
         ("The transcription was produced by an automatic speech recognition system and may contain "
          "artifacts from speech disfluency including repeated words, repeated syllables, filler sounds, "
          "and silence where the speaker was blocked. When the literal transcription doesn't make "
@@ -1067,11 +1072,13 @@ def build_prompt(
         "'do not send', 'never share', and 'without approval' must remain "
         "negative. The idiom 'whether X or not' may become 'whether X' because "
         "the uncertainty remains explicit.",
-        "Do NOT censor, sanitize, or soften the speaker's language. Profanity, slang, "
-        "harsh words, and strong language must be preserved EXACTLY as spoken. "
+        "Do NOT censor, sanitize, or soften profanity or strong language. "
         "If the speaker said 'fuck', output 'fuck'. If the speaker said 'steal', output 'steal'. "
-        "Do not substitute softer synonyms (e.g. do not change 'steal' to 'borrow'). "
-        "Your job is to clean up SPEECH ARTIFACTS, not to edit the speaker's word choices.",
+        "Do not substitute softer synonyms (e.g. do not change 'steal' to 'borrow').",
+        ("This protects the speaker's CONTENT and force. It does not override the selected tone. "
+         "Greetings, sign-offs, filler address terms such as 'hey man', 'dude', and 'yo', "
+         "and the general register must change when the selected tone calls for it. "
+         "Preserve intentional slang nouns and brands while rewriting the surrounding register."),
         "Output ONLY the reconstructed text.",
         "Do not include any preamble, explanation, meta-commentary, or notes about what you changed.",
         "Do not use Markdown formatting: no asterisks, no backticks, no bullet points, no headers, no quotation marks around the output.",

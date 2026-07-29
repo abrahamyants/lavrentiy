@@ -41,6 +41,12 @@ print('=== TEST 1: strip_disfluencies ===')
 sd = R.strip_disfluencies
 
 check('removes word repetitions', 'I want' in sd('I I I want to go') and 'I I' not in sd('I I I want to go'))
+check('removes cloud-ASR comma repetitions',
+      sd('I, I, I need to reschedule') == 'I need to reschedule')
+check('removes cloud-ASR semicolon repetitions',
+      sd('we; we; we should leave') == 'we should leave')
+check('removes cloud-ASR colon repetitions',
+      sd('they: they: they agreed') == 'they agreed')
 check('removes filler words', 'um' not in sd('so um like the thing is we um need to go').lower() or
       sd('so um like the thing is we um need to go').count('um') == 0)
 check('removes stutter fragments', sd('p- p- pop') == 'pop' or 'pop' in sd('p- p- pop'))
@@ -109,6 +115,36 @@ guard = R.meaning_guard.guard(
     "Okay, now I'm testing Layer 2 reconstruction to see whether it works.",
 )
 check('meaning guard allows contextual Layer 2 ASR correction',
+      guard['ok'] is True)
+
+guard = R.meaning_guard.guard(
+    "tell doctor williams about the appointment",
+    "Tell Williams about the appointment.",
+)
+check('meaning guard protects lowercase spoken titles',
+      'doctor' in [item.lower() for item in guard['lost']])
+guard = R.meaning_guard.guard(
+    "tell dr williams about the appointment",
+    "Tell Williams to drive to the appointment.",
+)
+check('title guard uses whole words instead of matching dr inside drive',
+      'dr' in [item.lower() for item in guard['lost']])
+
+check('meaning guard parses spelled-out amounts',
+      4200 in R.meaning_guard.numeric_values(
+          'wire four thousand two hundred dollars'
+      ))
+guard = R.meaning_guard.guard(
+    "wire four thousand two hundred to henderson before monday",
+    "Wire $1,200 to Henderson before Monday.",
+)
+check('meaning guard rejects changed numeric values',
+      any('1,200' in item for item in guard['invented']))
+guard = R.meaning_guard.guard(
+    "wire four thousand two hundred to henderson before monday",
+    "Wire $4,200 to Henderson before Monday.",
+)
+check('meaning guard accepts correct numeric reformatting',
       guard['ok'] is True)
 
 check('Layer 2 detects identity output as needing retry',
@@ -355,6 +391,27 @@ class SequenceClient:
         self.chat = type('Chat', (), {})()
         self.chat.completions = SequenceCompletions(outputs)
 
+
+class SequenceAnthropicMessages:
+    def __init__(self, outputs):
+        self.outputs = list(outputs)
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        index = min(len(self.calls) - 1, len(self.outputs) - 1)
+        block = type('TextBlock', (), {
+            'type': 'text',
+            'text': self.outputs[index],
+        })()
+        return type('AnthropicResponse', (), {'content': [block]})()
+
+
+class SequenceAnthropicClient:
+    def __init__(self, outputs):
+        self.messages = SequenceAnthropicMessages(outputs)
+
+
 # Monkey-patch the module's client
 original_client = R.client
 original_anthropic_client = R.anthropic_client
@@ -480,6 +537,27 @@ try:
     api_call = R.client.chat.completions.calls[0]
     check('L4 fallback: uses MODEL_L4', api_call['model'] == R.MODEL_L4)
     check('L4: prompt has disfluency context', 'disfluency' in api_call['messages'][0]['content'].lower())
+
+    # The exact numeric-drift failure now gets a guarded Layer 4 repair.
+    R.client = FakeClient()
+    R.anthropic_client = SequenceAnthropicClient([
+        'Wire $1,200 to Henderson before Monday.',
+        'Please wire $4,200 to Henderson before Monday.',
+    ])
+    l4_repaired = R.reconstruct_intent(
+        'wire four thousand two hundred to henderson before monday',
+        layer=4,
+        mode='SAFE',
+    )
+    check('L4 numeric drift triggers a second Sonnet call',
+          len(R.anthropic_client.messages.calls) == 2)
+    check('L4 returns the repaired amount',
+          l4_repaired['clean']
+          == 'Please wire $4,200 to Henderson before Monday.')
+    check('L4 reports two rewrite attempts',
+          l4_repaired['rewrite_attempts'] == 2)
+    check('L4 repaired output passes the meaning guard',
+          l4_repaired['meaning_guard']['ok'] is True)
 
     # Whisper signals forwarded
     R.client = FakeClient()
@@ -707,6 +785,10 @@ check('R.SITUATION_SEVERITY IS prompt_builder.SITUATION_SEVERITY',
 # disappear from the L2/L3 prompt, the CF will silently start softening
 # profanity, emitting markdown, or returning multi-line output.
 p_l2 = PB.build_prompt('I need to fucking go to the store', tone='professional', layer=2)
+check('professional tone is an explicit requirement',
+      'Tone: professional — this is a REQUIREMENT' in p_l2)
+check('content preservation does not freeze the register',
+      'does not override the selected tone' in p_l2)
 check('L2 has anti-censoring rule',
       "Do NOT censor, sanitize, or soften" in p_l2)
 check('L2 has no-Markdown rule',

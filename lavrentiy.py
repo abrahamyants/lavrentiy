@@ -50,6 +50,7 @@ import style_examples
 # module that ships with the Cloud Function so L2/L3 prompts cannot drift
 # between the desktop engine and the signed-in-user CF path).
 import prompt_builder
+import meaning_guard
 import learning_backend
 import profile_terms
 
@@ -2488,21 +2489,39 @@ def _init_db(db_path=None):
         )
     """)
     db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_ts ON sessions(ts)")
-    for col_sql in [
-        "ALTER TABLE sessions ADD COLUMN situation TEXT DEFAULT 'default'",
-        "ALTER TABLE sessions ADD COLUMN disfluency_counts TEXT",
-        "ALTER TABLE sessions ADD COLUMN exposure_difficulty TEXT",
-        "ALTER TABLE sessions ADD COLUMN editorial_distance REAL",
-        "ALTER TABLE sessions ADD COLUMN speech_metrics TEXT",
-        "ALTER TABLE sessions ADD COLUMN lang TEXT DEFAULT 'en'",
-        "ALTER TABLE sessions ADD COLUMN paralinguistic_events TEXT",
-        "ALTER TABLE sessions ADD COLUMN prosodic_summary TEXT",
-        "ALTER TABLE sessions ADD COLUMN triggers_fired TEXT",
-    ]:
+    migrations = {
+        "situation": "TEXT DEFAULT 'default'",
+        "disfluency_counts": "TEXT",
+        "exposure_difficulty": "TEXT",
+        "editorial_distance": "REAL",
+        "speech_metrics": "TEXT",
+        "lang": "TEXT DEFAULT 'en'",
+        "paralinguistic_events": "TEXT",
+        "prosodic_summary": "TEXT",
+        "triggers_fired": "TEXT",
+    }
+    existing_columns = {
+        row[1] for row in db.execute("PRAGMA table_info(sessions)").fetchall()
+    }
+    for column, declaration in migrations.items():
+        if column in existing_columns:
+            continue
         try:
-            db.execute(col_sql)
+            db.execute(
+                f"ALTER TABLE sessions ADD COLUMN {column} {declaration}"
+            )
+            existing_columns.add(column)
         except sqlite3.OperationalError:
-            pass
+            # A concurrent initializer may have added the same column after
+            # the PRAGMA read. Swallow only that verified harmless case.
+            refreshed = {
+                row[1]
+                for row in db.execute("PRAGMA table_info(sessions)").fetchall()
+            }
+            if column not in refreshed:
+                db.close()
+                raise
+            existing_columns = refreshed
     db.commit()
     return db
 
@@ -3016,26 +3035,60 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
     _last_rewrite_attempts = 0
     use_model = MODEL_L4 if layer >= 4 else MODEL
 
+    def _guard_once(candidate):
+        return meaning_guard.guard(
+            raw_text,
+            candidate,
+            vocabulary=(prof or {}).get("vocabulary"),
+        )
+
+    def _log_retry(attempts, candidate, guard_result):
+        lost = guard_result.get("lost", [])
+        invented = guard_result.get("invented", [])
+        unchanged = prompt_builder.is_effectively_unchanged(raw_text, candidate)
+        log(
+            f"Layer {layer} rewrite rejected on attempt {attempts}: "
+            f"lost={lost} invented={invented} unchanged={unchanged} — retrying",
+            "warn",
+        )
+
     # L4 clinical reconstruction → Anthropic Sonnet 4.6 with extended thinking.
     # The reasoning trace IS the differentiator — for severe stutterers and
     # SLP audit, the model walks through Whisper's confidence signals + the
     # speaker's phoneme map + covert avoidance + Brown risk + prosodic state
-    # in its scratchpad before producing the reconstruction. Falcon at L4 is
-    # dropped because extended thinking is itself self-validation.
+    # in its scratchpad before producing the reconstruction. The deterministic
+    # guard still checks every result and supplies exact repair feedback.
     # Falls through to GPT-4o on Anthropic error or unavailability.
     if layer >= 4 and anthropic_client is not None:
         try:
-            msg = anthropic_client.messages.create(
-                model=SONNET_THINK_MODEL,
-                max_tokens=SONNET_THINK_MAX_TOKENS,
-                thinking={"type": "enabled", "budget_tokens": SONNET_THINK_BUDGET},
-                system=system_prompt,
-                messages=[{"role": "user", "content": raw_text}],
-            )
-            text_blocks = [b.text for b in msg.content if getattr(b, "type", None) == "text"]
-            clean_text = "\n".join(text_blocks).strip()
-            if clean_text:
+            sonnet_messages = [{"role": "user", "content": raw_text}]
+
+            def _sonnet_rewrite_once(rewrite_messages, _attempt_index):
+                msg = anthropic_client.messages.create(
+                    model=SONNET_THINK_MODEL,
+                    max_tokens=SONNET_THINK_MAX_TOKENS,
+                    thinking={"type": "enabled", "budget_tokens": SONNET_THINK_BUDGET},
+                    system=system_prompt,
+                    messages=rewrite_messages,
+                )
                 stats_inc("anthropic_calls")
+                text_blocks = [
+                    block.text for block in msg.content
+                    if getattr(block, "type", None) == "text"
+                ]
+                return "\n".join(text_blocks).strip()
+
+            clean_text, _last_rewrite_attempts, _retry_guard = (
+                prompt_builder.run_layer2_rewrite(
+                    raw_text,
+                    sonnet_messages,
+                    _sonnet_rewrite_once,
+                    _guard_once,
+                    on_retry=_log_retry,
+                    max_attempts=prompt_builder.L2_MAX_REWRITE_ATTEMPTS,
+                )
+            )
+            if clean_text:
                 _last_recon_model = f"{SONNET_THINK_MODEL} (ext-think)"
                 _sonnet_downgraded = False
                 return clean_text
@@ -3057,29 +3110,12 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
         resp = client.chat.completions.create(
             model=use_model,
             messages=rewrite_messages,
-            max_tokens=1000,
+            max_tokens=4000 if layer >= 4 else 1000,
             temperature=temp if attempt_index == 0 else min(temp, 0.1),
         )
         return (resp.choices[0].message.content or "").strip()
 
-    if layer in (2, 3):
-        def _guard_once(candidate):
-            return {
-                "lost": _check_critical_retention(raw_text, candidate),
-                "invented": [],
-            }
-
-        def _log_retry(attempts, candidate, guard_result):
-            lost = guard_result.get("lost", [])
-            unchanged = prompt_builder.is_effectively_unchanged(
-                raw_text, candidate
-            )
-            log(
-                f"Layer {layer} rewrite rejected on attempt {attempts}: "
-                f"anchors={lost} unchanged={unchanged} — retrying",
-                "warn",
-            )
-
+    if layer >= 2:
         clean_text, _last_rewrite_attempts, _retry_guard = (
             prompt_builder.run_layer2_rewrite(
                 raw_text,
@@ -3355,7 +3391,12 @@ def strip_disfluencies(text):
             return m.group(0)  # Don't strip — natural repetition
         return m.group(1)
     # Require 3+ repetitions (2+ is often emphasis: "no no", "go go", "please please")
-    cleaned = re.sub(r'\b(\w+)(?:\s+\1){2,}\b', _dedup_word, cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r'\b(\w+)(?:[,;:]?\s+\1){2,}\b[,;:]?',
+        _dedup_word,
+        cleaned,
+        flags=re.IGNORECASE,
+    )
 
     # Step 3: Remove phrase repetitions (2-3 word phrases repeated)
     # "I want I want to go" → "I want to go"
@@ -7288,11 +7329,20 @@ def pipeline():
                     log("Meaning guard: rewrite is nearly identical", "info")
             t_val = time.time()
 
-        # Deterministic meaning retention: names, numbers, dates, amounts, negation.
+        # Deterministic meaning guard: lost and invented names, titles, dates,
+        # amounts, numeric drift, and negation.
         if clean_text and not used_fallback:
-            critical_lost = _check_critical_retention(filtered_text, clean_text)
-            if critical_lost:
-                log(f"Meaning guard kept original; changed anchors: {critical_lost}", "warn")
+            guard_result = meaning_guard.guard(
+                filtered_text,
+                clean_text,
+                vocabulary=profile.get("vocabulary"),
+            )
+            if not guard_result["ok"]:
+                log(
+                    "Meaning guard kept original; "
+                    f"lost={guard_result['lost']} invented={guard_result['invented']}",
+                    "warn",
+                )
                 falcon_ok = False
 
         # Decision
@@ -9012,7 +9062,12 @@ def handle_POST_api_reconstruct_test(body=None) -> dict:
             except Exception as e:
                 log(f'reconstruct_test failed: {e}', 'error')
                 clean_text = filtered
-            meaning_guard_ok = not _check_critical_retention(filtered, clean_text)
+            test_guard = meaning_guard.guard(
+                filtered,
+                clean_text,
+                vocabulary=profile.get("vocabulary"),
+            )
+            meaning_guard_ok = test_guard["ok"]
             if not meaning_guard_ok:
                 clean_text = filtered
         _ms = round((_t.time() - _t0) * 1000)
@@ -9036,7 +9091,9 @@ def handle_POST_api_reconstruct_test(body=None) -> dict:
             'meaning_guard_ok': meaning_guard_ok,
             # Backward-compatible field for the historical benchmark harness.
             'falcon_ok': meaning_guard_ok,
-            'rewrite_attempts': backend_result.get('rewrite_attempts', 1),
+            'rewrite_attempts': backend_result.get(
+                'rewrite_attempts', _last_rewrite_attempts or 1
+            ),
             'profile_matches': backend_result.get('profile_matches', []),
             'wer': wer, 'recon_ms': _ms, 'pipeline': 'lavrentiy',
         }

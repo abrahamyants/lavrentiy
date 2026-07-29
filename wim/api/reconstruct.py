@@ -103,7 +103,12 @@ def strip_disfluencies(text):
     if not text or not text.strip():
         return text
     cleaned = re.sub(r'(\b\w+)-\s+(?:\1-\s+)*', '', text, flags=re.IGNORECASE)
-    cleaned = re.sub(r'\b(\w+)(?:\s+\1)+\b', r'\1', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r'\b(\w+)(?:[,;:]?\s+\1)+\b[,;:]?',
+        r'\1',
+        cleaned,
+        flags=re.IGNORECASE,
+    )
     cleaned = re.sub(r'\b(\w+\s+\w+(?:\s+\w+)?)\s+\1\b', r'\1', cleaned, flags=re.IGNORECASE)
     words = cleaned.split()
     filtered = []
@@ -270,20 +275,55 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
 
     clean_text = ""
     served_model = use_model
+    rewrite_attempts = 0
 
-    # L4 clinical → Sonnet 4.6 extended thinking, mirroring lavrentiy.py
-    # reconstruct(). Any failure or empty output falls through to GPT-4o below.
+    def _guard_once(candidate):
+        return meaning_guard.guard(
+            raw_text,
+            candidate,
+            vocabulary=profile.get("vocabulary"),
+        )
+
+    def _log_retry(attempts, candidate, retry_guard):
+        logging.warning(
+            "Layer %s rewrite rejected on attempt %s: lost=%s "
+            "invented=%s unchanged=%s — retrying",
+            layer,
+            attempts,
+            retry_guard.get("lost", []),
+            retry_guard.get("invented", []),
+            is_effectively_unchanged(raw_text, candidate),
+        )
+
+    # L4 clinical → Sonnet 4.6 extended thinking, mirroring lavrentiy.py.
+    # It uses the same deterministic guard-and-repair loop as L2/L3.
+    # Any API failure or empty final output falls through to GPT-4o below.
     if layer >= 4 and anthropic_client is not None:
         try:
-            msg = anthropic_client.messages.create(
-                model=SONNET_THINK_MODEL,
-                max_tokens=SONNET_THINK_MAX_TOKENS,
-                thinking={"type": "enabled", "budget_tokens": SONNET_THINK_BUDGET},
-                system=system_prompt,
-                messages=[{"role": "user", "content": raw_text}],
+            sonnet_messages = [{"role": "user", "content": raw_text}]
+
+            def _sonnet_rewrite_once(rewrite_messages, _attempt_index):
+                msg = anthropic_client.messages.create(
+                    model=SONNET_THINK_MODEL,
+                    max_tokens=SONNET_THINK_MAX_TOKENS,
+                    thinking={"type": "enabled", "budget_tokens": SONNET_THINK_BUDGET},
+                    system=system_prompt,
+                    messages=rewrite_messages,
+                )
+                text_blocks = [
+                    block.text for block in msg.content
+                    if getattr(block, "type", None) == "text"
+                ]
+                return "\n".join(text_blocks).strip()
+
+            clean_text, rewrite_attempts, _retry_guard = run_layer2_rewrite(
+                raw_text,
+                sonnet_messages,
+                _sonnet_rewrite_once,
+                _guard_once,
+                on_retry=_log_retry,
+                max_attempts=L2_MAX_REWRITE_ATTEMPTS,
             )
-            text_blocks = [b.text for b in msg.content if getattr(b, "type", None) == "text"]
-            clean_text = "\n".join(text_blocks).strip()
             if clean_text:
                 served_model = f"{SONNET_THINK_MODEL} (ext-think)"
         except Exception as e:
@@ -292,7 +332,7 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
                 str(e)[:120], use_model)
             clean_text = ""
 
-    rewrite_attempts = 1 if clean_text else 0
+    rewrite_attempts = rewrite_attempts if clean_text else 0
     if not clean_text:
         messages = [
             {"role": "system", "content": system_prompt},
@@ -308,25 +348,7 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
             )
             return (resp.choices[0].message.content or "").strip()
 
-        if layer in (2, 3):
-            def _guard_once(candidate):
-                return meaning_guard.guard(
-                    raw_text,
-                    candidate,
-                    vocabulary=profile.get("vocabulary"),
-                )
-
-            def _log_retry(attempts, candidate, retry_guard):
-                logging.warning(
-                    "Layer %s rewrite rejected on attempt %s: lost=%s "
-                    "invented=%s unchanged=%s — retrying",
-                    layer,
-                    attempts,
-                    retry_guard.get("lost", []),
-                    retry_guard.get("invented", []),
-                    is_effectively_unchanged(raw_text, candidate),
-                )
-
+        if layer >= 2:
             clean_text, rewrite_attempts, _retry_guard = run_layer2_rewrite(
                 raw_text,
                 messages,
@@ -366,7 +388,7 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
             raw_text, clean_text,
             vocabulary=(profile or {}).get("vocabulary"),
         )
-        if layer in (2, 3) and is_effectively_unchanged(raw_text, clean_text):
+        if layer >= 2 and is_effectively_unchanged(raw_text, clean_text):
             guard_result["unchanged"] = True
             guard_result["ok"] = False
         if mode == "SAFE" and not guard_result["ok"]:

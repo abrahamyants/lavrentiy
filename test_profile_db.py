@@ -322,7 +322,7 @@ expected_cols = {
     'id', 'ts', 'raw', 'out', 'tone', 'layer', 'words', 'falcon',
     'decision', 'timings', 'situation', 'disfluency_counts',
     'exposure_difficulty', 'editorial_distance', 'speech_metrics',
-    'lang', 'paralinguistic_events', 'prosodic_summary'
+    'lang', 'paralinguistic_events', 'prosodic_summary', 'triggers_fired'
 }
 check('all columns present', expected_cols.issubset(cols))
 missing = expected_cols - cols
@@ -382,6 +382,41 @@ check('migration added prosodic_summary', 'prosodic_summary' in migrated_cols)
 row = migrated_db.execute("SELECT raw, out FROM sessions WHERE id=1").fetchone()
 check('v1 data preserved after migration', row == ("test raw", "test out"))
 migrated_db.close()
+
+# A migration interrupted after adding only one optional column must resume
+# column-by-column and keep every existing row visible.
+partial_db_path = Path(_tmpdir) / "partial_migration.db"
+partial_db = sqlite3.connect(str(partial_db_path))
+partial_db.execute("""
+    CREATE TABLE sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TEXT NOT NULL, raw TEXT NOT NULL, out TEXT NOT NULL,
+        tone TEXT NOT NULL, layer INTEGER NOT NULL,
+        words INTEGER NOT NULL, falcon INTEGER NOT NULL DEFAULT 1,
+        decision TEXT, timings TEXT,
+        situation TEXT DEFAULT 'default'
+    )
+""")
+partial_db.execute(
+    "INSERT INTO sessions (ts, raw, out, tone, layer, words) "
+    "VALUES (?, ?, ?, ?, ?, ?)",
+    ("2026-01-02T00:00:00", "partial raw", "partial out", "casual", 2, 2),
+)
+partial_db.commit()
+partial_db.close()
+
+resumed_db = _init_db(partial_db_path)
+resumed_cols = {
+    row[1] for row in resumed_db.execute("PRAGMA table_info(sessions)").fetchall()
+}
+check('partial migration resumes missing columns',
+      expected_cols.issubset(resumed_cols))
+resumed_row = resumed_db.execute(
+    "SELECT raw, out FROM sessions WHERE id=1"
+).fetchone()
+check('partial migration preserves existing history',
+      resumed_row == ("partial raw", "partial out"))
+resumed_db.close()
 
 # ============================================================
 # TEST 10: log_session + db_get_sessions round-trip

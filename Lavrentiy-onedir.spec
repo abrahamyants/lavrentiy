@@ -45,6 +45,7 @@ datas = [
     # imported by lavrentiy.py via a runtime sys.path.append("wim/api").
     # PyInstaller can't follow runtime path tricks — bundle it explicitly.
     (str(REPO / 'wim' / 'api' / 'prompt_builder.py'), '.'),
+    (str(REPO / 'wim' / 'api' / 'meaning_guard.py'), '.'),
     (str(REPO / 'wim' / 'api' / 'learning_backend.py'), '.'),
     (str(REPO / 'wim' / 'api' / 'profile_terms.py'), '.'),
     (str(REPO / 'dashboard.html'),     '.'),
@@ -65,7 +66,7 @@ datas = [
 binaries = []
 hiddenimports = [
     'l1_pack', 'domain_pack', 'rejection_store', 'style_examples',
-    'prompt_builder', 'learning_backend', 'profile_terms',
+    'prompt_builder', 'meaning_guard', 'learning_backend', 'profile_terms',
     'local', 'local.asr_local', 'local.fw_local',
     'scipy.signal',
     'pyperclip',
@@ -79,7 +80,7 @@ for pkg in (
     'openai', 'anthropic', 'metaphone', 'pyperclip',
     'pyautogui',
     # Native app window (pywebview + WebView2 via pythonnet). This is the
-    # v1.7.3 shortcut path; browser mode remains a troubleshooting fallback.
+    # v1.7.4 shortcut path; browser mode remains a troubleshooting fallback.
     'webview', 'pythonnet', 'clr_loader',
 ):
     try:
