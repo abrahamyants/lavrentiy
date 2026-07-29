@@ -83,7 +83,7 @@ PROPER_NOUN_RE = re.compile(r"\b[A-Z][a-z]{1,}\b")
 PROPER_NOUN_EXCLUDE = {
     "A", "An", "And", "Are", "As", "At", "But", "By", "Can", "Could",
     "Do", "For", "From", "How", "I", "If", "In", "Is", "It", "My",
-    "No", "Not", "On", "Or", "Please", "Set", "Show", "Tell", "The",
+    "No", "Not", "Okay", "On", "Or", "Please", "Set", "Show", "Tell", "The",
     "This", "To", "Turn", "What", "When", "Where", "Which", "Who", "Why",
     "Will", "With", "Would", "You", "Your",
     # Additional sentence-openers and auxiliaries that get capitalised by
@@ -162,7 +162,17 @@ def check_retention(raw_text, clean_text, vocabulary=None):
         if key not in clean_lower:
             lost.append(t)
 
-    if NEGATION_RE.search(raw_text) and not NEGATION_RE.search(clean_text):
+    raw_whether_or_not = bool(re.search(
+        r"\bwhether\b[^.?!]*\bor\s+not\b", raw_text, re.IGNORECASE
+    ))
+    clean_keeps_uncertainty = bool(re.search(
+        r"\b(?:whether|if)\b", clean_text, re.IGNORECASE
+    ))
+    if (
+        NEGATION_RE.search(raw_text)
+        and not NEGATION_RE.search(clean_text)
+        and not (raw_whether_or_not and clean_keeps_uncertainty)
+    ):
         lost.append("<negation>")
     return lost
 
@@ -245,7 +255,24 @@ def check_fabrication(raw_text, clean_text):
     raw_lower = raw_text.lower()
     invented = []
 
+    product_layer = re.search(
+        r"\bLayer\s+([1-4])\s+(?:transcription|reconstruction|profile|advanced assist)\b",
+        clean_text,
+        re.IGNORECASE,
+    )
+    raw_has_product_context = bool(re.search(
+        r"\b(?:layer|transcription|reconstruction|reduction|profile|advanced)\b",
+        raw_text,
+        re.IGNORECASE,
+    ))
+
     for token in _proper_nouns(clean_text):
+        if (
+            token.lower() == "layer"
+            and product_layer
+            and raw_has_product_context
+        ):
+            continue
         if token.lower() not in raw_lower:
             invented.append(token)
 
@@ -264,7 +291,14 @@ def check_fabrication(raw_text, clean_text):
             CRITICAL_TOKEN_RE.search(raw_text) or NUMBER_WORD_RE.search(raw_text)
         )
         if not raw_has_number:
-            invented.extend(CRITICAL_TOKEN_RE.findall(clean_text))
+            for figure in CRITICAL_TOKEN_RE.findall(clean_text):
+                if (
+                    product_layer
+                    and raw_has_product_context
+                    and figure == product_layer.group(1)
+                ):
+                    continue
+                invented.append(figure)
 
     return invented
 

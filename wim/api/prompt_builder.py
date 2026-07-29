@@ -587,7 +587,7 @@ def _pb_layer2_3_restate(profile, previous_outputs):
         "\n- Sentence length should average 15-20 words. Break run-on speech into multiple short sentences."
         "\n- Keep subject and verb close together."
         "\n- Use everyday words. Avoid jargon unless the speaker used it specifically."
-        "\n- Sentences should be simple, active, affirmative, declarative."
+        "\n- Sentences should be simple, active, direct, and declarative."
         "\n- Drop verbal-tic discourse markers ('so', 'well', 'you know', 'like') even when not pure fillers."
         "\n\nThe speaker is brain-dumping in stream-of-consciousness order. "
         "They are offloading the structuring task to you. REORDER clauses, "
@@ -596,6 +596,8 @@ def _pb_layer2_3_restate(profile, previous_outputs):
         "thesis → support → conclusion for an argument)."
         "\n\nHARD RULES while restating:"
         "\n- PRESERVE all numbers, dates, dollar amounts, addresses, names, proper nouns exactly as spoken."
+        "\n- PRESERVE action-changing negation such as 'do not send', 'never share', "
+        "and 'without approval'. Never turn a negative instruction into a positive one."
         "\n- PRESERVE the speaker's intent and the substance of every clause."
         "\n- DO NOT add information or invent details not present in the input."
         "\n- DO NOT soften, sanitize, or change profanity / strong language / slang. Output the words the speaker chose."
@@ -660,6 +662,33 @@ def _pb_layer2_3_restate(profile, previous_outputs):
             "of the prior outputs verbatim or with only trivial edits."
         )
     return "\n".join(out_parts)
+
+
+def _pb_current_layer_context(layer):
+    """Give ASR cleanup the canonical name of the layer processing this take."""
+    layer_names = {
+        2: "Layer 2 reconstruction",
+        3: "Layer 3 profile",
+        4: "Layer 4 advanced assist",
+    }
+    current = layer_names.get(layer)
+    if not current:
+        return ""
+    example = ""
+    if layer == 2:
+        example = (
+            "\n- Example: while testing this layer, an ASR phrase such as "
+            "'weakest reduction' should be corrected to 'Layer 2 reconstruction'."
+        )
+    return (
+        "\n\nCURRENT PRODUCT CONTEXT:"
+        f"\n- This recording is being processed in {current}."
+        "\n- If the speaker is clearly testing or discussing the current app layer, "
+        "correct phonetically similar ASR errors to this canonical layer name."
+        "\n- Use this context only to resolve words the speaker attempted; never "
+        "insert the layer name into unrelated dictation."
+        + example
+    )
 
 
 def _pb_layer4_onset_hint(personal_onset_weights, profile):
@@ -903,6 +932,10 @@ def build_prompt(
         tone_rule,
         "Strip filler words (including non-English fillers like э, ну, ээ).",
         "Preserve FULL meaning. Do not summarize or add information.",
+        "NEGATION IS A PROTECTED ANCHOR. Action-changing negatives such as "
+        "'do not send', 'never share', and 'without approval' must remain "
+        "negative. The idiom 'whether X or not' may become 'whether X' because "
+        "the uncertainty remains explicit.",
         "Do NOT censor, sanitize, or soften the speaker's language. Profanity, slang, "
         "harsh words, and strong language must be preserved EXACTLY as spoken. "
         "If the speaker said 'fuck', output 'fuck'. If the speaker said 'steal', output 'steal'. "
@@ -935,6 +968,10 @@ def build_prompt(
 
     if compression_ratio_note:
         parts.append("\nSPEECH-RATE SIGNAL:\n" + str(compression_ratio_note)[:500])
+
+    current_layer_block = _pb_current_layer_context(layer)
+    if current_layer_block:
+        parts.append(current_layer_block)
 
     if layer >= 3:
         l3_block = _pb_layer3_user_context(profile, prior_rejections, style_examples)
