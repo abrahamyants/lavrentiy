@@ -121,6 +121,16 @@ class TestDashboardLoad:
         selector.select_option('en')
         expect(page.locator('.tab-btn[data-tab="profile"]')).to_have_text('Profile')
 
+    def test_pipeline_only_language_keeps_english_interface(self, page: Page):
+        page.goto(DASHBOARD_URL)
+        page.wait_for_timeout(1200)
+        selector = page.locator('#ui-language-select')
+        selector.select_option('de')
+        expect(page.locator('.tab-btn[data-tab="profile"]')).to_have_text('Profile')
+        page.wait_for_timeout(500)
+        assert _get_state().get('dictation_language') == 'de'
+        selector.select_option('en')
+
     def test_spoken_language_picker_matches_backend_policy(self, page: Page):
         page.goto(DASHBOARD_URL)
         page.wait_for_timeout(1200)

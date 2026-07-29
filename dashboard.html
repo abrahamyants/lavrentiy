@@ -2940,12 +2940,19 @@ body:not(.advanced-ui) .layer-opt .l-desc { font-size: 11px; }
       <button class="compact-toggle" onclick="toggleCompact()" title="Compact mode" aria-label="Minimize to compact mode">&#8863;</button>
       <div class="theme-toggle"><button class="theme-tog-btn" data-theme-set="dark" onclick="setTheme('dark')" aria-label="Dark theme">D</button><button class="theme-tog-btn" data-theme-set="light" onclick="setTheme('light')" aria-label="Light theme">L</button></div>
       <div class="lang-toggle">
-        <select class="lang-select" id="ui-language-select" onchange="setLang(this.value)" aria-label="Interface language">
+        <select class="lang-select" id="ui-language-select" onchange="setLang(this.value)" aria-label="Spoken and interface language">
           <option value="en">EN</option>
           <option value="es">ES</option>
           <option value="ru">RU</option>
           <option value="pt">PT</option>
           <option value="fr">FR</option>
+          <option value="ar">AR</option>
+          <option value="de">DE</option>
+          <option value="hi">HI</option>
+          <option value="it">IT</option>
+          <option value="ja">JA</option>
+          <option value="ko">KO</option>
+          <option value="zh">ZH</option>
         </select>
       </div>
       <button class="help-btn" onclick="toggleHelp()" title="Manual" aria-label="Help">?</button>
@@ -3513,9 +3520,12 @@ let lastLearnEventCount=0;let lastLogFetch=0;let lastLearnFetch=0;let lastPrevie
 const FIELD_MAP={trigger:'trigger_words',filler:'filler_words',vocab:'vocabulary'};
 
 // ─── i18n ──────────────────────────────────────────────
+const APP_LANGUAGES=['en','es','ru','pt','fr','ar','de','hi','it','ja','ko','zh'];
 const UI_LANGUAGES=['en','es','ru','pt','fr'];
-let currentLang=localStorage.getItem('lavrentiy-lang')||'en';
-if(!UI_LANGUAGES.includes(currentLang))currentLang='en';
+let selectedLanguage=localStorage.getItem('lavrentiy-language')||localStorage.getItem('lavrentiy-lang')||'en';
+if(!APP_LANGUAGES.includes(selectedLanguage))selectedLanguage='en';
+let currentLang=UI_LANGUAGES.includes(selectedLanguage)?selectedLanguage:'en';
+let languageChangePending=null;
 const I18N={
   // Boot
   boot_sub:{en:'VOICE RECONSTRUCTION ENGINE'},
@@ -3721,12 +3731,43 @@ async function loadUiTranslations(){
 }
 function t(key){return I18N[key]?.[currentLang]||I18N[key]?.en||key;}
 function _setFirstText(el,text){for(const n of el.childNodes){if(n.nodeType===3&&n.textContent.trim()){n.textContent=text;return;}}el.prepend(document.createTextNode(text));}
-function setLang(lang){
-  if(!UI_LANGUAGES.includes(lang))lang='en';
-  currentLang=lang;localStorage.setItem('lavrentiy-lang',lang);
+function syncLanguageSelection(lang){
+  if(!APP_LANGUAGES.includes(lang))lang='en';
+  selectedLanguage=lang;
+  localStorage.setItem('lavrentiy-language',lang);
+  const interfaceLanguage=UI_LANGUAGES.includes(lang)?lang:'en';
+  const interfaceChanged=currentLang!==interfaceLanguage;
+  currentLang=interfaceLanguage;
+  localStorage.setItem('lavrentiy-lang',interfaceLanguage);
   const select=document.getElementById('ui-language-select');if(select)select.value=lang;
-  document.documentElement.lang=lang;
-  applyI18n();
+  document.querySelectorAll('.dict-lang-opt').forEach(b=>b.classList.toggle('active',b.dataset.dict===lang));
+  document.documentElement.lang=interfaceLanguage;
+  if(interfaceChanged)applyI18n();
+}
+function syncServerLanguage(lang){
+  if(languageChangePending&&lang!==languageChangePending)return;
+  languageChangePending=null;
+  syncLanguageSelection(lang);
+}
+async function setLang(lang){
+  if(!APP_LANGUAGES.includes(lang))return;
+  languageChangePending=lang;
+  syncLanguageSelection(lang);
+  try{
+    const response=await fetch('/api/dictation_language',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({language:lang})});
+    const result=await response.json();
+    if(result.error)throw new Error(result.error);
+    if(state)state.dictation_language=result.dictation_language||lang;
+    languageChangePending=null;
+    syncLanguageSelection(result.dictation_language||lang);
+    const note=document.getElementById('dict-lang-status');
+    if(note)note.textContent=result.cloud_required?'Cloud transcription enabled for this language.':'English can use the bundled local model.';
+  }catch(error){
+    languageChangePending=null;
+    syncLanguageSelection((state&&state.dictation_language)||'en');
+    console.warn('Language change failed',error);
+  }
 }
 function applyI18n(){
   const L=currentLang;
@@ -4021,6 +4062,7 @@ async function pollState(){
   const now=Date.now();
   try{
     const r=await fetch(API+'/api/state');const d=await r.json();state=d;failCount=0;
+    syncServerLanguage(d.dictation_language||'en');
     if(!connected){
       connected=true;_everConnected=true;
       // Engine connected. Show X close button, let user finish their game.
@@ -5971,7 +6013,7 @@ async function init(){
   await runBootSequence();
   applyCompact();
   // Apply saved language preference
-  const languageSelect=document.getElementById('ui-language-select');if(languageSelect)languageSelect.value=currentLang;
+  const languageSelect=document.getElementById('ui-language-select');if(languageSelect)languageSelect.value=selectedLanguage;
   document.documentElement.lang=currentLang;
   await Promise.all([fetchProfiles(),fetchProfile(),fetchSessions(),fetchLearn(),fetchDAF(),fetchHotkeys(),fetchFluencyData(),fetchPatience()]);
   applyI18n();
@@ -6203,7 +6245,7 @@ function _refreshProfileStats(){
     const s = d.stats || {};
     // Reflect the saved dictation language on the picker.
     const _dl = d.dictation_language || 'en';
-    document.querySelectorAll('.dict-lang-opt').forEach(b => b.classList.toggle('active', b.dataset.dict === _dl));
+    syncServerLanguage(_dl);
     const setStat = (id,v) => { const el=document.getElementById(id); if(el) el.textContent = v; };
     setStat('ps-words', s.words || 0);
     setStat('ps-sessions', s.sessions || 0);
@@ -6295,16 +6337,7 @@ document.addEventListener('click', e => {
 document.addEventListener('click', e => {
   const dl = e.target.closest('.dict-lang-opt');
   if (!dl) return;
-  document.querySelectorAll('.dict-lang-opt').forEach(b => b.classList.remove('active'));
-  dl.classList.add('active');
-  fetch('/api/dictation_language', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({language: dl.dataset.dict})})
-    .then(r=>r.json()).then(d=>{
-      const note=document.getElementById('dict-lang-status');
-      if(note)note.textContent=d.error||(
-        d.cloud_required?'Cloud transcription enabled for this language.':'English can use the bundled local model.'
-      );
-    }).catch(()=>{});
+  setLang(dl.dataset.dict);
 });
 // Wire the W↔L slider
 document.addEventListener('input', e => {
