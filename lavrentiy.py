@@ -5206,6 +5206,14 @@ def whisper_transcribe(filepath):
     }
 
 
+def _asr_source_label(n_api_calls):
+    """Return the actual ASR route used for the console pipeline tag."""
+    if n_api_calls == 0:
+        return "local"
+    suffix = "call" if n_api_calls == 1 else "calls"
+    return f"cloud:{n_api_calls}{suffix}"
+
+
 # -- Shadow Utterance (#12) ────────────────────────────────────
 # "What you probably meant to say" — ground truth for avoidance measurement.
 # For prepped text: Script Prep IS the shadow (zero cost).
@@ -6943,12 +6951,10 @@ def pipeline():
         speech_metrics["audio_duration_s"] = round(_pipeline_audio_duration_s, 2)
         speech_metrics["speaking_rate_wps"] = round(_pipeline_speaking_rate_wps, 3)
 
-        # Log ASR pipeline details. The user-visible log doesn't name the
-        # engine — it's an implementation detail that changes between
-        # layers (faster-whisper local at L1/L2/L3, cloud whisper-1 at L4).
-        # Surfaces the prompt source + low-conf/disagreement signals only.
-        used_local = (LOCAL_WHISPER and _local_transcribe_fn is not None) or whisper_meta['n_api_calls'] == 0
-        source_label = "local" if used_local else f"{whisper_meta['n_api_calls']}calls"
+        # Log the route that actually completed. A successful cloud request
+        # increments n_api_calls; zero means local ASR handled the recording,
+        # including when a failed optional cloud request fell back locally.
+        source_label = _asr_source_label(whisper_meta['n_api_calls'])
         meta_tag = f"[{whisper_meta['prompt_source']}|{source_label}]"
         if whisper_low_conf:
             meta_tag += f" low_conf:{len(whisper_low_conf)}"

@@ -1000,6 +1000,15 @@ finally:
     ns['current_layer'] = 2
 
 # ============================================================
+# ASR console source labels
+# ============================================================
+print()
+print('=== ASR source labels ===')
+check('zero API calls reports local', ns['_asr_source_label'](0) == 'local')
+check('one API call reports cloud', ns['_asr_source_label'](1) == 'cloud:1call')
+check('multiple API calls report cloud count', ns['_asr_source_label'](3) == 'cloud:3calls')
+
+# ============================================================
 # Shutdown
 # ============================================================
 server.shutdown()
