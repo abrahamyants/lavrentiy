@@ -2604,7 +2604,7 @@ def db_dashboard_stats():
         metric_rows = _db.execute(
             "SELECT words, speech_metrics FROM sessions "
             "WHERE speech_metrics IS NOT NULL "
-            "ORDER BY id DESC LIMIT 50"
+            "ORDER BY id DESC"
         ).fetchall()
 
     recent_wpm = []
@@ -2613,14 +2613,24 @@ def db_dashboard_stats():
             metrics = json.loads(metrics_json)
         except (TypeError, json.JSONDecodeError):
             continue
+        wpm = None
         words_per_second = metrics.get("speaking_rate_wps")
         if isinstance(words_per_second, (int, float)) and words_per_second > 0:
-            recent_wpm.append(words_per_second * 60)
-            continue
-        duration = metrics.get("audio_duration_s")
-        if (isinstance(duration, (int, float)) and duration > 0
-                and isinstance(words, (int, float)) and words > 0):
-            recent_wpm.append(words / duration * 60)
+            wpm = words_per_second * 60
+        else:
+            duration = metrics.get("audio_duration_s")
+            if (isinstance(duration, (int, float)) and duration > 0
+                    and isinstance(words, (int, float)) and words > 0):
+                wpm = words / duration * 60
+
+        # Historical test/replay rows can pair a full transcript with a
+        # sub-second audio fragment, producing impossible 700–16,000 WPM
+        # values. Keep genuine slow speech, but reject rates above the
+        # plausible human range so one corrupted row cannot ruin the box.
+        if wpm is not None and 0 < wpm <= 300:
+            recent_wpm.append(wpm)
+            if len(recent_wpm) >= 50:
+                break
 
     return {
         "words": int(total_words or 0),

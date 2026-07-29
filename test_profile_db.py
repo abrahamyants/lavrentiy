@@ -463,6 +463,17 @@ check('dashboard totals include added sessions', dashboard_stats2['sessions'] ==
 check('dashboard totals include added words', dashboard_stats2['words'] == 17)
 check('sessions without metrics do not dilute WPM', dashboard_stats2['avg_wpm'] == 120)
 
+# A historical replay row can contain a long transcript paired with a tiny
+# audio duration. Its impossible rate must not ruin the dashboard average.
+log_session(
+    ns['profile'], "outlier raw", "outlier", "casual", 2,
+    speech_metrics={"speaking_rate_wps": 100.0, "audio_duration_s": 0.01},
+)
+dashboard_stats3 = db_dashboard_stats()
+check('dashboard totals retain outlier session', dashboard_stats3['sessions'] == 7)
+check('impossible WPM measurement is ignored', dashboard_stats3['avg_wpm'] == 120)
+check('valid WPM sample count is unchanged', dashboard_stats3['wpm_samples'] == 1)
+
 # ============================================================
 # TEST 12: log_session with None/missing optional fields
 # ============================================================
