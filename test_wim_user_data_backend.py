@@ -1,11 +1,33 @@
 """Contract checks for complete WiM cloud-account deletion."""
 
+import json
 import os
 import sys
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "wim", "api"))
 
-from user_data_backend import delete_cloud_account
+from user_data_backend import delete_cloud_account, make_json_safe
+
+
+class DatetimeWithNanoseconds(datetime):
+    """Matches Firestore's datetime subclass closely enough for this contract."""
+
+
+cloud_timestamp = DatetimeWithNanoseconds(
+    2026, 7, 29, 12, 24, 34, 447000, tzinfo=timezone.utc
+)
+safe_export = make_json_safe({
+    "created": cloud_timestamp,
+    "nested": {"sync_ts": cloud_timestamp},
+    "events": [cloud_timestamp],
+})
+assert safe_export == {
+    "created": "2026-07-29T12:24:34.447000+00:00",
+    "nested": {"sync_ts": "2026-07-29T12:24:34.447000+00:00"},
+    "events": ["2026-07-29T12:24:34.447000+00:00"],
+}
+assert json.loads(json.dumps(safe_export)) == safe_export
 
 
 class FakeDocument:
@@ -111,4 +133,4 @@ assert not db.sessions.documents
 assert not db.users.documents
 assert auth.deleted == ["user-123"]
 
-print("PASSED: complete WiM cloud-account deletion contract")
+print("PASSED: WiM cloud export and account-deletion contracts")
