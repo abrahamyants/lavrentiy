@@ -436,7 +436,7 @@ body:not(.advanced-ui) .layer-opt .l-desc { font-size: 11px; }
 
 /* ─── STATUS RING — 3D raised bezel ──────────── */
 .status-ring-wrap {
-  padding: 14px 16px;
+  padding: 8px 16px 12px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2326,7 +2326,12 @@ body:not(.advanced-ui) .layer-opt .l-desc { font-size: 11px; }
   .app { --sidebar-w: 180px; grid-template-columns: var(--sidebar-w, 180px) 4px 1fr; }
   .sidebar-brand { padding: 16px 14px 12px; }
   .sidebar-brand h1 { font-size: 14px; }
-  .status-ring-wrap { transform: scale(0.75); margin: -10px 0; }
+  .status-ring-wrap { padding-left: 8px; padding-right: 8px; transform: scale(0.75); margin: -10px 0; }
+  .status-controls { flex-wrap: wrap; row-gap: 6px; }
+  .status-controls .lang-toggle { order: 3; }
+  .status-controls .help-btn { order: 4; }
+  .status-controls::after { content: ''; flex-basis: 100%; height: 0; order: 5; }
+  .status-controls .view-toggle { order: 6; margin: 0 auto; }
 }
 @media (max-height: 600px) {
   .app { min-height: 100vh; }
@@ -2535,6 +2540,30 @@ body:not(.advanced-ui) .layer-opt .l-desc { font-size: 11px; }
 .theme-toggle {
   position: absolute; top: 6px; left: 34px; display: flex; z-index: 20;
 }
+.status-controls {
+  width: 100%;
+  min-height: 24px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.status-controls .compact-toggle,
+.status-controls .theme-toggle,
+.status-controls .lang-toggle,
+.status-controls .help-btn,
+.status-controls .view-toggle {
+  position: static;
+  inset: auto;
+  transform: none;
+  flex: 0 0 auto;
+}
+.status-controls .compact-toggle { order: 1; }
+.status-controls .theme-toggle { order: 2; }
+.status-controls .view-toggle { order: 3; width: 84px; }
+.status-controls .lang-toggle { order: 4; }
+.status-controls .help-btn { order: 5; }
 .lang-btn, .theme-tog-btn {
   padding: 2px 5px; font-family: var(--mono); font-size: 9px; font-weight: 600;
   letter-spacing: 0.5px; border: 1px solid var(--border-hi); background: var(--raised);
@@ -2894,11 +2923,13 @@ body:not(.advanced-ui) .layer-opt .l-desc { font-size: 11px; }
     </div>
 
 <div class="status-ring-wrap">
+      <div class="status-controls">
       <button class="compact-toggle" onclick="toggleCompact()" title="Compact mode" aria-label="Minimize to compact mode">&#8863;</button>
       <div class="theme-toggle"><button class="theme-tog-btn" data-theme-set="dark" onclick="setTheme('dark')" aria-label="Dark theme">D</button><button class="theme-tog-btn" data-theme-set="light" onclick="setTheme('light')" aria-label="Light theme">L</button></div>
       <div class="lang-toggle"><button class="lang-btn active" data-lang="en" onclick="setLang('en')" aria-label="English interface">EN</button><button class="lang-btn" data-lang="ru" onclick="setLang('ru')" aria-label="Русский интерфейс">RU</button></div>
       <button class="help-btn" onclick="toggleHelp()" title="Manual" aria-label="Help">?</button>
       <button class="view-toggle" id="view-toggle" onclick="toggleAdvancedUi()" aria-pressed="false">ADVANCED</button>
+      </div>
       <script>
         // Backup keyboard shortcuts: F5 and Ctrl+R reload the dashboard.
         // pywebview/WebView2 sometimes swallows F5 — wire explicitly.
