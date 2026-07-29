@@ -139,6 +139,7 @@ ns['current_tone'] = 'casual'
 ns['current_layer'] = 2
 ns['current_mode'] = 'SAFE'
 ns['current_situation'] = 'default'
+ns['_situation_restore_state'] = None
 ns['HOLD_ON_HIGH_RISK'] = False
 ns['stats'] = {'api_calls': 0, 'sessions': 10, 'falcon_rejects': 0,
                'words': 0, 'chars': 0, 'start_time': time.time(),
@@ -888,7 +889,25 @@ try:
     r = post('/api/situation', {'situation': 'casual'})
     check('casual: paralinguistic stays off', ns['paralinguistic_enabled'] == False)
     check('casual: prosodic stays off', ns['prosodic_enabled'] == False)
+    check('casual: restores pre-stress layer', ns['current_layer'] == 2)
+
+    # High Stress must restore the exact manual configuration it replaced.
+    ns['current_layer'] = 3
+    ns['paralinguistic_enabled'] = True
+    ns['prosodic_enabled'] = False
+    post('/api/situation', {'situation': 'high_stress'})
+    check('custom state: high stress sets layer 4', ns['current_layer'] == 4)
+    check('custom state: high stress enables both analyses',
+          ns['paralinguistic_enabled'] and ns['prosodic_enabled'])
+    post('/api/situation', {'situation': 'default'})
+    check('default: restores custom layer', ns['current_layer'] == 3)
+    check('default: restores custom paralinguistic setting',
+          ns['paralinguistic_enabled'] == True)
+    check('default: restores custom prosodic setting',
+          ns['prosodic_enabled'] == False)
+
     # Switch to reading -> no para/prosodic in preset
+    ns['paralinguistic_enabled'] = False
     r = post('/api/situation', {'situation': 'reading'})
     check('reading: paralinguistic stays off', ns['paralinguistic_enabled'] == False)
     check('reading: prosodic stays off', ns['prosodic_enabled'] == False)
