@@ -45,6 +45,8 @@ datas = [
     # imported by lavrentiy.py via a runtime sys.path.append("wim/api").
     # PyInstaller can't follow runtime path tricks — bundle it explicitly.
     (str(REPO / 'wim' / 'api' / 'prompt_builder.py'), '.'),
+    (str(REPO / 'wim' / 'api' / 'learning_backend.py'), '.'),
+    (str(REPO / 'wim' / 'api' / 'profile_terms.py'), '.'),
     (str(REPO / 'dashboard.html'),     '.'),
     (str(REPO / 'onboard.html'),       '.'),
     (str(REPO / 'auth_google.html'),   '.'),
@@ -63,7 +65,7 @@ datas = [
 binaries = []
 hiddenimports = [
     'l1_pack', 'domain_pack', 'rejection_store', 'style_examples',
-    'prompt_builder',
+    'prompt_builder', 'learning_backend', 'profile_terms',
     'local', 'local.asr_local', 'local.fw_local',
     'scipy.signal',
     'pyperclip',

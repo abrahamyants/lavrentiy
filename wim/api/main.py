@@ -28,6 +28,7 @@ from firebase_admin import auth, initialize_app
 
 from reconstruct import reconstruct_intent
 from audio_backend import AudioRequestError, prepare_audio_request
+from learning_backend import LearningResponseError, learn_from_pairs
 from billing_backend import (
     BillingVerificationError,
     PACKAGE_NAME as BILLING_PACKAGE_NAME,
@@ -458,6 +459,52 @@ def _action_transcribe_audio(uid, tier_config, body):
     }), 200, _JSON_CORS)
 
 
+def _action_learn_profile(uid, tier_config, body):
+    """Run Layer 3 background learning with the server-side OpenAI key."""
+    if tier_config["max_layer"] < 3:
+        return (json.dumps({
+            "error": "Layer 3 profile learning requires WiM Cloud",
+            "tier": tier_config["name"],
+        }), 403, _JSON_CORS)
+    pairs = body.get("pairs", "")
+    if not isinstance(pairs, str) or not pairs.strip():
+        return (json.dumps({"error": "Missing transcription pairs"}), 400, _JSON_CORS)
+
+    ok, remaining, rate_err = check_rate_limit(uid, tier_config, 3)
+    if not ok:
+        return rate_err
+
+    from reconstruct import MODEL as reconstruction_model
+    from reconstruct import client as openai_client
+    t_call = time.time()
+    try:
+        learnings = learn_from_pairs(
+            openai_client,
+            reconstruction_model,
+            pairs[:12000],
+        )
+    except LearningResponseError as e:
+        _emit(logging.ERROR, event="learn_profile_invalid", uid=uid,
+              latency_ms=round((time.time() - t_call) * 1000), error=str(e)[:300])
+        return (json.dumps({"error": str(e)}), 502, _JSON_CORS)
+    except Exception as e:
+        retriable = _classify_exception(e)
+        _emit(logging.ERROR, event="learn_profile_failed", uid=uid,
+              latency_ms=round((time.time() - t_call) * 1000),
+              exception=type(e).__name__, error=str(e)[:300], retriable=retriable)
+        return (json.dumps({
+            "error": f"Profile learning failed: {type(e).__name__}",
+            "retriable": retriable,
+        }), 503 if retriable else 500, _JSON_CORS)
+
+    _emit(logging.INFO, event="learn_profile_ok", uid=uid,
+          latency_ms=round((time.time() - t_call) * 1000))
+    return (json.dumps({
+        "learnings": learnings,
+        "remaining": remaining,
+    }), 200, _JSON_CORS)
+
+
 def _classify_exception(e):
     """Return True if the exception is retriable per OpenAI SDK conventions.
     Introspects by name + status_code to stay robust to SDK reshuffles instead
@@ -547,6 +594,7 @@ _ACTION_HANDLERS = {
     "command":          _action_command,
     "complete_partial": _action_complete_partial,
     "transcribe_audio": _action_transcribe_audio,
+    "learn_profile":    _action_learn_profile,
     "billing_status":   _action_billing_status,
     "verify_purchase":  _action_verify_purchase,
 }

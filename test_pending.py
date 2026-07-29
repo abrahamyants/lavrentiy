@@ -9,6 +9,9 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='repla
 from pathlib import Path
 from datetime import datetime, timedelta
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / 'wim' / 'api'))
+import learning_backend
+
 with open('lavrentiy.py', 'r', encoding='utf-8') as f:
     source = f.read()
 
@@ -21,6 +24,9 @@ ns = {
     'datetime': datetime, 'timedelta': timedelta,
     'Path': Path, 'difflib': __import__('difflib'),
     'threading': threading,
+    'learning_backend': learning_backend,
+    'is_authenticated': lambda: False,
+    'MODEL': 'test-model',
     # Globals from lavrentiy.py module scope that extracted functions reference.
     '_profile_lock': threading.Lock(),
 }
