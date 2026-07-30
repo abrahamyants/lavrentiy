@@ -77,24 +77,41 @@ def _pb_reader_block(window_title):
 # ─── Tone rules ───
 TONE_RULES = {
     "formal": (
-        "Use complete sentences. No contractions. No colloquialisms or slang. "
-        "Proper grammar and punctuation. Do not paraphrase — preserve the speaker's "
-        "exact word choices where possible. Only fix disfluencies and grammar errors."
+        "Formal written register. Complete sentences only. NO contractions — write "
+        "\"I will\", \"do not\", \"cannot\". NO colloquialisms, NO slang, NO "
+        "greetings or address terms — drop \"hey\", \"hey man\", \"hi\", \"yo\", "
+        "\"dude\", \"guys\" entirely. Open on the substance. Full punctuation."
     ),
     "professional": (
-        "Clean, clear business language. Contractions acceptable but not preferred. "
-        "Fix grammar and strip fillers. Minor rephrasing for clarity is OK, "
-        "but do not editorialize or change the speaker's intent."
+        "Professional business register — the way this would be written to a colleague "
+        "or client, not spoken to a friend. Apply ALL of the following: "
+        "(1) DROP casual greetings and address terms — \"hey\", \"hey man\", \"hi "
+        "there\", \"yo\", \"dude\", \"man\", \"guys\". Start with the substance. "
+        "(2) EXPAND spoken contractions of intent — \"gonna\" to \"going to\", "
+        "\"wanna\" to \"want to\", \"gotta\" to \"need to\", \"kinda\" to "
+        "\"somewhat\", \"lemme\" to \"let me\". Ordinary contractions (\"I'll\", "
+        "\"it's\", \"we're\") are fine. "
+        "(3) DROP discourse openers that carry no content — a leading \"so\", "
+        "\"well\", \"okay\", \"look\", \"I mean\". "
+        "(4) Replace vague filler nouns with the specific one when the speaker made it "
+        "clear — \"the thing\" to what the thing is. "
+        "Example: \"hey man I'm gonna need that report by Friday\" becomes \"I'll need "
+        "the report by Friday.\" "
+        "This is a rewrite of REGISTER only — the request, the facts, the names, the "
+        "numbers, the deadline and the speaker's forcefulness all stay exactly as spoken."
     ),
     "casual": (
-        "Natural spoken rhythm. Contractions OK. Colloquial phrasing OK. "
-        "Strip fillers and fix obvious errors, but keep the speaker's natural voice. "
-        "Don't make it sound like a formal document."
+        "Natural spoken rhythm — how this person actually talks, cleaned up. "
+        "Contractions expected. KEEP greetings and address terms the speaker used "
+        "(\"hey\", \"hey man\") — they are part of the voice, not filler. Strip "
+        "disfluencies and fix obvious errors only. Do not formalize, do not add "
+        "business phrasing, do not lengthen."
     ),
     "friend": (
-        "Conversational, relaxed. Contractions expected. Sentence fragments OK if natural. "
-        "Strip fillers and repetitions but preserve personality and informal expressions. "
-        "This should sound like a real person talking, not writing."
+        "Relaxed and conversational. Contractions expected. Sentence fragments are fine "
+        "when natural. KEEP greetings, address terms, slang, and personality intact — "
+        "\"hey man\", \"yeah\", \"gonna\" all stay. Strip only disfluencies. If this "
+        "reads like a work email, it is wrong."
     ),
 }
 
@@ -989,6 +1006,16 @@ def _pb_layer4_block(profile, language_code, personal_onset_weights,
     return "\n".join(out_parts)
 
 
+def _pb_layer4_final_tone_anchor(tone, tone_rule):
+    return (
+        "\nTONE — read this last: the selected tone is "
+        f"{tone}. {tone_rule} Conservative cleanup protects meaning, facts, names, "
+        "numbers, and speaker intent. It does NOT permit leaving the wrong register "
+        "in place. If the output keeps a casual register while professional or formal "
+        "tone is selected, the reconstruction failed."
+    )
+
+
 def _pb_paralinguistic_events(paralinguistic_events):
     """Lavrentiy L5 paralinguistic-events block."""
     if not paralinguistic_events:
@@ -1164,5 +1191,8 @@ def build_prompt(
     # Prosodic bridging (lavrentiy L5.5) — caller passes a pre-formatted block.
     if prosodic_context:
         parts.append("\n" + prosodic_context)
+
+    if layer >= 4:
+        parts.append(_pb_layer4_final_tone_anchor(tone, tone_rule))
 
     return "\n".join(parts)

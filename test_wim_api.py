@@ -189,6 +189,8 @@ def _fake_metaphone(value):
         'count': ('KNT', ''),
         'cloth': ('KL0', 'KLT'),
         'claude': ('KLT', ''),
+        'git': ('KT', ''),
+        'get': ('KT', ''),
         'yellow flag': ('ALFLK', ''),
         'yolo flag': ('ALFLK', ''),
         'powershell': ('PRXL', ''),
@@ -220,6 +222,15 @@ blocked_fixed, _ = PT.apply_profile_terms(
 )
 check('Layer 3 does not rewrite a common helper word to Claude',
       blocked_fixed == 'I could help.')
+
+blocked_vocab_fixed, _ = PT.apply_profile_terms(
+    'Get the Henderson invoice.',
+    {'vocabulary': ['Git']},
+    low_conf_texts=['Get the Henderson invoice.'],
+    encoder=_fake_metaphone,
+)
+check('Layer 3 vocabulary does not rewrite common verb get to Git',
+      blocked_vocab_fixed == 'Get the Henderson invoice.')
 
 parsed_learning = LB.parse_learning_response(
     '```json\n{"corrections":{"cloth":"Claude"},'
@@ -787,6 +798,12 @@ check('R.SITUATION_SEVERITY IS prompt_builder.SITUATION_SEVERITY',
 p_l2 = PB.build_prompt('I need to fucking go to the store', tone='professional', layer=2)
 check('professional tone is an explicit requirement',
       'Tone: professional — this is a REQUIREMENT' in p_l2)
+check('professional tone drops casual greetings',
+      'DROP casual greetings and address terms' in p_l2)
+check('professional tone expands gonna',
+      '"gonna" to "going to"' in p_l2)
+check('professional tone has bad-to-good example',
+      '"hey man I\'m gonna need that report by Friday" becomes' in p_l2)
 check('content preservation does not freeze the register',
       'does not override the selected tone' in p_l2)
 check('L2 has anti-censoring rule',
@@ -848,6 +865,13 @@ p_android_audience = PB.build_prompt(
     'send it tomorrow', layer=2, window_title='com.google.android.gm')
 check('Android package reaches reader-context mapping',
       'professional or personal contacts' in p_android_audience)
+
+p_l4_tone = PB.build_prompt(
+    'hey man I am gonna need the report', tone='professional', layer=4)
+check('L4 final tone anchor appears after clinical conservative rule',
+      p_l4_tone.rfind('TONE — read this last') > p_l4_tone.rfind('prefer conservative cleanup'))
+check('L4 final tone anchor makes wrong register a failure',
+      'wrong register' in p_l4_tone and 'the reconstruction failed' in p_l4_tone)
 
 
 # ============================================================

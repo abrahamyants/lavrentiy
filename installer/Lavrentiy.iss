@@ -1,4 +1,4 @@
-; Lavrentiy.iss — Inno Setup installer for v1.7.4 (drift-proof bundling).
+; Lavrentiy.iss — Inno Setup installer for v1.7.5 (drift-proof bundling).
 ;
 ; CONTRAST WITH v1.5.7 (Lavrentiy-Eval.iss):
 ;   v1.5.7 manually enumerated each engine source file in the [Files] block.
@@ -15,7 +15,7 @@
 ;        --distpath dist-onedir --workpath build-onedir
 ;        -> Produces dist-onedir\Lavrentiy\Lavrentiy.exe + _internal\
 ;   2. iscc installer\Lavrentiy.iss
-;        -> Produces installer\Output\Lavrentiy-Setup-v1.7.4.exe
+;        -> Produces installer\Output\Lavrentiy-Setup-v1.7.5.exe
 ;
 ; INSTALL TARGET:
 ;   {userpf}\Lavrentiy = %LOCALAPPDATA%\Programs\Lavrentiy
@@ -33,8 +33,8 @@
 [Setup]
 AppId={{B7E5F4A2-9C3D-4E1B-8A6F-2D8B5E9C1F3A}}
 AppName=Lavrentiy
-AppVersion=1.7.4
-AppVerName=Lavrentiy 1.7.4
+AppVersion=1.7.5
+AppVerName=Lavrentiy 1.7.5
 AppPublisher=Gurgen Abrahamyants
 AppPublisherURL=https://github.com/gugosf114/lavrentiy
 AppSupportURL=https://github.com/gugosf114/lavrentiy/issues
@@ -46,7 +46,7 @@ UninstallDisplayName=Lavrentiy
 Compression=lzma2/max
 SolidCompression=yes
 OutputDir=Output
-OutputBaseFilename=Lavrentiy-Setup-v1.7.4
+OutputBaseFilename=Lavrentiy-Setup-v1.7.5
 SetupIconFile=..\lavrentiy.ico
 PrivilegesRequired=lowest
 WizardStyle=modern

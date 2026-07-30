@@ -28,6 +28,28 @@ _APPROXIMATE_BLOCKLIST = {
     "must", "my", "no", "not", "of", "on", "or", "our", "shall", "she",
     "should", "so", "that", "the", "their", "them", "they", "this", "those",
     "to", "us", "was", "we", "were", "will", "with", "would", "you", "your",
+    # High-frequency content words. The list above is function words only,
+    # which left everyday verbs open to phonetic capture by a profile term
+    # on the vocabulary path. This only blocks approximate/phonetic recovery;
+    # exact saved corrections still run before this candidate loop.
+    "get", "gets", "getting", "got", "give", "gives", "given", "go", "goes",
+    "going", "gone", "went", "come", "comes", "coming", "came", "take",
+    "takes", "taking", "took", "make", "makes", "making", "made", "need",
+    "needs", "needed", "want", "wants", "wanted", "know", "knows", "knew",
+    "think", "thinks", "thought", "say", "says", "said", "see", "sees",
+    "saw", "seen", "look", "looks", "looking", "tell", "tells", "told",
+    "ask", "asks", "asked", "work", "works", "working", "call", "calls",
+    "called", "try", "tries", "tried", "put", "puts", "keep", "keeps",
+    "let", "lets", "help", "helps", "show", "shows", "run", "runs",
+    "move", "moves", "hold", "holds", "bring", "brings", "write", "writes",
+    "send", "sends", "sent", "sending", "read", "reads", "find", "finds",
+    "found", "use", "uses", "used", "mean", "means", "meant", "set",
+    "sets", "start", "starts", "stop", "stops", "here", "there", "then",
+    "than", "when", "what", "who", "how", "why", "where", "all", "any",
+    "just", "like", "now", "only", "out", "over", "some", "such", "up",
+    "very", "well", "back", "down", "off", "one", "two", "day", "days",
+    "time", "thing", "things", "good", "new", "old", "same", "next",
+    "last", "first", "about", "after", "before", "again", "still",
 }
 
 
@@ -168,8 +190,10 @@ def _replace_candidate(text, target, probes, kind, low_conf_texts, encoder):
                 continue
 
             uncertain = _is_low_confidence_phrase(heard, low_conf_texts)
+            if heard_norm in _APPROXIMATE_BLOCKLIST:
+                continue
             if kind == "correction":
-                if not uncertain or heard_norm in _APPROXIMATE_BLOCKLIST:
+                if not uncertain:
                     continue
                 relation = _phonetic_relation(
                     heard, probes, encoder, allow_approximate=True
