@@ -33,7 +33,7 @@
 from PyInstaller.utils.hooks import collect_all
 from pathlib import Path
 
-REPO = Path(r'C:\Users\georg\Documents\GitHub\lavrentiy')
+REPO = Path(SPECPATH).resolve()
 
 datas = [
     (str(REPO / 'lavrentiy.py'),       '.'),
