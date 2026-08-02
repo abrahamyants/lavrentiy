@@ -3394,6 +3394,13 @@ def strip_disfluencies(text):
         lambda m: m.group(3) if m.group(3).lower().startswith(m.group(1).lower()) else m.group(0),
         text, flags=re.IGNORECASE)
 
+    # Unspaced stutter fragments — "w-w-want" -> "want", "c-c-can" -> "can".
+    # Requires at least one repeat so legitimate hyphenated words never match.
+    # This rule existed only in DisfluencyFilter.kt; the unspaced form is how
+    # Whisper transcribes a hard stutter most of the time, so this engine was
+    # leaving the product's core artifact in place.
+    cleaned = re.sub(r'(\b\w+)-(?:\1-){1,40}', '', cleaned, flags=re.IGNORECASE)
+
     # Step 2: Remove consecutive word repetitions
     # "I I I want" → "I want",  "the the dog" → "the dog"
     # Exception: naturally repeating English constructions (ha ha, bye bye, etc.)
@@ -3436,6 +3443,10 @@ def strip_disfluencies(text):
 
     result = " ".join(filtered).strip()
     # Collapse multiple spaces
+    # Prolongations — "mmmmaybe" -> "maybe", "yessss" -> "yes". Three or more
+    # identical LETTERS collapse to one; digits are excluded deliberately,
+    # because \w would turn "wire 1000 dollars" into "wire 10 dollars".
+    result = re.sub(r'([A-Za-z\u0400-\u04FF])\1{2,200}', r'\1', result)
     result = re.sub(r'\s{2,}', ' ', result)
     # Don't return empty string — fall back to original
     return result if result else text

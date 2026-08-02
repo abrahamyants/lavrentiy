@@ -183,6 +183,14 @@ def strip_disfluencies(text):
         r'(\b\w+)-\s+((?:\1-\s+)*)(\w+)',
         lambda m: m.group(3) if m.group(3).lower().startswith(m.group(1).lower()) else m.group(0),
         text, flags=re.IGNORECASE)
+    # Unspaced stutter fragments — "w-w-want" -> "want", "c-c-can" -> "can",
+    # "m-m-m-meeting" -> "meeting". Requires at least one repeat so legitimate
+    # hyphenated words ("pre-existing", "well-known", "re-record") never match.
+    # This rule existed only in DisfluencyFilter.kt. The unspaced form is how
+    # Whisper transcribes a hard stutter most of the time, so the backend and
+    # the desktop engine were leaving the product's core artifact untouched
+    # while the Android offline path stripped it.
+    cleaned = re.sub(r'(\b\w+)-(?:\1-){1,40}', '', cleaned, flags=re.IGNORECASE)
     # 3+ repetitions, not 2+. Two is usually emphasis ("no no", "please please");
     # three is where the speaker was blocked. Matches lavrentiy.py:3063. The
     # [,;:] handling is retained — cloud ASR punctuates repeats ("I, I, I need").
@@ -201,6 +209,11 @@ def strip_disfluencies(text):
             continue
         filtered.append(w)
     result = " ".join(filtered).strip()
+    # Prolongations — "mmmmaybe" -> "maybe", "yessss" -> "yes". Three or more
+    # identical LETTERS collapse to one; digits are excluded on purpose, because
+    # \w would turn "wire 1000 dollars" into "wire 10 dollars". Mirrors
+    # DisfluencyFilter.kt.
+    result = re.sub(r'([A-Za-z\u0400-\u04FF])\1{2,200}', r'\1', result)
     result = re.sub(r'\s{2,}', ' ', result)
     return result if result else text
 
