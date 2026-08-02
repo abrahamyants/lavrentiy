@@ -166,6 +166,15 @@ def check_retention(raw_text, clean_text, vocabulary=None):
             critical.append(term)
 
     clean_lower = clean_text.lower()
+    # Numeric anchors are compared BY VALUE, not as literal substrings. A digit
+    # token from the input had to appear verbatim in the output, so a correct
+    # reconstruction that spelled the figure out — "4200" -> "four thousand two
+    # hundred", "$1,000" -> "1000" — read as a lost anchor and the guard threw
+    # the whole reconstruction away. Layer 4 writes prose and spells figures out
+    # routinely, so the layer that rewrites hardest was the one most often
+    # rejected for being right.
+    numeric_tokens = {m.lower() for m in CRITICAL_TOKEN_RE.findall(raw_text)}
+    clean_numeric = numeric_values(clean_text)
     clean_titles = {
         match.group(0).rstrip(".").lower()
         for match in TITLE_RE.finditer(clean_text)
@@ -179,6 +188,11 @@ def check_retention(raw_text, clean_text, vocabulary=None):
         seen.add(key)
         if key in raw_titles:
             retained = key in clean_titles
+        elif key in numeric_tokens:
+            value = _numeric_token_value(t)
+            retained = key in clean_lower or (
+                value is not None and value in clean_numeric
+            )
         else:
             retained = key in clean_lower
         if not retained:
@@ -391,15 +405,29 @@ def numeric_values(text):
 
 
 def check_numeric_drift(raw_text, clean_text):
-    """Figures in the rewrite whose numeric value was not stated in the input."""
+    """Figures in the rewrite whose numeric value was not stated in the input.
+
+    Both representations are checked. CRITICAL_TOKEN_RE matches digits only, so
+    for a long time an output that kept the number in WORDS produced no matches
+    at all and every change passed: "four thousand two hundred" -> "five
+    thousand three hundred" was invisible, as were "two billion" -> "two
+    million" and "twenty copies" -> "thirty copies". Layer 4 writes prose and
+    routinely keeps figures spelled out, so the layer that rewrites hardest was
+    the one the check could not see.
+    """
     raw_values = numeric_values(raw_text)
     if not raw_values:
         return []
     drifted = []
+    seen = set()
     for match in CRITICAL_TOKEN_RE.finditer(clean_text or ""):
         value = _numeric_token_value(match.group(0))
         if value is not None and value not in raw_values:
             drifted.append(match.group(0))
+            seen.add(value)
+    for value in sorted(numeric_values(clean_text or "")):
+        if value not in raw_values and value not in seen:
+            drifted.append(str(value))
     return drifted
 
 

@@ -281,6 +281,34 @@ GUARD_CASES = [
     ("catches_dropped_negation",
      "i do not want to cancel the appointment",
      "I want to cancel the appointment.", False),
+
+    # Spelled-out figures. CRITICAL_TOKEN_RE matches digits only, so an output
+    # that kept the number in words produced no matches and every change passed.
+    # L4 writes prose and spells figures out routinely.
+    ("catches_a_spelled_out_amount_change",
+     "wire four thousand two hundred to henderson",
+     "Wire five thousand three hundred to Henderson.", False),
+    ("catches_a_spelled_out_amount_shrinking",
+     "wire four thousand two hundred to henderson",
+     "Wire four thousand to Henderson.", False),
+    ("catches_billion_swapped_for_million",
+     "wire two billion to henderson", "Wire two million to Henderson.", False),
+    ("catches_a_spelled_out_count_change",
+     "send twenty copies", "Send thirty copies.", False),
+    ("catches_digits_rewritten_as_the_wrong_words",
+     "wire 4200 to henderson", "Wire one thousand two hundred to Henderson.", False),
+
+    # The mirror direction: numeric anchors compared as literal substrings meant
+    # a CORRECT reconstruction that spelled the figure out read as a lost anchor
+    # and the whole reconstruction was thrown away.
+    ("digits_spelled_out_is_not_a_loss",
+     "wire 4200 to henderson", "Wire four thousand two hundred to Henderson.", True),
+    ("comma_formatting_is_not_a_loss",
+     "transfer $1,000 today", "Transfer 1000 today.", True),
+    ("digits_to_words_is_not_a_loss",
+     "send 5 copies", "Send five copies to the second floor.", True),
+    ("words_to_digits_is_not_a_loss",
+     "the meeting is at three pm on tuesday", "The meeting is at 3 PM on Tuesday.", True),
 ]
 for name, rawt, cleant, should_pass in GUARD_CASES:
     g = MG.guard(rawt, cleant, vocabulary=PROFILE["vocabulary"])
