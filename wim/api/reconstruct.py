@@ -98,18 +98,94 @@ _STRIP_FILLERS = {
 }
 
 
+# Mirror of lavrentiy.py NATURAL_REPEATS and DisfluencyFilter.kt NATURAL_REPEATS.
+# This copy had neither the allow-list nor the 3+ threshold, so it collapsed
+# every doubling: "no no that's not what I meant" came back as "no that's not
+# what I meant", "bye bye" as "bye", "ha ha" as "ha". The 2026-07-29 corpus
+# reached the same symptom from the prompt side (finding 3) and read it as an
+# L2-vs-L4 prompt difference; this filter runs before either prompt and was
+# doing it at every layer. Emphasis is meaning.
+NATURAL_REPEATS = {
+    "had had", "that that", "is is", "was was", "do do",
+    "can can", "no no", "bye bye", "so so", "very very",
+    "go go", "now now", "come come", "well well",
+    "out out", "boo boo", "ha ha", "ho ho",
+    "knock knock", "tsk tsk", "aye aye",
+    # Emphatic doublings — WiM parity.
+    "really really", "many many", "much much", "right right",
+    "sure sure", "okay okay", "just just",
+    # Russian
+    "да да", "нет нет", "ну ну",
+}
+
+# Caption boilerplate Whisper emits when it decodes silence — training-data
+# residue from subtitled video. A hard block produces exactly this: no airflow,
+# no words, and Whisper fills the gap with "thanks for watching".
+_CAPTION_ARTIFACT = re.compile(
+    r"\b(?:thanks?\s+(?:you\s+)?for\s+watching"
+    r"|(?:don'?t\s+forget\s+to|please|like\s+and)\s+subscribe"
+    r"|transcribed\s+by[^.,;!?]*|subtitles?\s+by[^.,;!?]*"
+    r"|amara\.org|otter\.ai)\b[.,!?]*",
+    re.IGNORECASE,
+)
+
+# Bracketed markers Whisper emits for the same silence.
+_SYSTEM_MARKER = re.compile(
+    r"\[(?:blank[_ ]audio|inaudible|music|applause|silence|no[_ ]audio|laughter)\]"
+    r"|\[(?:blank[_ ]audio|inaudible|music|applause|silence|no[_ ]audio|laughter)\s*$",
+    re.IGNORECASE,
+)
+
+
+def strip_caption_artifacts(text):
+    """Remove caption boilerplate and bracketed silence markers.
+
+    Belongs on every path that hands the raw transcript back: the two guard
+    refusals and L1/RAW. When the guard rejects a reconstruction because the
+    model invented a replacement for a blocked word, falling back to raw is
+    right — falling back to raw that still says "thanks for watching" is not.
+    Refusing to fabricate and then pasting garbage is the same bad outcome by a
+    different route.
+
+    Returns the original when stripping would empty it; an incomplete sentence
+    beats an empty paste. Port of DisfluencyFilter.stripCaptionArtifacts, which
+    has shipped on the WiM device path since 2026-07-29.
+    """
+    if not text or not text.strip():
+        return text
+    stripped = _SYSTEM_MARKER.sub("", text)
+    stripped = _CAPTION_ARTIFACT.sub(" ", stripped)
+    stripped = re.sub(r'\s{2,}', ' ', stripped).strip()
+    return stripped if stripped else text
+
+
+def _dedup_word(m):
+    if f"{m.group(1)} {m.group(1)}".lower() in NATURAL_REPEATS:
+        return m.group(0)
+    return m.group(1)
+
+
+def _dedup_phrase(m):
+    if m.group(1).lower() in NATURAL_REPEATS:
+        return m.group(0)
+    return m.group(1)
+
+
 def strip_disfluencies(text):
     """Remove obvious disfluency artifacts from transcription (zero API cost)."""
     if not text or not text.strip():
         return text
     cleaned = re.sub(r'(\b\w+)-\s+(?:\1-\s+)*', '', text, flags=re.IGNORECASE)
+    # 3+ repetitions, not 2+. Two is usually emphasis ("no no", "please please");
+    # three is where the speaker was blocked. Matches lavrentiy.py:3063. The
+    # [,;:] handling is retained — cloud ASR punctuates repeats ("I, I, I need").
     cleaned = re.sub(
-        r'\b(\w+)(?:[,;:]?\s+\1)+\b[,;:]?',
-        r'\1',
+        r'\b(\w+)(?:[,;:]?\s+\1){2,}\b[,;:]?',
+        _dedup_word,
         cleaned,
         flags=re.IGNORECASE,
     )
-    cleaned = re.sub(r'\b(\w+\s+\w+(?:\s+\w+)?)\s+\1\b', r'\1', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\b(\w+\s+\w+(?:\s+\w+)?)\s+\1\b', _dedup_phrase, cleaned, flags=re.IGNORECASE)
     words = cleaned.split()
     filtered = []
     for w in words:
@@ -229,7 +305,10 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
     source_raw_text = raw_text
 
     if layer <= 1 or mode == "RAW":
-        cleaned = strip_disfluencies(raw_text)
+        # No model runs on this path, so whatever Whisper invented during a
+        # block goes straight into the user's text field. The 2026-07-29 corpus
+        # only exercised L2 and L4, so this route was never observed failing.
+        cleaned = strip_disfluencies(strip_caption_artifacts(raw_text))
         ms = round((time.time() - t0) * 1000)
         return {
             "clean": cleaned, "raw": raw_text, "confidence": 0.95,
@@ -371,7 +450,7 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
             language_code=language_code,
         )
         if not falcon_ok:
-            clean_text = strip_disfluencies(raw_text)
+            clean_text = strip_disfluencies(strip_caption_artifacts(raw_text))
 
     # Deterministic meaning guard. lavrentiy.py has had this for a long time;
     # this path never did, so a signed-in desktop user got no server-side check.
@@ -399,7 +478,7 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
                 guard_result["lost"], guard_result["invented"],
                 guard_result.get("unchanged", False),
             )
-            clean_text = strip_disfluencies(raw_text)
+            clean_text = strip_disfluencies(strip_caption_artifacts(raw_text))
             falcon_ok = False
     except Exception as e:
         logging.warning("meaning guard failed, passing reconstruction through: %s", e)

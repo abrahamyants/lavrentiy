@@ -63,6 +63,38 @@ combo = sd('I I was um going to to the the store to uh buy some milk')
 check('combo: repetitions + fillers stripped', 'um' not in combo and 'uh' not in combo)
 check('combo: content preserved', 'store' in combo and 'milk' in combo)
 
+# ---- natural repeats (WiM / lavrentiy.py parity) ----
+# This copy of strip_disfluencies collapsed every doubling: it fired at 2+ and
+# carried no allow-list, so "no no that's not what I meant" lost the emphasis
+# that was the point of the sentence. 2026-07-29 corpus, finding 3.
+print()
+print('=== TEST 1b: natural repeats survive ===')
+check('emphatic "no no" survives', sd("no no that is not what i meant").lower().count('no no') == 1)
+check('"bye bye" survives', 'bye bye' in sd('bye bye see you tomorrow').lower())
+check('"ha ha" survives', 'ha ha' in sd('ha ha that is funny').lower())
+check('protected word still collapses at 3+', sd('really really really important').lower().count('really') == 3)
+check('unprotected word collapses at 3+', sd('the the the meeting').lower().count('the') == 1)
+check('unprotected doubling is left alone', sd('the the meeting').lower().count('the') == 2)
+
+# ---- caption artifacts ----
+# The SAFE fallback and the L1/RAW path both hand the raw transcript to the
+# user with no model in between. A hard block makes Whisper emit caption
+# boilerplate into the silence, and it was being pasted verbatim. Corpus case 2.
+print()
+print('=== TEST 1c: caption artifacts stripped ===')
+sca = R.strip_caption_artifacts
+
+check('corpus case 2: "thanks for watching" removed',
+      'watching' not in sca('i need to call thanks for watching about the invoice'))
+check('corpus case 2: surrounding words kept',
+      'invoice' in sca('i need to call thanks for watching about the invoice'))
+check('bracket marker removed', '[' not in sca('tell him [BLANK_AUDIO] the meeting moved'))
+check('"please subscribe" removed', 'subscribe' not in sca('the address is please subscribe fifth street'))
+check('ordinary text untouched', sca('send the report on friday') == 'send the report on friday')
+check('empties fall back to the original', sca('thanks for watching').strip() != '')
+check('handles empty string', sca('') == '')
+check('handles None', sca(None) is None)
+
 # ---- build_prompt ----
 print()
 print('=== TEST 2: build_prompt — tone variants ===')
