@@ -175,7 +175,14 @@ def strip_disfluencies(text):
     """Remove obvious disfluency artifacts from transcription (zero API cost)."""
     if not text or not text.strip():
         return text
-    cleaned = re.sub(r'(\b\w+)-\s+(?:\1-\s+)*', '', text, flags=re.IGNORECASE)
+    # A fragment is the ONSET of the word being reached for: "s" of "stop",
+    # "be" of "become". The old pattern allowed zero repetitions and deleted the
+    # match outright, so "co- founder" became "founder" and "pre- existing"
+    # became "existing" — the speaker's word gone. Mirrors wim-android f7f66e9.
+    cleaned = re.sub(
+        r'(\b\w+)-\s+((?:\1-\s+)*)(\w+)',
+        lambda m: m.group(3) if m.group(3).lower().startswith(m.group(1).lower()) else m.group(0),
+        text, flags=re.IGNORECASE)
     # 3+ repetitions, not 2+. Two is usually emphasis ("no no", "please please");
     # three is where the speaker was blocked. Matches lavrentiy.py:3063. The
     # [,;:] handling is retained — cloud ASR punctuates repeats ("I, I, I need").

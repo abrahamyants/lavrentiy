@@ -3358,7 +3358,12 @@ def repunctuate(text):
         s = s[0].upper() + s[1:]
     s = re.sub(r"([.!?]\s+)([a-z])", lambda m: m.group(1) + m.group(2).upper(), s)
     if s and s[-1] not in ".!?":
-        first_word = re.split(r"\W+", s, 1)[0].lower()
+        # Read the opening word from the LAST sentence — the one this mark
+        # closes. Reading the whole text put "?" on a statement and "." on a
+        # question in multi-sentence input. Mirrors wim-android 7d5d2e9.
+        last_sentence = re.split(r"[.!?]", s)[-1].strip()
+        words = [w for w in re.split(r"\W+", last_sentence) if w]
+        first_word = words[0].lower() if words else ""
         s += "?" if first_word in _REPUNC_QUESTION_STARTERS else "."
     return s
 
@@ -3380,7 +3385,14 @@ def strip_disfluencies(text):
 
     # Step 1: Remove stutter fragments (hyphenated false starts)
     # "p- p- pop" → "pop",  "be- be- become" → "become"
-    cleaned = re.sub(r'(\b\w+)-\s+(?:\1-\s+)*', '', text, flags=re.IGNORECASE)
+    # A fragment is the ONSET of the word being reached for: "s" of "stop",
+    # "be" of "become". The old pattern allowed zero repetitions and deleted the
+    # match outright, so "co- founder" became "founder" and "pre- existing"
+    # became "existing" — the speaker's word gone. Mirrors wim-android f7f66e9.
+    cleaned = re.sub(
+        r'(\b\w+)-\s+((?:\1-\s+)*)(\w+)',
+        lambda m: m.group(3) if m.group(3).lower().startswith(m.group(1).lower()) else m.group(0),
+        text, flags=re.IGNORECASE)
 
     # Step 2: Remove consecutive word repetitions
     # "I I I want" → "I want",  "the the dog" → "the dog"
@@ -3604,7 +3616,8 @@ def count_disfluencies(raw_text):
         return {}
     counts = {}
     # Sound/syllable repetitions: "b-b-buy", "co-co-come"
-    n = len(re.findall(r'(\b\w+)-\s+(?:\1-\s+)*', raw_text, re.IGNORECASE))
+    n = len([m for m in re.finditer(r'(\b\w+)-\s+((?:\1-\s+)*)(\w+)', raw_text, re.IGNORECASE)
+             if m.group(3).lower().startswith(m.group(1).lower())])
     if n: counts["sound_rep"] = n
     # Word repetitions: "I I I want"
     n = len(re.findall(r'\b(\w+)(?:\s+\1)+\b', raw_text, re.IGNORECASE))
