@@ -336,7 +336,11 @@ for layer, ok in itertools.product(LAYERS, [True, False]):
 # ════════════════════════════════════════════════════════════════════
 print("=== SWEEP E: Kotlin <-> Python parity, extracted from source ===")
 
-ANDROID = os.environ.get("WIM_ANDROID_DIR") or next(
+_ENV_ANDROID = os.environ.get("WIM_ANDROID_DIR")
+# The env var is validated, not trusted: pointing it at a path that does not
+# exist used to sail past this and crash on the first open() instead of
+# reporting a clean failure.
+ANDROID = _ENV_ANDROID if (_ENV_ANDROID and os.path.isdir(_ENV_ANDROID)) else next(
     (c for c in (
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "wim-android"),
         "/root/wim-android",

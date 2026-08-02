@@ -98,3 +98,18 @@ jobs:
 
       - name: Run desktop launcher tests
         run: python test_launcher.py
+
+      # The pipeline sweep's parity stage reads the Kotlin rules straight out of
+      # wim-android and fails when the two implementations disagree. Without the
+      # checkout it has nothing to compare against and fails loudly rather than
+      # passing on an empty check, so the repo is fetched here.
+      - name: Check out wim-android for cross-implementation parity
+        uses: actions/checkout@v4
+        with:
+          repository: gugosf114/wim-android
+          path: wim-android-parity
+
+      - name: Run full-matrix pipeline sweep
+        env:
+          WIM_ANDROID_DIR: ${{ github.workspace }}/wim-android-parity
+        run: python test_pipeline_sweep.py
