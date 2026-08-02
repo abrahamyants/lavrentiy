@@ -385,6 +385,76 @@ def kt_map(src, name):
             re.findall(r'"([a-z_]+)"\s+to\s+([0-9.]+)', src[j:k])}
 
 
+def kt_regex_body(src, name):
+    """Raw-string body of `val NAME = Regex(...)`, tolerating a line break
+    between the `=` and the `Regex(` call."""
+    i = src.index(f"val {name}")
+    j = src.index("Regex(", i) + len("Regex")
+    depth = 0
+    for k in range(j, len(src)):
+        if src[k] == "(":
+            depth += 1
+        elif src[k] == ")":
+            depth -= 1
+            if depth == 0:
+                break
+    return "".join(re.findall(r'"""(.*?)"""', src[j:k], re.S))
+
+
+def py_regex_body(src, name):
+    """Concatenated string parts of `NAME = re.compile(...)`, paren-balanced so
+    the next declaration cannot bleed in."""
+    m = re.search(rf"^{name}\s*=\s*re\.compile\(", src, re.M)
+    j = m.end() - 1
+    depth = 0
+    for k in range(j, len(src)):
+        if src[k] == "(":
+            depth += 1
+        elif src[k] == ")":
+            depth -= 1
+            if depth == 0:
+                break
+    # Both quote styles: meaning_guard.py mixes r'...' and r"..." across
+    # declarations, and reading only one style silently yields an empty body —
+    # which reads as a divergence when the patterns are in fact identical.
+    return "".join(part for _, part in
+                   re.findall(r"""r?("|')((?:(?!\1).)*)\1""", src[j:k], re.S))
+
+
+def norm_pattern(x):
+    """Whitespace, inline-flag and quantifier-spelling differences are noise."""
+    return (re.sub(r"\s+", "", x)
+            .replace("(?i)", "")
+            .replace("{1,}", "+"))
+
+def py_set_named(src, name):
+    i = src.index(f"{name} = {{")
+    j = src.index("\n}", i)
+    return (set(re.findall(r'"([^"]+)"', src[i:j]))
+            | set(re.findall(r"'([^']+)'", src[i:j])))
+
+
+def py_map_named(src, name):
+    i = src.index(f"{name} = {{")
+    j = src.index("\n}", i)
+    return {m[0]: int(m[1].replace("_", ""))
+            for m in re.findall(r'"(\w+)":\s*([\d_]+)', src[i:j])}
+
+
+def kt_map_long(src, name):
+    i = src.index(f"val {name} = mapOf(")
+    depth, j = 0, src.index("(", i)
+    for k in range(j, len(src)):
+        if src[k] == "(":
+            depth += 1
+        elif src[k] == ")":
+            depth -= 1
+            if depth == 0:
+                break
+    return {m[0]: int(m[1].replace("_", ""))
+            for m in re.findall(r'"(\w+)"\s+to\s+([\d_]+)L?', src[j:k])}
+
+
 if ANDROID is None:
     print("  SKIPPED — wim-android not found. Set WIM_ANDROID_DIR to run parity.")
     check("parity sweep ran", False, "wim-android checkout not located")
@@ -456,6 +526,42 @@ else:
           R.strip_disfluencies("the the meeting"))
     check("Kotlin word-repeat still fires at 2+",
           re.search(kt_word_repeat, "the the meeting", re.I) is not None)
+    # ── guard twins: regex bodies and the recovery blocklist ──
+    mg_kt = open(os.path.join(ANDROID, "app/src/main/java/com/wim/app/MeaningGuard.kt"),
+                 encoding="utf-8").read()
+    mg_py = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "wim", "api", "meaning_guard.py"), encoding="utf-8").read()
+    for rx in ("NEGATION_RE", "DATE_WORD_RE", "TITLE_RE", "NUMBER_WORD_RE",
+               "HALLUCINATION_ARTIFACT_RE", "PROPER_NOUN_RE", "CRITICAL_TOKEN_RE"):
+        a, b = kt_regex_body(mg_kt, rx), py_regex_body(mg_py, rx)
+        check(f"parity/regex/{rx}", norm_pattern(a) == norm_pattern(b),
+              f"kt={a[:110]!r} py={b[:110]!r}")
+
+    check("parity/MeaningGuard.FUNCTION_WORDS",
+          kt_set(mg_kt, "FUNCTION_WORDS") == py_set_named(mg_py, "_FUNCTION_WORDS"))
+    check("parity/MeaningGuard.PROPER_NOUN_EXCLUDE",
+          kt_set(mg_kt, "PROPER_NOUN_EXCLUDE") == py_set_named(mg_py, "PROPER_NOUN_EXCLUDE"))
+
+    # Scale words understood, wherever each implementation keeps them. Kotlin
+    # holds "hundred" in SCALES; Python special-cases it in the accumulator, so
+    # comparing the raw maps would report a difference that is not one.
+    kt_scale_words = set(kt_map_long(mg_kt, "SCALES")) | set(kt_map_long(mg_kt, "UNITS"))
+    py_scale_words = (set(py_map_named(mg_py, "_NUMBER_SCALES"))
+                      | set(py_map_named(mg_py, "_NUMBER_UNITS")) | {"hundred"})
+    check("parity/number words understood by both",
+          kt_scale_words == py_scale_words,
+          f"kt-only={sorted(kt_scale_words - py_scale_words)} "
+          f"py-only={sorted(py_scale_words - kt_scale_words)}")
+
+    pt_kt = open(os.path.join(ANDROID, "app/src/main/java/com/wim/app/ProfileTermRecovery.kt"),
+                 encoding="utf-8").read()
+    pt_py = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "wim", "api", "profile_terms.py"), encoding="utf-8").read()
+    kt_block = {t for t in kt_set(pt_kt, "APPROXIMATE_BLOCKLIST") if len(t.split()) < 4}
+    check("parity/ProfileTermRecovery blocklist",
+          kt_block == py_set_named(pt_py, "_APPROXIMATE_BLOCKLIST"),
+          f"kt={len(kt_block)} py={len(py_set_named(pt_py, '_APPROXIMATE_BLOCKLIST'))}")
+
     print("  parity checked against", ANDROID)
 
 
