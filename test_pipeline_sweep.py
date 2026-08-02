@@ -294,6 +294,145 @@ for layer, ok in itertools.product(LAYERS, [True, False]):
 
 
 # ════════════════════════════════════════════════════════════════════
+# SWEEP E: cross-implementation parity, by EXTRACTION rather than by copy.
+#
+# The single most common defect shape in this codebase is a rule that exists in
+# one implementation and not the other, or that got fixed on one side only. Five
+# of the sixteen fixes on 2026-08-02 were that, including four introduced the
+# same day by fixing Kotlin and forgetting Python.
+#
+# A hand-maintained second copy of the Kotlin patterns would rot exactly the way
+# the originals did. So these are read out of DisfluencyFilter.kt and
+# ReconstructClient.kt at test time and compared against the live Python ones.
+# When the two drift, this fails.
+# ════════════════════════════════════════════════════════════════════
+print("=== SWEEP E: Kotlin <-> Python parity, extracted from source ===")
+
+ANDROID = os.environ.get("WIM_ANDROID_DIR") or next(
+    (c for c in (
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "wim-android"),
+        "/root/wim-android",
+    ) if os.path.isdir(c)), None)
+
+
+def kt_raw_strings(src, name):
+    """Concatenated \"\"\"...\"\"\" chunks of `private val NAME = Regex(...)`."""
+    i = src.index(f"val {name} = Regex(")
+    depth, j = 0, src.index("(", i)
+    for k in range(j, len(src)):
+        if src[k] == "(":
+            depth += 1
+        elif src[k] == ")":
+            depth -= 1
+            if depth == 0:
+                break
+    body = src[j:k]
+    return "".join(re.findall(r'"""(.*?)"""', body, re.S))
+
+
+def kt_set(src, name):
+    i = src.index(f"{name} = setOf(")
+    depth, j = 0, src.index("(", i)
+    for k in range(j, len(src)):
+        if src[k] == "(":
+            depth += 1
+        elif src[k] == ")":
+            depth -= 1
+            if depth == 0:
+                break
+    return set(re.findall(r'"([^"]+)"', src[j:k]))
+
+
+def kt_map(src, name):
+    i = src.index(f"val {name} = mapOf(")
+    depth, j = 0, src.index("(", i)
+    for k in range(j, len(src)):
+        if src[k] == "(":
+            depth += 1
+        elif src[k] == ")":
+            depth -= 1
+            if depth == 0:
+                break
+    return {m[0]: float(m[1]) for m in
+            re.findall(r'"([a-z_]+)"\s+to\s+([0-9.]+)', src[j:k])}
+
+
+if ANDROID is None:
+    print("  SKIPPED — wim-android not found. Set WIM_ANDROID_DIR to run parity.")
+    check("parity sweep ran", False, "wim-android checkout not located")
+else:
+    df = open(os.path.join(ANDROID, "app/src/main/java/com/wim/app/DisfluencyFilter.kt"),
+              encoding="utf-8").read()
+    rc = open(os.path.join(ANDROID, "app/src/main/java/com/wim/app/ReconstructClient.kt"),
+              encoding="utf-8").read()
+
+    # ── constants ──
+    check("TONE_TEMP matches ReconstructClient.TONE_TEMPERATURE",
+          kt_map(rc, "TONE_TEMPERATURE") == PB.TONE_TEMP,
+          f"kt={kt_map(rc, 'TONE_TEMPERATURE')} py={PB.TONE_TEMP}")
+    check("SITUATION_SEVERITY matches across implementations",
+          kt_map(rc, "SITUATION_SEVERITY") == PB.SITUATION_SEVERITY,
+          f"kt={kt_map(rc, 'SITUATION_SEVERITY')} py={PB.SITUATION_SEVERITY}")
+    check("NATURAL_REPEATS matches across implementations",
+          kt_set(df, "NATURAL_REPEATS") == R.NATURAL_REPEATS,
+          f"kt-only={sorted(kt_set(df, 'NATURAL_REPEATS') - R.NATURAL_REPEATS)} "
+          f"py-only={sorted(R.NATURAL_REPEATS - kt_set(df, 'NATURAL_REPEATS'))}")
+
+    # ── per-stage behavioural parity on the corpus ──
+    KT = {n: kt_raw_strings(df, n) for n in
+          ("STUTTER_FRAGMENT", "STUTTER_FRAGMENT_NOSPACE", "PROLONGATION",
+           "CAPTION_ARTIFACT", "SYSTEM_MARKER")}
+
+    kt_frag = re.compile(KT["STUTTER_FRAGMENT"], re.I)
+    kt_nospace = re.compile(KT["STUTTER_FRAGMENT_NOSPACE"], re.I)
+    kt_prolong = re.compile(KT["PROLONGATION"], re.I)
+    kt_caption = re.compile(KT["CAPTION_ARTIFACT"])
+    kt_marker = re.compile(KT["SYSTEM_MARKER"])
+
+    def kt_frag_stage(t):
+        t = kt_frag.sub(lambda m: m.group(3)
+                        if m.group(3).lower().startswith(m.group(1).lower())
+                        else m.group(0), t)
+        return kt_nospace.sub("", t)
+
+    def py_frag_stage(t):
+        t = re.sub(r"(\b\w+)-\s+((?:\1-\s+)*)(\w+)",
+                   lambda m: m.group(3)
+                   if m.group(3).lower().startswith(m.group(1).lower())
+                   else m.group(0), t, flags=re.I)
+        return re.sub(r"(\b\w+)-(?:\1-){1,40}", "", t, flags=re.I)
+
+    for case in CORPUS:
+        t = case["text"]
+        check(f"parity/fragments/{case['name']}",
+              kt_frag_stage(t) == py_frag_stage(t),
+              f"kt={kt_frag_stage(t)!r} py={py_frag_stage(t)!r}")
+        check(f"parity/prolongation/{case['name']}",
+              kt_prolong.sub(lambda m: m.group(1), t) ==
+              re.sub(r"([A-Za-z\u0400-\u04FF])\1{2,200}", r"\1", t),
+              f"kt={kt_prolong.sub(lambda m: m.group(1), t)!r}")
+        kt_clean = kt_marker.sub("", t)
+        kt_clean = re.sub(r"\s{2,}", " ", kt_caption.sub(" ", kt_clean)).strip()
+        kt_clean = kt_clean if kt_clean else t
+        check(f"parity/captions/{case['name']}",
+              kt_clean == R.strip_caption_artifacts(t),
+              f"kt={kt_clean!r} py={R.strip_caption_artifacts(t)!r}")
+
+    # ── the ONE divergence we know about, pinned so it cannot drift silently ──
+    kt_word_repeat = kt_raw_strings(df, "WORD_REPEAT")
+    check("word-repeat threshold divergence is still exactly as documented",
+          "{1,40}" in kt_word_repeat,
+          f"kt WORD_REPEAT={kt_word_repeat!r}")
+    check("Python word-repeat still fires at 3+ only",
+          R.strip_disfluencies("the the meeting").lower().count("the") == 2,
+          R.strip_disfluencies("the the meeting"))
+    check("Kotlin word-repeat still fires at 2+",
+          re.search(kt_word_repeat, "the the meeting", re.I) is not None)
+    print("  parity checked against", ANDROID)
+
+
+
+# ════════════════════════════════════════════════════════════════════
 print("\n" + "=" * 60)
 print(f"  PASSED: {passed}")
 print(f"  FAILED: {len(failures)}")
