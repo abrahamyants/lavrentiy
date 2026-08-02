@@ -117,7 +117,11 @@ TONE_RULES = {
 
 TONE_TEMP = {"formal": 0.1, "professional": 0.15, "casual": 0.35, "friend": 0.4}
 
-SITUATION_SEVERITY = {"default": 1.0, "high_stress": 1.5, "reading": 0.5}
+# reading aloud = near-fluent for most PWS, so it asks for LESS assist.
+# 0.5 arrived in the H-4 prompt-builder refactor (d805e7a) and diverged from
+# lavrentiy.py:598 and ReconstructClient.kt, which both say 0.3 — so the same
+# user on the same setting got more aggressive reconstruction when signed in.
+SITUATION_SEVERITY = {"default": 1.0, "high_stress": 1.5, "reading": 0.3}
 
 
 def build_completion_prompt(partial_text, tone="casual", language_code="en", n=3):

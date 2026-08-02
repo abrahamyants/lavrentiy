@@ -752,7 +752,10 @@ print()
 print('=== TEST 12: Canonical values for WiM parity ===')
 
 # Situation severity — authoritative values
-check('reading severity = 0.5', PB.SITUATION_SEVERITY.get('reading') == 0.5)
+# 0.3, matching lavrentiy.py:598 and ReconstructClient.kt. This assertion
+# pinned 0.5 — the value the H-4 refactor drifted to — so the parity test
+# was enforcing the divergence it exists to catch.
+check('reading severity = 0.3', PB.SITUATION_SEVERITY.get('reading') == 0.3)
 check('default severity = 1.0', PB.SITUATION_SEVERITY.get('default') == 1.0)
 check('high_stress severity = 1.5', PB.SITUATION_SEVERITY.get('high_stress') == 1.5)
 
