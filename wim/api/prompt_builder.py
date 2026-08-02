@@ -811,6 +811,14 @@ def run_layer2_rewrite(raw_text, messages, rewrite_once, guard_once,
     clean_text = ""
     guard_result = {"lost": [], "invented": []}
     attempts = 0
+    # Earliest attempt that kept every anchor and said something, whose only
+    # fault was leaving the wording alone. The loop retries past it looking for
+    # a real rewrite, and the attempts that follow can be worse: attempt 2 drops
+    # the date, attempt 3 drops it too, and returning attempt 3 makes the caller
+    # treat the reconstruction as failed and fall back to the raw transcript
+    # while attempt 1 was sitting there intact.
+    safe_text = None
+    safe_guard = None
     for attempt_index in range(max_attempts):
         clean_text = (rewrite_once(messages, attempt_index) or "").strip()
         attempts += 1
@@ -824,6 +832,8 @@ def run_layer2_rewrite(raw_text, messages, rewrite_once, guard_once,
             invented=invented,
         ):
             break
+        if safe_text is None and clean_text and not lost and not invented:
+            safe_text, safe_guard = clean_text, guard_result
         if attempt_index + 1 >= max_attempts:
             break
         if on_retry:
@@ -840,6 +850,16 @@ def run_layer2_rewrite(raw_text, messages, rewrite_once, guard_once,
                 ),
             },
         ])
+    # Exhausted holding a candidate that dropped an anchor, invented one, or
+    # came back blank. An earlier attempt that merely echoed the speaker is
+    # worth more than that — identical words are safe words.
+    final_failed = (
+        not clean_text
+        or bool(guard_result.get("lost"))
+        or bool(guard_result.get("invented"))
+    )
+    if final_failed and safe_text is not None:
+        clean_text, guard_result = safe_text, safe_guard
     return clean_text, attempts, guard_result
 
 
