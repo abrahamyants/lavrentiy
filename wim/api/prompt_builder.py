@@ -1063,6 +1063,47 @@ def _pb_paralinguistic_events(paralinguistic_events):
     )
 
 
+def split_dropped_bin(text):
+    """Split a model reply into (message, dropped_bin).
+
+    Mirrors MeaningGuard.parseDroppedBin in wim-android. The model is told to
+    put "DROPPED: <asides>" on the LAST line, but GPT has been observed putting
+    it first, and occasionally gluing it onto the end of the final sentence
+    without a newline. Both shapes are handled; the bin never reaches the user.
+
+    Returns ("" , None) inputs unchanged when no bin is present.
+    """
+    if not text:
+        return text, None
+    lines = text.splitlines()
+    idx = -1
+    for i in range(len(lines) - 1, -1, -1):
+        if lines[i].strip().upper().startswith("DROPPED:"):
+            idx = i
+            break
+    if idx >= 0:
+        bin_raw = lines[idx].strip()[len("DROPPED:"):].strip().strip('"')
+        rest = lines[:idx] + lines[idx + 1:]
+        message = "\n".join(rest).strip()
+    else:
+        # Glued onto the tail of a line rather than given its own.
+        gi = -1
+        for i in range(len(lines) - 1, -1, -1):
+            if "DROPPED:" in lines[i].upper():
+                gi = i
+                break
+        if gi < 0:
+            return text, None
+        line = lines[gi]
+        at = line.upper().rfind("DROPPED:")
+        bin_raw = line[at + len("DROPPED:"):].strip().strip('"')
+        lines[gi] = line[:at].rstrip()
+        message = "\n".join(lines).strip()
+    if bin_raw.lower() in ("none", "n/a", "-", ""):
+        bin_raw = ""
+    return message, bin_raw
+
+
 def build_prompt(
     raw_text,
     *,
@@ -1103,8 +1144,54 @@ def build_prompt(
     profile = profile or {}
     tone_rule = TONE_RULES.get(tone, TONE_RULES["casual"])
 
-    has_cyrillic = any('Ѐ' <= c <= 'ӿ' for c in raw_text)
-    lang_note = " Speaker is bilingual (English/Russian) and may mix languages." if has_cyrillic else ""
+    # Output-language pin — ported from wim-android ReconstructClient
+    # (2026-08-05). The old has_cyrillic test only ever recognised Russian; an
+    # 11-language sweep at L2 came back English for es/ru/it/ar/zh and
+    # half-German for de, with anchors like "jueves"/"четверг" translated away.
+    # The style rules below are written in English and pull the model home
+    # unless the pin outranks them, so it is stated for EVERY language,
+    # English included, and mixed-language input cannot flip the frame.
+    _lang_code = _normalize_lang_code(language_code)
+    _lang_display = _lang_name(_lang_code)
+    lang_note = (
+        f" THE SPEAKER'S LANGUAGE IS {_lang_display} ({_lang_code}). "
+        f"YOUR ENTIRE OUTPUT MUST BE IN {_lang_display}. "
+        f"NEVER translate the message into another language. "
+        f"Every rule below applies IN {_lang_display}. "
+        f"Weekdays, times, and names stay in {_lang_display} exactly as the speaker said them. "
+        f"The DROPPED line's content stays in {_lang_display}; only the marker word "
+        f"'DROPPED:' itself is always English."
+    )
+
+    # Envelope rule + DROPPED bin — ported from wim-android (George, 2026-08-04).
+    # The axis for an aside is never the words themselves, it is who they are
+    # AIMED at. The bin is bookkeeping for the integrity checker and is stripped
+    # server-side (see reconstruct._rewrite_once) before anything is returned.
+    _formal = str(tone).lower() in ("professional", "formal")
+    profanity_rule = (
+        "Profanity WITHIN the message itself: translate its intensity into this register instead "
+        "of deleting it — \"this is fucking great\" becomes \"this is genuinely excellent\", "
+        "\"that's bullshit\" becomes \"that is unacceptable\". The emphasis survives; the wording "
+        "dresses for the reader. Non-profane content words are still never softened: if the "
+        "speaker said 'steal', output 'steal'."
+        if _formal else
+        "Do NOT censor, sanitize, or soften profanity or strong language. "
+        "If the speaker said 'fuck', output 'fuck'. If the speaker said 'steal', output 'steal'. "
+        "Do not substitute softer synonyms (e.g. do not change 'steal' to 'borrow')."
+    )
+    interruption_rule = (
+        "INTERRUPTION RULE (applies in EVERY tone): mid-dictation speech aimed at someone OTHER "
+        "than the message's recipient — a child, a pet, another driver, someone else in the room "
+        "(\"shut up\", \"not now, honey\", a road-rage outburst) — is NOT message content. Drop it "
+        "entirely and join the message cleanly around the gap."
+    )
+    dropped_format_rule = (
+        "FORMAT: after the reconstructed message, output ONE final line — the LAST line of your "
+        "reply, nothing after it — exactly as \"DROPPED: <the interruption words you removed, "
+        "verbatim>\", or \"DROPPED: none\" if you removed no interruptions. Keep the bin on that "
+        "single line. The DROPPED line is bookkeeping for an integrity checker; it is never part "
+        "of the message."
+    )
     aggression_note = _pb_severity_aggression(situation, speech_severity_mod, audio_duration_s, word_count)
 
     parts = [
@@ -1123,9 +1210,9 @@ def build_prompt(
         "'do not send', 'never share', and 'without approval' must remain "
         "negative. The idiom 'whether X or not' may become 'whether X' because "
         "the uncertainty remains explicit.",
-        "Do NOT censor, sanitize, or soften profanity or strong language. "
-        "If the speaker said 'fuck', output 'fuck'. If the speaker said 'steal', output 'steal'. "
-        "Do not substitute softer synonyms (e.g. do not change 'steal' to 'borrow').",
+        profanity_rule,
+        interruption_rule,
+        dropped_format_rule,
         ("This protects the speaker's CONTENT and force. It does not override the selected tone. "
          "Greetings, sign-offs, filler address terms such as 'hey man', 'dude', and 'yo', "
          "and the general register must change when the selected tone calls for it. "
@@ -1134,7 +1221,8 @@ def build_prompt(
         "Do not include any preamble, explanation, meta-commentary, or notes about what you changed.",
         "Do not use Markdown formatting: no asterisks, no backticks, no bullet points, no headers, no quotation marks around the output.",
         "Do not use emojis or emoticons.",
-        "Output exactly one line containing only the reconstructed sentence or paragraph, with no leading or trailing whitespace.",
+        "The reconstructed message itself is one line with no leading or trailing whitespace. "
+        "The DROPPED bookkeeping line follows it as the final line, and is the only exception.",
     ]
 
     if profile.get("filler_words"):
