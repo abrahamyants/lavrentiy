@@ -300,10 +300,18 @@ check('moderate severity_mod -> elevated note', 'elevated' in p_moderate.lower()
 print()
 print('=== TEST 5: build_prompt — bilingual detection ===')
 
+# The Cyrillic-sniffing "bilingual English/Russian" note is gone. It only
+# ever recognised Russian, so es/it/ar/zh/de got nothing and the
+# English-language style rules pulled the output home. The declared
+# language_code now drives an explicit pin, stated for every language.
 p_en = bp('I want to go to the store')
-p_ru = bp('Я хочу пойти в магазин')
-check('English: no bilingual note', 'bilingual' not in p_en.lower())
-check('Russian: bilingual note added', 'bilingual' in p_ru.lower() or 'Russian' in p_ru)
+p_ru = PB.build_prompt('Я хочу пойти в магазин', tone='casual', layer=2, language_code='ru')
+p_es = PB.build_prompt('quiero ir a la tienda', tone='casual', layer=2, language_code='es')
+check('English: pinned to English', 'YOUR ENTIRE OUTPUT MUST BE IN English' in p_en)
+check('Russian: pinned to Russian', 'YOUR ENTIRE OUTPUT MUST BE IN Russian' in p_ru)
+check('Spanish: pinned to Spanish', 'YOUR ENTIRE OUTPUT MUST BE IN Spanish' in p_es)
+check('pin forbids translation', 'NEVER translate' in p_es)
+check('old Cyrillic-only note is gone', 'bilingual (English/Russian)' not in p_ru)
 
 print()
 print('=== TEST 6: build_prompt — Whisper signals ===')
@@ -841,12 +849,23 @@ check('professional tone has bad-to-good example',
       '"hey man I\'m gonna need that report by Friday" becomes' in p_l2)
 check('content preservation does not freeze the register',
       'does not override the selected tone' in p_l2)
-check('L2 has anti-censoring rule',
-      "Do NOT censor, sanitize, or soften" in p_l2)
+# Professional/formal now converts the intensity instead of printing it
+# raw in a work email; every other tone still preserves it verbatim.
+check('professional tone converts profanity intensity',
+      'dresses for the reader' in p_l2)
+check('professional tone still protects non-profane words',
+      "if the speaker said 'steal', output 'steal'" in p_l2.lower())
+check('casual tone keeps the anti-censoring rule',
+      "Do NOT censor, sanitize, or soften" in
+      PB.build_prompt('I need to fucking go', tone='casual', layer=2))
 check('L2 has no-Markdown rule',
       "no asterisks, no backticks" in p_l2)
 check('L2 has single-line output rule',
-      "Output exactly one line" in p_l2)
+      "The reconstructed message itself is one line" in p_l2)
+check('L2 asks for the DROPPED bookkeeping line',
+      'DROPPED: <the interruption words' in p_l2)
+check('L2 has the envelope/interruption rule',
+      'INTERRUPTION RULE' in p_l2)
 check('L2 has no-preamble rule',
       "Do not include any preamble" in p_l2)
 check('L2 has full active-voice example',
