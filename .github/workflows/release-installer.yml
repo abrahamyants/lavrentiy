@@ -1,0 +1,157 @@
+name: Build Windows installer
+
+# Builds Lavrentiy-Setup-vX.Y.Z.exe on a GitHub-hosted Windows runner and
+# publishes it as a release asset, so the README's "latest release" link always
+# serves current code. Before this, the installer was built by hand on the
+# operator's laptop and the published one drifted weeks behind main.
+#
+# Cost note: Windows minutes bill at 2x, and larger runners bill per core. The
+# job is dominated by PyInstaller's single-threaded analysis and by copying a
+# ~464 MB model, so cores buy less here than they look like they should.
+# timeout-minutes is a hard stop so a wedged run cannot drain the budget.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build, without the leading v (e.g. 1.7.6)'
+        required: true
+      publish:
+        description: 'Publish a GitHub release, or just keep the artifact'
+        type: boolean
+        default: true
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # Org-level larger runner. Swap for `windows-latest` to fall back to the
+    # free 4-core box — the workflow is otherwise identical.
+    runs-on: windows-16core
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            v="${GITHUB_REF_NAME#v}"
+          else
+            v="${{ inputs.version }}"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Building version $v"
+
+      # 3.13, not 3.14: CLAUDE.md records httpx / huggingface_hub breakage on
+      # 3.14, which is exactly what the model download below needs.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.portable.txt
+          pip install pyinstaller==6.19.0 huggingface_hub
+
+      # eval-build/ is gitignored — the ~464 MB model is not in the repo, so it
+      # is fetched and cached rather than committed.
+      - name: Cache the speech model
+        id: model-cache
+        uses: actions/cache@v4
+        with:
+          path: eval-build/models/faster-whisper/small.en
+          key: fw-small-en-v1
+
+      - name: Fetch faster-whisper small.en
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        run: |
+          python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='Systran/faster-whisper-small.en', local_dir='eval-build/models/faster-whisper/small.en')"
+
+      - name: Verify the model landed
+        shell: pwsh
+        run: |
+          $p = 'eval-build/models/faster-whisper/small.en'
+          if (-not (Test-Path $p)) { throw "model directory missing" }
+          $mb = [math]::Round(((Get-ChildItem $p -Recurse -File | Measure-Object Length -Sum).Sum / 1MB), 0)
+          Write-Host "model size: ${mb} MB"
+          if ($mb -lt 100) { throw "model looks truncated at ${mb} MB" }
+
+      # --distpath is not cosmetic: the spec defaults to dist/ while
+      # installer/Lavrentiy.iss reads ..\dist-onedir\. Left alone, ISCC happily
+      # compiles an installer with no application inside it.
+      - name: Build the onedir distribution
+        run: pyinstaller --noconfirm --distpath dist-onedir Lavrentiy-onedir.spec
+
+      - name: Verify the executable exists
+        shell: pwsh
+        run: |
+          $exe = 'dist-onedir/Lavrentiy/Lavrentiy.exe'
+          if (-not (Test-Path $exe)) { throw "PyInstaller produced no exe" }
+          $mb = [math]::Round(((Get-ChildItem 'dist-onedir' -Recurse -File | Measure-Object Length -Sum).Sum / 1MB), 0)
+          Write-Host "dist-onedir: ${mb} MB"
+
+      - name: Stamp the version into the installer script
+        shell: pwsh
+        run: |
+          $v = '${{ steps.ver.outputs.version }}'
+          $iss = 'installer/Lavrentiy.iss'
+          $txt = Get-Content $iss -Raw
+          $txt = $txt -replace 'AppVersion=.*', "AppVersion=$v"
+          $txt = $txt -replace 'AppVerName=Lavrentiy .*', "AppVerName=Lavrentiy $v"
+          $txt = $txt -replace 'OutputBaseFilename=.*', "OutputBaseFilename=Lavrentiy-Setup-v$v"
+          Set-Content -Path $iss -Value $txt -NoNewline
+          Select-String -Path $iss -Pattern 'AppVersion=|AppVerName=|OutputBaseFilename='
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Compile the installer
+        shell: pwsh
+        run: |
+          # Parentheses in the variable name need the braced form; the bare
+          # $env:ProgramFiles(x86) parses as a call and silently resolves wrong.
+          $candidates = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          )
+          $iscc = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) { throw "ISCC.exe not found after choco install" }
+          Write-Host "using $iscc"
+          & $iscc installer/Lavrentiy.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with $LASTEXITCODE" }
+
+      - name: Verify the installer
+        shell: pwsh
+        run: |
+          $v = '${{ steps.ver.outputs.version }}'
+          $out = "installer/Output/Lavrentiy-Setup-v$v.exe"
+          if (-not (Test-Path $out)) { throw "installer missing at $out" }
+          $mb = [math]::Round((Get-Item $out).Length / 1MB, 0)
+          Write-Host "installer: ${mb} MB"
+          # v1.7.5 shipped at 549 MB. Anything far under that means the model or
+          # the dist tree did not make it in, which compiles and installs fine
+          # and then fails on the user's machine with no offline transcription.
+          if ($mb -lt 300) { throw "installer is only ${mb} MB — contents are missing" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lavrentiy-installer
+          path: installer/Output/Lavrentiy-Setup-v${{ steps.ver.outputs.version }}.exe
+          retention-days: 14
+
+      - name: Publish the release
+        if: github.event_name == 'push' || inputs.publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: Lavrentiy v${{ steps.ver.outputs.version }}
+          files: installer/Output/Lavrentiy-Setup-v${{ steps.ver.outputs.version }}.exe
+          fail_on_unmatched_files: true
