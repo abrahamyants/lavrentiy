@@ -39,6 +39,7 @@ from prompt_builder import (
     build_prompt,
     is_effectively_unchanged,
     run_layer2_rewrite,
+    split_dropped_bin,
 )
 
 # ─── Config ───
@@ -373,6 +374,7 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
     max_out = 4000 if layer >= 4 else 1000
 
     clean_text = ""
+    dropped_bins = []
     served_model = use_model
     rewrite_attempts = 0
 
@@ -445,7 +447,18 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
                 max_tokens=max_out,
                 temperature=temp if attempt_index == 0 else min(temp, 0.1),
             )
-            return (resp.choices[0].message.content or "").strip()
+            out = (resp.choices[0].message.content or "").strip()
+            # The DROPPED bin is bookkeeping, never message content. Strip it
+            # HERE, inside the candidate producer, so the retry loop, the
+            # meaning guard and falcon_validate all see the message alone —
+            # otherwise the bin reads as invented text and trips the guard.
+            # WiM Android does not strip it off backend replies (it only parses
+            # its own direct-key path), so if the server leaks it the user gets
+            # "DROPPED: none" pasted into their text field.
+            out, dropped = split_dropped_bin(out)
+            if dropped:
+                dropped_bins.append(dropped)
+            return out
 
         if layer >= 2:
             clean_text, rewrite_attempts, _retry_guard = run_layer2_rewrite(
@@ -522,4 +535,7 @@ def reconstruct_intent(raw_text, tone="casual", layer=2, profile=None,
         # something was dropped or invented rather than silently handing them a
         # sentence that reads fine.
         "meaning_guard": guard_result,
+        # Asides the model removed under the INTERRUPTION RULE. Bookkeeping
+        # for the caller; the text in "clean" already has them taken out.
+        "dropped": [d for d in dropped_bins if d],
     }
