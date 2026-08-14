@@ -3448,8 +3448,14 @@ def repunctuate(text):
     return s
 
 
-def strip_disfluencies(text):
+def strip_disfluencies(text, extra_fillers=None):
     """Remove obvious disfluency artifacts from transcription.
+
+    `extra_fillers` (2026-08-14): additional filler entries from the caller,
+    used for the multi-word pass in Step 4. Only entries containing a space
+    are taken from it — single words are left to _STRIP_FILLERS so this
+    argument cannot widen what already-shipping behavior strips. Defaults to
+    None so every existing caller and test keeps its exact current output.
 
     Handles:
       1. Word repetitions: "I I I want" → "I want"
@@ -3522,12 +3528,24 @@ def strip_disfluencies(text):
     # survived so long: the only tier affected is the one with no model, and
     # it is also the one with no guard to notice.
     #
-    # Lavrentiy's _STRIP_FILLERS carries no multi-word entry today, so this
-    # changes nothing about current output. It is the machinery that was
-    # missing: lang_packs/{es,fr,pt,ru}.json already hold the phrases above,
-    # and the moment any of them reaches this function they will now strip.
+    # _STRIP_FILLERS itself carries no multi-word entry, so the phrases have
+    # to arrive from the caller — the profile's own filler_words list, which
+    # ships "you know" in DEFAULT_PROFILE and picks up "o sea", "en fait",
+    # "meio que", "как бы" from the language packs via migrate_fillers.
+    # That is the same list handed to the reconstruction prompt, so L1 and
+    # L2+ now strip the same phrases instead of only the model doing it.
+    #
+    # ONLY entries with a space are taken from extra_fillers. Single words
+    # stay with _STRIP_FILLERS on purpose: the profile list also holds "like",
+    # and stripping that by word list with no timing signal turns "I like it"
+    # into "I it". WiM guards that case with whisper word timings, which this
+    # path does not have.
     _multiword = sorted(
-        (f for f in _STRIP_FILLERS if ' ' in f.strip()),
+        {
+            f.strip() for f in
+            list(_STRIP_FILLERS) + list(extra_fillers or [])
+            if isinstance(f, str) and ' ' in f.strip()
+        },
         key=len, reverse=True
     )
     for phrase in _multiword:
@@ -7026,7 +7044,13 @@ def _clean_and_filter_text(raw_text, whisper_low_conf, current_layer):
          L1 (paste-raw, no LLM benefit) and L4 (Sonnet ext-think handles
          phonetic context via the onset_weights prompt block).
     """
-    filtered_text = strip_disfluencies(raw_text)
+    # The multi-word half of the filler strip needs the phrases, and they live
+    # on the profile — the same list the reconstruction prompt is handed at
+    # line ~1379. Without this argument the phrase pass has nothing to match
+    # and "you know" survives at L1, the one layer with no model to catch it.
+    filtered_text = strip_disfluencies(
+        raw_text, extra_fillers=profile.get("filler_words", [])
+    )
     filtered_text = strip_block_hallucinations(filtered_text, whisper_low_conf)
     filtered_text = repunctuate(filtered_text)
     if current_layer >= 2:
