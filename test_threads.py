@@ -691,8 +691,17 @@ check('production decay_stale_profile_entries has _epoch param',
 # Verify bg-thread call sites pass _epoch through.
 check('_bg_trigger_detect passes _epoch=epoch',
       'add_trigger_words(detect_triggers_llm(rt, out, prof), prof, _epoch=epoch)' in source)
-check('_bg_learn passes _epoch=epoch',
-      'learn_from_sessions(prof, _epoch=epoch)' in source)
+# Diff-learner killed (port of wim-android 5b52aa6, 2026-08-04). This used to
+# assert that _bg_learn passed _epoch through to learn_from_sessions. There is
+# no _bg_learn any more: learn_from_sessions diffed the speaker's raw words
+# against the model's rework and read paraphrase as correction, which is the
+# factory that built WiM's 50-pair poisoned list. The call site is gone; the
+# function stays uncalled (test_pending.py TEST 8 still exercises it directly).
+# Pinned as an absence so nothing quietly restarts the factory.
+check('diff-learner has no call site',
+      'learn_from_sessions(prof, _epoch=epoch)' not in source)
+check('learn_from_sessions still defined for its tests',
+      'def learn_from_sessions(' in source)
 check('_bg_decay passes _epoch=epoch',
       'decay_stale_profile_entries(prof, _epoch=epoch)' in source)
 

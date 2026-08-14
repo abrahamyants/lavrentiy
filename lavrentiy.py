@@ -678,6 +678,33 @@ FUNCTION_WORDS = {
     'on', 'at', 'by', 'with', 'from', 'into', 'not', 'no', 'up',
 }
 
+
+def clean_trigger_words(words, limit=None):
+    """Read-side half of the trigger fence (port of wim-android 5b52aa6).
+
+    Function words must never reach a consumer as trigger words. Triggers
+    are handed to the reconstruction prompt as block markers, so a single
+    pronoun in the list tags every ordinary sentence as a block suspect.
+
+    Rejecting on add is not enough on its own. A profile written before the
+    add-side fence existed still carries the junk, and — the reason this
+    matters past the desktop — Lavrentiy syncs trigger_words UP to the
+    shared backend, where WiM installs pull them down. Filtering on read
+    means neither poisoned storage nor a poisoned sync reaches a prompt,
+    the UI, or the pipeline.
+
+    Args:
+        words: iterable of trigger words, or None.
+        limit: optional cap applied AFTER filtering, so the slice is not
+            spent on entries that are about to be dropped.
+    """
+    cleaned = [
+        w for w in (words or [])
+        if isinstance(w, str) and w.strip()
+        and w.strip().lower() not in FUNCTION_WORDS
+    ]
+    return cleaned[:limit] if limit else cleaned
+
 # -- Word frequency tiers (5th Brown feature) ────────────────────
 # Low-frequency words are more likely to be stuttered (FluencyBank 2023).
 # Tier 1: ~1500 high-frequency content words — LOW stutter risk boost
@@ -1350,7 +1377,7 @@ def reconstruct_via_backend(raw_text, tone, layer, prof, situation="default", mo
             "vocabulary": prof.get("vocabulary", [])[:20],
             "corrections": dict(list(prof.get("corrections", {}).items())[:10]),
             "filler_words": prof.get("filler_words", [])[:25],
-            "trigger_words": prof.get("trigger_words", [])[:30],
+            "trigger_words": clean_trigger_words(prof.get("trigger_words", []), 30),
             "onset_weights": prof.get("onset_weights", {}),
             "covert_profile": prof.get("covert_profile", {}),
         },
@@ -1596,7 +1623,7 @@ def sync_profile_to_firestore(prof):
         payload = {
             "action": "sync_profile",
             "profile": {
-                "trigger_words": prof.get("trigger_words", [])[:30],
+                "trigger_words": clean_trigger_words(prof.get("trigger_words", []), 30),
                 "onset_weights": prof.get("onset_weights", {}),
                 "covert_profile": prof.get("covert_profile", {}),
                 "filler_words": prof.get("filler_words", [])[:25],
@@ -1761,7 +1788,7 @@ def switch_profile(name):
         log("[SWP] K: normalize+save done", "info")
         migrate_fillers(profile)
         log("[SWP] L: migrate_fillers done", "info")
-        learn_onset_weights(profile.get("trigger_words", []))
+        learn_onset_weights(clean_trigger_words(profile.get("trigger_words", [])))
         log("[SWP] M: learn_onset_weights done", "info")
 
         _db = _init_db(DB_PATH)
@@ -1895,7 +1922,7 @@ def migrate_profile(prof):
                 prof["candidate_corrections"])
         # v3 → v4: per-language trigger profiles (#13)
         if v < 4 and "trigger_words_by_lang" not in prof:
-            triggers = prof.get("trigger_words", [])
+            triggers = clean_trigger_words(prof.get("trigger_words", []))
             by_lang = {"en": [], "ru": []}
             for word in triggers:
                 lang = detect_word_language(word)
@@ -1907,6 +1934,43 @@ def migrate_profile(prof):
             print(f"Profile v4: split {len(triggers)} triggers -> en:{len(by_lang['en'])} ru:{len(by_lang['ru'])}")
         normalize_profile(prof)
         prof["version"] = PROFILE_VERSION
+        save_profile(prof)
+
+    # ── One-time corrections amnesty (port of wim-android e7d8c94) ──
+    #
+    # Deliberately OUTSIDE the version gate above. Every existing profile is
+    # already at PROFILE_VERSION, so a v-gated migration would never run for
+    # the installs that actually carry the damage. Its own flag key does the
+    # once-only work instead.
+    #
+    # The diff-learner is dead, but its children survive: any profile that
+    # ran it carries factory-made pairs. On WiM the list was wiped to zero at
+    # noon and held 40 pairs again by 13:44, minted by pre-kill builds
+    # digesting the same test script three times over. Ten or more pairs is
+    # not something a person types — that is a machine's output, and the
+    # whole list is presumed poisoned and cleared once. A small hand-curated
+    # list passes through untouched.
+    # No log() here on purpose: migrate_profile runs at module import (the
+    # `profile = migrate_profile(profile)` at the bottom of the profile
+    # block), and log() is not defined until well below that point. print()
+    # is the only reporting available this early.
+    if not prof.get("corrections_amnesty_2026_08"):
+        corrections = prof.get("corrections") or {}
+        if len(corrections) >= 10:
+            print(f"Corrections amnesty: clearing {len(corrections)} presumed factory-made pairs")
+            prof["corrections"] = {}
+            # The bookkeeping that shadows each pair goes with it. Lavrentiy
+            # keeps correction usage in _relevance["corrections"] (key ->
+            # last_relevant_session), which is what decay_stale_profile_entries
+            # reads; leaving it behind would hand the next decay sweep history
+            # for pairs that no longer exist. candidate_corrections is the
+            # promotion queue feeding the same list, so it goes too — otherwise
+            # the cleared pairs walk straight back in.
+            relevance = prof.get("_relevance")
+            if isinstance(relevance, dict):
+                relevance["corrections"] = {}
+            prof["candidate_corrections"] = {}
+        prof["corrections_amnesty_2026_08"] = True
         save_profile(prof)
     return prof
 
@@ -1925,7 +1989,7 @@ def log_session(prof, raw, output, tone, layer, decision=None, timings=None,
     triggers_fired = []
     try:
         raw_lower = (raw or "").lower()
-        for trig in (prof.get("trigger_words", []) or []):
+        for trig in (clean_trigger_words(prof.get("trigger_words", [])) or []):
             t_norm = (trig or "").strip().lower()
             if t_norm and t_norm in raw_lower:
                 triggers_fired.append(trig)
@@ -2462,7 +2526,7 @@ if _new_fillers:
     print(f"Added {len(_new_fillers)} bilingual fillers: {', '.join(_new_fillers)}")
 
 # Initialize personalized onset weights from existing trigger data
-learn_onset_weights(profile.get("trigger_words", []))
+learn_onset_weights(clean_trigger_words(profile.get("trigger_words", [])))
 
 # Start clipboard predictor (background thread, never blocks)
 _clipboard_predictor = ClipboardPredictor()
@@ -2982,7 +3046,7 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
 
     predicted = None
     if layer >= 4:
-        predicted = predict_triggers_in_text(raw_text, prof.get("trigger_words", []))
+        predicted = predict_triggers_in_text(raw_text, clean_trigger_words(prof.get("trigger_words", [])))
 
     # Preserve the original stats_inc("l1_patterns_normalized") side effect
     # that fired when the L1 transfer pack actually injected a block.
@@ -3384,8 +3448,14 @@ def repunctuate(text):
     return s
 
 
-def strip_disfluencies(text):
+def strip_disfluencies(text, extra_fillers=None):
     """Remove obvious disfluency artifacts from transcription.
+
+    `extra_fillers` (2026-08-14): additional filler entries from the caller,
+    used for the multi-word pass in Step 4. Only entries containing a space
+    are taken from it — single words are left to _STRIP_FILLERS so this
+    argument cannot widen what already-shipping behavior strips. Defaults to
+    None so every existing caller and test keeps its exact current output.
 
     Handles:
       1. Word repetitions: "I I I want" → "I want"
@@ -3444,7 +3514,49 @@ def strip_disfluencies(text):
         r'\b(\w+\s+\w+(?:\s+\w+)?)\s+\1\b', _dedup_phrase, cleaned, flags=re.IGNORECASE
     )
 
-    # Step 4: Strip standalone filler words (preserve if part of real content)
+    # Step 4: Strip filler words. Two passes (port of wim-android fca1cd7).
+    #
+    # Pass A exists because pass B splits on whitespace and compares single
+    # tokens, so a filler made of two words can never equal a one-word token
+    # and is silently inert. On WiM that left "you know" and "i mean" in the
+    # default list plus nine multi-word entries across the Spanish, French,
+    # Portuguese and Russian packs ("o sea", "en fait", "как бы") that had
+    # never once been stripped.
+    #
+    # It only ever showed at L1. From L2 up the prompt carries the filler
+    # list and the model handles a phrase without help — which is why the gap
+    # survived so long: the only tier affected is the one with no model, and
+    # it is also the one with no guard to notice.
+    #
+    # _STRIP_FILLERS itself carries no multi-word entry, so the phrases have
+    # to arrive from the caller — the profile's own filler_words list, which
+    # ships "you know" in DEFAULT_PROFILE and picks up "o sea", "en fait",
+    # "meio que", "как бы" from the language packs via migrate_fillers.
+    # That is the same list handed to the reconstruction prompt, so L1 and
+    # L2+ now strip the same phrases instead of only the model doing it.
+    #
+    # ONLY entries with a space are taken from extra_fillers. Single words
+    # stay with _STRIP_FILLERS on purpose: the profile list also holds "like",
+    # and stripping that by word list with no timing signal turns "I like it"
+    # into "I it". WiM guards that case with whisper word timings, which this
+    # path does not have.
+    _multiword = sorted(
+        {
+            f.strip() for f in
+            list(_STRIP_FILLERS) + list(extra_fillers or [])
+            if isinstance(f, str) and ' ' in f.strip()
+        },
+        key=len, reverse=True
+    )
+    for phrase in _multiword:
+        # Whole phrase only, and never when it is the entire utterance — the
+        # same rule the single-word pass below applies.
+        if cleaned.strip().lower() == phrase.strip().lower():
+            continue
+        pattern = r'\b' + r'\s+'.join(re.escape(w) for w in phrase.split()) + r'\b,?'
+        cleaned = re.sub(pattern, ' ', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\s{2,}', ' ', cleaned).strip()
+
     words = cleaned.split()
     filtered = []
     for i, w in enumerate(words):
@@ -3742,7 +3854,7 @@ def compute_exposure_difficulty(raw_text, situation, disf_counts, prof):
     disf_density = min(total_disf / max(len(words), 1), 1.0)
 
     # Component 4: Trigger word usage (did user use known triggers?)
-    known_triggers = {t.lower() for t in prof.get("trigger_words", [])}
+    known_triggers = {t.lower() for t in clean_trigger_words(prof.get("trigger_words", []))}
     triggers_used = [w for w in words if w in known_triggers]
     trigger_ratio = len(triggers_used) / max(len(words), 1)
 
@@ -3814,7 +3926,7 @@ def prep_text(text, prof):
     if not text or not text.strip():
         return {"words": [], "flagged": []}
 
-    triggers = prof.get("trigger_words", [])
+    triggers = clean_trigger_words(prof.get("trigger_words", []))
     trigger_set = {t.lower() for t in triggers}
     # Score every word using Brown's 4-feature model (onset + content/function + position + length)
     words = re.findall(r'\b\w+\b', text)
@@ -4505,6 +4617,14 @@ def add_trigger_words(new_triggers, prof, _epoch=None):
         new_triggers = {w: "unknown" for w in new_triggers}
 
     for word, dtype in new_triggers.items():
+        if word.lower() in FUNCTION_WORDS:
+            # Add-side half of the trigger fence (port of wim-android
+            # 5b52aa6). The only bar used to be len(word) > 1, so a bare
+            # "you" walked in — and triggers feed the reconstruction prompt
+            # as block markers, so one pronoun tags every ordinary sentence
+            # a block suspect. Found on a live WiM profile 2026-08-04.
+            log(f"Trigger rejected (function word): {word!r}", "info")
+            continue
         if word.lower() not in existing and len(word) > 1:
             prof.setdefault("trigger_words", []).append(word)
             existing.add(word.lower())
@@ -4532,7 +4652,7 @@ def add_trigger_words(new_triggers, prof, _epoch=None):
     if added:
         save_profile(prof, _epoch=_epoch)
         # Re-learn personalized onset weights with new trigger evidence
-        learn_onset_weights(prof.get("trigger_words", []))
+        learn_onset_weights(clean_trigger_words(prof.get("trigger_words", [])))
     elif trigger_types != prof.get("trigger_types"):
         save_profile(prof, _epoch=_epoch)  # save type updates even without new words
     return added
@@ -4549,7 +4669,7 @@ def _sample(items, limit=5):
 
 def build_stutter_insights(prof):
     """Deterministic Layer 4 insights from profile state. No API calls."""
-    trigger_words = prof.get("trigger_words", [])
+    trigger_words = clean_trigger_words(prof.get("trigger_words", []))
     filler_words = prof.get("filler_words", [])
     corrections = prof.get("corrections", {})
     session_count = db_session_count()
@@ -5431,7 +5551,7 @@ def generate_shadow_utterance(raw_text, prof):
         source = "prep"
     else:
         # Infer shadow utterance via LLM (one extra call, L4 cost)
-        triggers = prof.get("trigger_words", [])[:15]
+        triggers = clean_trigger_words(prof.get("trigger_words", []), 15)
         covert = prof.get("covert_profile", {}).get("avoidance_pairs", {})
         # Collect known avoidance substitutions
         known_swaps = {}
@@ -6924,7 +7044,13 @@ def _clean_and_filter_text(raw_text, whisper_low_conf, current_layer):
          L1 (paste-raw, no LLM benefit) and L4 (Sonnet ext-think handles
          phonetic context via the onset_weights prompt block).
     """
-    filtered_text = strip_disfluencies(raw_text)
+    # The multi-word half of the filler strip needs the phrases, and they live
+    # on the profile — the same list the reconstruction prompt is handed at
+    # line ~1379. Without this argument the phrase pass has nothing to match
+    # and "you know" survives at L1, the one layer with no model to catch it.
+    filtered_text = strip_disfluencies(
+        raw_text, extra_fillers=profile.get("filler_words", [])
+    )
     filtered_text = strip_block_hallucinations(filtered_text, whisper_low_conf)
     filtered_text = repunctuate(filtered_text)
     if current_layer >= 2:
@@ -7005,15 +7131,24 @@ def _run_l2plus_learning_loops(raw_text, epoch_at_launch):
         _learn_counter = 0
         learn_status["next_in"] = LEARN_EVERY
 
-        def _bg_learn(prof, epoch=epoch_at_launch):
-            try:
-                if epoch != _profile_switch_epoch:
-                    return
-                learn_from_sessions(prof, _epoch=epoch)
-            except Exception as e:
-                _log_bg_error("learn", e)
-
-        threading.Thread(target=_bg_learn, args=(profile,), daemon=True).start()
+        # DIFF-LEARNER KILLED (port of wim-android 5b52aa6, 2026-08-04).
+        #
+        # learn_from_sessions() diffed the speaker's raw words against the
+        # model's rework and read paraphrase as correction. That is the
+        # factory that built WiM's 50-pair poisoned list — "with"->"come",
+        # "you"->"else" — which then rewrote a quarter of the words on every
+        # L1 paste, the one tier with no guard to notice. Wiping the list did
+        # not hold: it was back to 40 pairs in an afternoon, because the
+        # factory was still running.
+        #
+        # The call site is gone, and with it the _bg_learn thread that existed
+        # only to make it. The function stays, uncalled, with its tests
+        # (test_pending.py TEST 8 exercises the promotion logic directly).
+        # Corrections now enter only by an explicit user act.
+        #
+        # The LEARN_EVERY counter and learn_status are kept: the same tick
+        # still drives onset-anomaly detection below, and the UI reads
+        # learn_status["next_in"].
         # Onset anomaly detection (covert avoidance signal, zero API cost)
         detect_onset_anomalies(db_get_sessions(limit=200))
 
