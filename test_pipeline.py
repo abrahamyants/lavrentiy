@@ -512,15 +512,40 @@ if detect_trig and add_trig:
     check('regex detects triggers', len(triggers) > 0)
     check('returns set', isinstance(triggers, set))
 
-    # Add triggers to profile
+    # Function-word fence (port of wim-android 5b52aa6, 2026-08-04).
+    #
+    # The only trigger this raw line yields is "the", from the repeated-word
+    # branch. This block used to assert that "the" landed in the profile —
+    # which is the poison the fence exists to stop: triggers are handed to
+    # the reconstruction prompt as block markers, so a function word in the
+    # list tags every ordinary sentence a block suspect. A bare "you" reached
+    # a live WiM profile that way.
     prof = {"trigger_words": [], "trigger_types": {}, "preferences": {"layer": 4}}
     added = add_trig(triggers, prof)
-    check(f'triggers added to profile ({len(added)})', len(added) > 0)
+    check('function-word triggers rejected on add', len(added) == 0)
+    check('trigger_words stays empty', len(prof['trigger_words']) == 0)
+
+    # Content-word triggers still get in, and still carry their type.
+    added_real = add_trig({"store": "block"}, prof)
+    check(f'content-word trigger added ({len(added_real)})', len(added_real) == 1)
     check('trigger_words populated', len(prof['trigger_words']) > 0)
     check('trigger_types populated', len(prof['trigger_types']) > 0)
 
+    # Read-side fence: junk already in storage never reaches a consumer.
+    clean_trig = ns.get('clean_trigger_words')
+    if clean_trig:
+        poisoned = {"trigger_words": ["you", "conference", "The", "store"]}
+        check('read fence drops function words',
+              clean_trig(poisoned['trigger_words']) == ['conference', 'store'])
+        check('read fence is case-insensitive',
+              'The' not in clean_trig(poisoned['trigger_words']))
+        check('read fence limit applied after filtering',
+              clean_trig(poisoned['trigger_words'], 1) == ['conference'])
+    else:
+        print('  SKIP: clean_trigger_words not loaded')
+
     # Adding same triggers again -> no duplicates
-    added2 = add_trig(triggers, prof)
+    added2 = add_trig({"store": "block"}, prof)
     check('duplicate triggers not re-added', len(added2) == 0)
 
     # Dict format (from LLM detection)

@@ -514,7 +514,18 @@ def _pb_layer3_user_context(profile, prior_rejections, style_examples):
     out_parts = []
     ctx = []
     if profile.get("vocabulary"):
-        ctx.append(f"Preferred terms: {', '.join(profile['vocabulary'][:20])}")
+        # "Preferred terms" licensed vocabulary mugging (port of wim-android
+        # 747f492 point 3): the model read the list as a set of words it
+        # SHOULD be using and swapped correctly-heard ordinary words for
+        # lookalikes on it — "cut" became "Git" because Git was in the
+        # vocabulary. The list restores GARBLED words. It never replaces
+        # clear ones.
+        ctx.append(
+            "Speaker's known vocabulary — use ONLY to restore a garbled or "
+            f"misheard word to its intended form: {', '.join(profile['vocabulary'][:20])}"
+            "\nNEVER replace a clearly-transcribed ordinary word with a "
+            'vocabulary word. "cut" stays "cut" even though "Git" is on the list.'
+        )
     if profile.get("corrections"):
         pairs = [f"{k}->{v}" for k, v in list(profile["corrections"].items())[:10]]
         ctx.append(f"Known corrections: {'; '.join(pairs)}")
