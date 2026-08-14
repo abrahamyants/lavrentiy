@@ -14,6 +14,24 @@ class AudioRequestError(ValueError):
         self.status = status
 
 
+def _sniff_container(audio_bytes):
+    """Return "wav" or "m4a" for a recognised container, else None.
+
+    WiM compresses the recorder's 16 kHz mono PCM to AAC before upload — raw
+    WAV is 32 KB per second of speech and the phone uplink, not inference, is
+    what users feel. WAV is still accepted: builds already in Play review send
+    it, and the transcoder falls back to WAV whenever an OEM encoder misbehaves.
+    """
+    if len(audio_bytes) < 12:
+        return None
+    if audio_bytes[:4] == b"RIFF" and audio_bytes[8:12] == b"WAVE":
+        return "wav"
+    # ISO base media: a size-prefixed 'ftyp' box opens the file.
+    if audio_bytes[4:8] == b"ftyp":
+        return "m4a"
+    return None
+
+
 def prepare_audio_request(body):
     encoded = body.get("audio_base64") or ""
     if not isinstance(encoded, str) or not encoded:
@@ -26,9 +44,9 @@ def prepare_audio_request(body):
         raise AudioRequestError("Invalid base64 audio")
     if not audio_bytes or len(audio_bytes) > MAX_AUDIO_BYTES:
         raise AudioRequestError("Audio is empty or exceeds 12 MB limit", 413)
-    if (len(audio_bytes) < 44 or audio_bytes[:4] != b"RIFF" or
-            audio_bytes[8:12] != b"WAVE"):
-        raise AudioRequestError("Audio must be a valid WAV file")
+    container = _sniff_container(audio_bytes)
+    if container is None:
+        raise AudioRequestError("Audio must be a valid WAV or M4A file")
 
     model = body.get("model", "gpt-4o-transcribe")
     if model not in AUDIO_MODELS:
@@ -39,7 +57,9 @@ def prepare_audio_request(body):
         raise AudioRequestError("Invalid temperature")
 
     audio_file = io.BytesIO(audio_bytes)
-    audio_file.name = "wim-recording.wav"
+    # OpenAI picks its demuxer off the filename, not the bytes — an .m4a body
+    # announced as .wav is rejected as corrupt.
+    audio_file.name = "wim-recording." + container
     verbose = bool(body.get("verbose_segments", True)) and model == "whisper-1"
     kwargs = {
         "model": model,
