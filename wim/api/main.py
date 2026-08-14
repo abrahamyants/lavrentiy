@@ -72,7 +72,13 @@ db = firestore.Client()
 TIERS = {
     "invite": {"max_layer": 1, "monthly_limit": 0, "l4_monthly_limit": 0,
                "name": "Local / Free"},
-    "basic": {"max_layer": 4, "monthly_limit": 300, "l4_monthly_limit": 20,
+    # The Layer 4 sub-cap is gone. It was set when L4 meant Sonnet extended
+    # thinking; the Cloud Function serves L4 on gpt-4o, where a take costs
+    # about two cents against one for L2/L3. Three hundred takes all at L4
+    # costs roughly $6 against a $9.99 subscription, so the cap was rationing
+    # the clinical disfluency layer — the reason the product exists — to
+    # protect a margin that was never at risk.
+    "basic": {"max_layer": 4, "monthly_limit": 300, "l4_monthly_limit": 300,
               "name": "WiM Cloud"},
     "pro": {"max_layer": 4, "monthly_limit": 999999,
             "l4_monthly_limit": 999999, "name": "Pro"},
