@@ -12,7 +12,7 @@ Lavrentiy does **not** diagnose a speech condition, measure clinical severity, o
 
 ## Download
 
-Go to: **https://github.com/gugosf114/lavrentiy/releases/latest**
+Go to: **https://github.com/abrahamyants/lavrentiy/releases/latest**
 
 Click `Lavrentiy-Setup-v1.7.5.exe`. The installer is large because it includes the local English speech-recognition model.
 
@@ -168,6 +168,6 @@ Please include:
 - If the engine logged anything: contents of `%USERPROFILE%\.lavrentiy\engine_err.log` and `%LOCALAPPDATA%\Programs\Lavrentiy\_internal\native_boot.log`.
 
 Bug reports and feature requests can also go directly to:
-**https://github.com/gugosf114/lavrentiy/issues**
+**https://github.com/abrahamyants/lavrentiy/issues**
 
 (Requires a free GitHub account.)

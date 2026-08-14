@@ -10,7 +10,7 @@ It is designed to remain usable when speech contains repetitions, substitutions,
 
 | | What it is | Link |
 |---|---|---|
-| **Windows** | Installer, ~549 MB. Installs like any Windows program — its own icon, its own window, no browser window opens. The speech model is inside the download, so dictation keeps working with no internet. | **[Download the installer](https://github.com/gugosf114/lavrentiy/releases/latest)** |
+| **Windows** | Installer, ~507 MB. Installs like any Windows program — its own icon, its own window, no browser window opens. The speech model is inside the download, so dictation keeps working with no internet. | **[Download the installer](https://github.com/abrahamyants/lavrentiy/releases/latest)** |
 | **Android** | WiM — the phone version, same engine. | **[Download the APK](https://github.com/gugosf114/wim-android/releases/latest)** |
 
 The installer is unsigned, so Windows SmartScreen warns on first run — choose **More info → Run anyway**. Setup and troubleshooting: [INSTRUCTIONS.md](INSTRUCTIONS.md).

@@ -28,7 +28,7 @@ Code signing is unblocked since v1.6.2 (commit `22d9e75`) when the Apache 2.0 LI
 
 **Project name:** Lavrentiy
 
-**Project URL:** `https://github.com/gugosf114/lavrentiy`
+**Project URL:** `https://github.com/abrahamyants/lavrentiy`
 
 **License:** Apache 2.0 (see `LICENSE` at repo root)
 

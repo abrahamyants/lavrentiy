@@ -91,4 +91,4 @@ We may update this policy as Lavrentiy changes. The current version and update d
 
 **Gurgen Abrahamyants**
 Email: gugosf@gmail.com
-GitHub: <https://github.com/gugosf114/lavrentiy>
+GitHub: <https://github.com/abrahamyants/lavrentiy>

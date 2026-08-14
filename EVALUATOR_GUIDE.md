@@ -10,7 +10,7 @@ Lavrentiy was created by Gurgen Abrahamyants, a political refugee from Armenia w
 
 ## Install
 
-1. Download `Lavrentiy-Setup-v1.7.4.exe` from <https://github.com/gugosf114/lavrentiy/releases/latest>.
+1. Download `Lavrentiy-Setup-v1.7.6.exe` from <https://github.com/abrahamyants/lavrentiy/releases/latest>.
 2. If Windows shows **Windows protected your PC**, select **More info → Run anyway**. V1 is not code-signed.
 3. Complete the installer and open the single **Lavrentiy** shortcut.
 
@@ -48,4 +48,4 @@ Please report:
 6. Was the Basic screen understandable without opening Advanced?
 7. Would this workflow help in real communication, and in which situation?
 
-Send feedback and, if comfortable, anonymized raw/reconstructed examples to **gugosf@gmail.com** or open an issue at <https://github.com/gugosf114/lavrentiy/issues>.
+Send feedback and, if comfortable, anonymized raw/reconstructed examples to **gugosf@gmail.com** or open an issue at <https://github.com/abrahamyants/lavrentiy/issues>.
