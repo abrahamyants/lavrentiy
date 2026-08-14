@@ -20,6 +20,9 @@ on:
         description: 'Publish a GitHub release, or just keep the artifact'
         type: boolean
         default: true
+      runner:
+        description: 'Runner label. windows-latest is the free 4-core box; windows-16core is the org larger runner.'
+        default: 'windows-latest'
   push:
     tags: ['v*']
 
@@ -28,9 +31,11 @@ permissions:
 
 jobs:
   build:
-    # Org-level larger runner. Swap for `windows-latest` to fall back to the
-    # free 4-core box — the workflow is otherwise identical.
-    runs-on: windows-16core
+    # Selectable so the larger runner can be tried without editing this file.
+    # Tag pushes supply no inputs and fall through to the free 4-core box, which
+    # is the safe default: a larger runner that is not billable leaves the job
+    # queued forever rather than failing, and a release should not hang on that.
+    runs-on: ${{ inputs.runner || 'windows-latest' }}
     timeout-minutes: 90
 
     steps:
