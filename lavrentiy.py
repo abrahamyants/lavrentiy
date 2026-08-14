@@ -197,7 +197,28 @@ _legacy_anthropic_key_file = os.path.join(
 )
 
 
-def _read_optional_key(primary_path, env_name, legacy_path):
+def _bundled_key(attr):
+    """Key compiled into a giveaway build, or "" in every normal build.
+
+    `bundled_keys` is generated at build time from CI secrets and is gitignored;
+    it does not exist in a source checkout or in the public installer, so this
+    import fails and the function returns nothing. Giveaway builds exist so an
+    evaluator — a stuttering charity, a research group — can install and use the
+    whole product without an account and without being asked to pay for the
+    privilege of giving feedback.
+
+    Anyone who unpacks such a build can read the keys out of it. That is a
+    property of shipping a key, not of how it is stored, and the answer is a
+    dedicated key with its own spend cap, never obfuscation.
+    """
+    try:
+        import bundled_keys  # type: ignore
+    except Exception:
+        return ""
+    return (getattr(bundled_keys, attr, "") or "").strip()
+
+
+def _read_optional_key(primary_path, env_name, legacy_path, bundled_attr=None):
     for path in (primary_path, legacy_path):
         try:
             if os.path.exists(path):
@@ -206,11 +227,16 @@ def _read_optional_key(primary_path, env_name, legacy_path):
                     return value
         except OSError:
             pass
-    return os.environ.get(env_name, "").strip()
+    env_value = os.environ.get(env_name, "").strip()
+    if env_value:
+        return env_value
+    # Lowest priority on purpose: a user's own key, or one they set in the
+    # environment, always outranks the key the build shipped with.
+    return _bundled_key(bundled_attr) if bundled_attr else ""
 
 
 API_KEY = ""
-API_KEY = _read_optional_key(_key_file, "OPENAI_API_KEY", _legacy_key_file)
+API_KEY = _read_optional_key(_key_file, "OPENAI_API_KEY", _legacy_key_file, "OPENAI_API_KEY")
 if not API_KEY:
     try:
         print("WARNING: No local API key found. Google Sign-In required for reconstruction.")
@@ -222,9 +248,73 @@ if not API_KEY:
 # Optional: falcon_validate is a no-op stub; the key is not used for validation.
 ANTHROPIC_KEY = ""
 ANTHROPIC_KEY = _read_optional_key(
-    _anthropic_key_file, "ANTHROPIC_API_KEY", _legacy_anthropic_key_file
+    _anthropic_key_file, "ANTHROPIC_API_KEY", _legacy_anthropic_key_file,
+    "ANTHROPIC_API_KEY"
 )
 FALCON_HAIKU_MODEL = "claude-haiku-4-5-20251001"
+
+# -- Giveaway quota ───────────────────────────────────────────────
+# A giveaway build ships with the operator's own provider keys so an evaluator
+# can install and use the whole product without an account and without being
+# asked to pay for the privilege of giving feedback. The cap exists so a single
+# install cannot run the bill somewhere unexpected — 300 cloud calls a month,
+# the same allowance as a WiM Cloud subscription.
+#
+# It applies ONLY when the build's own keys are what is paying. A user with
+# their own key file is spending their own money, and a signed-in user is
+# already metered server-side; neither is throttled here.
+GIVEAWAY_MONTHLY_CALLS = 300
+_quota_file = _credential_dir / "giveaway_quota.json"
+_quota_lock = threading.Lock()
+
+
+def _running_on_bundled_keys():
+    bundled = _bundled_key("OPENAI_API_KEY")
+    return bool(bundled) and API_KEY == bundled
+
+
+def _quota_period():
+    return time.strftime("%Y-%m", time.localtime())
+
+
+def _quota_read():
+    try:
+        data = json.loads(_quota_file.read_text(encoding="utf-8"))
+        if data.get("period") == _quota_period():
+            return int(data.get("calls", 0))
+    except Exception:
+        pass
+    return 0
+
+
+def quota_remaining():
+    if not _running_on_bundled_keys():
+        return None          # not on the shipped key: no cap applies
+    return max(0, GIVEAWAY_MONTHLY_CALLS - _quota_read())
+
+
+def quota_check_and_count(n=1):
+    """Raise once the month's allowance is gone; otherwise record the call."""
+    if not _running_on_bundled_keys():
+        return
+    with _quota_lock:
+        used = _quota_read()
+        if used + n > GIVEAWAY_MONTHLY_CALLS:
+            raise RuntimeError(
+                f"This evaluation copy allows {GIVEAWAY_MONTHLY_CALLS} cloud "
+                "requests a month and this month's are used up. Layer 1 keeps "
+                "working offline. It resets on the 1st; to lift it, sign in or "
+                "add your own API key under Cloud Setup."
+            )
+        try:
+            _credential_dir.mkdir(parents=True, exist_ok=True)
+            _quota_file.write_text(
+                json.dumps({"period": _quota_period(), "calls": used + n}),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass             # a read-only home must not break dictation
+
 
 # Advanced reconstruction can use Anthropic Sonnet with extended thinking and
 # fall back to GPT when unavailable. SAFE applies the same deterministic local
@@ -3011,6 +3101,7 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
                 audio_duration_s=None, word_count=None,
                 previous_outputs=None):
     """Layer 2+: Rebuild raw transcription into clean output."""
+    quota_check_and_count()
     # Persistent rejection capture: a non-empty previous_outputs means the
     # user just hit regenerate (or the input-overlap heuristic upstream
     # detected a redo), so the most recent prior output is being rejected.
@@ -5463,6 +5554,7 @@ def whisper_transcribe(filepath):
       disagreements: multi-temp voting disagreements (cloud path only)
       whisper_meta: {prompt_source, prompt_length, temperatures, n_api_calls, engine}
     """
+    quota_check_and_count()
     prompt_text = _build_whisper_prompt()
     with _stats_lock:
         n_calls_before = stats["api_calls"]

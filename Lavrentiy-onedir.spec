@@ -74,6 +74,14 @@ hiddenimports = [
     'metaphone',
 ]
 
+# Giveaway builds carry the operator's provider keys so evaluators can use the
+# product without an account. CI writes bundled_keys.py from its secrets just
+# before this runs; it is gitignored and absent from every other build, where
+# lavrentiy._bundled_key simply returns "".
+if (REPO / 'bundled_keys.py').exists():
+    hiddenimports.append('bundled_keys')
+    datas += [(str(REPO / 'bundled_keys.py'), '.')]
+
 for pkg in (
     'faster_whisper', 'ctranslate2', 'onnxruntime',
     'sounddevice', 'soundfile', 'keyboard',
