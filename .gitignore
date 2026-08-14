@@ -64,3 +64,7 @@ results_heavy_stutter_*.json
 test_report.html
 test_results.json
 tests/__pycache__/
+
+# Generated at build time for giveaway installers from CI secrets.
+# Never committed: it holds live provider keys.
+bundled_keys.py
