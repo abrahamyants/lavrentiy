@@ -3076,7 +3076,13 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
                     block.text for block in msg.content
                     if getattr(block, "type", None) == "text"
                 ]
-                return "\n".join(text_blocks).strip()
+                out = "\n".join(text_blocks).strip()
+                # Same contract as the GPT path below — strip the bookkeeping
+                # bin before the guard or the user's field ever sees it.
+                out, _dropped = prompt_builder.split_dropped_bin(out)
+                if _dropped:
+                    log(f'Dropped: "{_dropped}"', "info")
+                return out
 
             clean_text, _last_rewrite_attempts, _retry_guard = (
                 prompt_builder.run_layer2_rewrite(
@@ -3113,7 +3119,17 @@ def reconstruct(raw_text, tone, layer, prof, situation=None,
             max_tokens=4000 if layer >= 4 else 1000,
             temperature=temp if attempt_index == 0 else min(temp, 0.1),
         )
-        return (resp.choices[0].message.content or "").strip()
+        out = (resp.choices[0].message.content or "").strip()
+        # The DROPPED bin is bookkeeping, never message content. The prompt
+        # builder is shared with wim-reconstruct, whose reconstruct.py strips
+        # the bin inside its own candidate producer; this path never goes
+        # through that file, so it has to strip its own. Without this the
+        # desktop pastes "DROPPED: none" into the user's text, and the meaning
+        # guard reads the bin as invented words.
+        out, _dropped = prompt_builder.split_dropped_bin(out)
+        if _dropped:
+            log(f'Dropped: "{_dropped}"', "info")
+        return out
 
     if layer >= 2:
         clean_text, _last_rewrite_attempts, _retry_guard = (
