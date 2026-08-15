@@ -5297,7 +5297,10 @@ def _whisper_single_call(filepath, temperature, prompt_text, max_retries=3):
     cloud_required = dictation_language != "en"
     cloud_requested = cloud_required or current_layer >= 4 or (
         current_layer == 1 and L1_CLOUD_ASR
-    )
+    ) or _local_transcribe_fn is None
+    # ...or there are no local ears at all. The online build ships without the
+    # ~464 MB speech model, and without this it would reach the bottom of this
+    # function and tell the user to run pip install.
 
     if cloud_requested and is_authenticated() and _firebase_id_token:
         try:
@@ -5357,10 +5360,13 @@ def _whisper_single_call(filepath, temperature, prompt_text, max_retries=3):
 
     # L1/L2/L3 (and L4 fallback): local faster-whisper
     if _local_transcribe_fn is None:
+        # Reached only when the cloud routes above were tried and failed, since
+        # a missing model forces cloud_requested on. Say what the user can do,
+        # not what a developer would type.
         raise RuntimeError(
-            "Local ASR not available. Install faster-whisper: "
-            "pip install faster-whisper. Or flip L1_CLOUD_ASR=True to use "
-            "cloud whisper-1 via the dashboard /api/l1_asr toggle."
+            "This build transcribes over the internet and the connection "
+            "failed. Check the network and try again. The offline version of "
+            "Lavrentiy includes the speech model and works with no connection."
         )
 
     last_err = None

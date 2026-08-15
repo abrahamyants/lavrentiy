@@ -1,3 +1,4 @@
+import os
 # Lavrentiy-onedir.spec — PyInstaller --onedir build (drift-proof bundling).
 #
 # WHY --onedir AND NOT --onefile:
@@ -59,8 +60,12 @@ datas = [
     (str(REPO / 'domain_packs'),       'domain_packs'),
     (str(REPO / 'lang_packs'),         'lang_packs'),
     (str(REPO / 'local'),              'local'),
-    (str(REPO / 'eval-build' / 'models' / 'faster-whisper' / 'small.en'),
-     'models/faster-whisper/small.en'),
+    # The offline speech model, ~464 MB and the bulk of the installer. CI sets
+    # LAV_BUNDLE_MODEL=0 to produce the small online-only build; lavrentiy.py
+    # then routes every transcription to the cloud automatically.
+    *([(str(REPO / 'eval-build' / 'models' / 'faster-whisper' / 'small.en'),
+        'models/faster-whisper/small.en')]
+      if os.environ.get('LAV_BUNDLE_MODEL', '1') != '0' else []),
 ]
 
 binaries = []
