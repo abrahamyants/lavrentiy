@@ -72,7 +72,7 @@ binaries = []
 hiddenimports = [
     'l1_pack', 'domain_pack', 'rejection_store', 'style_examples',
     'prompt_builder', 'meaning_guard', 'learning_backend', 'profile_terms',
-    'local', 'local.asr_local', 'local.fw_local',
+    'local', 'local.asr_local', 'local.fw_local', 'local.win_local',
     'scipy.signal',
     'pyperclip',
     'pyautogui',
