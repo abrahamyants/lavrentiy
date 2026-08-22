@@ -372,7 +372,11 @@ def kt_set(src, name):
             depth -= 1
             if depth == 0:
                 break
-    return set(re.findall(r'"([^"]+)"', src[j:k]))
+    # String-shaped examples inside // comments are documentation, not members.
+    # `Git` and `Git me off` in ProfileTermRecovery's incident note were being
+    # counted as blocklist entries and made the parity check demand fake data.
+    body = re.sub(r"//.*", "", src[j:k])
+    return set(re.findall(r'"([^"]+)"', body))
 
 
 def kt_map(src, name):
