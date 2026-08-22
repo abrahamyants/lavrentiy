@@ -19,7 +19,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install test dependencies
-        run: pip install numpy scipy openai Flask soundfile soxr -q
+        run: pip install numpy scipy openai Flask soundfile soxr google-auth requests -q
 
       - name: Run core tests
         run: python test_core.py -v

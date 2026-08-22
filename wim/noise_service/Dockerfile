@@ -7,7 +7,7 @@ ARG HF_COMMIT=d4add2435a74b3f2dd54a9bbd417a058c68983b1
 ARG FLOW_CHECKPOINT_SHA256=f9201821243797fd5f9b852779040057b6f204267935712f96ccf0353cd9d438
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl git libsndfile1 patch \
+    && apt-get install -y --no-install-recommends build-essential ca-certificates curl git libsndfile1 patch \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /tmp/requirements.txt
