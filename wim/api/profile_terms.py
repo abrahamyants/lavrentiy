@@ -50,6 +50,20 @@ _APPROXIMATE_BLOCKLIST = {
     "very", "well", "back", "down", "off", "one", "two", "day", "days",
     "time", "thing", "things", "good", "new", "old", "same", "next",
     "last", "first", "about", "after", "before", "again", "still",
+    # Keep parity with Android's post-2026-08-05 protection. A missing common
+    # word lets a profile term replace clear speech before any meaning guard.
+    "cut", "cuts", "cutting", "turn", "turns", "turned", "turning",
+    "play", "plays", "played", "playing", "push", "pushes", "pushed",
+    "pull", "pulls", "pulled", "pick", "picks", "picked", "pay", "pays",
+    "paid", "buy", "buys", "bought", "sell", "sells", "sold", "eat",
+    "eats", "ate", "sit", "sits", "sat", "stand", "stands", "stood",
+    "walk", "walks", "walked", "talk", "talks", "talked", "leave",
+    "leaves", "left", "live", "lives", "lived", "feel", "feels", "felt",
+    "hear", "hears", "heard", "wait", "waits", "waited", "watch",
+    "watches", "watched", "open", "opens", "opened", "close", "closes",
+    "closed", "guy", "guys", "man", "men", "way", "ways", "week", "weeks",
+    "year", "years", "home", "house", "car", "cars", "phone", "meeting",
+    "night", "tonight", "today", "tomorrow", "morning",
 }
 
 
