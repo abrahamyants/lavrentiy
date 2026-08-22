@@ -5,3 +5,4 @@ Metaphone>=0.6
 google-cloud-firestore>=2.11.0
 firebase-admin>=6.0
 google-auth>=2.0
+requests>=2.31

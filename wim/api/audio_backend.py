@@ -32,6 +32,13 @@ def _sniff_container(audio_bytes):
     return None
 
 
+def named_audio_file(audio_bytes, container):
+    audio_file = io.BytesIO(audio_bytes)
+    # OpenAI picks its demuxer off the filename, not the bytes.
+    audio_file.name = "wim-recording." + container
+    return audio_file
+
+
 def prepare_audio_request(body):
     encoded = body.get("audio_base64") or ""
     if not isinstance(encoded, str) or not encoded:
@@ -56,10 +63,7 @@ def prepare_audio_request(body):
     except (TypeError, ValueError):
         raise AudioRequestError("Invalid temperature")
 
-    audio_file = io.BytesIO(audio_bytes)
-    # OpenAI picks its demuxer off the filename, not the bytes — an .m4a body
-    # announced as .wav is rejected as corrupt.
-    audio_file.name = "wim-recording." + container
+    audio_file = named_audio_file(audio_bytes, container)
     verbose = bool(body.get("verbose_segments", True)) and model == "whisper-1"
     kwargs = {
         "model": model,
@@ -71,4 +75,6 @@ def prepare_audio_request(body):
     prompt = (body.get("prompt") or "").strip()
     if prompt:
         kwargs["prompt"] = prompt[:4000]
-    return kwargs, len(audio_bytes), model
+    if verbose and bool(body.get("word_timestamps", False)):
+        kwargs["timestamp_granularities"] = ["word", "segment"]
+    return kwargs, len(audio_bytes), model, audio_bytes, container
