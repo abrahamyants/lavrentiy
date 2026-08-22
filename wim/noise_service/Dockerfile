@@ -38,7 +38,7 @@ RUN PYTHONPATH=/opt/urgent python /opt/convert_checkpoint.py \
 FROM ${PYTORCH_IMAGE} AS runtime
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg libsndfile1 \
+    && apt-get install -y --no-install-recommends build-essential ffmpeg libsndfile1 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 10001 app
 
