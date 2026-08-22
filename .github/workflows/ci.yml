@@ -112,7 +112,8 @@ jobs:
       - name: Check out wim-android for cross-implementation parity
         uses: actions/checkout@v4
         with:
-          repository: gugosf114/wim-android
+          repository: abrahamyants/wim-android
+          token: ${{ secrets.WIM_REPO_TOKEN }}
           path: wim-android-parity
 
       - name: Run full-matrix pipeline sweep
