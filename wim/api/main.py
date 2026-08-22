@@ -27,7 +27,8 @@ from google.cloud import firestore
 from firebase_admin import auth, initialize_app
 
 from reconstruct import reconstruct_intent
-from audio_backend import AudioRequestError, prepare_audio_request
+from audio_backend import AudioRequestError, named_audio_file, prepare_audio_request
+from noise_backend import NoiseEnhancementError, enhance_audio
 from learning_backend import LearningResponseError, learn_from_pairs
 from billing_backend import (
     BillingVerificationError,
@@ -427,7 +428,7 @@ def _action_transcribe_audio(uid, tier_config, body):
     for L4; `gpt-4o-transcribe` is the faster normal cloud path.
     """
     try:
-        kwargs, audio_bytes_len, model = prepare_audio_request(body)
+        kwargs, audio_bytes_len, model, audio_bytes, container = prepare_audio_request(body)
     except AudioRequestError as e:
         return (json.dumps({"error": str(e)}), e.status, CORS_HEADERS)
 
@@ -439,6 +440,37 @@ def _action_transcribe_audio(uid, tier_config, body):
     if openai_client is None:
         return (json.dumps({"error": "Backend OpenAI client not configured"}), 500, CORS_HEADERS)
 
+    noise_state = "disabled"
+    noise_meta = {}
+    if os.environ.get("WIM_NOISE_URL"):
+        t_noise = time.time()
+        try:
+            clean_wav, noise_meta = enhance_audio(audio_bytes, container)
+            kwargs["file"] = named_audio_file(clean_wav, "wav")
+            noise_state = "cleaned"
+            _emit(
+                logging.INFO,
+                event="noise_enhancement_ok",
+                uid=uid,
+                model=noise_meta.get("model"),
+                cache=noise_meta.get("cache"),
+                latency_ms=round((time.time() - t_noise) * 1000),
+                input_bytes=audio_bytes_len,
+                output_bytes=len(clean_wav),
+            )
+        except NoiseEnhancementError as e:
+            # Dictation still proceeds with the original validated audio.
+            noise_state = "original_fallback"
+            _emit(
+                logging.ERROR,
+                event="noise_enhancement_failed",
+                uid=uid,
+                latency_ms=round((time.time() - t_noise) * 1000),
+                error=str(e)[:300],
+                input_container=container,
+                input_bytes=audio_bytes_len,
+            )
+
     t_call = time.time()
     try:
         response = openai_client.audio.transcriptions.create(**kwargs)
@@ -448,7 +480,9 @@ def _action_transcribe_audio(uid, tier_config, body):
         retriable = _classify_exception(e)
         _emit(logging.ERROR, event="transcribe_audio_failed", uid=uid,
               latency_ms=latency_ms, exception=type(e).__name__,
-              error=str(e)[:300], retriable=retriable)
+              error=str(e)[:300], retriable=retriable, model=model,
+              input_container=container, audio_bytes=audio_bytes_len,
+              noise_enhancement=noise_state)
         return (json.dumps({
             "error": f"Transcription failed: {type(e).__name__}",
             "retriable": retriable,
@@ -456,13 +490,18 @@ def _action_transcribe_audio(uid, tier_config, body):
 
     text = (payload.get("text") or "").strip()
     segments = payload.get("segments") or []
+    words = payload.get("words") or []
     _emit(logging.INFO, event="transcribe_audio_ok", uid=uid, model=model,
           latency_ms=round((time.time() - t_call) * 1000),
-          audio_bytes=audio_bytes_len, segments=len(segments))
+          audio_bytes=audio_bytes_len, segments=len(segments), words=len(words),
+          noise_enhancement=noise_state)
     return (json.dumps({
         "text": text,
         "segments": segments,
+        "words": words,
         "model": model,
+        "noise_enhancement": noise_state,
+        "noise_model": noise_meta.get("model"),
         "remaining": remaining,
     }), 200, _JSON_CORS)
 
