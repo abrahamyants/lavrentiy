@@ -79,9 +79,15 @@
       declares it goes to human review and must justify it in the submission
       notes. Say plainly that it is a dictation tool that types into the
       active window - that is the ordinary, approved reason for it.
+
+      ORDER MATTERS. The Capabilities content model is an ordered sequence:
+      Capability, then rescap:Capability, then uap:Capability, then
+      DeviceCapability. With DeviceCapability first, makeappx rejects the
+      rescap element as "unexpected according to content model of parent" -
+      an error that reads like the namespace is wrong when only the order is.
     -->
-    <DeviceCapability Name="microphone" />
     <rescap:Capability Name="runFullTrust" />
+    <DeviceCapability Name="microphone" />
   </Capabilities>
 
 </Package>
