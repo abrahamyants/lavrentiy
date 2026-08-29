@@ -7468,6 +7468,25 @@ def pipeline():
     # high-pass when you're actually whispering, so normal speech stays clean.
     _raw_rms = float(numpy.sqrt(numpy.mean(audio_data ** 2))) if len(audio_data) else 0.0
     _raw_dbfs = 20.0 * float(numpy.log10(_raw_rms)) if _raw_rms > 1e-9 else -120.0
+    # First run: nothing is transcribed until the microphone is measured.
+    #
+    # A fresh install has no baseline, so every downstream decision that reads
+    # a level - auto-quiet above all - would be comparing against a constant
+    # tuned on somebody else's hardware. Rather than silently produce a worse
+    # result on the first takes and never mention it, the pipeline stops and
+    # asks. It is four seconds, once, and this is the only setup step the
+    # desktop app has.
+    #
+    # Deliberately NOT gated on a preference the user can leave off: an
+    # uncalibrated install is not a configuration, it is an unfinished one.
+    if profile.get("preferences", {}).get("mic_baseline_dbfs") is None:
+        log("Microphone not measured yet — read the line in Settings to finish "
+            "setup. Nothing is transcribed until then (four seconds, once).",
+            "error")
+        with lock:
+            state = 'idle'
+        return
+
     _cutoff = quiet_cutoff_dbfs()
     _quiet_auto_active = (not quiet_mode_enabled) and QUIET_AUTO_ENABLED and (_raw_dbfs < _cutoff)
     _effective_quiet = quiet_mode_enabled or _quiet_auto_active
