@@ -2,7 +2,7 @@
 
 **Voice-to-intent for Windows**
 
-### ▶ [Download Lavrentiy — v1.7.8](https://github.com/abrahamyants/lavrentiy/releases/download/v1.7.8/Lavrentiy-Setup-v1.7.8-eval.exe)
+### ▶ [Download Lavrentiy — v1.7.9](https://github.com/abrahamyants/lavrentiy/releases/download/v1.7.9/Lavrentiy-Setup-v1.7.9-eval.exe)
 
 Windows installer, ~508 MB. Install it and talk — nothing to sign into,
 nothing to configure. The speech model is inside the download, so dictation
