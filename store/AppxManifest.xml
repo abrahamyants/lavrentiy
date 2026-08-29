@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!--
+  MSIX manifest for the Microsoft Store submission.
+
+  TWO VALUES COME FROM PARTNER CENTER AND CANNOT BE GUESSED. Reserve the app
+  name first (Partner Center -> Apps and games -> New product -> reserve
+  "Lavrentiy"), then open Product identity and copy:
+
+      Identity/@Name       <- "Package/Identity/Name"
+      Identity/@Publisher  <- "Package/Identity/Publisher"   (the CN=... string)
+      Properties/PublisherDisplayName <- "Publisher display name"
+
+  They are marked PLACEHOLDER below. The placeholders are deliberately
+  schema-legal - Identity/@Name only accepts [-.A-Za-z0-9], so an underscore
+  there fails validation and the package never builds, which hides every later
+  problem behind a cosmetic one. With these, the package builds and self-signs
+  for local testing; only the Store rejects it.
+
+  Version must be four parts and the LAST one must be 0 - the Store reserves
+  the revision field. 1.7.10 therefore ships as 1.7.10.0.
+-->
+
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <Identity
+    Name="PLACEHOLDER-Lavrentiy"
+    Publisher="CN=PLACEHOLDER-Publisher"
+    Version="1.7.10.0"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Lavrentiy</DisplayName>
+    <PublisherDisplayName>PLACEHOLDER Publisher Display Name</PublisherDisplayName>
+    <Logo>assets\StoreLogo.png</Logo>
+    <Description>Voice-to-intent for Windows. Speak messy, get clean text.</Description>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="Lavrentiy" Executable="Lavrentiy.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="Lavrentiy"
+        Description="Records when you start recording, transcribes locally by default, and pastes clean text into the app you are already using."
+        BackgroundColor="transparent"
+        Square150x150Logo="assets\Square150x150Logo.png"
+        Square44x44Logo="assets\Square44x44Logo.png">
+        <uap:DefaultTile
+          Wide310x150Logo="assets\Wide310x150Logo.png"
+          Square71x71Logo="assets\Square71x71Logo.png"
+          Square310x310Logo="assets\Square310x310Logo.png" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!--
+      microphone: the whole product.
+
+      runFullTrust: this is a packaged desktop app, not a UWP one. It is
+      REQUIRED for three things Lavrentiy cannot work without and which a
+      sandboxed app is not allowed to do:
+        - the global F9 hotkey, which listens while another app has focus
+        - pasting into whatever window the user is in
+        - reading and writing ~/.lavrentiy outside the package container
+
+      runFullTrust is a restricted capability. Every Store submission that
+      declares it goes to human review and must justify it in the submission
+      notes. Say plainly that it is a dictation tool that types into the
+      active window - that is the ordinary, approved reason for it.
+
+      ORDER MATTERS. The Capabilities content model is an ordered sequence:
+      Capability, then rescap:Capability, then uap:Capability, then
+      DeviceCapability. With DeviceCapability first, makeappx rejects the
+      rescap element as "unexpected according to content model of parent" -
+      an error that reads like the namespace is wrong when only the order is.
+    -->
+    <rescap:Capability Name="runFullTrust" />
+    <DeviceCapability Name="microphone" />
+  </Capabilities>
+
+</Package>
