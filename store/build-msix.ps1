@@ -53,7 +53,17 @@ Copy-Item "$dist\*" $stage -Recurse -Force
 Copy-Item (Join-Path $PSScriptRoot "assets") (Join-Path $stage "assets") -Recurse -Force
 
 $manifest = Get-Content (Join-Path $PSScriptRoot "AppxManifest.xml") -Raw
-$manifest = $manifest -replace 'Version="[\d\.]+"', "Version=`"$pkgVersion`""
+# -creplace, and anchored to <Identity>, for two reasons that both bit:
+# PowerShell's -replace is case-INSENSITIVE, so a bare Version="..." pattern
+# also matches version="1.0" in the XML declaration on line 1 and rewrites it
+# to <?xml Version="1.7.11.0" ...?>, which makeappx rejects with
+#   "Line 1, Column 14 ... Incorrect xml declaration syntax"
+# - an error that never mentions the version. Anchoring to the element as well
+# means a future Version attribute elsewhere cannot be caught by accident.
+$manifest = $manifest -creplace '(<Identity[\s\S]*?Version=")[\d\.]+(")', "`${1}$pkgVersion`${2}"
+if ($manifest -notmatch [regex]::Escape("Version=`"$pkgVersion`"")) {
+  throw "Version substitution did not take - manifest still lacks Version=`"$pkgVersion`""
+}
 if ($manifest -match 'PARTNER_CENTER_') {
   Write-Warning "Manifest still holds PARTNER_CENTER_ placeholders. The package will build and can be self-signed for local testing, but the Store will reject it. Fill them from Partner Center -> Product identity."
 }
