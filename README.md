@@ -2,6 +2,11 @@
 
 **Voice-to-intent for Windows**
 
+### ▶ [Download Lavrentiy — v1.7.7](https://github.com/abrahamyants/lavrentiy/releases/download/v1.7.7/Lavrentiy-Setup-v1.7.7.exe)
+
+Windows installer, ~508 MB. The speech model is inside the download, so
+dictation keeps working with no internet.
+
 Lavrentiy records when the user deliberately starts recording, transcribes locally by default, optionally reconstructs captured text with personal context, and pastes the chosen result into the active Windows application. Recording supports both hold-F9 and click-on/click-off control.
 
 It is designed to remain usable when speech contains repetitions, substitutions, long pauses, or blocks. It does not diagnose a speech condition, measure clinical severity, or recover a word that was never captured. Pause Bridge generates optional completions from existing transcript context; the user decides whether to paste one.
@@ -11,7 +16,7 @@ It is designed to remain usable when speech contains repetitions, substitutions,
 | | What it is | Link |
 |---|---|---|
 | **Windows** | Installer, ~507 MB. Installs like any Windows program — its own icon, its own window, no browser window opens. The speech model is inside the download, so dictation keeps working with no internet. | **[Download the installer](https://github.com/abrahamyants/lavrentiy/releases/latest)** |
-| **Android** | WiM — the phone version, same engine. | **[Download the APK](https://github.com/gugosf114/wim-android/releases/latest)** |
+| **Android** | WiM — the phone version, same engine. | **[Download the APK](https://github.com/abrahamyants/wim-android/releases/latest)** |
 
 The installer is unsigned, so Windows SmartScreen warns on first run — choose **More info → Run anyway**. Setup and troubleshooting: [INSTRUCTIONS.md](INSTRUCTIONS.md).
 
