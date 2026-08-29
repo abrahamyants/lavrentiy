@@ -373,6 +373,38 @@ SILENT_BLOCK_MIN_SILENCE_MS = 1500
 # Engaged per-recording in pipeline() when the user hasn't forced Quiet Mode on.
 QUIET_AUTO_ENABLED = True
 QUIET_AUTO_DBFS = -22.0  # raw input below this (dBFS) = whisper-soft → auto-quiet.
+
+# How far below a speaker's OWN normal level counts as whispering.
+#
+# QUIET_AUTO_DBFS above is an absolute number, and dBFS is not an absolute
+# property of a voice - it is the voice plus the microphone plus whatever the
+# operating system did to the signal before we saw it. The same -22 means
+# "whispering" on a hot mic and "shouting" on a quiet one. Measured on the
+# operator's laptop 2026-08-29: normal speech into a Logi C930s arrived at
+# -46 dBFS, so every take he has ever recorded reads as a whisper by that
+# constant, and the only reason it did not fire is that he had Quiet Mode
+# forced on manually and the auto path was skipped entirely.
+#
+# wim-android carries the identical constant (WhisperLocalEngine.kt:80), where
+# the spread across handsets is wider still.
+#
+# So the threshold is now measured against the speaker instead: calibrate once,
+# store their normal level, and treat anything this many dB below it as soft.
+# 12 dB is roughly the gap between a conversational voice and a whisper. With
+# no baseline recorded the absolute constant is used exactly as before, so
+# nothing changes for an install that never calibrates.
+QUIET_RELATIVE_DROP_DB = 12.0
+
+
+def quiet_cutoff_dbfs():
+    """The dBFS below which a take counts as soft, for THIS speaker."""
+    try:
+        base = profile.get("preferences", {}).get("mic_baseline_dbfs")
+    except Exception:
+        base = None
+    if isinstance(base, (int, float)):
+        return float(base) - QUIET_RELATIVE_DROP_DB
+    return QUIET_AUTO_DBFS
                          # Loosened from -34; tune live via POST /api/quiet_threshold.
 LOCAL_WHISPER = True                 # L1 ASR runs locally (no cloud fallback at L1 — local layers stay local).
 # LOCAL_WHISPER_MODEL_SIZE constant removed 2026-05-16. Was passed positionally
@@ -7436,11 +7468,21 @@ def pipeline():
     # high-pass when you're actually whispering, so normal speech stays clean.
     _raw_rms = float(numpy.sqrt(numpy.mean(audio_data ** 2))) if len(audio_data) else 0.0
     _raw_dbfs = 20.0 * float(numpy.log10(_raw_rms)) if _raw_rms > 1e-9 else -120.0
-    _quiet_auto_active = (not quiet_mode_enabled) and QUIET_AUTO_ENABLED and (_raw_dbfs < QUIET_AUTO_DBFS)
+    _cutoff = quiet_cutoff_dbfs()
+    _quiet_auto_active = (not quiet_mode_enabled) and QUIET_AUTO_ENABLED and (_raw_dbfs < _cutoff)
     _effective_quiet = quiet_mode_enabled or _quiet_auto_active
     # Log EVERY take's level (not just when engaged) so the cutoff can be tuned
     # against real whisper-vs-normal numbers. Tune live via POST /api/quiet_threshold.
-    log(f"input level {_raw_dbfs:.0f} dBFS — quiet auto {'ON' if _quiet_auto_active else 'off'} (cutoff {QUIET_AUTO_DBFS:.0f})", "info")
+    #
+    # Report the EFFECTIVE state, not just the auto flag. The old line said
+    # "quiet auto off" while the whisper chain was running anyway from the
+    # manual toggle, which reads as "no boost applied" and is the opposite of
+    # what is happening. Cost the operator a wrong diagnosis on 2026-08-29.
+    _why = ("manual" if quiet_mode_enabled else ("auto" if _quiet_auto_active else ""))
+    _cal = "calibrated" if profile.get("preferences", {}).get("mic_baseline_dbfs") is not None else "uncalibrated"
+    log(f"input level {_raw_dbfs:.0f} dBFS — quiet "
+        f"{('ON (' + _why + ')') if _effective_quiet else 'off'} "
+        f"(cutoff {_cutoff:.0f}, {_cal})", "info")
 
     # Audio preprocessing — DC removal → high-pass → AGC → soft clip.
     # Quiet Mode tightens high-pass + doubles AGC gain. Shared with Command
@@ -8023,7 +8065,7 @@ def _handle_silent_block():
             audio_data = resample_poly(audio_data, RESAMPLE_UP, RESAMPLE_DOWN)
         _snap_rms = float(numpy.sqrt(numpy.mean(audio_data ** 2))) if len(audio_data) else 0.0
         _snap_dbfs = 20.0 * float(numpy.log10(_snap_rms)) if _snap_rms > 1e-9 else -120.0
-        _snap_quiet = quiet_mode_enabled or (QUIET_AUTO_ENABLED and _snap_dbfs < QUIET_AUTO_DBFS)
+        _snap_quiet = quiet_mode_enabled or (QUIET_AUTO_ENABLED and _snap_dbfs < quiet_cutoff_dbfs())
         audio_data = preprocess_audio(audio_data, quiet=_snap_quiet)
         tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         tmp.close()
@@ -8873,7 +8915,7 @@ def handle_GET_api_state(body=None) -> dict:
     else:
         _net_status = 'idle'
     history_stats = db_dashboard_stats()
-    return {'state': 'command' if is_command_mode else state, 'is_command_mode': is_command_mode, 'mode': current_mode, 'network_status': _net_status, 'network_error': _last_api_error_msg if _net_status == 'error' else '', 'tone': current_tone, 'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?'), 'situation': current_situation, 'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0), 'stats': stats, 'history_stats': history_stats, 'model': MODEL_L4 if current_layer >= 4 else MODEL, 'whisper_temp': WHISPER_TEMP, 'whisper_no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD, 'whisper_multi_temp': WHISPER_MULTI_TEMP, 'speech_metrics': _last_speech_metrics, 'avg_logprob': _last_avg_logprob, 'redo_count': _redo_count, 'block_count': _block_count, 'avg_exposure': _compute_avg_exposure(), 'paralinguistic_events': _last_paralinguistic_events, 'speaker_state': _last_speaker_state, 'paralinguistic_enabled': paralinguistic_enabled, 'paralinguistic_transcribe': paralinguistic_transcribe, 'prosodic_enabled': prosodic_enabled, 'paralinguistic_available': current_layer != 1, 'prosodic_available': current_layer != 1, 'quiet_mode_enabled': quiet_mode_enabled, 'quiet_auto_active': _quiet_auto_active, 'dictation_language': dictation_language, 'l1_cloud_asr': L1_CLOUD_ASR, 'profile_name': _active_profile_name, 'block_candidates': _block_candidates, 'sonnet_downgraded': _sonnet_downgraded, 'last_recon_model': _last_recon_model, 'auth': {'signed_in': is_authenticated(), 'user': _auth_user, 'has_local_key': bool(API_KEY) and not _running_on_bundled_keys(), 'has_bundled_key': _running_on_bundled_keys()}}
+    return {'state': 'command' if is_command_mode else state, 'is_command_mode': is_command_mode, 'mode': current_mode, 'network_status': _net_status, 'network_error': _last_api_error_msg if _net_status == 'error' else '', 'tone': current_tone, 'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?'), 'situation': current_situation, 'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0), 'stats': stats, 'history_stats': history_stats, 'model': MODEL_L4 if current_layer >= 4 else MODEL, 'whisper_temp': WHISPER_TEMP, 'whisper_no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD, 'whisper_multi_temp': WHISPER_MULTI_TEMP, 'speech_metrics': _last_speech_metrics, 'avg_logprob': _last_avg_logprob, 'redo_count': _redo_count, 'block_count': _block_count, 'avg_exposure': _compute_avg_exposure(), 'paralinguistic_events': _last_paralinguistic_events, 'speaker_state': _last_speaker_state, 'paralinguistic_enabled': paralinguistic_enabled, 'paralinguistic_transcribe': paralinguistic_transcribe, 'prosodic_enabled': prosodic_enabled, 'paralinguistic_available': current_layer != 1, 'prosodic_available': current_layer != 1, 'quiet_mode_enabled': quiet_mode_enabled, 'quiet_auto_active': _quiet_auto_active, 'dictation_language': dictation_language, 'l1_cloud_asr': L1_CLOUD_ASR, 'profile_name': _active_profile_name, 'block_candidates': _block_candidates, 'sonnet_downgraded': _sonnet_downgraded, 'last_recon_model': _last_recon_model, 'mic_baseline_dbfs': profile.get('preferences', {}).get('mic_baseline_dbfs'), 'quiet_cutoff_dbfs': round(quiet_cutoff_dbfs(), 1), 'auth': {'signed_in': is_authenticated(), 'user': _auth_user, 'has_local_key': bool(API_KEY) and not _running_on_bundled_keys(), 'has_bundled_key': _running_on_bundled_keys()}}
 
 def handle_GET_api_profiles(body=None) -> dict:
     return {'profiles': list_profiles(), 'active': _active_profile_name}
@@ -9652,6 +9694,77 @@ def handle_POST_api_debug_block(body=None) -> dict:
     return {'ok': True, 'candidates': cands}
 
 
+def handle_POST_api_calibrate_mic(body=None) -> dict:
+    """Measure this speaker's normal level and store it as their baseline.
+
+    Send {"seconds": 4} and talk normally for that long. Returns the measured
+    dBFS, the cutoff it implies, and a verdict.
+
+    Why this exists: dBFS is the voice PLUS the microphone PLUS whatever the OS
+    did to the signal, so a fixed threshold measures the hardware rather than
+    the speaking. See QUIET_RELATIVE_DROP_DB.
+
+    Opens its own short-lived input stream rather than borrowing the always-on
+    pre-roll stream: the pre-roll is only PREROLL_SEC long, and draining it
+    would cost the next F9 press its first word.
+    """
+    try:
+        seconds = float((body or {}).get("seconds", 4.0))
+    except (TypeError, ValueError):
+        seconds = 4.0
+    seconds = max(1.0, min(10.0, seconds))
+    try:
+        frames = sd.rec(int(NATIVE_RATE * seconds), samplerate=NATIVE_RATE,
+                        channels=1, device=DEVICE, dtype="float32")
+        sd.wait()
+    except Exception as e:
+        log(f"Mic calibration failed ({type(e).__name__}: {str(e)[:120]})", "error")
+        return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:160]}"}
+
+    audio = frames.flatten()
+    if not len(audio):
+        return {"ok": False, "error": "no audio captured"}
+
+    # Measure the SPOKEN part only. An RMS over the whole clip is dragged down
+    # by the silence around the words, which would put the baseline below the
+    # real speaking level and make the cutoff too permissive. Take the loudest
+    # third of 20 ms windows - that is the speech, not the gaps.
+    win = max(1, int(NATIVE_RATE * 0.02))
+    windows = [audio[i:i + win] for i in range(0, len(audio) - win + 1, win)]
+    rms_list = sorted(float(numpy.sqrt(numpy.mean(w ** 2))) for w in windows)
+    loud = rms_list[int(len(rms_list) * 0.67):] or rms_list
+    rms = float(numpy.mean(loud))
+    dbfs = 20.0 * float(numpy.log10(rms)) if rms > 1e-9 else -120.0
+
+    prof_prefs = profile.setdefault("preferences", {})
+    prof_prefs["mic_baseline_dbfs"] = round(dbfs, 1)
+    with _profile_lock:
+        save_profile(profile)
+
+    cutoff = quiet_cutoff_dbfs()
+    # Below about -40 dBFS the signal is so far down that the AGC has to
+    # multiply the noise floor along with the voice. Software cannot make that
+    # back; the input level itself has to come up.
+    if dbfs < -40:
+        verdict = "very_low"
+        advice = ("Your microphone is very quiet. Raise its input level in "
+                  "Windows Sound settings, then calibrate again - boosting this "
+                  "much in software amplifies the room along with your voice.")
+    elif dbfs < -30:
+        verdict = "low"
+        advice = "A little quiet, but workable. Raising the Windows input level would help."
+    elif dbfs > -8:
+        verdict = "hot"
+        advice = "Very loud - lower the Windows input level to avoid clipping the peaks."
+    else:
+        verdict = "good"
+        advice = "Good level."
+    log(f"Mic calibrated: normal speech {dbfs:.0f} dBFS ({verdict}) — "
+        f"quiet cutoff now {cutoff:.0f} dBFS", "info")
+    return {"ok": True, "dbfs": round(dbfs, 1), "cutoff_dbfs": round(cutoff, 1),
+            "verdict": verdict, "advice": advice, "seconds": seconds}
+
+
 def handle_POST_api_quiet_threshold(body=None) -> dict:
     """Live-tune the Auto Quiet Mode cutoff (dBFS) without a rebuild. Lower
     (more negative) = stricter (only very soft takes); higher = looser."""
@@ -9744,6 +9857,7 @@ _POST_ROUTES = {
     '/api/block_dismiss':                 handle_POST_api_block_dismiss,
     '/api/debug_block':                   handle_POST_api_debug_block,
     '/api/quiet_threshold':               handle_POST_api_quiet_threshold,
+    '/api/calibrate_mic':                 handle_POST_api_calibrate_mic,
 }
 
 
