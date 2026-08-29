@@ -208,12 +208,23 @@
       window.location.href = API + '/';
     }
 
-    // Auto-skip if already configured
+    // Auto-skip if already configured.
+    //
+    // has_local_key means the USER supplied a key - a key file, the
+    // environment, or this screen. It deliberately does not count the key CI
+    // bakes into a giveaway build: that one is always present, so counting it
+    // made this page bounce straight back to the dashboard and there was no
+    // way left to enter your own key. The engine reports that case separately
+    // as has_bundled_key.
     fetch(API + '/api/state')
       .then(r => r.json())
       .then(d => {
         if (d.auth && (d.auth.has_local_key || d.auth.signed_in)) {
           goToDashboard();
+          return;
+        }
+        if (d.auth && d.auth.has_bundled_key) {
+          setStatus('This build already includes a key, so cloud layers work with no setup. Add your own key below only if you would rather use your own account.', 'ok');
         }
       })
       .catch(() => {});
