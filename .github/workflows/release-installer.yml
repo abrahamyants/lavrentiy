@@ -31,6 +31,10 @@ on:
         description: 'Include the offline speech model. Off makes the small online-only build.'
         type: boolean
         default: true
+      build_msix:
+        description: 'Also pack a Microsoft Store MSIX from the same build'
+        type: boolean
+        default: false
   push:
     tags: ['v*']
 
@@ -157,6 +161,26 @@ jobs:
 
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
+
+      # Reuses the onedir output the installer step is about to consume, so
+      # the expensive PyInstaller analysis is paid once. The runner already
+      # carries the Windows SDK, which is where makeappx lives - the operator's
+      # laptop does not have it, so CI is the only place this can be tested.
+      #
+      # The package is deliberately UNSIGNED: the Store signs on ingestion, and
+      # that signature is the whole reason for going through the Store.
+      - name: Pack the Microsoft Store MSIX
+        if: inputs.build_msix
+        shell: pwsh
+        run: ./store/build-msix.ps1 -Version "${{ inputs.version }}"
+
+      - name: Upload the MSIX
+        if: inputs.build_msix
+        uses: actions/upload-artifact@v4
+        with:
+          name: lavrentiy-msix
+          path: store/out/*.msix
+          retention-days: 14
 
       - name: Compile the installer
         shell: pwsh
