@@ -3386,6 +3386,70 @@ _STRIP_FILLERS = {
     "э", "ээ", "эм", "эээ", "ну", "нуу",
 }
 
+# Words that are fillers AND ordinary English. Port of wim-android 90cfac9
+# (DisfluencyFilter.RISKY_FILLERS). A plain word-list strip cannot tell a
+# discourse marker from the word doing work, and it ate the real ones —
+# measured on the operator's device 2026-08-22: "Is everything going well
+# here?" arrived as "Is everything going here?", and "regardless of layer,
+# right?" as "regardless of layer," which then collected a full stop from
+# repunctuate and reached the user as "layer,.".
+#
+# WiM guards these with a clock broom that reads whisper-1 word timings and
+# strips an occurrence only when a real pause sits on both sides. Lavrentiy
+# has no such path, so position stands in for the clock: see
+# strip_leading_markers below. These six are held out of both naive passes
+# in strip_disfluencies on every route.
+_RISKY_FILLERS = {"like", "you know", "i mean", "so", "well", "right"}
+
+
+def strip_leading_markers(text, fillers=None):
+    """Strip risky fillers only where they OPEN a sentence and a comma follows.
+
+    A speaker filling time does it at the top of a clause — "So, back to the
+    thing", "Well, I think". The same word inside a clause is doing work:
+    "going well", "the right one", "so tired". The comma is the discriminator:
+    a pause long enough for the ASR to punctuate.
+
+    Deliberately conservative. Some fillers survive; from L2 up the prompt
+    already says to strip fillers and the model weighs context no regex here
+    can, and at L1 an extra "well" is cheaper than a missing one. A missed
+    filler is a word the reader skims past — a deleted real word changes what
+    was said. Port of wim-android DisfluencyFilter.stripLeadingMarkers.
+    """
+    if not text or not text.strip():
+        return text
+    out = text
+    for phrase in sorted(fillers if fillers is not None else _RISKY_FILLERS,
+                         key=len, reverse=True):
+        pattern = (r'(^|[.!?]\s+)'
+                   + r'\s+'.join(re.escape(w) for w in phrase.split())
+                   + r'\s*,\s*')
+        out = re.sub(pattern, lambda m: m.group(1), out, flags=re.IGNORECASE)
+    out = re.sub(r'\s{2,}', ' ', out).strip()
+    return out if out else text
+
+
+def tidy_punctuation(text):
+    """Repair punctuation left stranded by a removed word.
+
+    Every strip in this module drops a token and leaves the punctuation that
+    was attached to it. "...of layer, right?" loses "right?" and keeps the
+    comma, so the sentence ends on a comma; repunctuate then appends a full
+    stop and the user reads "layer,.". The same removal mid-sentence leaves
+    ", ," and " ." behind. Runs last, and only touches punctuation.
+    Port of wim-android DisfluencyFilter.tidyPunctuation.
+    """
+    if not text or not text.strip():
+        return text
+    out = text
+    out = re.sub(r'\s+([,.;:!?])', r'\1', out)        # " ,"  -> ","
+    out = re.sub(r'([,;:])\s*([,;:])+', r'\1', out)    # ",,"  -> ","
+    out = re.sub(r'[,;:]+([.!?])', r'\1', out)          # ",."  -> "."
+    out = re.sub(r'([.!?])\1+', r'\1', out)            # ".."  -> "."
+    out = re.sub(r'[,;:]+\s*$', '', out)               # trailing comma
+    out = re.sub(r'\s{2,}', ' ', out).strip()
+    return out if out else text
+
 # Natural English repetitions that should NOT be stripped (Apple ML Research, 2023)
 # These are grammatically valid constructions, not disfluencies
 NATURAL_REPEATS = {
@@ -3529,6 +3593,17 @@ def repunctuate(text):
         s = s[0].upper() + s[1:]
     s = re.sub(r"([.!?]\s+)([a-z])", lambda m: m.group(1) + m.group(2).upper(), s)
     if s and s[-1] not in ".!?":
+        # A removed filler leaves its punctuation behind — "...of layer,
+        # right?" loses "right?" and keeps the comma — so the terminal mark
+        # would be appended straight onto it and the user reads "layer,.".
+        # tidy_punctuation catches this upstream inside strip_disfluencies;
+        # this is the same guard at the point of the append, for callers that
+        # reach here without passing through it. Port of wim-android 90cfac9.
+        s = s.rstrip(',;: ')
+        if not s:
+            return text.strip()
+        if s[-1] in ".!?":
+            return s
         # Read the opening word from the LAST sentence — the one this mark
         # closes. Reading the whole text put "?" on a statement and "." on a
         # question in multi-sentence input. Mirrors wim-android 7d5d2e9.
@@ -3559,6 +3634,12 @@ def strip_disfluencies(text, extra_fillers=None):
     """
     if not text or not text.strip():
         return text
+
+    # Step 0: the risky six — "like", "you know", "i mean", "so", "well",
+    # "right". Stripped only where they open a sentence and a comma follows,
+    # and held out of both naive passes below on every route. See
+    # strip_leading_markers. Port of wim-android 90cfac9.
+    text = strip_leading_markers(text)
 
     # Step 1: Remove stutter fragments (hyphenated false starts)
     # "p- p- pop" → "pop",  "be- be- become" → "become"
@@ -3636,6 +3717,7 @@ def strip_disfluencies(text, extra_fillers=None):
             f.strip() for f in
             list(_STRIP_FILLERS) + list(extra_fillers or [])
             if isinstance(f, str) and ' ' in f.strip()
+            and f.strip().lower() not in _RISKY_FILLERS
         },
         key=len, reverse=True
     )
@@ -3652,6 +3734,9 @@ def strip_disfluencies(text, extra_fillers=None):
     filtered = []
     for i, w in enumerate(words):
         w_lower = w.lower().rstrip('.,!?;:')
+        if w_lower in _RISKY_FILLERS:
+            filtered.append(w)
+            continue
         if w_lower in _STRIP_FILLERS:
             # Keep filler only if it's the entire utterance
             if len(words) == 1:
@@ -3667,6 +3752,8 @@ def strip_disfluencies(text, extra_fillers=None):
     # because \w would turn "wire 1000 dollars" into "wire 10 dollars".
     result = re.sub(r'([A-Za-z\u0400-\u04FF])\1{2,200}', r'\1', result)
     result = re.sub(r'\s{2,}', ' ', result)
+    # Repair punctuation orphaned by every strip above.
+    result = tidy_punctuation(result)
     # Don't return empty string — fall back to original
     return result if result else text
 

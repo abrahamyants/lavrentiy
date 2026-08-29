@@ -159,13 +159,27 @@ ns['stats_inc'] = lambda key, n=1: None
 ns['db_session_count'] = lambda: 50
 
 # Extract all pipeline component functions
+# Load _RISKY_FILLERS (single-line set) — strip_disfluencies calls the
+# helpers that read it. Port of wim-android DisfluencyFilter.RISKY_FILLERS.
+rf_idx = next(i for i, l in enumerate(lines) if l.startswith('_RISKY_FILLERS = '))
+exec(lines[rf_idx], ns)
+
+# Load _REPUNC_QUESTION_STARTERS — repunctuate reads it.
+qs_idx = next(i for i, l in enumerate(lines) if l.startswith('_REPUNC_QUESTION_STARTERS = '))
+qs_end = qs_idx + 1
+while qs_end < len(lines) and '}' not in lines[qs_end]:
+    qs_end += 1
+exec('\n'.join(lines[qs_idx:qs_end + 1]), ns)
+
 target_funcs = [
     # Core dependencies
     '_extract_onset', 'learn_onset_weights', 'predict_phonetic_risk',
     '_learn_event', '_learn_events_snapshot', '_sample', '_norm_str',
     'detect_word_language', 'set_last_prep',
     # Pipeline stages
-    'strip_disfluencies', 'count_disfluencies', 'detect_ocd_loops',
+    'strip_disfluencies', 'strip_leading_markers', 'tidy_punctuation',
+    'repunctuate',
+    'count_disfluencies', 'detect_ocd_loops',
     'apply_profile_corrections', 'strip_block_hallucinations',
     '_check_critical_retention',
     'compute_risk_flags', 'make_decision',
@@ -232,6 +246,39 @@ if strip and apply_corr and strip_halluc and decide:
           strip('I, I, I need to reschedule') == 'I need to reschedule')
     check('strip removes fillers', ' um ' not in filtered)
     check('strip preserves "store"', 'store' in filtered.lower())
+
+    # ── The risky six: fillers that are also ordinary English ──────────
+    # Port of wim-android 90cfac9. A naive word-list strip ate the real
+    # ones; position now stands in for the word timings Lavrentiy has no
+    # access to. Both directions are pinned: the marker goes, the word stays.
+    risky_prof = ["um", "uh", "like", "you know", "i mean"]
+    check('risky filler kept mid-clause ("going well here")',
+          strip('Is everything going well here?', extra_fillers=risky_prof)
+          == 'Is everything going well here?')
+    check('risky filler kept as real verb ("You know the answer")',
+          strip('You know the answer to this.', extra_fillers=risky_prof)
+          == 'You know the answer to this.')
+    check('risky filler kept as real verb ("I like how it looks")',
+          strip('I like how it looks.', extra_fillers=risky_prof)
+          == 'I like how it looks.')
+    check('leading marker stripped ("So, back to...")',
+          strip('So, back to AI visibility, right?', extra_fillers=risky_prof)
+          == 'back to AI visibility, right?')
+    check('leading marker stripped ("Well, I think so")',
+          strip('Well, I think so.', extra_fillers=risky_prof)
+          == 'I think so.')
+
+    # ── Punctuation orphaned by a strip ────────────────────────────────
+    # A removed token left its comma behind, repunctuate appended a stop,
+    # and the operator read "layer,." in his own message.
+    tidy = ns.get('tidy_punctuation')
+    repunc = ns.get('repunctuate')
+    check('tidy repairs a stranded comma before a stop',
+          tidy('regardless of layer, .') == 'regardless of layer.')
+    check('tidy repairs a doubled comma', tidy('one, , two') == 'one, two')
+    check('tidy drops a trailing comma', tidy('ending here,') == 'ending here')
+    check('repunctuate never appends onto a comma',
+          repunc('regardless of layer,') == 'Regardless of layer.')
 
     # Stage 2: apply profile corrections (L1 only)
     corrected = apply_corr(filtered, prof)
