@@ -1662,7 +1662,17 @@ def save_profile(prof, _epoch=None):
     if _epoch is not None and _epoch != _profile_switch_epoch:
         return  # profile was switched since this thread launched — discard stale write
     with _profile_lock:
-        PROFILE_DIR.mkdir(exist_ok=True)
+        # parents=True, or a first run dies here. PROFILE_DIR is
+        # ~/.lavrentiy/profiles/<name>, and on a machine that has never run
+        # Lavrentiy the `profiles` level does not exist yet, so a plain mkdir
+        # raises FileNotFoundError [WinError 3]. migrate_profile() calls
+        # save_profile() at import time (line ~2618) and the module-level
+        # PROFILE_DIR.mkdir(parents=True) that would have created it does not
+        # run until ~70 lines later, so the guard is too late to help.
+        # Reproduced on a clean install of v1.7.9, 2026-08-29: the app started,
+        # never bound port 7878, and never opened a window. Every other
+        # PROFILE_DIR.mkdir in this file already passes parents=True.
+        PROFILE_DIR.mkdir(parents=True, exist_ok=True)
         tmp_path = PROFILE_PATH.with_suffix('.tmp')
         with open(tmp_path, 'w', encoding='utf-8') as f:
             json.dump(prof, f, indent=2, ensure_ascii=False)
