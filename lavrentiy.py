@@ -1502,9 +1502,16 @@ def reconstruct_via_backend(raw_text, tone, layer, prof, situation="default", mo
         # L4 on the server runs Sonnet extended thinking (CF window 120s) —
         # give it room. L2/L3 stay on the original snappy cap.
         _cf_timeout = 90 if layer >= 4 else 30
+        _t0 = time.monotonic()
         with urllib.request.urlopen(req, timeout=_cf_timeout) as resp:
             result = json.loads(resp.read().decode("utf-8"))
         stats_inc("api_calls")
+        # Say which road the call took. Port of wim-android 0c594a4: the two
+        # routes produce different text from the same speech and the logs never
+        # said which one ran, so a backend-only failure looked like a model
+        # having a bad day. This line is how WiM found its L4 500.
+        log(f"Reconstruction route: backend (wim-reconstruct), L{layer}, "
+            f"{int((time.monotonic() - _t0) * 1000)}ms", "info")
         return result.get("clean", raw_text), result.get("falcon_ok", True), result
     except Exception as e:
         log(f"Backend reconstruct failed: {e}", "error")
@@ -7636,6 +7643,7 @@ def pipeline():
 
                 if clean_text is None and API_KEY:
                     # Local API key path: either not signed in, or backend failed.
+                    log(f"Reconstruction route: device-direct, L{current_layer}", "info")
                     clean_text = reconstruct(
                         filtered_text, current_tone, current_layer, profile, current_situation,
                         language_code=dictation_language,
