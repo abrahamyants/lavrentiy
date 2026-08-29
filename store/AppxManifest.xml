@@ -11,9 +11,11 @@
       Identity/@Publisher  <- "Package/Identity/Publisher"   (the CN=... string)
       Properties/PublisherDisplayName <- "Publisher display name"
 
-  They are marked PARTNER_CENTER_ below. A package built with the placeholders
-  still installs locally for testing if you self-sign it, but the Store will
-  reject it.
+  They are marked PLACEHOLDER below. The placeholders are deliberately
+  schema-legal - Identity/@Name only accepts [-.A-Za-z0-9], so an underscore
+  there fails validation and the package never builds, which hides every later
+  problem behind a cosmetic one. With these, the package builds and self-signs
+  for local testing; only the Store rejects it.
 
   Version must be four parts and the LAST one must be 0 - the Store reserves
   the revision field. 1.7.10 therefore ships as 1.7.10.0.
@@ -26,14 +28,14 @@
   IgnorableNamespaces="uap rescap">
 
   <Identity
-    Name="PARTNER_CENTER_IDENTITY_NAME"
-    Publisher="CN=PARTNER_CENTER_PUBLISHER_ID"
+    Name="PLACEHOLDER-Lavrentiy"
+    Publisher="CN=PLACEHOLDER-Publisher"
     Version="1.7.10.0"
     ProcessorArchitecture="x64" />
 
   <Properties>
     <DisplayName>Lavrentiy</DisplayName>
-    <PublisherDisplayName>PARTNER_CENTER_PUBLISHER_DISPLAY_NAME</PublisherDisplayName>
+    <PublisherDisplayName>PLACEHOLDER Publisher Display Name</PublisherDisplayName>
     <Logo>assets\StoreLogo.png</Logo>
     <Description>Voice-to-intent for Windows. Speak messy, get clean text.</Description>
   </Properties>

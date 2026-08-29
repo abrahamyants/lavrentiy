@@ -64,8 +64,8 @@ $manifest = $manifest -creplace '(<Identity[\s\S]*?Version=")[\d\.]+(")', "`${1}
 if ($manifest -notmatch [regex]::Escape("Version=`"$pkgVersion`"")) {
   throw "Version substitution did not take - manifest still lacks Version=`"$pkgVersion`""
 }
-if ($manifest -match 'PARTNER_CENTER_') {
-  Write-Warning "Manifest still holds PARTNER_CENTER_ placeholders. The package will build and can be self-signed for local testing, but the Store will reject it. Fill them from Partner Center -> Product identity."
+if ($manifest -match 'PLACEHOLDER') {
+  Write-Warning "Manifest still holds PLACEHOLDER identity values. The package builds and can be self-signed for local testing, but the Store will reject it. Fill them from Partner Center -> Product identity."
 }
 Set-Content -Path (Join-Path $stage "AppxManifest.xml") -Value $manifest -Encoding utf8
 
