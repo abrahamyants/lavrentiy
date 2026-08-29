@@ -50,8 +50,14 @@ while nr_end < len(lines) and '}' not in lines[nr_end]:
 exec('\n'.join(lines[nr_idx:nr_end + 1]), ns)
 
 # Load target functions
+# Load _RISKY_FILLERS (single-line set) — strip_disfluencies calls the
+# helpers that read it. Port of wim-android DisfluencyFilter.RISKY_FILLERS.
+rf_idx = next(i for i, l in enumerate(lines) if l.startswith('_RISKY_FILLERS = '))
+exec(lines[rf_idx], ns)
+
 target_funcs = [
-    'strip_disfluencies', 'count_disfluencies', 'detect_ocd_loops',
+    'strip_disfluencies', 'strip_leading_markers', 'tidy_punctuation',
+    'count_disfluencies', 'detect_ocd_loops',
     'compute_risk_flags', 'make_decision', 'compute_wer',
     '_extract_onset', 'learn_onset_weights', 'predict_phonetic_risk',
 ]

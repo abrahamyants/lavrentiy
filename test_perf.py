@@ -119,11 +119,17 @@ ns['_redo_count'] = 0
 ns['_HYPHEN_STUTTER'] = re.compile(r'\b(\w{1,4})[-]\1[-]?(\w+)\b', re.IGNORECASE)
 ns['_WORD_REPEAT'] = re.compile(r'\b(\w+)(?:\s+\1){1,}\s+(\w+)', re.IGNORECASE)
 
+# Load _RISKY_FILLERS (single-line set) — strip_disfluencies calls the
+# helpers that read it. Port of wim-android DisfluencyFilter.RISKY_FILLERS.
+rf_idx = next(i for i, l in enumerate(lines) if l.startswith('_RISKY_FILLERS = '))
+exec(lines[rf_idx], ns)
+
 target_funcs = [
     '_extract_onset', 'learn_onset_weights', 'predict_phonetic_risk',
     '_learn_event', '_learn_events_snapshot', '_sample', '_norm_str',
     'detect_word_language', 'set_last_prep',
-    'strip_disfluencies', 'count_disfluencies', 'detect_ocd_loops',
+    'strip_disfluencies', 'strip_leading_markers', 'tidy_punctuation',
+    'count_disfluencies', 'detect_ocd_loops',
     'compute_brown_scores', 'predict_triggers_in_text',
     'compute_exposure_difficulty', 'compute_editorial_distance',
     'compute_avoidance_trend', 'build_stutter_insights',
