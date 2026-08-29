@@ -237,13 +237,6 @@ def _read_optional_key(primary_path, env_name, legacy_path, bundled_attr=None):
 
 API_KEY = ""
 API_KEY = _read_optional_key(_key_file, "OPENAI_API_KEY", _legacy_key_file, "OPENAI_API_KEY")
-# Whether the key above is the user's own or the one CI baked into a giveaway
-# build. The dashboard needs the difference: onboard.html auto-skips to the
-# dashboard when a key is "configured", so on a giveaway build the whole
-# Cloud setup / API key screen became unreachable - it flashed and bounced,
-# and a user who wanted to spend their own money had no way to enter a key.
-# Reported by the operator on v1.7.9, 2026-08-29.
-API_KEY_IS_BUNDLED = bool(API_KEY) and API_KEY == _bundled_key("OPENAI_API_KEY")
 if not API_KEY:
     try:
         print("WARNING: No local API key found. Google Sign-In required for reconstruction.")
@@ -8880,7 +8873,7 @@ def handle_GET_api_state(body=None) -> dict:
     else:
         _net_status = 'idle'
     history_stats = db_dashboard_stats()
-    return {'state': 'command' if is_command_mode else state, 'is_command_mode': is_command_mode, 'mode': current_mode, 'network_status': _net_status, 'network_error': _last_api_error_msg if _net_status == 'error' else '', 'tone': current_tone, 'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?'), 'situation': current_situation, 'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0), 'stats': stats, 'history_stats': history_stats, 'model': MODEL_L4 if current_layer >= 4 else MODEL, 'whisper_temp': WHISPER_TEMP, 'whisper_no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD, 'whisper_multi_temp': WHISPER_MULTI_TEMP, 'speech_metrics': _last_speech_metrics, 'avg_logprob': _last_avg_logprob, 'redo_count': _redo_count, 'block_count': _block_count, 'avg_exposure': _compute_avg_exposure(), 'paralinguistic_events': _last_paralinguistic_events, 'speaker_state': _last_speaker_state, 'paralinguistic_enabled': paralinguistic_enabled, 'paralinguistic_transcribe': paralinguistic_transcribe, 'prosodic_enabled': prosodic_enabled, 'paralinguistic_available': current_layer != 1, 'prosodic_available': current_layer != 1, 'quiet_mode_enabled': quiet_mode_enabled, 'quiet_auto_active': _quiet_auto_active, 'dictation_language': dictation_language, 'l1_cloud_asr': L1_CLOUD_ASR, 'profile_name': _active_profile_name, 'block_candidates': _block_candidates, 'sonnet_downgraded': _sonnet_downgraded, 'last_recon_model': _last_recon_model, 'auth': {'signed_in': is_authenticated(), 'user': _auth_user, 'has_local_key': bool(API_KEY) and not API_KEY_IS_BUNDLED, 'has_bundled_key': API_KEY_IS_BUNDLED}}
+    return {'state': 'command' if is_command_mode else state, 'is_command_mode': is_command_mode, 'mode': current_mode, 'network_status': _net_status, 'network_error': _last_api_error_msg if _net_status == 'error' else '', 'tone': current_tone, 'layer': current_layer, 'layer_name': LAYER_NAMES.get(current_layer, '?'), 'situation': current_situation, 'situation_severity': SITUATION_SEVERITY.get(current_situation, 1.0), 'stats': stats, 'history_stats': history_stats, 'model': MODEL_L4 if current_layer >= 4 else MODEL, 'whisper_temp': WHISPER_TEMP, 'whisper_no_speech_threshold': WHISPER_NO_SPEECH_THRESHOLD, 'whisper_multi_temp': WHISPER_MULTI_TEMP, 'speech_metrics': _last_speech_metrics, 'avg_logprob': _last_avg_logprob, 'redo_count': _redo_count, 'block_count': _block_count, 'avg_exposure': _compute_avg_exposure(), 'paralinguistic_events': _last_paralinguistic_events, 'speaker_state': _last_speaker_state, 'paralinguistic_enabled': paralinguistic_enabled, 'paralinguistic_transcribe': paralinguistic_transcribe, 'prosodic_enabled': prosodic_enabled, 'paralinguistic_available': current_layer != 1, 'prosodic_available': current_layer != 1, 'quiet_mode_enabled': quiet_mode_enabled, 'quiet_auto_active': _quiet_auto_active, 'dictation_language': dictation_language, 'l1_cloud_asr': L1_CLOUD_ASR, 'profile_name': _active_profile_name, 'block_candidates': _block_candidates, 'sonnet_downgraded': _sonnet_downgraded, 'last_recon_model': _last_recon_model, 'auth': {'signed_in': is_authenticated(), 'user': _auth_user, 'has_local_key': bool(API_KEY) and not _running_on_bundled_keys(), 'has_bundled_key': _running_on_bundled_keys()}}
 
 def handle_GET_api_profiles(body=None) -> dict:
     return {'profiles': list_profiles(), 'active': _active_profile_name}
