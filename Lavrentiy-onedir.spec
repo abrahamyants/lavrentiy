@@ -31,7 +31,7 @@ import os
 #   DestDir: {app}; Flags: recursesubdirs`. Single .exe download for the user
 #   (the installer), CD-ROM model — install once, runs forever.
 
-from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.hooks import collect_all, collect_submodules
 from pathlib import Path
 
 REPO = Path(SPECPATH).resolve()
@@ -86,6 +86,29 @@ hiddenimports = [
 if (REPO / 'bundled_keys.py').exists():
     hiddenimports.append('bundled_keys')
     datas += [(str(REPO / 'bundled_keys.py'), '.')]
+
+# scipy 1.18 moved array_api_compat from scipy._lib to scipy._external. The
+# PyInstaller hook that ships with the analyser only knows the old location,
+# so on the new layout the subpackage is never collected and the app dies on
+# `from scipy.signal import ...` at lavrentiy.py line 41 — before the window
+# is ever created:
+#
+#   ModuleNotFoundError: No module named
+#   'scipy._external.array_api_compat.numpy.fft'
+#
+# The build logs it as a plain WARNING ("Hidden import ... not found!") among
+# a dozen harmless ones and exits 0, so CI stayed green while shipping an
+# installer that could not start. Reproduced on the operator's laptop from the
+# published v1.7.8 asset, 2026-08-29.
+#
+# requirements.portable.txt pins scipy>=1.10.0, so which layout a build gets is
+# decided by whatever PyPI serves that day. Both paths are collected; the one
+# absent from the installed scipy raises and is skipped.
+for _compat in ('scipy._external.array_api_compat', 'scipy._lib.array_api_compat'):
+    try:
+        hiddenimports += collect_submodules(_compat)
+    except Exception:
+        pass
 
 for pkg in (
     'faster_whisper', 'ctranslate2', 'onnxruntime',
