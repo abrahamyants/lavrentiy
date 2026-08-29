@@ -2,10 +2,11 @@
 
 **Voice-to-intent for Windows**
 
-### ▶ [Download Lavrentiy — v1.7.7](https://github.com/abrahamyants/lavrentiy/releases/download/v1.7.7/Lavrentiy-Setup-v1.7.7.exe)
+### ▶ [Download Lavrentiy — v1.7.8](https://github.com/abrahamyants/lavrentiy/releases/download/v1.7.8/Lavrentiy-Setup-v1.7.8-eval.exe)
 
-Windows installer, ~508 MB. The speech model is inside the download, so
-dictation keeps working with no internet.
+Windows installer, ~508 MB. Install it and talk — nothing to sign into,
+nothing to configure. The speech model is inside the download, so dictation
+keeps working with no internet.
 
 Lavrentiy records when the user deliberately starts recording, transcribes locally by default, optionally reconstructs captured text with personal context, and pastes the chosen result into the active Windows application. Recording supports both hold-F9 and click-on/click-off control.
 
