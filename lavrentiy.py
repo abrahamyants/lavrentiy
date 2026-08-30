@@ -3904,7 +3904,7 @@ _PHONETIC_MIN_WORD_LENGTH = 3
 _PHONETIC_TOKEN_RE = re.compile(r"([^\W_]+(?:'[^\W_]+)?)|([\W_]+)", re.UNICODE)
 
 
-def phonetic_match(text, vocabulary, onset_weights=None):
+def phonetic_match(text, vocabulary, onset_weights=None, blocklist=None):
     """Phonetic-neighbor swap for ASR output (Double Metaphone).
 
     Args:
@@ -3912,12 +3912,30 @@ def phonetic_match(text, vocabulary, onset_weights=None):
         vocabulary: list of words from user's profile
         onset_weights: user's personal onset-difficulty map. Empty -> match
                        all onsets (new user without learned weights).
+        blocklist: words that must never be swapped no matter how well they
+            match. Pass profile_terms._APPROXIMATE_BLOCKLIST. See below.
 
     Returns text with phonetic-neighbor swaps applied; unchanged otherwise.
     Silently no-ops when metaphone is missing (defensive import) or vocab empty.
+
+    WHY THE BLOCKLIST. This function was gated to L2/L3 because a wrong swap at
+    L1 has no model behind it to catch it - the swapped word goes straight into
+    the user's text. That is a real risk and the gate was the right call at the
+    time, but it left the free, offline, default layer with no help at all:
+    "no API calls" reached the operator as "no IP icons" on 2026-08-29 while
+    the code that would have fixed it sat switched off two layers up.
+
+    The missing guard was never the model. It is knowing that the heard word is
+    ordinary English - "like", "well", "could" - and must be left alone however
+    neatly it rhymes with something in the vocabulary. profile_terms already
+    carries exactly that list, 296 words, built after "could" became "Claude"
+    and "I need you to send the Henderson invoice" became "I need you to Git
+    the Henderson invoice". With it, the swap is safe without a model, which is
+    what lets L1 have it.
     """
     if not text or not vocabulary or _doublemetaphone is None:
         return text
+    blocked = {w.lower() for w in (blocklist or ())}
 
     vocab_codes = []
     for w in vocabulary:
@@ -3945,6 +3963,9 @@ def phonetic_match(text, vocabulary, onset_weights=None):
         word = match.group(1) or ""
         filler = match.group(2) or ""
         if word:
+            if word.lower() in blocked:
+                parts.append(word)
+                continue
             swapped = _phonetic_maybe_swap(word, vocab_codes, high_risk_onsets)
             if swapped is not None and swapped.lower() != word.lower():
                 parts.append(_preserve_casing(word, swapped))
@@ -7380,11 +7401,16 @@ def _clean_and_filter_text(raw_text, whisper_low_conf, current_layer):
                 f"\"{match['term']}\" ({match['kind']})",
                 "info",
             )
-    if 2 <= current_layer <= 3:
+    # L1 included since 2026-08-29. It used to start at L2 because a wrong swap
+    # at L1 reaches the user unguarded - true, but the guard it needed was the
+    # blocklist below, not a model. L4 stays out: Sonnet extended thinking gets
+    # the onset map in its prompt and does this better with full context.
+    if 1 <= current_layer <= 3:
         filtered_text = phonetic_match(
             filtered_text,
             profile.get("vocabulary", []),
             profile.get("onset_weights", {}),
+            blocklist=profile_terms._APPROXIMATE_BLOCKLIST,
         )
     return filtered_text
 

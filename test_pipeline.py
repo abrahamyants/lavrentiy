@@ -4,6 +4,8 @@ Tests the wiring between pipeline stages that unit tests miss.
 Uses the same ast.parse extraction pattern. No API keys, no audio, no Win32.
 """
 import re, json, sys, ast, time, io, threading, os
+sys.path.insert(0, 'wim/api')
+import profile_terms
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 from pathlib import Path
@@ -161,6 +163,36 @@ ns['db_session_count'] = lambda: 50
 # Extract all pipeline component functions
 # Load _RISKY_FILLERS (single-line set) — strip_disfluencies calls the
 # helpers that read it. Port of wim-android DisfluencyFilter.RISKY_FILLERS.
+try:
+    from metaphone import doublemetaphone as _dm
+    ns['_doublemetaphone'] = _dm
+except ImportError:
+    ns['_doublemetaphone'] = None
+for _pn in ('_PHONETIC_MIN_WORD_LENGTH', '_PHONETIC_HIGH_RISK_THRESHOLD', '_PHONETIC_TOKEN_RE'):
+    try:
+        _pi = next(i for i, l in enumerate(lines) if l.startswith(_pn + ' = '))
+        exec(lines[_pi], ns)
+    except StopIteration:
+        pass
+for _fn in ('_extract_onset', '_preserve_casing'):
+    for _node in ast.walk(tree):
+        if isinstance(_node, ast.FunctionDef) and _node.name == _fn:
+            try:
+                exec(ast.get_source_segment(source, _node), ns)
+            except Exception:
+                pass
+for _on in ('HIGH_RISK_ONSETS_ALL', 'HIGH_RISK_ONSETS'):
+    try:
+        _oi = next(i for i, l in enumerate(lines) if l.startswith(_on + ' = '))
+        _oj, _d = _oi, 0
+        while _oj < len(lines):
+            _d += lines[_oj].count('{') - lines[_oj].count('}')
+            if _d <= 0 and _oj > _oi:
+                break
+            _oj += 1
+        exec('\n'.join(lines[_oi:_oj + 1]), ns)
+    except StopIteration:
+        pass
 rf_idx = next(i for i, l in enumerate(lines) if l.startswith('_RISKY_FILLERS = '))
 exec(lines[rf_idx], ns)
 
@@ -191,6 +223,7 @@ target_funcs = [
     # Pipeline stages
     'strip_disfluencies', 'strip_leading_markers', 'tidy_punctuation',
     'collapse_spelled_words',
+    'phonetic_match', '_phonetic_maybe_swap',
     'repunctuate',
     'count_disfluencies', 'detect_ocd_loops',
     'apply_profile_corrections', 'strip_block_hallucinations',
@@ -313,6 +346,27 @@ if strip and apply_corr and strip_halluc and decide:
                    'Layer 1, Cloud, API call',
                    'A B'):
         check(f'left alone: "{_plain[:34]}"', spell(_plain) == _plain)
+
+    # ── Phonetic swap is safe at L1 only because of the blocklist ──────
+    # It was gated to L2/L3 because a wrong swap at L1 has no model behind it
+    # to catch it. The guard it actually needed was knowing that "like" is an
+    # ordinary word, not a model. Without the blocklist this fires exactly:
+    #     "I like it a lot"  ->  "I luke it a lot"
+    pm = ns.get('phonetic_match')
+    check('phonetic_match loaded for the blocklist checks', pm is not None)
+    if pm and ns.get('_doublemetaphone') is not None:
+        _vocab = ['API', 'Lavrentiy', 'Luke', 'reconstruction', 'Whisper']
+        _bl = profile_terms._APPROXIMATE_BLOCKLIST
+        check('unguarded swap really does eat "like"',
+              pm('I like it a lot', _vocab, None) != 'I like it a lot')
+        check('blocklist saves "like"',
+              pm('I like it a lot', _vocab, None, blocklist=_bl) == 'I like it a lot')
+        for _p in ('Is everything going well here',
+                   'I could do that',
+                   'the reconstruction layer'):
+            check('phonetic leaves alone: "%s"' % _p[:30],
+                  pm(_p, _vocab, None, blocklist=_bl) == _p)
+
 
     # Stage 2: apply profile corrections (L1 only)
     corrected = apply_corr(filtered, prof)
