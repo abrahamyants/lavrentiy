@@ -3061,6 +3061,9 @@ body:not(.advanced-ui) .layer-opt .l-desc { font-size: 11px; }
     <div class="sidebar-section advanced-only">
       <div class="sidebar-section-title">Enhancements</div>
       <div class="engine-section-card">
+        <div class="engine-row" id="mic-cal-row" onclick="calibrateMic()" title="Read one line in your normal voice. Lavrentiy learns how loud you actually arrive, so it can tell a whisper from ordinary speech on YOUR microphone.">
+          <span>Mic level</span><span id="mic-cal-val" class="engine-val">not set</span>
+        </div>
         <div class="toggle-row" id="quiet-row"><label class="toggle-switch"><input type="checkbox" id="toggle-quiet-mode"><span class="toggle-slider"></span></label><span class="toggle-label">Quiet Mode</span><span class="toggle-hint" id="quiet-hint">auto · whispered/soft speech</span></div>
         <div class="toggle-row" id="paralinguistic-row" title=""><label class="toggle-switch"><input type="checkbox" id="toggle-paralinguistic"><span class="toggle-slider"></span></label><span class="toggle-label">Paralinguistic</span><span class="toggle-hint">cough/laugh</span></div>
         <div class="toggle-row toggle-sub" id="para-transcribe-row" style="display:none"><label class="toggle-switch"><input type="checkbox" id="toggle-para-transcribe"><span class="toggle-slider"></span></label><span class="toggle-label">Transcribe</span><span class="toggle-hint">inject [tags] in text</span></div>
@@ -3555,6 +3558,21 @@ function toggleTheme(){
 let _toggleCooldown={};
 let lastLogId=0;let logLines=[];
 let _prevAutoQuiet=false;
+// Microphone calibration. The engine refuses to transcribe until this has run
+// once, because every level-based decision downstream is meaningless against a
+// constant tuned on someone else's hardware.
+async function calibrateMic(){
+  const cell=document.getElementById('mic-cal-val');
+  if(cell){cell.textContent='listening…';cell.style.color='';}
+  alert('Read this out loud in your normal speaking voice, for about four seconds:\n\n"The quick brown fox jumps over the lazy dog."\n\nPress OK, then start reading.');
+  try{
+    const r=await fetch('/api/calibrate_mic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({seconds:4})});
+    const d=await r.json();
+    if(!d.ok){if(cell){cell.textContent='failed';cell.style.color='var(--red-bright)';}alert('Could not read the microphone: '+(d.error||'unknown'));return;}
+    if(cell){cell.textContent=d.dbfs+' dBFS';cell.style.color='';}
+    alert('Measured '+d.dbfs+' dBFS.\n\n'+d.advice+'\n\nAnything below '+d.cutoff_dbfs+' dBFS now counts as soft speech for you.');
+  }catch(e){if(cell){cell.textContent='failed';cell.style.color='var(--red-bright)';}alert('Calibration failed: '+e);}
+}
 let _clrText=''; // current clarifier reconstruction text
 let learnData={status:{},events:[],totals:{corrections:0,fillers:0,vocabulary:0}};
 let lastLearnEventCount=0;let lastLogFetch=0;let lastLearnFetch=0;let lastPreviewFetch=0;
@@ -4374,6 +4392,12 @@ function updateUI(){
   document.getElementById('para-transcribe-row').style.display=state.paralinguistic_enabled?'flex':'none';
   if(prosToggle&&!(_toggleCooldown.pros>now)&&document.activeElement!==prosToggle)prosToggle.checked=!!state.prosodic_enabled;
   const quietToggle=document.getElementById('toggle-quiet-mode');
+  const _micCal=document.getElementById('mic-cal-val');
+  if(_micCal){
+    const b=state.mic_baseline_dbfs;
+    if(b===null||b===undefined){_micCal.textContent='not set — click';_micCal.style.color='var(--red-bright)';}
+    else{_micCal.textContent=b+' dBFS';_micCal.style.color='';}
+  }
   const _autoQuiet=!!state.quiet_auto_active;
   if(quietToggle&&!(_toggleCooldown.quiet>now)&&document.activeElement!==quietToggle)quietToggle.checked=!!state.quiet_mode_enabled||_autoQuiet;
   const _qRow=document.getElementById('quiet-row');const _qHint=document.getElementById('quiet-hint');

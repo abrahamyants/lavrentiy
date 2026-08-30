@@ -141,12 +141,32 @@
 
     .status.error { color: #f87171; }
     .status.ok    { color: #34d399; }
+    .mic-line {
+      font-size: 15px; font-style: italic; text-align: center;
+      padding: 12px 10px; margin: 10px 0;
+      border-left: 3px solid rgba(255,255,255,0.25);
+      background: rgba(255,255,255,0.04); border-radius: 4px;
+    }
   </style>
 </head>
 <body>
   <div class="card">
     <div class="logo">LAVRENTIY</div>
     <div class="tagline">Voice-to-intent for Windows — Cloud Setup</div>
+
+    <div class="option" id="mic-step">
+      <div class="option-title">1 &middot; Set your microphone level</div>
+      <div class="option-desc">
+        Read the line below in your normal speaking voice. Lavrentiy measures how
+        loud you actually arrive so it can tell a whisper apart from ordinary
+        speech &mdash; on your microphone, not on someone else's.
+      </div>
+      <div class="mic-line">&ldquo;The quick brown fox jumps over the lazy dog.&rdquo;</div>
+      <button class="btn-key" id="mic-btn" onclick="calibrateMic()">Start &mdash; then talk for 4 seconds</button>
+      <div class="option-desc" id="mic-result" style="display:none"></div>
+    </div>
+
+    <div class="divider">then</div>
 
     <div class="option">
       <div class="option-title">Use your own OpenAI key</div>
@@ -204,6 +224,32 @@
       el.className = 'status ' + type;
     }
 
+    function showMic(r) {
+      const el = document.getElementById('mic-result');
+      el.style.display = 'block';
+      if (!r.ok) { el.textContent = 'Could not read the microphone: ' + (r.error || 'unknown'); return; }
+      el.innerHTML = '<strong>' + r.dbfs + ' dBFS</strong> &mdash; ' + r.advice +
+                     '<br>Anything below ' + r.cutoff_dbfs + ' dBFS now counts as soft speech for you.';
+    }
+
+    async function calibrateMic() {
+      const btn = document.getElementById('mic-btn');
+      const was = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Listening — read the line now...';
+      try {
+        const r = await fetch(API + '/api/calibrate_mic', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({seconds: 4})
+        });
+        showMic(await r.json());
+      } catch (e) {
+        showMic({ok: false, error: String(e)});
+      }
+      btn.disabled = false;
+      btn.textContent = was === 'Listening — read the line now...' ? 'Measure again' : 'Measure again';
+    }
+
     function goToDashboard() {
       window.location.href = API + '/';
     }
@@ -219,9 +265,19 @@
     fetch(API + '/api/state')
       .then(r => r.json())
       .then(d => {
-        if (d.auth && (d.auth.has_local_key || d.auth.signed_in)) {
+        // Calibration is the one step every install needs, so a configured
+        // key is no longer enough to skip the page. Someone who has both is
+        // sent straight through exactly as before.
+        const calibrated = d.mic_baseline_dbfs !== null && d.mic_baseline_dbfs !== undefined;
+        if (calibrated && d.auth && (d.auth.has_local_key || d.auth.signed_in)) {
           goToDashboard();
           return;
+        }
+        if (calibrated) {
+          document.getElementById('mic-step').style.opacity = '0.55';
+          document.getElementById('mic-btn').textContent = 'Measure again';
+          showMic({ok: true, dbfs: d.mic_baseline_dbfs, cutoff_dbfs: d.quiet_cutoff_dbfs,
+                    verdict: 'done', advice: 'Already measured. Read the line again to redo it.'});
         }
         if (d.auth && d.auth.has_bundled_key) {
           setStatus('This build already includes a key, so cloud layers work with no setup. Add your own key below only if you would rather use your own account.', 'ok');
