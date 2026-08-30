@@ -4,6 +4,8 @@ Tests the wiring between pipeline stages that unit tests miss.
 Uses the same ast.parse extraction pattern. No API keys, no audio, no Win32.
 """
 import re, json, sys, ast, time, io, threading, os
+sys.path.insert(0, 'wim/api')
+import profile_terms
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 from pathlib import Path
@@ -161,8 +163,50 @@ ns['db_session_count'] = lambda: 50
 # Extract all pipeline component functions
 # Load _RISKY_FILLERS (single-line set) — strip_disfluencies calls the
 # helpers that read it. Port of wim-android DisfluencyFilter.RISKY_FILLERS.
+try:
+    from metaphone import doublemetaphone as _dm
+    ns['_doublemetaphone'] = _dm
+except ImportError:
+    ns['_doublemetaphone'] = None
+for _pn in ('_PHONETIC_MIN_WORD_LENGTH', '_PHONETIC_HIGH_RISK_THRESHOLD', '_PHONETIC_TOKEN_RE'):
+    try:
+        _pi = next(i for i, l in enumerate(lines) if l.startswith(_pn + ' = '))
+        exec(lines[_pi], ns)
+    except StopIteration:
+        pass
+for _fn in ('_extract_onset', '_preserve_casing'):
+    for _node in ast.walk(tree):
+        if isinstance(_node, ast.FunctionDef) and _node.name == _fn:
+            try:
+                exec(ast.get_source_segment(source, _node), ns)
+            except Exception:
+                pass
+for _on in ('HIGH_RISK_ONSETS_ALL', 'HIGH_RISK_ONSETS'):
+    try:
+        _oi = next(i for i, l in enumerate(lines) if l.startswith(_on + ' = '))
+        _oj, _d = _oi, 0
+        while _oj < len(lines):
+            _d += lines[_oj].count('{') - lines[_oj].count('}')
+            if _d <= 0 and _oj > _oi:
+                break
+            _oj += 1
+        exec('\n'.join(lines[_oi:_oj + 1]), ns)
+    except StopIteration:
+        pass
 rf_idx = next(i for i, l in enumerate(lines) if l.startswith('_RISKY_FILLERS = '))
 exec(lines[rf_idx], ns)
+
+# Load the two _SPELL_ regexes collapse_spelled_words reads.
+for _name in ('_SPELL_LETTER', '_SPELL_RUN'):
+    _i = next(i for i, l in enumerate(lines) if l.startswith(_name + ' = '))
+    _j = _i
+    _depth = 0
+    while _j < len(lines):
+        _depth += lines[_j].count('(') - lines[_j].count(')')
+        if _depth <= 0 and _j > _i:
+            break
+        _j += 1
+    exec('\n'.join(lines[_i:_j + 1]), ns)
 
 # Load _REPUNC_QUESTION_STARTERS — repunctuate reads it.
 qs_idx = next(i for i, l in enumerate(lines) if l.startswith('_REPUNC_QUESTION_STARTERS = '))
@@ -178,6 +222,8 @@ target_funcs = [
     'detect_word_language', 'set_last_prep',
     # Pipeline stages
     'strip_disfluencies', 'strip_leading_markers', 'tidy_punctuation',
+    'collapse_spelled_words',
+    'phonetic_match', '_phonetic_maybe_swap',
     'repunctuate',
     'count_disfluencies', 'detect_ocd_loops',
     'apply_profile_corrections', 'strip_block_hallucinations',
@@ -279,6 +325,48 @@ if strip and apply_corr and strip_halluc and decide:
     check('tidy drops a trailing comma', tidy('ending here,') == 'ending here')
     check('repunctuate never appends onto a comma',
           repunc('regardless of layer,') == 'Regardless of layer.')
+
+    # ── Spelled-out words ──────────────────────────────────────────────
+    # A person who blocks spells the word. Both of these are verbatim from
+    # the operator's session log, 2026-08-29, thirty seconds apart - he
+    # spelled it twice and got the spelling back both times.
+    spell = ns.get('collapse_spelled_words')
+    check('hyphen run collapses',
+          'HTITS' in spell('I said H-T-I-T-S'))
+    check('alphabet form collapses',
+          'EDGETIT' in spell('E as in Edward, D. David, G. George, E. Edward, '
+                             'T. Thomas, I. India, T. Thomas'))
+    check('spelled name collapses', 'JACK' in spell('my name is spelled J-A-C-K'))
+    # The other direction matters more: ordinary speech must survive untouched.
+    # A wrong collapse eats real words, so the floor is three letters - two is
+    # an initialism the speaker meant.
+    for _plain in ('I have a PhD and I work in the US',
+                   'Is everything going well here?',
+                   'the number is 540141, ask for Mrs. Harrison',
+                   'Layer 1, Cloud, API call',
+                   'A B'):
+        check(f'left alone: "{_plain[:34]}"', spell(_plain) == _plain)
+
+    # ── Phonetic swap is safe at L1 only because of the blocklist ──────
+    # It was gated to L2/L3 because a wrong swap at L1 has no model behind it
+    # to catch it. The guard it actually needed was knowing that "like" is an
+    # ordinary word, not a model. Without the blocklist this fires exactly:
+    #     "I like it a lot"  ->  "I luke it a lot"
+    pm = ns.get('phonetic_match')
+    check('phonetic_match loaded for the blocklist checks', pm is not None)
+    if pm and ns.get('_doublemetaphone') is not None:
+        _vocab = ['API', 'Lavrentiy', 'Luke', 'reconstruction', 'Whisper']
+        _bl = profile_terms._APPROXIMATE_BLOCKLIST
+        check('unguarded swap really does eat "like"',
+              pm('I like it a lot', _vocab, None) != 'I like it a lot')
+        check('blocklist saves "like"',
+              pm('I like it a lot', _vocab, None, blocklist=_bl) == 'I like it a lot')
+        for _p in ('Is everything going well here',
+                   'I could do that',
+                   'the reconstruction layer'):
+            check('phonetic leaves alone: "%s"' % _p[:30],
+                  pm(_p, _vocab, None, blocklist=_bl) == _p)
+
 
     # Stage 2: apply profile corrections (L1 only)
     corrected = apply_corr(filtered, prof)

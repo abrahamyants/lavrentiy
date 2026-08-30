@@ -89,7 +89,18 @@ Currently must edit `~/.lavrentiy/profile.json` by hand. WiM Android has the Pro
 - `TONE_TEMP`: formal=0.1, professional=0.15, casual=0.35, friend=0.4
 - Auto-learn gate: L2+ (NOT L3+)
 - Backend payload keys: `vocabulary`, `corrections`, `filler_words`, `trigger_words`, `onset_weights`, `covert_profile`, `audience_package`, `language_code`
-- PhoneticMatcher gate: L2/L3 only on both apps (NOT L1, NOT L4). Constants: `_PHONETIC_MIN_WORD_LENGTH = 3`, `_PHONETIC_HIGH_RISK_THRESHOLD = 0.5`. First-letter guard against b/p, t/d, k/g, m/n Double-Metaphone collisions.
+- PhoneticMatcher gate: **L1-L3 on both apps** (NOT L4) since 2026-08-29. It was
+  L2/L3-only because a wrong swap at L1 has no model behind it; the guard it
+  actually needed was the 296-word `profile_terms._APPROXIMATE_BLOCKLIST`, not a
+  model. Unguarded, "I like it a lot" becomes "I luke it a lot". Pass it as
+  `blocklist=`. L4 stays out - Sonnet ext-think reasons through phonetic context
+  from the onset_weights block. Constants: `_PHONETIC_MIN_WORD_LENGTH = 3`,
+  `_PHONETIC_HIGH_RISK_THRESHOLD = 0.5`. First-letter guard against b/p, t/d,
+  k/g, m/n Double-Metaphone collisions.
+- Spelled-out words: `collapse_spelled_words()` runs FIRST in
+  `_clean_and_filter_text`, before any filter. A person who blocks spells the
+  word - "E as in Edward, D. David" - and every pass below is built for prose.
+  Floor is three letters so "PhD" and "the US" survive. Not yet in wim-android.
 - `NATURAL_REPEATS` extended with 7 emphatic doublings (really, many, much, right, sure, okay, just) — protect 3+ case via the `(?:\s+\1){2,}` regex.
 
 ### Terminology (per `feedback_use_speech_disfluency` + `feedback_stutter_terminology`)
