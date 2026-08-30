@@ -24,7 +24,7 @@ def check(label, condition):
 wav = b"RIFF" + b"\0" * 4 + b"WAVE" + b"\0" * 92
 encoded = base64.b64encode(wav).decode()
 
-kwargs, size, model = prepare_audio_request({
+kwargs, size, model, decoded, container = prepare_audio_request({
     "audio_base64": encoded,
     "model": "whisper-1",
     "language": "es",
@@ -36,13 +36,22 @@ check("uses verbose JSON only for whisper-1", kwargs["response_format"] == "verb
 check("passes language", kwargs["language"] == "es")
 check("passes Script Prep prompt", kwargs["prompt"] == "Dr. Nwosu")
 check("names upload as WAV", kwargs["file"].name.endswith(".wav"))
+check("returns decoded bytes for enhancement", decoded == wav and container == "wav")
 
-kwargs2, _, _ = prepare_audio_request({
+kwargs2, _, _, _, _ = prepare_audio_request({
     "audio_base64": encoded,
     "model": "gpt-4o-transcribe",
     "verbose_segments": True,
 })
 check("gpt-4o transcription avoids unsupported verbose_json", kwargs2["response_format"] == "json")
+
+kwargs3, _, _, _, _ = prepare_audio_request({
+    "audio_base64": encoded,
+    "model": "whisper-1",
+    "verbose_segments": True,
+    "word_timestamps": True,
+})
+check("whisper word timestamps reach the backend SDK", kwargs3["timestamp_granularities"] == ["word", "segment"])
 
 for label, body, status in [
     ("missing audio rejected", {}, 400),

@@ -19,7 +19,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install test dependencies
-        run: pip install numpy scipy openai -q
+        run: pip install numpy scipy openai Flask soundfile soxr google-auth requests -q
 
       - name: Run core tests
         run: python test_core.py -v
@@ -77,6 +77,12 @@ jobs:
 
       - name: Run WiM authenticated audio contract tests
         run: python test_wim_audio_backend.py
+
+      - name: Run WiM noise-service contract tests
+        run: python test_wim_noise_backend.py
+
+      - name: Run WiM FlowSE service contract tests
+        run: python test_wim_noise_service.py
 
       - name: Run WiM billing verification contract tests
         run: python test_wim_billing_backend.py

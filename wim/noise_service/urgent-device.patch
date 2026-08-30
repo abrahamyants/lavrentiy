@@ -1,0 +1,13 @@
+diff --git a/baseline_code/flow_model.py b/baseline_code/flow_model.py
+index ed711c8..1d80bf2 100644
+--- a/baseline_code/flow_model.py
++++ b/baseline_code/flow_model.py
+@@ -191,7 +191,7 @@ class FlowSEModel(L.LightningModule):
+ 
+         Y = self.speech_to_feature(y, fs, speech_length)
+         
+-        sampler = get_white_box_solver("euler", self.ode, self, Y.cuda(), T_rev=self.T_rev, t_eps=self.t_eps, N=N)
++        sampler = get_white_box_solver("euler", self.ode, self, Y.to(y.device), T_rev=self.T_rev, t_eps=self.t_eps, N=N)
+ 
+         sample, _ = sampler()
+ 
