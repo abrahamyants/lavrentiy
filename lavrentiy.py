@@ -3562,6 +3562,104 @@ _WHISPER_HALLUCINATION_RE = re.compile(
     re.IGNORECASE
 )
 
+# -- Spelled-out words ────────────────────────────────────────────
+#
+# When a word will not come out, a person who blocks spells it. That is not a
+# workaround they picked up somewhere, it is the move, and it happens mid
+# sentence, several times a day. Whisper has no idea it is happening: it
+# transcribes the spelling as if the letters were the sentence.
+#
+# From the operator's own session log, 2026-08-29, two takes 30 seconds apart:
+#
+#   "I said H-T-I-T-S"
+#   "Again, clarifying. I meant to say H. Titts. E as in Edward, D. David,
+#    G. George, E. Edward, T. Thomas, I. India, T. Thomas, S. Smiley face."
+#
+# He spelled it twice and got the spelling back both times. No dictation tool
+# handles this, which is exactly why it belongs here rather than in a bigger
+# model - a larger ASR would transcribe the letters more accurately and still
+# miss the point.
+#
+# Three spellings of the spelling, all seen in real logs:
+#   hyphen/period runs   "H-T-I-T-S", "H.T.I.T.S", "h t i t s"
+#   the alphabet form    "E as in Edward", "T for Thomas"
+#   the lazy alphabet    "E. Edward", "T. Thomas"  (ASR eats "as in")
+#
+# Deliberately conservative. A collapse only fires on THREE or more letters in
+# a row, because two is an initialism the speaker meant ("I have a PhD", "the
+# US"), and because a wrong collapse eats real words. Case is preserved as
+# upper, since a spelled word is nearly always a name or a term.
+
+# "as in" gets transcribed a dozen ways, and often vanishes entirely, leaving
+# "E. Edward". The letter is the payload; the word after it is the crutch and
+# is thrown away. Matching the crutch word against a fixed NATO list was tried
+# on paper and dropped: people use whatever word comes to mind - the operator
+# said "S. Smiley face" - so the list would only ever be a source of misses.
+_SPELL_LETTER = re.compile(
+    r"""\b([A-Za-z])\b            # the letter itself
+        \s*
+        (?:                        # optionally followed by its crutch word
+            (?:\.|,)?\s*
+            (?:as\s+in|as\s+of|for|like)?\s*
+            [A-Za-z][A-Za-z'-]{2,}  # "Edward", "Thomas", "Smiley"
+        )?
+        (?=[\s,.]|$)
+    """,
+    re.VERBOSE,
+)
+
+# The plain run: letters joined by hyphens, periods or single spaces.
+_SPELL_RUN = re.compile(
+    r"\b(?:[A-Za-z][-.\u2010-\u2015]\s*){2,}[A-Za-z]\b"
+)
+
+
+def collapse_spelled_words(text, log_fn=None):
+    """Turn a spelled-out word back into the word.
+
+    Returns text unchanged when nothing looks spelled. Never invents a word it
+    was not given the letters for - the output is exactly the letters, upper
+    case, so a wrong guess is impossible by construction. The worst case is
+    that a real initialism gets joined up, which is why the floor is three
+    letters.
+    """
+    if not text or len(text) < 5:
+        return text
+
+    def _join(m):
+        letters = re.findall(r"[A-Za-z]", m.group(0))
+        if len(letters) < 3:
+            return m.group(0)
+        word = "".join(letters).upper()
+        if log_fn:
+            log_fn(f"spelled out: \"{m.group(0).strip()}\" -> {word}")
+        return word
+
+    out = _SPELL_RUN.sub(_join, text)
+
+    # The alphabet form. Scan for runs of >=3 consecutive letter-plus-crutch
+    # matches; anything shorter is ordinary prose and is left alone.
+    matches = list(_SPELL_LETTER.finditer(out))
+    runs, current = [], []
+    for m in matches:
+        if current and m.start() - current[-1].end() > 2:
+            if len(current) >= 3:
+                runs.append(current)
+            current = []
+        current.append(m)
+    if len(current) >= 3:
+        runs.append(current)
+
+    for run in reversed(runs):
+        start, end = run[0].start(), run[-1].end()
+        word = "".join(m.group(1) for m in run).upper()
+        if log_fn:
+            log_fn(f"spelled out: \"{out[start:end].strip()}\" -> {word}")
+        out = out[:start] + word + out[end:]
+
+    return re.sub(r"\s{2,}", " ", out).strip() or text
+
+
 def strip_whisper_hallucinations(text):
     """Remove well-known Whisper training-data hallucinations (zero cost).
     Returns empty string if the entire text WAS a hallucination — the whole
@@ -7250,8 +7348,16 @@ def _clean_and_filter_text(raw_text, whisper_low_conf, current_layer):
     # on the profile — the same list the reconstruction prompt is handed at
     # line ~1379. Without this argument the phrase pass has nothing to match
     # and "you know" survives at L1, the one layer with no model to catch it.
+    # Spelled-out words come FIRST, before any filter sees them. A spelled
+    # word arrives as a string of single letters and crutch words - "E as in
+    # Edward, D. David" - and every pass below is built for prose: the
+    # disfluency filter reads the repeated single letters as stutter
+    # fragments, the phrase-repeat rule reads "T. Thomas ... T. Thomas" as a
+    # repetition and deletes one. Collapse to the word first and the rest of
+    # the pipeline gets an ordinary sentence.
+    filtered_text = collapse_spelled_words(raw_text, log_fn=lambda m: log(m, "info"))
     filtered_text = strip_disfluencies(
-        raw_text, extra_fillers=profile.get("filler_words", [])
+        filtered_text, extra_fillers=profile.get("filler_words", [])
     )
     filtered_text = strip_block_hallucinations(filtered_text, whisper_low_conf)
     filtered_text = repunctuate(filtered_text)

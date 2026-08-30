@@ -164,6 +164,18 @@ ns['db_session_count'] = lambda: 50
 rf_idx = next(i for i, l in enumerate(lines) if l.startswith('_RISKY_FILLERS = '))
 exec(lines[rf_idx], ns)
 
+# Load the two _SPELL_ regexes collapse_spelled_words reads.
+for _name in ('_SPELL_LETTER', '_SPELL_RUN'):
+    _i = next(i for i, l in enumerate(lines) if l.startswith(_name + ' = '))
+    _j = _i
+    _depth = 0
+    while _j < len(lines):
+        _depth += lines[_j].count('(') - lines[_j].count(')')
+        if _depth <= 0 and _j > _i:
+            break
+        _j += 1
+    exec('\n'.join(lines[_i:_j + 1]), ns)
+
 # Load _REPUNC_QUESTION_STARTERS — repunctuate reads it.
 qs_idx = next(i for i, l in enumerate(lines) if l.startswith('_REPUNC_QUESTION_STARTERS = '))
 qs_end = qs_idx + 1
@@ -178,6 +190,7 @@ target_funcs = [
     'detect_word_language', 'set_last_prep',
     # Pipeline stages
     'strip_disfluencies', 'strip_leading_markers', 'tidy_punctuation',
+    'collapse_spelled_words',
     'repunctuate',
     'count_disfluencies', 'detect_ocd_loops',
     'apply_profile_corrections', 'strip_block_hallucinations',
@@ -279,6 +292,27 @@ if strip and apply_corr and strip_halluc and decide:
     check('tidy drops a trailing comma', tidy('ending here,') == 'ending here')
     check('repunctuate never appends onto a comma',
           repunc('regardless of layer,') == 'Regardless of layer.')
+
+    # ── Spelled-out words ──────────────────────────────────────────────
+    # A person who blocks spells the word. Both of these are verbatim from
+    # the operator's session log, 2026-08-29, thirty seconds apart - he
+    # spelled it twice and got the spelling back both times.
+    spell = ns.get('collapse_spelled_words')
+    check('hyphen run collapses',
+          'HTITS' in spell('I said H-T-I-T-S'))
+    check('alphabet form collapses',
+          'EDGETIT' in spell('E as in Edward, D. David, G. George, E. Edward, '
+                             'T. Thomas, I. India, T. Thomas'))
+    check('spelled name collapses', 'JACK' in spell('my name is spelled J-A-C-K'))
+    # The other direction matters more: ordinary speech must survive untouched.
+    # A wrong collapse eats real words, so the floor is three letters - two is
+    # an initialism the speaker meant.
+    for _plain in ('I have a PhD and I work in the US',
+                   'Is everything going well here?',
+                   'the number is 540141, ask for Mrs. Harrison',
+                   'Layer 1, Cloud, API call',
+                   'A B'):
+        check(f'left alone: "{_plain[:34]}"', spell(_plain) == _plain)
 
     # Stage 2: apply profile corrections (L1 only)
     corrected = apply_corr(filtered, prof)
