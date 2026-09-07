@@ -242,6 +242,45 @@ jobs:
           path: installer/Output/Lavrentiy-Setup-v${{ steps.ver.outputs.version }}*.exe
           retention-days: 14
 
+      # The README's first line is the download link, dated. George, 2026-09-06:
+      # "that needs to also happen every single time." So the build writes it
+      # itself the moment it publishes — the date is the build day in San
+      # Francisco, the link is the asset this run just uploaded. Only runs for a
+      # published build coming from main or a tag, never from a side branch.
+      - name: Point the README download link at this build
+        if: (github.event_name == 'push' || inputs.publish) && (github.event_name == 'push' || github.ref_name == 'main')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          v='${{ steps.ver.outputs.version }}'
+          suffix=''
+          [ '${{ env.BUNDLE_KEYS }}' = 'true' ]  && suffix="${suffix}-eval"
+          [ '${{ env.BUNDLE_MODEL }}' != 'true' ] && suffix="${suffix}-online"
+          asset="Lavrentiy-Setup-v${v}${suffix}.exe"
+          day=$(TZ=America/Los_Angeles date +%F)
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${v}/${asset}"
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git fetch --depth 1 origin main
+          git checkout -q -B main origin/main
+          python - "$day" "$v" "$url" <<'PY'
+          import re, sys, io
+          day, v, url = sys.argv[1:]
+          s = io.open("README.md", encoding="utf-8").read()
+          new = f"### ▶ [Download Lavrentiy — {day} (v{v})]({url})"
+          s2, n = re.subn(r"^### ▶ \[Download Lavrentiy — [^\]]*\]\([^)]*\)$", new, s, count=1, flags=re.M)
+          if n != 1:
+              raise SystemExit("README download line not found")
+          io.open("README.md", "w", encoding="utf-8", newline="\n").write(s2)
+          PY
+          if git diff --quiet; then echo "README already points at this build"; exit 0; fi
+          git commit -qam "docs: download link -> ${day} build v${v}${suffix} [skip ci]"
+          git push origin main
+          echo "README download link -> ${asset} (${day})"
+
+
       - name: Publish the release
         if: github.event_name == 'push' || inputs.publish
         uses: softprops/action-gh-release@v2
