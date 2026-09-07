@@ -78,6 +78,9 @@ jobs:
       - name: Run WiM authenticated audio contract tests
         run: python test_wim_audio_backend.py
 
+      - name: Run desktop-to-backend audio envelope contract tests
+        run: python test_backend_audio_client.py
+
       - name: Run WiM billing verification contract tests
         run: python test_wim_billing_backend.py
 

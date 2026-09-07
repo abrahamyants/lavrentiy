@@ -214,6 +214,20 @@ jobs:
           $floor = if ('${{ inputs.bundle_model }}' -eq 'true') { 300 } else { 20 }
           if ($mb -lt $floor) { throw "installer is only ${mb} MB, under the ${floor} MB floor — contents are missing" }
 
+      # Launch switch reminder (2026-09-06). The wim-reconstruct Cloud Function
+      # (source: wim/api/ in this repo) sleeps when idle (min instances 0) to
+      # save money while there are no paying cloud users. Before the first
+      # public release with cloud users, keep one copy awake so the first take
+      # of the day does not pay a wake-up: `scripts/backend-warm.sh on`.
+      - name: Pre-launch reminder — backend warm switch
+        shell: bash
+        run: |
+          {
+            echo '## Before a public release with cloud users'
+            echo
+            echo '- [ ] Turn the backend warm switch ON: `scripts/backend-warm.sh on` (Cloud Function `wim-reconstruct`, min instances 1, ~$7/month). It is OFF on purpose until launch.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@v4
         with:
           name: lavrentiy-installer
