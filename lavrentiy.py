@@ -5490,36 +5490,96 @@ def _build_whisper_prompt():
     return "Clear, fluent speech. Transcribe intended words only, not repetitions or filler sounds."
 
 
-def _backend_audio_transcribe(filepath, temperature, prompt_text):
-    """Transcribe WAV audio through the authenticated WiM/Lavrentiy backend."""
-    import base64
+def _multipart_form_body(fields, file_field, filename, file_bytes, mime_type):
+    """Encode plain string fields plus one file as multipart/form-data (stdlib only).
+
+    Returns (body_bytes, content_type). The boundary is random, so no field
+    value can collide with it.
+    """
+    import uuid
+
+    boundary = "----LavrentiyForm" + uuid.uuid4().hex
+    parts = []
+    for name, value in fields.items():
+        parts.append(
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n"
+            f"{value}\r\n".encode("utf-8"))
+    parts.append(
+        f"--{boundary}\r\nContent-Disposition: form-data; name=\"{file_field}\"; "
+        f"filename=\"{filename}\"\r\nContent-Type: {mime_type}\r\n\r\n".encode("utf-8")
+        + file_bytes + b"\r\n")
+    parts.append(f"--{boundary}--\r\n".encode("utf-8"))
+    return b"".join(parts), f"multipart/form-data; boundary={boundary}"
+
+
+def _backend_post(body, content_type, timeout=90):
+    """POST one body to the backend with the signed-in user's token; JSON back."""
     import urllib.request
+
+    request = urllib.request.Request(
+        BACKEND_URL,
+        data=body,
+        headers={
+            "Content-Type": content_type,
+            "Authorization": f"Bearer {_firebase_id_token}",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _backend_audio_transcribe(filepath, temperature, prompt_text):
+    """Transcribe WAV audio through the authenticated WiM/Lavrentiy backend.
+
+    The recording goes up raw, as a multipart `file` part (2026-09-06) — the
+    same shape the direct route sends to OpenAI, and the same envelope WiM
+    Android sends since its 2026-09-06 build. Base64-in-JSON cost a third
+    more bytes over the uplink and a decode on the server.
+
+    A wim-reconstruct revision older than 00043 never looks at a multipart
+    body: it sees an empty JSON body and answers 400 "Missing 'raw' field".
+    On exactly that answer the take is sent once more in the old base64 JSON
+    envelope, so rolling the function back can never break a take.
+    """
+    import base64
+    import urllib.error
 
     with open(filepath, "rb") as audio_file:
         audio_bytes = audio_file.read()
     if not audio_bytes or len(audio_bytes) > 12 * 1024 * 1024:
         raise RuntimeError("Audio is empty or exceeds the 12 MB cloud limit")
 
-    payload = json.dumps({
+    fields = {
         "action": "transcribe_audio",
-        "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
         "model": "whisper-1",
-        "verbose_segments": True,
+        "verbose_segments": "true",
         "language": dictation_language or "en",
-        "temperature": float(temperature) if temperature is not None else 0.0,
+        "temperature": str(float(temperature) if temperature is not None else 0.0),
         "prompt": prompt_text or "",
-    }).encode("utf-8")
-    request = urllib.request.Request(
-        BACKEND_URL,
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {_firebase_id_token}",
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=90) as response:
-        result = json.loads(response.read().decode("utf-8"))
+    }
+    body, content_type = _multipart_form_body(
+        fields, "file", "lavrentiy-recording.wav", audio_bytes, "audio/wav")
+    try:
+        result = _backend_post(body, content_type)
+    except urllib.error.HTTPError as e:
+        try:
+            detail = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            detail = ""
+        if e.code != 400 or "Missing 'raw' field" not in detail:
+            raise
+        log("Backend is an older revision — resending the take base64-wrapped", "warn")
+        wrapped = json.dumps({
+            "action": "transcribe_audio",
+            "audio_base64": base64.b64encode(audio_bytes).decode("ascii"),
+            "model": "whisper-1",
+            "verbose_segments": True,
+            "language": fields["language"],
+            "temperature": float(fields["temperature"]),
+            "prompt": fields["prompt"],
+        }).encode("utf-8")
+        result = _backend_post(wrapped, "application/json")
     if result.get("error"):
         raise RuntimeError(result["error"])
     stats_inc("api_calls")

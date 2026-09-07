@@ -4137,3 +4137,35 @@ Closed a report with "go sleep" at ten in the morning. Also read "it doesn't go
 through" as a failed sign-in when he had not attempted it yet, and built two
 follow-up diagnostics on that assumption. **Read what was written; do not
 decorate the handoff.**
+
+## Session Log — 2026-09-06 — the recording goes up raw; the backend warm switch comes home
+
+Two ports from the WiM Android day (wim-android 2460059, 969cc38, 5d3822c).
+
+**Raw upload.** `_backend_audio_transcribe` wrapped the WAV as base64 inside a
+JSON body: a third more bytes over the uplink and a decode on the server. It
+now sends the recording as a multipart `file` part, the shape the direct route
+already sends to OpenAI and the envelope WiM Android sends since its
+2026-09-06 build. wim-reconstruct has accepted it since revision 00043
+(PR #46, deployed 2026-09-06 14:26 PT). Stdlib only — `urllib` and a random
+boundary — because the engine carries no `requests`.
+
+**Old-revision fallback.** A function older than 00043 never looks at a
+multipart body; it sees an empty JSON body and answers 400 "Missing 'raw'
+field". On exactly that answer the take is sent once more in the base64 JSON
+envelope, so rolling the function back can never break a take. Any other
+error surfaces as before, unretried.
+
+**Contract test.** `test_backend_audio_client.py` imports the real engine
+(same hardware stubs as `test_endpoints.py`), stands up a stand-in function on
+localhost that parses the multipart body the way `handle()` does and feeds it
+through the real `wim/api/audio_backend.prepare_audio_request`, then flips to
+old-revision mode to prove the single resend. Runs in CI. A 60 KB take went up
+as 61,084 bytes raw against 80,252 wrapped.
+
+**Warm switch.** `scripts/backend-warm.sh on|off|status` flips min instances on
+the Cloud Function whose source lives in this repo at `wim/api/`. The same
+script sits in wim-android; keep the two identical. Found ON since 2026-08-10
+(~$7/month idle, no paying cloud users) and set OFF 2026-09-06 on George's
+word. The installer build now writes a "before a public release with cloud
+users" reminder into its job summary so the switch is not forgotten.
