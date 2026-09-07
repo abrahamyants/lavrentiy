@@ -49,6 +49,14 @@ jobs:
     # queued forever rather than failing, and a release should not hang on that.
     runs-on: ${{ inputs.runner || 'windows-latest' }}
     timeout-minutes: 90
+    # A tag push supplies no inputs, so every `inputs.*` is empty there. Empty
+    # read as "off" and v1.7.11 (2026-09-06) went out as the 99 MB online-only
+    # build with no speech model. A tag push is a release: full model, no keys,
+    # no MSIX. Manual runs keep their switches.
+    env:
+      BUNDLE_MODEL: ${{ github.event_name == 'push' || inputs.bundle_model == true }}
+      BUNDLE_KEYS: ${{ github.event_name != 'push' && inputs.bundle_keys == true }}
+      BUILD_MSIX: ${{ github.event_name != 'push' && inputs.build_msix == true }}
 
     steps:
       - uses: actions/checkout@v4
@@ -82,19 +90,19 @@ jobs:
       # is fetched and cached rather than committed.
       - name: Cache the speech model
         id: model-cache
-        if: inputs.bundle_model
+        if: env.BUNDLE_MODEL == 'true'
         uses: actions/cache@v4
         with:
           path: eval-build/models/faster-whisper/small.en
           key: fw-small-en-v1
 
       - name: Fetch faster-whisper small.en
-        if: inputs.bundle_model && steps.model-cache.outputs.cache-hit != 'true'
+        if: env.BUNDLE_MODEL == 'true' && steps.model-cache.outputs.cache-hit != 'true'
         run: |
           python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='Systran/faster-whisper-small.en', local_dir='eval-build/models/faster-whisper/small.en')"
 
       - name: Verify the model landed
-        if: inputs.bundle_model
+        if: env.BUNDLE_MODEL == 'true'
         shell: pwsh
         run: |
           $p = 'eval-build/models/faster-whisper/small.en'
@@ -109,7 +117,7 @@ jobs:
       # 300 cloud calls a month per install; a user's own key or a signed-in
       # session is never throttled by it.
       - name: Bake in the provider keys
-        if: inputs.bundle_keys
+        if: env.BUNDLE_KEYS == 'true'
         shell: pwsh
         env:
           OPENAI_KEY: ${{ secrets.GIVEAWAY_OPENAI_API_KEY }}
@@ -133,7 +141,7 @@ jobs:
       # compiles an installer with no application inside it.
       - name: Build the onedir distribution
         env:
-          LAV_BUNDLE_MODEL: ${{ inputs.bundle_model && '1' || '0' }}
+          LAV_BUNDLE_MODEL: ${{ env.BUNDLE_MODEL == 'true' && '1' || '0' }}
         run: pyinstaller --noconfirm --distpath dist-onedir Lavrentiy-onedir.spec
 
       - name: Verify the executable exists
@@ -153,8 +161,8 @@ jobs:
           $txt = $txt -replace 'AppVersion=.*', "AppVersion=$v"
           $txt = $txt -replace 'AppVerName=Lavrentiy .*', "AppVerName=Lavrentiy $v"
           $suffix = ''
-          if ('${{ inputs.bundle_keys }}' -eq 'true')  { $suffix += '-eval' }
-          if ('${{ inputs.bundle_model }}' -ne 'true') { $suffix += '-online' }
+          if ('${{ env.BUNDLE_KEYS }}' -eq 'true')  { $suffix += '-eval' }
+          if ('${{ env.BUNDLE_MODEL }}' -ne 'true') { $suffix += '-online' }
           $txt = $txt -replace 'OutputBaseFilename=.*', "OutputBaseFilename=Lavrentiy-Setup-v$v$suffix"
           Set-Content -Path $iss -Value $txt -NoNewline
           Select-String -Path $iss -Pattern 'AppVersion=|AppVerName=|OutputBaseFilename='
@@ -170,12 +178,12 @@ jobs:
       # The package is deliberately UNSIGNED: the Store signs on ingestion, and
       # that signature is the whole reason for going through the Store.
       - name: Pack the Microsoft Store MSIX
-        if: inputs.build_msix
+        if: env.BUILD_MSIX == 'true'
         shell: pwsh
-        run: ./store/build-msix.ps1 -Version "${{ inputs.version }}"
+        run: ./store/build-msix.ps1 -Version "${{ steps.ver.outputs.version }}"
 
       - name: Upload the MSIX
-        if: inputs.build_msix
+        if: env.BUILD_MSIX == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: lavrentiy-msix
@@ -202,8 +210,8 @@ jobs:
         run: |
           $v = '${{ steps.ver.outputs.version }}'
           $suffix = ''
-          if ('${{ inputs.bundle_keys }}' -eq 'true')  { $suffix += '-eval' }
-          if ('${{ inputs.bundle_model }}' -ne 'true') { $suffix += '-online' }
+          if ('${{ env.BUNDLE_KEYS }}' -eq 'true')  { $suffix += '-eval' }
+          if ('${{ env.BUNDLE_MODEL }}' -ne 'true') { $suffix += '-online' }
           $out = "installer/Output/Lavrentiy-Setup-v$v$suffix.exe"
           if (-not (Test-Path $out)) { throw "installer missing at $out" }
           $mb = [math]::Round((Get-Item $out).Length / 1MB, 0)
@@ -211,7 +219,7 @@ jobs:
           # v1.7.5 shipped at 549 MB. Anything far under that means the model or
           # the dist tree did not make it in, which compiles and installs fine
           # and then fails on the user's machine with no offline transcription.
-          $floor = if ('${{ inputs.bundle_model }}' -eq 'true') { 300 } else { 20 }
+          $floor = if ('${{ env.BUNDLE_MODEL }}' -eq 'true') { 300 } else { 20 }
           if ($mb -lt $floor) { throw "installer is only ${mb} MB, under the ${floor} MB floor — contents are missing" }
 
       # Launch switch reminder (2026-09-06). The wim-reconstruct Cloud Function
