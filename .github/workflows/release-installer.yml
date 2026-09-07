@@ -242,6 +242,15 @@ jobs:
           path: installer/Output/Lavrentiy-Setup-v${{ steps.ver.outputs.version }}*.exe
           retention-days: 14
 
+      - name: Publish the release
+        if: github.event_name == 'push' || inputs.publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: Lavrentiy v${{ steps.ver.outputs.version }}
+          files: installer/Output/Lavrentiy-Setup-v${{ steps.ver.outputs.version }}*.exe
+          fail_on_unmatched_files: true
+
       # The README's first line is the download link, dated. George, 2026-09-06:
       # "that needs to also happen every single time." So the build writes it
       # itself the moment it publishes — the date is the build day in San
@@ -279,13 +288,3 @@ jobs:
           git commit -qam "docs: download link -> ${day} build v${v}${suffix} [skip ci]"
           git push origin main
           echo "README download link -> ${asset} (${day})"
-
-
-      - name: Publish the release
-        if: github.event_name == 'push' || inputs.publish
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.ver.outputs.version }}
-          name: Lavrentiy v${{ steps.ver.outputs.version }}
-          files: installer/Output/Lavrentiy-Setup-v${{ steps.ver.outputs.version }}*.exe
-          fail_on_unmatched_files: true
