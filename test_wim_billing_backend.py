@@ -6,7 +6,8 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "wim", "api"))
 from billing_backend import (
-    BASE_PLAN_ID, BillingVerificationError, PACKAGE_NAME, PRODUCT_ID,
+    BASE_PLAN_ID, BillingVerificationError, PACKAGE_NAME, PLUS_PRODUCT_ID, PRODUCT_ID,
+    PRODUCT_TIERS,
     account_hash, fetch_subscription_with_google, subscription_is_entitled,
     token_hash, verify_with_google,
 )
@@ -42,6 +43,7 @@ def must_fail(label, body, status):
 assert len(account_hash("firebase-user")) == 64
 assert account_hash("firebase-user") == account_hash("firebase-user")
 assert token_hash("purchase-token") != token_hash("other-token")
+
 print("PASS: stable privacy-preserving identifiers")
 
 future = "2030-01-01T00:00:00Z"
@@ -100,5 +102,20 @@ canceled = FakeSession(FakeResponse(200, {
 purchase, _ = verify_with_google("token", PRODUCT_ID, canceled, now=0)
 assert purchase["subscriptionState"] == "SUBSCRIPTION_STATE_CANCELED"
 print("PASS: canceled subscription remains entitled through paid expiry")
+
+# Two plans (2026-10-11): the Plus product verifies on its own id, any known
+# product matches when no id is pinned (RTDN path), and a foreign id is refused.
+assert PRODUCT_TIERS == {PRODUCT_ID: "basic", PLUS_PRODUCT_ID: "plus"}
+plus_ok = FakeSession(FakeResponse(200, {
+    "subscriptionState": "SUBSCRIPTION_STATE_ACTIVE",
+    "lineItems": [{"productId": PLUS_PRODUCT_ID, "expiryTime": future,
+                   "offerDetails": {"basePlanId": BASE_PLAN_ID}}],
+}))
+purchase, _ = verify_with_google("token", PLUS_PRODUCT_ID, plus_ok)
+assert purchase["_wim_product_id"] == PLUS_PRODUCT_ID
+purchase, _ = fetch_subscription_with_google("token", None, plus_ok)
+assert purchase["_wim_product_id"] == PLUS_PRODUCT_ID
+must_fail("plus purchase refused when basic was pinned", lambda: verify_with_google("token", PRODUCT_ID, plus_ok), 409)
+must_fail("foreign product id refused", lambda: verify_with_google("token", "wim_other", plus_ok), 400)
 
 print("PASSED: billing backend contract")
