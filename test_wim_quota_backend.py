@@ -50,14 +50,44 @@ ok, remaining, error, update = plan_cloud_usage({
 assert (ok, remaining, error) == (True, 19, None)
 assert update["usage_period"] == "subscription:1800000000"
 
-ok, remaining, update = plan_audio_usage({
+ok, remaining, error, update = plan_audio_usage({
     "audio_usage_period": "2026-07", "audio_monthly_count": 299,
 }, 300, period="2026-07")
-assert (ok, remaining, update["audio_monthly_count"]) == (True, 0, 300)
+assert (ok, remaining, error, update["audio_monthly_count"]) == (True, 0, "", 300)
 
-ok, remaining, update = plan_audio_usage({
+ok, remaining, error, update = plan_audio_usage({
     "audio_usage_period": "2026-07", "audio_monthly_count": 300,
 }, 300, period="2026-07")
-assert (ok, remaining, update) == (False, 0, {})
+assert (ok, remaining, error, update) == (False, 0, "monthly_audio_quota_reached", {})
+
+# Minutes cap (2026-10-11): seconds accumulate per period; one take that
+# would cross the cap is refused with its own error code.
+ok, remaining, error, update = plan_audio_usage(
+    {}, 300, period="2026-07", seconds=42.5, seconds_limit=150 * 60)
+assert (ok, error, update["audio_monthly_seconds"]) == (True, "", 42.5)
+
+ok, remaining, error, update = plan_audio_usage({
+    "audio_usage_period": "2026-07", "audio_monthly_count": 10,
+    "audio_monthly_seconds": 8990,
+}, 300, period="2026-07", seconds=30, seconds_limit=9000)
+assert (ok, remaining, error, update) == (False, 0, "monthly_audio_minutes_reached", {})
+
+ok, remaining, error, update = plan_audio_usage({
+    "audio_usage_period": "2026-07", "audio_monthly_count": 10,
+    "audio_monthly_seconds": 8990,
+}, 300, period="2026-07", seconds=10, seconds_limit=9000)
+assert (ok, error, update["audio_monthly_seconds"]) == (True, "", 9000.0)
+
+# A new period resets the seconds along with the count.
+ok, remaining, error, update = plan_audio_usage({
+    "audio_usage_period": "2026-06", "audio_monthly_count": 300,
+    "audio_monthly_seconds": 9000,
+}, 300, period="2026-07", seconds=5, seconds_limit=9000)
+assert (ok, remaining, error, update["audio_monthly_seconds"]) == (True, 299, "", 5.0)
+
+# No seconds_limit means the old count-only behaviour.
+ok, remaining, error, update = plan_audio_usage(
+    {"audio_usage_period": "2026-07", "audio_monthly_seconds": 1e9}, 300, period="2026-07", seconds=100)
+assert (ok, error) == (True, "")
 
 print("PASSED: monthly quota backend contract")

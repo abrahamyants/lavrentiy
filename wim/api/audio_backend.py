@@ -5,6 +5,9 @@ import binascii
 import io
 
 MAX_AUDIO_BYTES = 12 * 1024 * 1024
+# AAC from the phone's encoder runs 64-128 kbps; assuming the low end makes the
+# estimate err long, so the minutes cap can only over-count, never under-count.
+M4A_ASSUMED_BITS_PER_SECOND = 64_000
 AUDIO_MODELS = {"whisper-1", "gpt-4o-transcribe"}
 
 
@@ -30,6 +33,37 @@ def _sniff_container(audio_bytes):
     if audio_bytes[4:8] == b"ftyp":
         return "m4a"
     return None
+
+
+def estimate_audio_seconds(audio_bytes):
+    """Seconds of audio in *audio_bytes*, read from the WAV header or
+    estimated from size for M4A. Feeds the per-period minutes cap; the
+    transcription provider bills by the minute, so this is the number that
+    tracks cost. Returns 0.0 for anything unrecognised."""
+    if not audio_bytes:
+        return 0.0
+    container = _sniff_container(audio_bytes)
+    if container == "wav":
+        pos = 12
+        byte_rate = 0
+        data_len = None
+        while pos + 8 <= len(audio_bytes):
+            cid = audio_bytes[pos:pos + 4]
+            size = int.from_bytes(audio_bytes[pos + 4:pos + 8], "little")
+            if cid == b"fmt " and pos + 16 <= len(audio_bytes):
+                byte_rate = int.from_bytes(audio_bytes[pos + 16:pos + 20], "little")
+            elif cid == b"data":
+                data_len = min(size, len(audio_bytes) - pos - 8)
+                break
+            pos += 8 + size + (size & 1)
+        if byte_rate <= 0:
+            return 0.0
+        if data_len is None:
+            data_len = max(0, len(audio_bytes) - 44)
+        return round(data_len / byte_rate, 1)
+    if container == "m4a":
+        return round(len(audio_bytes) * 8 / M4A_ASSUMED_BITS_PER_SECOND, 1)
+    return 0.0
 
 
 def _truthy(value, default=False):

@@ -5,7 +5,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "wim", "api"))
-from audio_backend import AudioRequestError, MAX_AUDIO_BYTES, prepare_audio_request
+from audio_backend import AudioRequestError, MAX_AUDIO_BYTES, estimate_audio_seconds, prepare_audio_request
 
 passed = 0
 failed = 0
@@ -63,6 +63,24 @@ try:
     check("oversized audio rejected", False)
 except AudioRequestError as e:
     check("oversized audio rejected", e.status == 413)
+
+
+
+# estimate_audio_seconds: WAV reads the header, M4A estimates from size.
+import struct
+def _wav_bytes(seconds, rate=16000):
+    data = b"\0" * int(seconds * rate * 2)
+    fmt = struct.pack("<HHIIHH", 1, 1, rate, rate * 2, 2, 16)
+    return (b"RIFF" + struct.pack("<I", 36 + len(data)) + b"WAVE"
+            + b"fmt " + struct.pack("<I", 16) + fmt
+            + b"data" + struct.pack("<I", len(data)) + data)
+check("wav 2.5 s reads 2.5", estimate_audio_seconds(_wav_bytes(2.5)) == 2.5)
+check("wav 390 s (12 MB cap) reads 390", estimate_audio_seconds(_wav_bytes(390)) == 390.0)
+check("wav without fmt chunk is 0", estimate_audio_seconds(wav) == 0.0)
+m4a = b"\0\0\0\x18ftypM4A " + b"\0" * (64_000 // 8 * 10 - 12)
+check("m4a 10 s at 64 kbps estimates 10", estimate_audio_seconds(m4a) == 10.0)
+check("garbage is 0", estimate_audio_seconds(b"hello") == 0.0)
+check("empty is 0", estimate_audio_seconds(b"") == 0.0)
 
 print(f"PASSED: {passed}  FAILED: {failed}")
 raise SystemExit(1 if failed else 0)
