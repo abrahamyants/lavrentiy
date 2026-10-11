@@ -33,6 +33,9 @@ from billing_backend import (
     BillingVerificationError,
     PACKAGE_NAME as BILLING_PACKAGE_NAME,
     PRODUCT_ID as BILLING_PRODUCT_ID,
+    PLUS_PRODUCT_ID as BILLING_PLUS_PRODUCT_ID,
+    PRODUCT_TIERS as BILLING_PRODUCT_TIERS,
+    SUBSCRIPTION_TIERS,
     account_hash,
     acknowledge_with_google,
     fetch_subscription_with_google,
@@ -72,20 +75,37 @@ db = firestore.Client()
 TIERS = {
     "invite": {"max_layer": 1, "monthly_limit": 0, "l4_monthly_limit": 0,
                "audio_minutes_limit": 0, "name": "Local / Free"},
-    # The Layer 4 sub-cap is gone. It was set when L4 meant Sonnet extended
-    # thinking; the Cloud Function serves L4 on gpt-4o, where a take costs
-    # about two cents against one for L2/L3. Three hundred takes all at L4
-    # costs roughly $6 against a $9.99 subscription, so the cap was rationing
-    # the clinical disfluency layer — the reason the product exists — to
-    # protect a margin that was never at risk.
-    # audio_minutes_limit (2026-10-11): 300 uploads of up to 12 MB each is
-    # ~32 hours of audio, ~$20 of transcription in one month. 150 minutes
-    # holds the worst case under $5 and is more than a heavy talker dictates.
-    "basic": {"max_layer": 4, "monthly_limit": 300, "l4_monthly_limit": 300,
+    # Two paid plans since 2026-10-11. WiM Cloud ($4.99) = layers 1-3. WiM
+    # Cloud Plus ($7.99) adds layer 4, the clinical disfluency layer, capped
+    # at 150 takes: L4 on gpt-4o costs about two cents a take against one
+    # for L2/L3, so 150 L4 + 150 L2/L3 + 150 audio minutes is ~$5.40 at the
+    # limit against $6.79 net of Play's cut. Cloud at the limit is ~$3.90
+    # against $4.24 net. Neither plan loses money on a maxed-out user.
+    # audio_minutes_limit: 300 uploads of up to 12 MB each is ~32 hours of
+    # audio, ~$20 of transcription; 150 minutes holds the worst case under $1.
+    "basic": {"max_layer": 3, "monthly_limit": 300, "l4_monthly_limit": 0,
               "audio_minutes_limit": 150, "name": "WiM Cloud"},
+    "plus": {"max_layer": 4, "monthly_limit": 300, "l4_monthly_limit": 150,
+             "audio_minutes_limit": 150, "name": "WiM Cloud Plus"},
     "pro": {"max_layer": 4, "monthly_limit": 999999,
             "l4_monthly_limit": 999999, "audio_minutes_limit": 999999, "name": "Pro"},
 }
+# Tiers that pass the entitlement gate. "pro" is granted by hand or to
+# allowlisted Play reviewers; the other two come from Play subscriptions.
+PAID_TIERS = frozenset({"basic", "plus", "pro"})
+
+
+def _tier_summary(tier):
+    cfg = TIERS.get(tier, TIERS["invite"])
+    return {
+        "tier": tier,
+        "unlocked": tier in PAID_TIERS,
+        "max_layer": cfg["max_layer"],
+        "monthly_limit": cfg["monthly_limit"],
+        "l4_monthly_limit": cfg["l4_monthly_limit"],
+        "audio_minutes_limit": cfg["audio_minutes_limit"],
+    }
+
 
 CORS_HEADERS = {
     "Access-Control-Allow-Origin": "*",
@@ -138,7 +158,8 @@ def get_user_tier(uid, reviewer=False):
         # keeps a stale local boolean. Preserve any pre-launch legacy/manual
         # tier that has a different product ID so existing test access is not
         # accidentally destroyed during migration.
-        if (tier == "basic" and data.get("billing_product_id") == BILLING_PRODUCT_ID
+        if (tier in SUBSCRIPTION_TIERS
+                and data.get("billing_product_id") in BILLING_PRODUCT_TIERS
                 and float(data.get("billing_expiry_ts", 0) or 0) <= time.time()):
             return "invite"
         return tier
@@ -264,12 +285,9 @@ def _action_billing_status(uid, tier_config, body):
     tier = get_user_tier(uid)
     return (json.dumps({
         "ok": True,
-        "unlocked": tier in ("basic", "pro"),
-        "tier": tier,
+        **_tier_summary(tier),
         "product_id": data.get("billing_product_id"),
         "expires_at": data.get("billing_expiry_ts"),
-        "monthly_limit": TIERS.get(tier, TIERS["invite"])["monthly_limit"],
-        "l4_monthly_limit": TIERS.get(tier, TIERS["invite"])["l4_monthly_limit"],
     }), 200, _JSON_CORS)
 
 
@@ -278,7 +296,10 @@ def _action_verify_purchase(uid, tier_config, body):
     purchase_token = (body.get("purchase_token") or "").strip()
     product_id = (body.get("product_id") or "").strip()
     try:
+        if product_id not in BILLING_PRODUCT_TIERS:
+            raise BillingVerificationError("Unknown product ID")
         purchase, google_session = verify_with_google(purchase_token, product_id)
+        granted_tier = BILLING_PRODUCT_TIERS[product_id]
         external_id = (purchase.get("externalAccountIdentifiers") or {}).get(
             "obfuscatedExternalAccountId")
         if external_id != account_hash(uid):
@@ -304,15 +325,15 @@ def _action_verify_purchase(uid, tier_config, body):
                 return False
             transaction.set(purchase_ref, {
                 "uid": uid,
-                "product_id": BILLING_PRODUCT_ID,
+                "product_id": product_id,
                 "order_id": order_id,
                 "subscription_state": purchase.get("subscriptionState"),
                 "expiry_ts": expiry_ts,
                 "verified_at": firestore.SERVER_TIMESTAMP,
             }, merge=True)
             transaction.set(user_ref, {
-                "tier": "basic",
-                "billing_product_id": BILLING_PRODUCT_ID,
+                "tier": granted_tier,
+                "billing_product_id": product_id,
                 "billing_order_id": order_id,
                 "billing_state": purchase.get("subscriptionState"),
                 "billing_expiry_ts": expiry_ts,
@@ -335,15 +356,12 @@ def _action_verify_purchase(uid, tier_config, body):
                 503, CORS_HEADERS)
 
     _emit(logging.INFO, event="billing_entitlement_granted", uid=uid,
-          product_id=product_id, expiry_ts=purchase["_wim_expiry_ts"])
+          product_id=product_id, tier=granted_tier, expiry_ts=purchase["_wim_expiry_ts"])
     return (json.dumps({
         "ok": True,
-        "unlocked": True,
-        "tier": "basic",
-        "product_id": BILLING_PRODUCT_ID,
+        **_tier_summary(granted_tier),
+        "product_id": product_id,
         "expires_at": purchase["_wim_expiry_ts"],
-        "monthly_limit": TIERS["basic"]["monthly_limit"],
-        "l4_monthly_limit": TIERS["basic"]["l4_monthly_limit"],
     }), 200, _JSON_CORS)
 
 
@@ -553,8 +571,12 @@ def _action_reconstruct(uid, tier_config, body):
 
     requested_layer = body.get("layer", 2)
     if requested_layer > tier_config["max_layer"]:
+        needs_plus = int(requested_layer) >= 4
         return (json.dumps({
-            "error": f"Layer {requested_layer} requires Pro tier",
+            "error": f"Layer {requested_layer} requires "
+                     + ("WiM Cloud Plus" if needs_plus else "WiM Cloud"),
+            "error_code": "layer_requires_plus" if needs_plus else "billing_required",
+            "product_id": BILLING_PLUS_PRODUCT_ID if needs_plus else BILLING_PRODUCT_ID,
             "max_layer": tier_config["max_layer"],
             "tier": tier_config["name"],
         }), 403, CORS_HEADERS)
@@ -671,7 +693,7 @@ def handle(request):
             return (json.dumps({"error": "Invalid JSON"}), 400, CORS_HEADERS)
 
     action = body.get("action")
-    if tier_name not in ("basic", "pro") and action not in _ENTITLEMENT_FREE_ACTIONS:
+    if tier_name not in PAID_TIERS and action not in _ENTITLEMENT_FREE_ACTIONS:
         return (json.dumps({
             "error": "An active WiM Cloud subscription is required",
             "error_code": "billing_required",
@@ -725,8 +747,7 @@ def billing_event(event, context=None):
         return
 
     try:
-        purchase, _ = fetch_subscription_with_google(
-            purchase_token, BILLING_PRODUCT_ID)
+        purchase, _ = fetch_subscription_with_google(purchase_token)
     except BillingVerificationError as exc:
         # Transient Publisher API errors must raise so Pub/Sub retries. A token
         # that is permanently gone (410) is safe to revoke if it is still the
@@ -772,9 +793,11 @@ def billing_event(event, context=None):
             "billing_verified_at": firestore.SERVER_TIMESTAMP,
         }
         if entitled:
-            update["tier"] = "basic"
-        elif (user_data.get("tier") == "basic" and
-              user_data.get("billing_product_id") == BILLING_PRODUCT_ID):
+            product_id = purchase.get("_wim_product_id") or user_data.get("billing_product_id")
+            update["tier"] = BILLING_PRODUCT_TIERS.get(product_id, "basic")
+            update["billing_product_id"] = product_id
+        elif (user_data.get("tier") in SUBSCRIPTION_TIERS and
+              user_data.get("billing_product_id") in BILLING_PRODUCT_TIERS):
             update["tier"] = "invite"
         transaction.set(user_ref, update, merge=True)
         return True

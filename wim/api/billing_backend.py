@@ -6,7 +6,13 @@ from urllib.parse import quote
 
 PACKAGE_NAME = "com.wimlabs.wim"
 PRODUCT_ID = "wim_cloud_monthly"
+PLUS_PRODUCT_ID = "wim_cloud_plus_monthly"
 BASE_PLAN_ID = "monthly"
+# Two plans since 2026-10-11 (George: Cloud $4.99 = layers 1-3, Cloud Plus
+# $7.99 adds layer 4). Both live in Play Console as subscriptions with one
+# base plan each, id "monthly".
+PRODUCT_TIERS = {PRODUCT_ID: "basic", PLUS_PRODUCT_ID: "plus"}
+SUBSCRIPTION_TIERS = frozenset(PRODUCT_TIERS.values())
 ANDROID_PUBLISHER_SCOPE = "https://www.googleapis.com/auth/androidpublisher"
 PUBLISHER_BASE = "https://androidpublisher.googleapis.com/androidpublisher/v3"
 ENTITLED_STATES = {
@@ -41,8 +47,12 @@ def _parse_expiry(value):
         raise BillingVerificationError("Subscription expiry is invalid", 409)
 
 
-def fetch_subscription_with_google(purchase_token, product_id=PRODUCT_ID, session=None):
+def fetch_subscription_with_google(purchase_token, product_id=None, session=None):
     """Fetch and structurally validate a Google Play subscription resource.
+
+    *product_id* pins the expected plan (in-app purchase path). ``None`` accepts
+    any WiM plan (RTDN path, where only the token is known); the matched plan
+    comes back as ``purchase["_wim_product_id"]`` either way.
 
     This deliberately allows inactive lifecycle states so RTDN processing can
     revoke stale entitlements after a refund, expiration, or account hold.
@@ -51,8 +61,9 @@ def fetch_subscription_with_google(purchase_token, product_id=PRODUCT_ID, sessio
     """
     if not purchase_token or len(purchase_token) > 4096:
         raise BillingVerificationError("Missing or invalid purchase token")
-    if product_id != PRODUCT_ID:
+    if product_id is not None and product_id not in PRODUCT_TIERS:
         raise BillingVerificationError("Unknown product ID")
+    wanted = {product_id} if product_id else set(PRODUCT_TIERS)
 
     if session is None:
         import google.auth
@@ -75,7 +86,7 @@ def fetch_subscription_with_google(purchase_token, product_id=PRODUCT_ID, sessio
     purchase = response.json()
     line_item = next(
         (item for item in purchase.get("lineItems", [])
-         if item.get("productId") == PRODUCT_ID),
+         if item.get("productId") in wanted),
         None,
     )
     if not line_item:
@@ -85,6 +96,7 @@ def fetch_subscription_with_google(purchase_token, product_id=PRODUCT_ID, sessio
         raise BillingVerificationError("Subscription base plan does not match", 409)
     expiry_ts = _parse_expiry(line_item.get("expiryTime"))
     purchase["_wim_line_item"] = line_item
+    purchase["_wim_product_id"] = line_item.get("productId")
     purchase["_wim_expiry_ts"] = expiry_ts
     return purchase, session
 
@@ -95,7 +107,7 @@ def subscription_is_entitled(purchase, now=None):
     return state in ENTITLED_STATES and float(purchase.get("_wim_expiry_ts", 0)) > now_ts
 
 
-def verify_with_google(purchase_token, product_id=PRODUCT_ID, session=None, now=None):
+def verify_with_google(purchase_token, product_id=None, session=None, now=None):
     purchase, session = fetch_subscription_with_google(
         purchase_token, product_id, session)
     if not subscription_is_entitled(purchase, now=now):
