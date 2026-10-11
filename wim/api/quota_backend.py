@@ -52,14 +52,26 @@ def plan_cloud_usage(data, monthly_limit, l4_limit, layer=None, period=None):
     return True, remaining, None, update
 
 
-def plan_audio_usage(data, monthly_limit, period=None):
-    """Plan one cloud-audio transcription without mutating *data*."""
+def plan_audio_usage(data, monthly_limit, period=None, seconds=0, seconds_limit=None):
+    """Plan one cloud-audio transcription without mutating *data*.
+
+    Returns ``(ok, remaining, error_code, update_fields)``. Two caps guard the
+    audio bill: a count of uploads per period and, since 2026-10-11, a total of
+    audio seconds per period. The count alone let one subscriber send 300
+    six-minute takes (~32 hours, ~$20 of transcription against a $4.99 plan);
+    the seconds cap bounds that to the minutes a heavy real talker uses.
+    """
     period = period or usage_period_key(data)
     same_period = data.get("audio_usage_period") == period
     count = int(data.get("audio_monthly_count", 0)) if same_period else 0
+    used_seconds = float(data.get("audio_monthly_seconds", 0) or 0) if same_period else 0.0
+    seconds = max(0.0, float(seconds or 0))
     if count >= int(monthly_limit):
-        return False, 0, {}
-    return True, int(monthly_limit) - count - 1, {
+        return False, 0, "monthly_audio_quota_reached", {}
+    if seconds_limit is not None and used_seconds + seconds > float(seconds_limit):
+        return False, 0, "monthly_audio_minutes_reached", {}
+    return True, int(monthly_limit) - count - 1, "", {
         "audio_usage_period": period,
         "audio_monthly_count": count + 1,
+        "audio_monthly_seconds": round(used_seconds + seconds, 1),
     }

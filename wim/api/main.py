@@ -27,7 +27,7 @@ from google.cloud import firestore
 from firebase_admin import auth, initialize_app
 
 from reconstruct import reconstruct_intent
-from audio_backend import AudioRequestError, prepare_audio_request
+from audio_backend import AudioRequestError, estimate_audio_seconds, prepare_audio_request
 from learning_backend import LearningResponseError, learn_from_pairs
 from billing_backend import (
     BillingVerificationError,
@@ -71,17 +71,20 @@ db = firestore.Client()
 # both provider paths. L4 also consumes its smaller high-cost monthly allowance.
 TIERS = {
     "invite": {"max_layer": 1, "monthly_limit": 0, "l4_monthly_limit": 0,
-               "name": "Local / Free"},
+               "audio_minutes_limit": 0, "name": "Local / Free"},
     # The Layer 4 sub-cap is gone. It was set when L4 meant Sonnet extended
     # thinking; the Cloud Function serves L4 on gpt-4o, where a take costs
     # about two cents against one for L2/L3. Three hundred takes all at L4
     # costs roughly $6 against a $9.99 subscription, so the cap was rationing
     # the clinical disfluency layer — the reason the product exists — to
     # protect a margin that was never at risk.
+    # audio_minutes_limit (2026-10-11): 300 uploads of up to 12 MB each is
+    # ~32 hours of audio, ~$20 of transcription in one month. 150 minutes
+    # holds the worst case under $5 and is more than a heavy talker dictates.
     "basic": {"max_layer": 4, "monthly_limit": 300, "l4_monthly_limit": 300,
-              "name": "WiM Cloud"},
+              "audio_minutes_limit": 150, "name": "WiM Cloud"},
     "pro": {"max_layer": 4, "monthly_limit": 999999,
-            "l4_monthly_limit": 999999, "name": "Pro"},
+            "l4_monthly_limit": 999999, "audio_minutes_limit": 999999, "name": "Pro"},
 }
 
 CORS_HEADERS = {
@@ -176,32 +179,40 @@ def check_rate_limit(uid, tier_config, layer=None):
     return True, remaining, None
 
 
-def check_audio_rate_limit(uid, tier_config):
+def check_audio_rate_limit(uid, tier_config, seconds=0.0):
     """Separate audio quota so one dictation does not consume two user credits.
 
     Transcription and reconstruction are two HTTP calls for one user action.
     Charging both against the general counter would silently cut every advertised
     allowance in half; this parallel counter bounds audio cost without doing so.
+    *seconds* is the length of this recording; the tier's audio_minutes_limit
+    caps the total per period (see quota_backend.plan_audio_usage).
     """
     ref = db.collection("wim_users").document(uid)
     monthly_limit = tier_config["monthly_limit"]
+    minutes_limit = tier_config.get("audio_minutes_limit")
+    seconds_limit = None if minutes_limit is None else float(minutes_limit) * 60
     @firestore.transactional
     def _txn(transaction):
         snapshot = ref.get(transaction=transaction)
         data = snapshot.to_dict() if snapshot.exists else {}
-        ok, remaining, update_data = plan_audio_usage(
-            data, monthly_limit)
+        ok, remaining, error_code, update_data = plan_audio_usage(
+            data, monthly_limit, seconds=seconds, seconds_limit=seconds_limit)
         if not ok:
-            return False, 0
+            return False, 0, error_code
         transaction.set(ref, update_data, merge=True)
-        return True, remaining
+        return True, remaining, ""
 
-    ok, remaining = _txn(db.transaction())
+    ok, remaining, error_code = _txn(db.transaction())
     if not ok:
+        if error_code == "monthly_audio_minutes_reached":
+            message, limit = "Monthly cloud-audio minutes reached", minutes_limit
+        else:
+            message, limit = "Monthly cloud-audio limit reached", monthly_limit
         return False, 0, (json.dumps({
-            "error": "Monthly cloud-audio limit reached",
-            "error_code": "monthly_audio_quota_reached",
-            "limit": monthly_limit,
+            "error": message,
+            "error_code": error_code,
+            "limit": limit,
             "tier": tier_config["name"],
         }), 429, CORS_HEADERS)
     return True, remaining, None
@@ -434,7 +445,8 @@ def _action_transcribe_audio(uid, tier_config, body):
     except AudioRequestError as e:
         return (json.dumps({"error": str(e)}), e.status, CORS_HEADERS)
 
-    ok, remaining, rate_err = check_audio_rate_limit(uid, tier_config)
+    audio_seconds = estimate_audio_seconds(kwargs["file"].getvalue())
+    ok, remaining, rate_err = check_audio_rate_limit(uid, tier_config, seconds=audio_seconds)
     if not ok:
         return rate_err
 
